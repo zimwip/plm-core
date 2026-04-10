@@ -1,0 +1,96 @@
+# ============================================================
+# PLM Core - Docker Compose
+#
+# Usage:
+#   ./run.sh          # start + watch for changes
+#   ./run.sh --build  # force full rebuild before starting
+#
+# Access:
+#   Frontend : http://localhost:3000
+#   API      : http://localhost:8080/api
+# ============================================================
+
+services:
+
+  # ============================================================
+  # PostgreSQL 16
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: plm-postgres
+    environment:
+      POSTGRES_DB:       plmdb
+      POSTGRES_USER:     plm
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    volumes:
+      - plm-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plm -d plmdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  # ============================================================
+  # Backend — Spring Boot
+  # ============================================================
+  plm-backend:
+    build:
+      context: ./plm-api
+      dockerfile: Dockerfile
+      target: runtime
+    image: plm-core-backend:dev
+    container_name: plm-backend
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
+      SPRING_DATASOURCE_USERNAME:          plm
+      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:-changeme}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
+      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_PLM:               DEBUG
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  # ============================================================
+  # Frontend — Vite build served by nginx
+  # ============================================================
+  plm-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: plm-core-frontend:latest
+    container_name: plm-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      plm-backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+networks:
+  plm-net:
+    driver: bridge
+
+volumes:
+  plm-pgdata:
+    driver: local
