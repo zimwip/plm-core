@@ -190,7 +190,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 /* Node item (under type group) */
 .node-item{
   display:flex;align-items:center;gap:6px;
-  padding:5px 10px 5px 28px;cursor:grab;
+  padding:5px 10px 5px 12px;cursor:grab;
   border-left:2px solid transparent;
   transition:background .1s,border-color .1s;
   user-select:none;
@@ -201,6 +201,55 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 .ni-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 .ni-id{font-family:var(--sans);font-weight:700;font-size:11px;color:var(--accent);white-space:nowrap}
 .ni-open{font-size:8px;color:var(--warn);flex-shrink:0;margin-left:-2px}
+/* Expand toggle — shared by node rows and link rows */
+.ni-expand{
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;width:14px;height:14px;
+  cursor:pointer;border-radius:2px;
+  transition:background .1s;
+}
+.ni-expand:hover{background:rgba(255,255,255,.08)}
+/* Logical ID text */
+.ni-logical{
+  font-family:var(--mono);font-size:11px;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.ni-no-id{color:var(--muted2)}
+/* Rev.iter */
+.ni-reviter{
+  font-family:var(--mono);font-size:10px;color:var(--muted);
+  flex-shrink:0;
+}
+/* Link row — child of a node in the tree */
+.ni-link-row{
+  display:flex;align-items:center;gap:5px;
+  padding-right:10px;
+  min-height:22px;cursor:pointer;
+  border-left:3px solid transparent;
+  transition:background .1s;
+  user-select:none;
+}
+.ni-link-row:hover{background:rgba(255,255,255,.03)}
+.ni-link-row.active{background:var(--accent-dim)}
+/* Link logical ID inside a link row */
+.ni-link-id{
+  font-family:var(--mono);font-size:9px;font-weight:500;
+  color:var(--muted);white-space:nowrap;
+  max-width:64px;overflow:hidden;text-overflow:ellipsis;
+  flex-shrink:0;
+}
+/* Version policy badge (V2M / V2V) */
+.ni-policy{
+  font-family:var(--sans);font-size:8px;font-weight:700;
+  padding:1px 4px;border-radius:3px;flex-shrink:0;
+}
+.ni-policy-v2m{background:rgba(106,172,255,.15);color:var(--accent)}
+.ni-policy-v2v{background:rgba(240,180,41,.15);color:var(--warn)}
+/* Empty children placeholder */
+.ni-child-empty{
+  font-size:10px;color:var(--muted2);
+  padding:3px 10px;user-select:none;
+}
 
 /* Lifecycle panel */
 .lc-panel{flex:0 0 auto;max-height:38%}
@@ -348,7 +397,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
   margin-bottom:16px;gap:12px;
 }
 .node-title-group{display:flex;flex-direction:column;gap:6px}
-.node-identity{font-family:var(--sans);font-weight:800;font-size:24px;color:var(--text);line-height:1}
+.node-identity{font-family:var(--sans);font-weight:700;font-size:18px;color:var(--text);line-height:1}
 .node-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .node-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex-shrink:0}
 
@@ -475,6 +524,14 @@ select.field-input{cursor:pointer;appearance:none;-webkit-appearance:none}
 .history-table td{padding:7px 10px;border-bottom:1px solid var(--border);font-size:11px;vertical-align:middle}
 .history-table tr:last-child td{border-bottom:none}
 .history-table tr:hover td{background:rgba(255,255,255,.02)}
+.history-table tr.pending-row td{background:rgba(232,169,71,.06);border-bottom:1px solid rgba(232,169,71,.18)}
+.history-table tr.pending-row:hover td{background:rgba(232,169,71,.1)}
+.pending-badge{
+  display:inline-block;margin-left:6px;
+  font-family:var(--sans);font-size:8px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;padding:1px 5px;border-radius:3px;vertical-align:middle;
+  background:rgba(232,169,71,.18);color:var(--warn);border:1px solid rgba(232,169,71,.35);
+}
 .ver-num{font-family:var(--sans);font-weight:800;font-size:13px;color:var(--accent)}
 .hist-type-badge{
   font-family:var(--sans);font-size:9px;font-weight:700;letter-spacing:.05em;
@@ -768,7 +825,7 @@ select.field-input{cursor:pointer;appearance:none;-webkit-appearance:none}
 /* Overlay / modal */
 .overlay{
   position:fixed;inset:0;background:rgba(0,0,0,.8);
-  display:flex;align-items:center;justify-content:center;z-index:300;
+  display:flex;align-items:center;justify-content:center;z-index:2000;
   backdrop-filter:blur(3px);
 }
 

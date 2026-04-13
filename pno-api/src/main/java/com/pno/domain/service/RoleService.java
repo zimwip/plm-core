@@ -24,17 +24,16 @@ public class RoleService {
                 m.put("id",          r.get("id",          String.class));
                 m.put("name",        r.get("name",        String.class));
                 m.put("description", r.get("description", String.class));
-                m.put("isAdmin",     Integer.valueOf(1).equals(r.get("is_admin", Integer.class)));
                 return m;
             });
     }
 
     @Transactional
-    public Map<String, Object> createRole(String name, String description, boolean isAdmin) {
+    public Map<String, Object> createRole(String name, String description) {
         String id = "role-" + UUID.randomUUID().toString().substring(0, 8);
-        dsl.execute("INSERT INTO pno_role (id, name, description, is_admin) VALUES (?, ?, ?, ?)",
-            id, name, description, isAdmin ? 1 : 0);
-        return Map.of("id", id, "name", name, "description", description == null ? "" : description, "isAdmin", isAdmin);
+        dsl.execute("INSERT INTO pno_role (id, name, description) VALUES (?, ?, ?)",
+            id, name, description);
+        return Map.of("id", id, "name", name, "description", description == null ? "" : description);
     }
 
     @Transactional

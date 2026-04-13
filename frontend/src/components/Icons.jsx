@@ -51,3 +51,49 @@ export {
   User         as UserIcon,
   Shield       as ShieldIcon,
 } from 'lucide-react';
+
+/**
+ * NODE_ICONS — selectable icons for node type definitions.
+ * Each key is stored as the node_type.icon value in the database.
+ */
+import {
+  Box, Package, Cpu, Wrench, Cog, Database, Globe, BookOpen,
+  Clipboard, Tag, FolderOpen, Archive, Zap, FlaskConical,
+  Microscope, Layers, FileText, GitBranch, Hexagon, Circle,
+  Users, Shield, Award, LayoutDashboard, Component, Blocks,
+  Cable, Gauge, Radio, Scan,
+} from 'lucide-react';
+
+export const NODE_ICONS = {
+  Box,
+  Package,
+  Cpu,
+  Wrench,
+  Cog,
+  Database,
+  Globe,
+  BookOpen,
+  Clipboard,
+  Tag,
+  FolderOpen,
+  Archive,
+  Zap,
+  FlaskConical,
+  Microscope,
+  Layers,
+  FileText,
+  GitBranch,
+  Hexagon,
+  Circle,
+  Users,
+  Shield,
+  Award,
+  LayoutDashboard,
+  Blocks,
+  Cable,
+  Gauge,
+  Radio,
+  Scan,
+};
+
+export const NODE_ICON_NAMES = Object.keys(NODE_ICONS);

@@ -32,10 +32,12 @@ export default defineConfig({
   },
 
   // Proxy used when running `npm run dev` locally (Docker uses nginx.conf instead)
+  // Order matters: more specific rules must come first.
   server: {
     proxy: {
-      '/api': 'http://localhost:8080',
-      '/ws':  { target: 'http://localhost:8080', ws: true }
+      '/api/pno': 'http://localhost:8081',
+      '/api':     'http://localhost:8080',
+      '/ws':      { target: 'http://localhost:8080', ws: true },
     }
   }
 })

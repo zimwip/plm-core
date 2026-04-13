@@ -29,14 +29,13 @@ public class ProjectSpaceService {
     public List<Map<String, Object>> listProjectSpaces(String userId) {
         if (userId != null && !userId.isBlank()) {
             // Check if user is admin
-            Integer adminCount = dsl.select(DSL.count())
-                .from("user_role ur")
-                .join("pno_role r").on("ur.role_id = r.id")
-                .where(DSL.condition("ur.user_id = ?", userId))
-                .and(DSL.condition("r.is_admin = 1"))
+            Integer adminFlag = dsl.select(DSL.field("is_admin", Integer.class))
+                .from("pno_user")
+                .where("id = ?", userId)
+                .and("active = 1")
                 .fetchOne(0, Integer.class);
 
-            if (adminCount == null || adminCount == 0) {
+            if (!Integer.valueOf(1).equals(adminFlag)) {
                 // Non-admin: only spaces where the user has at least one role
                 return dsl.select()
                     .from("project_space")

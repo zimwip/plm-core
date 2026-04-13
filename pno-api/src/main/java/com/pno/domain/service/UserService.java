@@ -32,29 +32,21 @@ public class UserService {
             .fetchOne();
         if (user == null) return null;
 
-        String       username = user.get("username", String.class);
-        boolean      isAdmin  = false;
-        List<String> roleIds  = new ArrayList<>();
+        String  username = user.get("username",  String.class);
+        boolean isAdmin  = Integer.valueOf(1).equals(user.get("is_admin", Integer.class));
 
-        var query = dsl.select(
-                DSL.field("r.id").as("role_id"),
-                DSL.field("r.is_admin").as("is_admin"))
-            .from("user_role ur")
-            .join("pno_role r").on("ur.role_id = r.id");
+        List<String> roleIds = new ArrayList<>();
+
+        var query = dsl.select(DSL.field("ur.role_id").as("role_id"))
+            .from("user_role ur");
 
         var condition = DSL.condition("ur.user_id = ?", userId);
         if (projectSpaceId != null && !projectSpaceId.isBlank()) {
             condition = condition.and(DSL.condition("ur.project_space_id = ?", projectSpaceId));
         }
 
-        var roles = query.where(condition).fetch();
-
-        for (var role : roles) {
-            roleIds.add(role.get("role_id", String.class));
-            if (Integer.valueOf(1).equals(role.get("is_admin", Integer.class))) {
-                isAdmin = true;
-            }
-        }
+        query.where(condition).fetch()
+            .forEach(r -> roleIds.add(r.get("role_id", String.class)));
 
         Map<String, Object> ctx = new LinkedHashMap<>();
         ctx.put("userId",   userId);
@@ -72,9 +64,29 @@ public class UserService {
                 m.put("username",    r.get("username",     String.class));
                 m.put("displayName", r.get("display_name", String.class));
                 m.put("email",       r.get("email",        String.class));
-                m.put("active",      Integer.valueOf(1).equals(r.get("active", Integer.class)));
+                m.put("active",      Integer.valueOf(1).equals(r.get("active",   Integer.class)));
+                m.put("isAdmin",     Integer.valueOf(1).equals(r.get("is_admin", Integer.class)));
                 return m;
             });
+    }
+
+    @Transactional
+    public void setAdmin(String targetUserId, boolean admin) {
+        if (!admin) {
+            // Guard: at least one other active admin must remain
+            Integer otherAdmins = dsl.select(DSL.count()).from("pno_user")
+                .where("active = 1")
+                .and("is_admin = 1")
+                .and("id != ?", targetUserId)
+                .fetchOne(0, Integer.class);
+            if (otherAdmins == null || otherAdmins == 0) {
+                throw new IllegalStateException("Cannot remove the last admin — at least one active admin must remain.");
+            }
+        }
+        int updated = dsl.execute(
+            "UPDATE pno_user SET is_admin = ? WHERE id = ?",
+            admin ? 1 : 0, targetUserId);
+        if (updated == 0) throw new IllegalArgumentException("User not found: " + targetUserId);
     }
 
     @Transactional
@@ -121,7 +133,6 @@ public class UserService {
         var query = dsl.select(
                 DSL.field("r.id").as("role_id"),
                 DSL.field("r.name").as("role_name"),
-                DSL.field("r.is_admin").as("is_admin"),
                 DSL.field("ps.id").as("project_space_id"),
                 DSL.field("ps.name").as("project_space_name"))
             .from("user_role ur")
@@ -138,7 +149,6 @@ public class UserService {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("id",               r.get("role_id",           String.class));
                 m.put("name",             r.get("role_name",          String.class));
-                m.put("isAdmin",          Integer.valueOf(1).equals(r.get("is_admin", Integer.class)));
                 m.put("projectSpaceId",   r.get("project_space_id",  String.class));
                 m.put("projectSpaceName", r.get("project_space_name", String.class));
                 return m;

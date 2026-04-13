@@ -89,24 +89,15 @@ public class PnoAuthFilter implements Filter {
 
         if (user == null) return null;
 
-        String      username = user.get("username", String.class);
-        boolean     isAdmin  = false;
-        Set<String> roleIds  = new HashSet<>();
+        String  username = user.get("username",  String.class);
+        boolean isAdmin  = Integer.valueOf(1).equals(user.get("is_admin", Integer.class));
 
-        var roles = dsl.select(
-                DSL.field("r.id").as("role_id"),
-                DSL.field("r.is_admin").as("is_admin"))
-            .from("user_role ur")
-            .join("pno_role r").on("ur.role_id = r.id")
-            .where("ur.user_id = ?", userId)
-            .fetch();
-
-        for (var role : roles) {
-            roleIds.add(role.get("role_id", String.class));
-            if (Integer.valueOf(1).equals(role.get("is_admin", Integer.class))) {
-                isAdmin = true;
-            }
-        }
+        Set<String> roleIds = new HashSet<>();
+        dsl.select(DSL.field("role_id"))
+            .from("user_role")
+            .where("user_id = ?", userId)
+            .fetch()
+            .forEach(r -> roleIds.add(r.get("role_id", String.class)));
 
         return new PnoUserContext(userId, username, roleIds, isAdmin);
     }

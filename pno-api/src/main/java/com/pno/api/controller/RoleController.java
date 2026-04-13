@@ -21,10 +21,9 @@ public class RoleController {
 
     @PostMapping
     public ResponseEntity<?> createRole(@RequestBody Map<String, Object> body) {
-        String name        = (String)  body.get("name");
-        String description = (String)  body.get("description");
-        boolean isAdmin    = Boolean.TRUE.equals(body.get("isAdmin"));
-        return ResponseEntity.ok(roleService.createRole(name, description, isAdmin));
+        String name        = (String) body.get("name");
+        String description = (String) body.get("description");
+        return ResponseEntity.ok(roleService.createRole(name, description));
     }
 
     @PutMapping("/{roleId}")

@@ -75,15 +75,15 @@ services:
       - plm-net
 
   # ============================================================
-  # Backend — Spring Boot
+  # PSM API — Product Structure Management microservice
   # ============================================================
-  plm-backend:
+  psm-api:
     build:
-      context: ./plm-api
+      context: ./psm-api
       dockerfile: Dockerfile
       target: runtime
-    image: plm-core-backend:dev
-    container_name: plm-backend
+    image: psm-api:dev
+    container_name: psm-api
     ports:
       - "8080:8080"
     environment:
@@ -126,7 +126,7 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      plm-backend:
+      psm-api:
         condition: service_healthy
     restart: unless-stopped
     networks:

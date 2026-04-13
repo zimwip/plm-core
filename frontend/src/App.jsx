@@ -18,10 +18,14 @@ function useToasts() {
   const toast = useCallback((msgOrErr, type = 'info') => {
     const msg    = typeof msgOrErr === 'string' ? msgOrErr : (msgOrErr?.message || String(msgOrErr));
     const detail = (typeof msgOrErr !== 'string' && msgOrErr?.detail) ? msgOrErr.detail : null;
+    if (type === 'error') {
+      // Errors go to the modal only, never as a toast
+      setErrDetail(detail ?? { error: msg });
+      return;
+    }
     const id = ++_tid;
     setToasts(t => [...t, { id, msg, type }]);
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4000);
-    if (type === 'error' && detail) setErrDetail(detail);
   }, []);
 
   return { toasts, toast, errorDetail, setErrDetail };

@@ -41,6 +41,7 @@ export default function NodeEditor({
   const [saveViolations, setSaveViolations]= useState([]);
   const [loading,        setLoading]       = useState(false);
   const [saveStatus,     setSaveStatus]    = useState(null); // null | 'saving' | 'saved'
+  const [cancelConfirm,  setCancelConfirm] = useState(false);
   const [signPanel,      setSignPanel]     = useState(false);
   const [sigMeaning,  setSigMeaning] = useState('Reviewed');
   const [sigComment,  setSigComment] = useState('');
@@ -56,6 +57,11 @@ export default function NodeEditor({
   const [selTarget,       setSelTarget]      = useState('');
   const [linkLogicalId,   setLinkLogicalId]  = useState('');
   const [linkLoading,     setLinkLoading]    = useState(false);
+  const [editingLinkId,    setEditingLinkId]    = useState(null);
+  const [editLinkLogId,    setEditLinkLogId]    = useState('');
+  const [editLinkTargetId, setEditLinkTargetId] = useState('');
+  const [deletingLinkId,   setDeletingLinkId]   = useState(null);
+  const [linkActLoading,   setLinkActLoading]   = useState(false);
 
   const [isDragOver,  setIsDragOver]  = useState(false);
 
@@ -233,6 +239,47 @@ export default function NodeEditor({
     } finally { setLinkLoading(false); }
   }
 
+  async function handleUpdateLink(linkId, newLogicalId, newTargetNodeId) {
+    const updateLinkAction = desc.actions?.find(a => a.actionCode === 'UPDATE_LINK');
+    if (!updateLinkAction) return;
+    setLinkActLoading(true);
+    try {
+      const activeTxId = txId || await onAutoOpenTx();
+      if (!activeTxId) return;
+      await authoringApi.executeAction(nodeId, updateLinkAction.id, userId, activeTxId,
+        { linkId, logicalId: newLogicalId, targetNodeId: newTargetNodeId });
+      setEditingLinkId(null);
+      await refreshTx();
+      setPbsLoaded(false);
+      await Promise.all([
+        api.getChildLinks(userId, nodeId).then(c => setChildren(Array.isArray(c) ? c : [])),
+        api.getParentLinks(userId, nodeId).then(p => setParents(Array.isArray(p) ? p : [])),
+      ]);
+      setPbsLoaded(true);
+    } catch (e) { toast(e, 'error'); }
+    finally { setLinkActLoading(false); }
+  }
+
+  async function handleDeleteLink(linkId) {
+    const deleteLinkAction = desc.actions?.find(a => a.actionCode === 'DELETE_LINK');
+    if (!deleteLinkAction) return;
+    setLinkActLoading(true);
+    setDeletingLinkId(null);
+    try {
+      const activeTxId = txId || await onAutoOpenTx();
+      if (!activeTxId) return;
+      await authoringApi.executeAction(nodeId, deleteLinkAction.id, userId, activeTxId, { linkId });
+      await refreshTx();
+      setPbsLoaded(false);
+      await Promise.all([
+        api.getChildLinks(userId, nodeId).then(c => setChildren(Array.isArray(c) ? c : [])),
+        api.getParentLinks(userId, nodeId).then(p => setParents(Array.isArray(p) ? p : [])),
+      ]);
+      setPbsLoaded(true);
+    } catch (e) { toast(e, 'error'); }
+    finally { setLinkActLoading(false); }
+  }
+
   async function handleCheckout() {
     if (!checkoutAction) return;
     setLoading(true);
@@ -254,6 +301,18 @@ export default function NodeEditor({
       await refreshAll();       // tx closes (or continuation opens); activeTx updated in store
       await load();
       if (cont) toast('Checked in — other nodes moved to a new transaction', 'info');
+    } catch (e) { toast(e, 'error'); }
+    finally { setLoading(false); }
+  }
+
+  async function handleCancelNode() {
+    if (!txId) return;
+    setLoading(true);
+    setCancelConfirm(false);
+    try {
+      await txApi.release(userId, txId, [nodeId]);
+      await refreshAll();
+      await load();
     } catch (e) { toast(e, 'error'); }
     finally { setLoading(false); }
   }
@@ -352,6 +411,9 @@ export default function NodeEditor({
   const signAction        = desc.actions?.find(a => a.actionCode === 'SIGN');
   const updateNodeAction  = desc.actions?.find(a => a.actionCode === 'UPDATE_NODE');
   const transitions       = desc.actions?.filter(a => a.actionCode === 'TRANSITION') || [];
+  const canUpdateLink     = desc.actions?.some(a => a.actionCode === 'UPDATE_LINK');
+  const canDeleteLink     = desc.actions?.some(a => a.actionCode === 'DELETE_LINK');
+  const hasLinkActions    = canUpdateLink || canDeleteLink;
 
   // Lifecycle ID for diagram — resolved from node type
   const lifecycleId = desc.lifecycleId || null;
@@ -368,16 +430,26 @@ export default function NodeEditor({
       <div className="node-header">
         <div className="node-title-group">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="node-identity">{desc.identity}</span>
-            <span style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
-              {desc.nodeId?.slice(0, 8)}…
+            <span className="node-identity">{desc.logicalId || desc.identity}</span>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--muted)', fontWeight: 600, background: 'rgba(100,116,139,.1)', padding: '2px 7px', borderRadius: 4, letterSpacing: '.01em' }}>
+              {desc.revision}.{desc.iteration}
             </span>
+            {desc.lock?.locked && (
+              <span className="pill" style={{ color: 'var(--muted)', background: 'rgba(100,116,139,.1)', border: '1px solid rgba(100,116,139,.2)' }}>
+                🔒 {desc.lock.lockedBy}
+              </span>
+            )}
           </div>
           <div className="node-meta">
             <StatePill stateId={desc.state} />
             {isOpenVersion && (
               <span className="pill" style={{ color: 'var(--warn)', background: 'rgba(232,169,71,.1)', border: '1px solid rgba(232,169,71,.25)' }}>
                 ✎ editing
+              </span>
+            )}
+            {isOpenVersion && (
+              <span style={{ fontSize: 11, color: 'var(--warn)', fontStyle: 'italic', opacity: 0.85 }}>
+                ⚡ uncommitted — not visible to others
               </span>
             )}
             {saveStatus === 'saving' && (
@@ -388,11 +460,6 @@ export default function NodeEditor({
             )}
             {saveStatus === 'saved' && saveViolations.length > 0 && (
               <span style={{ fontSize: 11, color: 'var(--warn)' }}>⚠ saved with issues</span>
-            )}
-            {desc.lock?.locked && (
-              <span className="pill" style={{ color: 'var(--muted)', background: 'rgba(100,116,139,.1)', border: '1px solid rgba(100,116,139,.2)', fontSize: 10 }}>
-                🔒 {desc.lock.lockedBy}
-              </span>
             )}
           </div>
         </div>
@@ -406,6 +473,11 @@ export default function NodeEditor({
           {checkinAction && (
             <button className="btn btn-sm btn-success" onClick={handleCheckin} disabled={loading}>
               ✓ Check In
+            </button>
+          )}
+          {checkinAction && (
+            <button className="btn btn-sm btn-danger" onClick={() => setCancelConfirm(true)} disabled={loading}>
+              ✕ Cancel
             </button>
           )}
           {transitions.map(a => (
@@ -432,10 +504,31 @@ export default function NodeEditor({
         </div>
       </div>
 
-      {/* TX warning */}
-      {isOpenVersion && (
-        <div className="open-banner">
-          ⚡ You are viewing your uncommitted changes — not yet visible to others
+      {/* Cancel confirmation modal */}
+      {cancelConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: '28px 32px', maxWidth: 420, width: '90%',
+            boxShadow: '0 8px 32px rgba(0,0,0,.4)',
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Remove from transaction?</div>
+            <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 24, lineHeight: 1.5 }}>
+              All unsaved edits on <strong>{desc.identity}</strong> will be discarded and the node
+              will be removed from the current transaction. This cannot be undone.
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-sm" onClick={() => setCancelConfirm(false)}>
+                Keep editing
+              </button>
+              <button className="btn btn-sm btn-danger" onClick={handleCancelNode} disabled={loading}>
+                Remove from transaction
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -595,7 +688,7 @@ export default function NodeEditor({
             e.preventDefault();
             dragCounter.current = 0;
             setIsDragOver(false);
-            if (!desc?.canWrite) {
+            if (!desc?.actions?.some(a => a.actionCode === 'CREATE_LINK')) {
               toast('You do not have write permission on this node', 'error');
               return;
             }
@@ -617,7 +710,7 @@ export default function NodeEditor({
           )}
 
           {/* Add link button */}
-          {desc.canWrite && (
+          {desc.actions?.some(a => a.actionCode === 'CREATE_LINK') && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
               <button className="btn btn-sm" onClick={() => linkPanel ? setLinkPanel(false) : openLinkPanel()}>
                 {linkPanel ? '✕ Cancel' : '+ Add link'}
@@ -758,32 +851,117 @@ export default function NodeEditor({
                   <th>Rev</th>
                   <th>State</th>
                   <th>Policy</th>
+                  {hasLinkActions && <th></th>}
                 </tr>
               </thead>
               <tbody>
-                {children.map(c => (
-                  <tr key={c.linkId}>
-                    <td style={{ fontWeight: 600, fontSize: 12 }}>{c.linkTypeName}</td>
-                    <td style={{ fontFamily: 'var(--sans)', fontSize: 12 }}>
-                      {c.linkLogicalId
-                        ? <span title={c.linkLogicalIdLabel}>{c.linkLogicalId}</span>
-                        : <span style={{ opacity: .35 }}>—</span>}
-                    </td>
-                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{c.targetNodeType}</td>
-                    <td style={{ fontFamily: 'var(--sans)', fontSize: 13 }}>
-                      {c.targetLogicalId || <span style={{ opacity: .4 }}>{c.targetNodeId?.slice(0, 8)}…</span>}
-                    </td>
-                    <td style={{ fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 12 }}>
-                      {c.targetRevision}.{c.targetIteration}
-                    </td>
-                    <td><StatePill stateId={c.targetState} /></td>
-                    <td>
-                      <span className="hist-type-badge" data-type={c.linkPolicy} style={{ fontSize: 10 }}>
-                        {c.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {children.map(c => {
+                  const isEditing  = editingLinkId  === c.linkId;
+                  const isDeleting = deletingLinkId === c.linkId;
+                  return (
+                    <tr key={c.linkId}>
+                      <td style={{ fontWeight: 600, fontSize: 12 }}>{c.linkTypeName}</td>
+                      <td style={{ fontFamily: 'var(--sans)', fontSize: 12 }}>
+                        {isEditing ? (
+                          <input
+                            className="field-input"
+                            style={{ padding: '2px 6px', fontSize: 12, width: 120 }}
+                            value={editLinkLogId}
+                            onChange={e => setEditLinkLogId(e.target.value)}
+                            autoFocus
+                          />
+                        ) : c.linkLogicalId
+                          ? <span title={c.linkLogicalIdLabel}>{c.linkLogicalId}</span>
+                          : <span style={{ opacity: .35 }}>—</span>}
+                      </td>
+                      <td style={{ color: 'var(--muted)', fontSize: 12 }}>{c.targetNodeType}</td>
+                      <td style={{ fontFamily: 'var(--sans)', fontSize: 13 }}>
+                        {isEditing ? (
+                          <select
+                            className="field-input"
+                            style={{ padding: '2px 4px', fontSize: 12, minWidth: 120 }}
+                            value={editLinkTargetId}
+                            onChange={e => setEditLinkTargetId(e.target.value)}
+                          >
+                            {allNodes.map(n => {
+                              const nid = n.id || n.ID;
+                              const lid = n.logical_id || n.LOGICAL_ID || nid.slice(0, 8);
+                              const typ = n.node_type_name || n.NODE_TYPE_NAME || '';
+                              return <option key={nid} value={nid}>{lid} {typ && `(${typ})`}</option>;
+                            })}
+                          </select>
+                        ) : (
+                          c.targetLogicalId || <span style={{ opacity: .4 }}>{c.targetNodeId?.slice(0, 8)}…</span>
+                        )}
+                      </td>
+                      <td style={{ fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 12 }}>
+                        {c.linkPolicy === 'VERSION_TO_MASTER'
+                          ? <span style={{ opacity: .35 }}>—</span>
+                          : `${c.targetRevision}.${c.targetIteration}`}
+                      </td>
+                      <td><StatePill stateId={c.targetState} /></td>
+                      <td>
+                        <span className="hist-type-badge" data-type={c.linkPolicy} style={{ fontSize: 10 }}>
+                          {c.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
+                        </span>
+                      </td>
+                      {hasLinkActions && (
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          {isDeleting ? (
+                            <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                              <span style={{ fontSize: 11, color: 'var(--danger, #e05252)', marginRight: 2 }}>Delete?</span>
+                              <button className="btn btn-sm btn-danger"
+                                style={{ padding: '1px 6px', fontSize: 11 }}
+                                disabled={linkActLoading}
+                                onClick={() => handleDeleteLink(c.linkId)}>✓</button>
+                              <button className="btn btn-sm"
+                                style={{ padding: '1px 6px', fontSize: 11 }}
+                                onClick={() => setDeletingLinkId(null)}>✕</button>
+                            </span>
+                          ) : isEditing ? (
+                            <span style={{ display: 'flex', gap: 4 }}>
+                              <button className="btn btn-sm btn-success"
+                                style={{ padding: '1px 6px', fontSize: 11 }}
+                                disabled={linkActLoading || !editLinkTargetId}
+                                onClick={() => handleUpdateLink(c.linkId, editLinkLogId, editLinkTargetId)}>✓</button>
+                              <button className="btn btn-sm"
+                                style={{ padding: '1px 6px', fontSize: 11 }}
+                                onClick={() => setEditingLinkId(null)}>✕</button>
+                            </span>
+                          ) : (
+                            <span style={{ display: 'flex', gap: 4 }}>
+                              {canUpdateLink && (
+                                <button className="btn btn-sm"
+                                  style={{ padding: '1px 6px', fontSize: 11 }}
+                                  title="Edit link"
+                                  onClick={async () => {
+                                    setEditingLinkId(c.linkId);
+                                    setEditLinkLogId(c.linkLogicalId || '');
+                                    setEditLinkTargetId(c.targetNodeId || '');
+                                    setDeletingLinkId(null);
+                                    if (allNodes.length === 0) {
+                                      const nodes = await api.listNodes(userId).catch(() => []);
+                                      setAllNodes((Array.isArray(nodes) ? nodes : []).filter(n => (n.id || n.ID) !== nodeId));
+                                    }
+                                  }}>
+                                  ✎
+                                </button>
+                              )}
+                              {canDeleteLink && (
+                                <button className="btn btn-sm"
+                                  style={{ padding: '1px 6px', fontSize: 11, color: 'var(--danger, #e05252)' }}
+                                  title="Delete link"
+                                  onClick={() => { setDeletingLinkId(c.linkId); setEditingLinkId(null); }}>
+                                  ✕
+                                </button>
+                              )}
+                            </span>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -827,7 +1005,9 @@ export default function NodeEditor({
                       {p.sourceLogicalId || <span style={{ opacity: .4 }}>{p.sourceNodeId?.slice(0, 8)}…</span>}
                     </td>
                     <td style={{ fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 12 }}>
-                      {p.sourceRevision}.{p.sourceIteration}
+                      {p.linkPolicy === 'VERSION_TO_MASTER'
+                        ? <span style={{ opacity: .35 }}>—</span>
+                        : `${p.sourceRevision}.${p.sourceIteration}`}
                     </td>
                     <td><StatePill stateId={p.sourceState} /></td>
                     <td>
@@ -916,18 +1096,22 @@ export default function NodeEditor({
               </thead>
               <tbody>
                 {[...history].reverse().map((v, i, arr) => {
-                  const fp     = v.fingerprint || v.FINGERPRINT || null;
-                  const txId   = v.tx_id || v.TX_ID || null;
-                  const prevFp = arr[i + 1] ? (arr[i + 1].fingerprint || arr[i + 1].FINGERPRINT) : null;
-                  const prevTx = arr[i + 1] ? (arr[i + 1].tx_id || arr[i + 1].TX_ID) : null;
+                  const fp       = v.fingerprint || v.FINGERPRINT || null;
+                  const rowTxId  = v.tx_id || v.TX_ID || null;
+                  const prevFp   = arr[i + 1] ? (arr[i + 1].fingerprint || arr[i + 1].FINGERPRINT) : null;
+                  const prevTx   = arr[i + 1] ? (arr[i + 1].tx_id || arr[i + 1].TX_ID) : null;
                   const fpChanged = fp && prevFp && fp !== prevFp;
                   const fpNew     = fp && !prevFp;
-                  const date  = v.committed_at || v.COMMITTED_AT;
-                  const vNum  = v.version_number || v.VERSION_NUMBER;
-                  const isFirst = i === arr.length - 1; // oldest in reversed list
+                  const date   = v.committed_at || v.COMMITTED_AT;
+                  const vNum   = v.version_number || v.VERSION_NUMBER;
+                  const isPending = (v.tx_status || v.TX_STATUS) === 'OPEN';
+                  const isFirst   = i === arr.length - 1; // oldest in reversed list
                   return (
-                    <tr key={vNum}>
-                      <td><span className="ver-num">{vNum}</span></td>
+                    <tr key={vNum} className={isPending ? 'pending-row' : undefined}>
+                      <td>
+                        <span className="ver-num">{vNum}</span>
+                        {isPending && <span className="pending-badge">pending</span>}
+                      </td>
                       <td style={{ fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 12 }}>
                         {v.revision || v.REVISION}.{v.iteration || v.ITERATION}
                       </td>
@@ -937,46 +1121,58 @@ export default function NodeEditor({
                         </span>
                       </td>
                       <td>
-                        <span className="hist-type-badge" data-type={v.change_type || v.CHANGE_TYPE}>
-                          {v.change_type || v.CHANGE_TYPE}
-                        </span>
+                        {isPending ? (
+                          <span className="hist-type-badge" data-type={v.change_type || v.CHANGE_TYPE} style={{ opacity: .6 }}>
+                            {v.change_type || v.CHANGE_TYPE}
+                          </span>
+                        ) : (
+                          <span className="hist-type-badge" data-type={v.change_type || v.CHANGE_TYPE}>
+                            {v.change_type || v.CHANGE_TYPE}
+                          </span>
+                        )}
                       </td>
                       <td className="hist-comment" title={v.tx_comment || v.TX_COMMENT || ''}>
-                        {v.tx_comment || v.TX_COMMENT || <span style={{ opacity: .4 }}>—</span>}
+                        {isPending
+                          ? <span style={{ color: 'var(--warn)', fontStyle: 'italic', opacity: .7 }}>uncommitted</span>
+                          : (v.tx_comment || v.TX_COMMENT || <span style={{ opacity: .4 }}>—</span>)
+                        }
                       </td>
                       <td className="hist-by">
                         {v.created_by || v.CREATED_BY || v.tx_owner || '—'}
                       </td>
                       <td className="hist-date">
-                        {date ? new Date(date).toLocaleDateString() : '—'}
+                        {isPending
+                          ? <span style={{ color: 'var(--warn)', fontStyle: 'italic' }}>—</span>
+                          : (date ? new Date(date).toLocaleDateString() : '—')
+                        }
                       </td>
                       <td>
                         {fp ? (
                           <span
                             className="hist-fp"
                             title={fp}
-                            style={{ color: fpNew || fpChanged ? 'var(--success)' : 'var(--muted2)' }}
+                            style={{ color: isPending ? 'var(--warn)' : (fpNew || fpChanged ? 'var(--success)' : 'var(--muted2)'), opacity: isPending ? .6 : 1 }}
                           >
                             {fp.slice(0, 8)}…
                           </span>
                         ) : <span style={{ opacity: .3 }}>—</span>}
                       </td>
                       <td>
-                        {txId ? (
+                        {rowTxId ? (
                           <span
                             className="hist-fp"
-                            title={txId}
-                            style={{ color: txId !== prevTx ? 'var(--accent)' : 'var(--muted2)', fontFamily: 'var(--mono)' }}
+                            title={rowTxId}
+                            style={{ color: isPending ? 'var(--warn)' : (rowTxId !== prevTx ? 'var(--accent)' : 'var(--muted2)'), fontFamily: 'var(--mono)', opacity: isPending ? .6 : 1 }}
                           >
-                            {txId.slice(0, 8)}…
+                            {rowTxId.slice(0, 8)}…
                           </span>
                         ) : <span style={{ opacity: .3 }}>—</span>}
                       </td>
                       <td>
-                        {!isFirst && (v.change_type || v.CHANGE_TYPE) === 'CONTENT' && (
+                        {!isFirst && (isPending || (v.change_type || v.CHANGE_TYPE) === 'CONTENT') && (
                           <button
                             className="btn-diff"
-                            title={`Diff v${arr[i + 1]?.version_number || arr[i + 1]?.VERSION_NUMBER} → v${vNum}`}
+                            title={`Diff v${arr[i + 1]?.version_number || arr[i + 1]?.VERSION_NUMBER} → v${vNum}${isPending ? ' (pending)' : ''}`}
                             disabled={diffLoading}
                             onClick={() => openDiff(vNum)}
                           >
@@ -1039,12 +1235,15 @@ function DiffModal({ diff, v1Num, v2Num, onClose }) {
             <div className="diff-meta-sub">{v1.createdBy} · {v1.txComment || '—'}</div>
           </div>
           <div className="diff-arrow">→</div>
-          <div className="diff-meta-cell diff-meta-new">
-            <div className="diff-meta-label">Version {v2Num}</div>
+          <div className="diff-meta-cell diff-meta-new" style={!v2.committedAt ? { borderColor: 'rgba(232,169,71,.35)', background: 'rgba(232,169,71,.05)' } : undefined}>
+            <div className="diff-meta-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              Version {v2Num}
+              {!v2.committedAt && <span className="pending-badge">pending</span>}
+            </div>
             <div className="diff-meta-rev">{v2.revision}.{v2.iteration}</div>
             <StatePill stateId={v2.lifecycleStateId} />
             <span className="hist-type-badge" data-type={v2.changeType} style={{ marginLeft: 6 }}>{v2.changeType}</span>
-            <div className="diff-meta-sub">{v2.createdBy} · {v2.txComment || '—'}</div>
+            <div className="diff-meta-sub">{v2.createdBy} · {v2.txComment || <em style={{ opacity: .5 }}>uncommitted</em>}</div>
           </div>
         </div>
 

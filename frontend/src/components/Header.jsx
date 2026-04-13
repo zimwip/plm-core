@@ -195,6 +195,18 @@ export default function Header({
             </select>
             <span className="user-select-chevron">▾</span>
           </div>
+          {currentUser?.isAdmin && (
+            <span
+              title="Administrator"
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 16, height: 16, borderRadius: 3,
+                background: '#f59e0b', color: '#fff',
+                fontSize: 9, fontWeight: 700, letterSpacing: 0,
+                marginLeft: 4, flexShrink: 0,
+              }}
+            >A</span>
+          )}
         </div>
       </div>
     </header>

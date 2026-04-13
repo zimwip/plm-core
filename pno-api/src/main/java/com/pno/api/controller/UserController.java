@@ -68,6 +68,19 @@ public class UserController {
     }
 
     /**
+     * Sets or unsets admin flag on a user.
+     * Unsetting admin requires at least one other active admin to remain.
+     */
+    @PutMapping("/{userId}/admin")
+    public ResponseEntity<?> setAdmin(@PathVariable String userId,
+                                      @RequestBody Map<String, Object> body) {
+        Boolean isAdmin = (Boolean) body.get("isAdmin");
+        if (isAdmin == null) return ResponseEntity.badRequest().body(Map.of("error", "isAdmin required"));
+        userService.setAdmin(userId, isAdmin);
+        return ResponseEntity.ok(Map.of("status", "updated"));
+    }
+
+    /**
      * Service-to-service endpoint consumed by plm-api's PlmAuthFilter.
      * Returns { userId, username, isAdmin, roleIds } scoped to a project space.
      * When projectSpaceId is omitted, roles from all spaces are returned (union).

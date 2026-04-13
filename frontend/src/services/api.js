@@ -229,6 +229,15 @@ export const api = {
   updateNodeTypeNumberingScheme: (userId, nodeTypeId, numberingScheme) =>
     request('PUT', `/metamodel/nodetypes/${nodeTypeId}/numbering-scheme`, userId, { numberingScheme }),
 
+  updateNodeTypeVersionPolicy: (userId, nodeTypeId, versionPolicy) =>
+    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/version-policy`, userId, { versionPolicy }),
+
+  updateNodeTypeLifecycle: (userId, nodeTypeId, lifecycleId) =>
+    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/lifecycle`, userId, { lifecycleId: lifecycleId || null }),
+
+  updateNodeTypeAppearance: (userId, nodeTypeId, color, icon) =>
+    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/appearance`, userId, { color: color || null, icon: icon || null }),
+
   updateAttribute: (userId, nodeTypeId, attrId, body) =>
     request('PUT', `/metamodel/nodetypes/${nodeTypeId}/attributes/${attrId}`, userId, body),
 
@@ -319,8 +328,8 @@ export const api = {
   getRoles: (userId) =>
     pnoRequest('GET', '/roles', userId),
 
-  createRole: (userId, name, description, isAdmin) =>
-    pnoRequest('POST', '/roles', userId, { name, description, isAdmin }),
+  createRole: (userId, name, description) =>
+    pnoRequest('POST', '/roles', userId, { name, description }),
 
   updateRole: (userId, roleId, name, description) =>
     pnoRequest('PUT', `/roles/${roleId}`, userId, { name, description }),
@@ -357,6 +366,35 @@ export const api = {
 
   removeRole: (userId, targetUserId, roleId, projectSpaceId) =>
     pnoRequest('DELETE', `/users/${targetUserId}/roles/${roleId}?projectSpaceId=${encodeURIComponent(projectSpaceId)}`, userId),
+
+  setUserAdmin: (userId, targetUserId, isAdmin) =>
+    pnoRequest('PUT', `/users/${targetUserId}/admin`, userId, { isAdmin }),
+
+  /** Returns { userId, username, isAdmin, roleIds } for the given user scoped to a project space. */
+  getUserContext: (userId, projectSpaceId) =>
+    pnoRequest('GET', `/users/${userId}/context${projectSpaceId ? `?projectSpaceId=${encodeURIComponent(projectSpaceId)}` : ''}`, null),
+
+  // ── Global action permissions (Access Rights section) ──────────────
+
+  /** Returns all GLOBAL actions from the action catalog. */
+  listGlobalActions: (userId) =>
+    request('GET', '/admin/global-actions', userId),
+
+  /** Returns the GLOBAL action codes the current user can execute (e.g. ['MANAGE_METAMODEL']). */
+  getMyGlobalPermissions: (userId) =>
+    request('GET', '/admin/my-global-permissions', userId),
+
+  /** Returns the GLOBAL action permissions held by a specific role. */
+  getRoleGlobalPermissions: (userId, roleId) =>
+    request('GET', `/admin/roles/${roleId}/global-permissions`, userId),
+
+  /** Grants a GLOBAL action to a role. Requires MANAGE_ROLES. */
+  addRoleGlobalPermission: (userId, roleId, actionId) =>
+    request('POST', `/admin/roles/${roleId}/global-permissions`, userId, { actionId }),
+
+  /** Revokes a GLOBAL action from a role. Requires MANAGE_ROLES. */
+  removeRoleGlobalPermission: (userId, roleId, actionId) =>
+    request('DELETE', `/admin/roles/${roleId}/global-permissions/${actionId}`, userId),
 };
 
 // ── Transactions ────────────────────────────────────────────────────

@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.plm</groupId>
+    <artifactId>plm-core</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.6</version>
+    </parent>
+
+    <properties>
+        <java.version>21</java.version>
+        <jooq.version>3.19.6</jooq.version>
+        <flyway.version>10.10.0</flyway.version>
+        <h2.version>2.2.224</h2.version>
+        <!-- Répertoire cible du code généré JOOQ -->
+        <jooq.generated.dir>${project.build.directory}/generated-sources/jooq</jooq.generated.dir>
+    </properties>
+
+    <dependencies>
+        <!-- Spring Boot -->
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jooq</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-websocket</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-aop</artifactId></dependency>
+
+        <!-- JOOQ -->
+        <dependency><groupId>org.jooq</groupId><artifactId>jooq</artifactId><version>${jooq.version}</version></dependency>
+
+        <!-- H2 (test/local uniquement) -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>${h2.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- PostgreSQL -->
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope></dependency>
+
+        <!-- Flyway -->
+        <dependency><groupId>org.flywaydb</groupId><artifactId>flyway-core</artifactId></dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
+
+        <!-- OpenAPI / Swagger -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.4.0</version>
+        </dependency>
+
+        <!-- Caffeine cache — for PnoApiClient user-context cache -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
+        <!-- Lombok -->
+        <dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId><optional>true</optional></dependency>
+
+        <!-- Test -->
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+
+            <!-- 1. Spring Boot packaging -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId></exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- 2. Flyway Maven plugin : applique les migrations sur H2 (mode PostgreSQL) pour le codegen -->
+            <plugin>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-maven-plugin</artifactId>
+                <version>${flyway.version}</version>
+                <executions>
+                    <execution>
+                        <id>flyway-codegen</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>migrate</goal></goals>
+                        <configuration>
+                            <url>jdbc:h2:${project.build.directory}/jooq-codegen-h2;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;NON_KEYWORDS=VALUE</url>
+                            <driver>org.h2.Driver</driver>
+                            <user>sa</user>
+                            <password></password>
+                            <locations>
+                                <location>filesystem:${project.basedir}/src/main/resources/db/migration</location>
+                            </locations>
+                            <!-- V2 contient les données seed : exclure du codegen -->
+                            <target>1</target>
+                        </configuration>
+                    </execution>
+                </executions>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.h2database</groupId>
+                        <artifactId>h2</artifactId>
+                        <version>${h2.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+
+            <!-- 3. JOOQ codegen : génère les classes depuis le schéma H2 -->
+            <plugin>
+                <groupId>org.jooq</groupId>
+                <artifactId>jooq-codegen-maven</artifactId>
+                <version>${jooq.version}</version>
+                <executions>
+                    <execution>
+                        <id>jooq-codegen</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>generate</goal></goals>
+                        <configuration>
+                            <jdbc>
+                                <driver>org.h2.Driver</driver>
+                                <url>jdbc:h2:${project.build.directory}/jooq-codegen-h2;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;NON_KEYWORDS=VALUE</url>
+                                <user>sa</user>
+                                <password></password>
+                            </jdbc>
+                            <generator>
+                                <name>org.jooq.codegen.JavaGenerator</name>
+                                <database>
+                                    <name>org.jooq.meta.h2.H2Database</name>
+                                    <!-- Schéma H2 par défaut = PUBLIC -->
+                                    <inputSchema>PUBLIC</inputSchema>
+                                    <!-- Exclure les tables internes Flyway -->
+                                    <excludes>flyway_schema_history</excludes>
+                                    <!-- Forcer les types Java corrects -->
+                                    <forcedTypes>
+                                        <forcedType>
+                                            <userType>java.time.LocalDateTime</userType>
+                                            <includeExpression>.*\.CREATED_AT|.*\.LOCKED_AT|.*\.EXPIRES_AT|.*\.COMMITTED_AT|.*\.ROLLED_BACK_AT|.*\.SIGNED_AT|.*\.CLOSED_AT</includeExpression>
+                                            <includeTypes>TIMESTAMP</includeTypes>
+                                        </forcedType>
+                                        <forcedType>
+                                            <userType>boolean</userType>
+                                            <converter>org.jooq.impl.DefaultConverterProvider</converter>
+                                            <includeExpression>.*\.IS_INITIAL|.*\.IS_FROZEN|.*\.IS_RELEASED|.*\.IS_ADMIN|.*\.ACTIVE|.*\.CAN_READ|.*\.CAN_WRITE|.*\.CAN_TRANSITION|.*\.CAN_SIGN|.*\.CAN_CREATE_LINK|.*\.CAN_BASELINE|.*\.REQUIRED|.*\.EDITABLE|.*\.VISIBLE</includeExpression>
+                                            <includeTypes>SMALLINT</includeTypes>
+                                        </forcedType>
+                                    </forcedTypes>
+                                </database>
+                                <target>
+                                    <packageName>com.plm.generated.jooq</packageName>
+                                    <directory>${jooq.generated.dir}</directory>
+                                </target>
+                                <generate>
+                                    <records>true</records>
+                                    <daos>false</daos>
+                                    <pojos>true</pojos>
+                                    <immutablePojos>true</immutablePojos>
+                                    <interfaces>false</interfaces>
+                                    <comments>true</comments>
+                                    <indexes>true</indexes>
+                                    <validationAnnotations>true</validationAnnotations>
+                                    <springAnnotations>false</springAnnotations>
+                                    <fluentSetters>true</fluentSetters>
+                                </generate>
+                            </generator>
+                        </configuration>
+                    </execution>
+                </executions>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.h2database</groupId>
+                        <artifactId>h2</artifactId>
+                        <version>${h2.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+
+            <!-- 4. Ajouter le répertoire généré aux sources Java -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>add-jooq-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>add-source</goal></goals>
+                        <configuration>
+                            <sources>
+                                <source>${jooq.generated.dir}</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+        </plugins>
+    </build>
+</project>

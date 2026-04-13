@@ -5,18 +5,21 @@ import {
   ChevronRightIcon, ChevronDownIcon, HexIcon, TerminalIcon, PlusIcon,
   EditIcon, TrashIcon, UsersIcon, UserIcon, ShieldIcon,
 } from './Icons';
+import { NODE_ICONS, NODE_ICON_NAMES } from './Icons';
 import ApiPlayground from './ApiPlayground';
 
 const SECTIONS = [
-  { key: 'node-types',      label: 'Node Types',     Icon: LayersIcon   },
-  { key: 'lifecycles',      label: 'Lifecycles',     Icon: LifecycleIcon },
-  { key: 'proj-spaces',     label: 'Project Spaces', Icon: HexIcon      },
-  { key: 'users-roles',     label: 'Users & Roles',  Icon: UsersIcon    },
-  { key: 'api-playground',  label: 'API Playground', Icon: TerminalIcon },
+  { key: 'node-types',      label: 'Node Types',     Icon: LayersIcon,    requiredPermission: 'MANAGE_METAMODEL' },
+  { key: 'lifecycles',      label: 'Lifecycles',     Icon: LifecycleIcon, requiredPermission: 'MANAGE_METAMODEL' },
+  { key: 'proj-spaces',     label: 'Project Spaces', Icon: HexIcon,       requiredPermission: 'MANAGE_ROLES'     },
+  { key: 'users-roles',     label: 'Users & Roles',  Icon: UsersIcon,     requiredPermission: 'MANAGE_ROLES'     },
+  { key: 'access-rights',   label: 'Access Rights',  Icon: ShieldIcon,    requiredPermission: 'MANAGE_ROLES'     },
+  { key: 'api-playground',  label: 'API Playground', Icon: TerminalIcon,  requiredPermission: null               },
 ];
 
 const LINK_POLICIES      = ['VERSION_TO_MASTER', 'VERSION_TO_VERSION'];
 const NUMBERING_SCHEMES  = ['ALPHA_NUMERIC'];
+const VERSION_POLICIES   = ['NONE', 'ITERATE', 'RELEASE'];
 const DATA_TYPES         = ['STRING', 'NUMBER', 'DATE', 'BOOLEAN', 'ENUM'];
 const WIDGET_TYPES   = ['TEXT', 'TEXTAREA', 'DROPDOWN', 'DATE_PICKER', 'CHECKBOX'];
 const ACTION_TYPES   = ['NONE', 'REQUIRE_SIGNATURE'];
@@ -56,6 +59,93 @@ function Field({ label, children }) {
       <label style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</label>
       {children}
     </div>
+  );
+}
+
+/* Color picker row: swatch + native color input + clear button */
+function ColorField({ label, value, onChange }) {
+  return (
+    <Field label={label}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: 4, flexShrink: 0,
+          background: value || 'var(--bg3)',
+          border: '1px solid var(--border)',
+        }} />
+        <input
+          type="color"
+          className="field-input"
+          style={{ width: 48, height: 28, padding: 1, cursor: 'pointer' }}
+          value={value || '#6aacff'}
+          onChange={e => onChange(e.target.value)}
+        />
+        <input
+          type="text"
+          className="field-input"
+          style={{ flex: 1 }}
+          value={value || ''}
+          onChange={e => onChange(e.target.value)}
+          placeholder="#rrggbb"
+          maxLength={7}
+        />
+        {value && (
+          <button
+            className="btn btn-sm"
+            style={{ padding: '2px 8px', fontSize: 10 }}
+            onClick={() => onChange('')}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </Field>
+  );
+}
+
+/* Icon picker grid */
+function IconPicker({ value, onChange }) {
+  return (
+    <Field label="Icon">
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 4,
+        padding: '8px 0',
+      }}>
+        {/* "No icon" option */}
+        <button
+          title="No icon"
+          onClick={() => onChange('')}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 32, height: 32, borderRadius: 4, cursor: 'pointer',
+            border: !value ? '2px solid var(--accent)' : '1px solid var(--border)',
+            background: !value ? 'var(--accent-dim)' : 'transparent',
+            fontSize: 10, color: 'var(--muted)',
+          }}
+        >—</button>
+        {NODE_ICON_NAMES.map(name => {
+          const Ic = NODE_ICONS[name];
+          const selected = value === name;
+          return (
+            <button
+              key={name}
+              title={name}
+              onClick={() => onChange(name)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 32, height: 32, borderRadius: 4, cursor: 'pointer',
+                border: selected ? '2px solid var(--accent)' : '1px solid var(--border)',
+                background: selected ? 'var(--accent-dim)' : 'transparent',
+              }}
+            >
+              <Ic size={14} strokeWidth={1.8} color={selected ? 'var(--accent)' : 'var(--muted)'} />
+            </button>
+          );
+        })}
+      </div>
+      {value && (
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: -4 }}>{value}</div>
+      )}
+    </Field>
   );
 }
 
@@ -110,7 +200,7 @@ function AttrFields({ form, setForm, autoFocusName = true }) {
 }
 
 /* ── Inline link-type attribute table (used inside Edit Link modal) ─ */
-function LinkAttrTable({ userId, linkTypeId, toast }) {
+function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
   const [attrs,       setAttrs]       = useState(null);
   const [addingForm,  setAddingForm]  = useState(null);
   const [editModal,   setEditModal]   = useState(null); // { attr }
@@ -244,12 +334,16 @@ function LinkAttrTable({ userId, linkTypeId, toast }) {
                   <td style={{ color: areq ? 'var(--success)' : 'var(--muted)' }}>{areq ? '✓' : '—'}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="panel-icon-btn" title="Edit" onClick={() => openEdit(a)}>
-                        <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
-                      </button>
-                      <button className="panel-icon-btn" title="Delete" onClick={() => del(a)}>
-                        <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
-                      </button>
+                      {canWrite && (
+                        <button className="panel-icon-btn" title="Edit" onClick={() => openEdit(a)}>
+                          <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
+                        </button>
+                      )}
+                      {canWrite && (
+                        <button className="panel-icon-btn" title="Delete" onClick={() => del(a)}>
+                          <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -290,7 +384,7 @@ function LinkAttrTable({ userId, linkTypeId, toast }) {
             </div>
           </div>
         </div>
-      ) : (
+      ) : canWrite ? (
         <button
           className="btn btn-sm"
           style={{ display: 'flex', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 4 }}
@@ -299,13 +393,13 @@ function LinkAttrTable({ userId, linkTypeId, toast }) {
           <PlusIcon size={11} strokeWidth={2.5} />
           Add attribute
         </button>
-      )}
+      ) : null}
     </>
   );
 }
 
 /* ── Link type cascade rules (used inside Edit Link modal) ──────── */
-function LinkCascadeTable({ userId, linkTypeId, sourceLifecycleId, targetLifecycleId, toast }) {
+function LinkCascadeTable({ userId, linkTypeId, sourceLifecycleId, targetLifecycleId, canWrite, toast }) {
   const [rules,            setRules]            = useState(null);
   const [parentTransitions, setParentTransitions] = useState([]);
   const [childStates,      setChildStates]      = useState([]);
@@ -390,9 +484,11 @@ function LinkCascadeTable({ userId, linkTypeId, sourceLifecycleId, targetLifecyc
                   <td style={{ color: 'var(--muted)', fontSize: 12 }}>→</td>
                   <td style={{ fontSize: 12 }}>{childTxName}</td>
                   <td>
-                    <button className="panel-icon-btn" title="Delete" onClick={() => del(r)}>
-                      <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
-                    </button>
+                    {canWrite && (
+                      <button className="panel-icon-btn" title="Delete" onClick={() => del(r)}>
+                        <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -429,18 +525,18 @@ function LinkCascadeTable({ userId, linkTypeId, sourceLifecycleId, targetLifecyc
             </button>
           </div>
         </div>
-      ) : (
+      ) : canWrite ? (
         <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 4 }} onClick={openAdd}>
           <PlusIcon size={11} strokeWidth={2.5} />
           Add rule
         </button>
-      )}
+      ) : null}
     </>
   );
 }
 
 /* ── Node Types section ──────────────────────────────────────────── */
-function NodeTypesSection({ userId, toast }) {
+function NodeTypesSection({ userId, canWrite, toast }) {
   const [types,      setTypes]      = useState([]);
   const [expanded,   setExpanded]   = useState(null);
   const [attrs,      setAttrs]      = useState({});
@@ -504,16 +600,34 @@ function NodeTypesSection({ userId, toast }) {
           description:     form.description?.trim() || null,
           lifecycleId:     form.lifecycleId || null,
           numberingScheme: form.numberingScheme || 'ALPHA_NUMERIC',
+          versionPolicy:   form.versionPolicy   || 'ITERATE',
+          color:           form.color  || null,
+          icon:            form.icon   || null,
         });
         await loadTypes();
 
       } else if (type === 'edit-identity') {
+        await api.updateNodeTypeIdentity(userId, ctx.nodeTypeId, {
+          logicalIdLabel:   form.logicalIdLabel || 'Identifier',
+          logicalIdPattern: form.logicalIdPattern?.trim() || null,
+        });
+        await loadTypes();
+        setExpanded(null);
+
+      } else if (type === 'edit-appearance') {
+        await api.updateNodeTypeAppearance(userId, ctx.nodeTypeId, form.color || null, form.icon || null);
+        await loadTypes();
+        setExpanded(null);
+
+      } else if (type === 'edit-lifecycle') {
+        await api.updateNodeTypeLifecycle(userId, ctx.nodeTypeId, form.lifecycleId || null);
+        await loadTypes();
+        setExpanded(null);
+
+      } else if (type === 'edit-versioning') {
         await Promise.all([
-          api.updateNodeTypeIdentity(userId, ctx.nodeTypeId, {
-            logicalIdLabel:   form.logicalIdLabel || 'Identifier',
-            logicalIdPattern: form.logicalIdPattern?.trim() || null,
-          }),
           api.updateNodeTypeNumberingScheme(userId, ctx.nodeTypeId, form.numberingScheme || 'ALPHA_NUMERIC'),
+          api.updateNodeTypeVersionPolicy(userId, ctx.nodeTypeId, form.versionPolicy || 'ITERATE'),
         ]);
         await loadTypes();
         setExpanded(null);
@@ -551,6 +665,7 @@ function NodeTypesSection({ userId, toast }) {
           linkPolicy:       form.linkPolicy || 'VERSION_TO_MASTER',
           minCardinality:   Number(form.minCardinality) || 0,
           maxCardinality:   form.maxCardinality !== '' ? Number(form.maxCardinality) : null,
+          color:            form.color || null,
         });
         const updated = await api.getNodeTypeLinkTypes(userId, ctx.nodeTypeId);
         setLinks(s => ({ ...s, [ctx.nodeTypeId]: Array.isArray(updated) ? updated : [] }));
@@ -562,6 +677,7 @@ function NodeTypesSection({ userId, toast }) {
           linkPolicy:     form.linkPolicy || 'VERSION_TO_MASTER',
           minCardinality: Number(form.minCardinality) || 0,
           maxCardinality: form.maxCardinality !== '' && form.maxCardinality != null ? Number(form.maxCardinality) : null,
+          color:          form.color || null,
         });
         const updated = await api.getNodeTypeLinkTypes(userId, ctx.nodeTypeId);
         setLinks(s => ({ ...s, [ctx.nodeTypeId]: Array.isArray(updated) ? updated : [] }));
@@ -657,6 +773,11 @@ function NodeTypesSection({ userId, toast }) {
                 {NUMBERING_SCHEMES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
+            <Field label="Version Policy" tooltip="Controls how the version number advances on each checkout">
+              <select className="field-input" value={form.versionPolicy || 'ITERATE'} onChange={e => setForm(f => ({ ...f, versionPolicy: e.target.value }))}>
+                {VERSION_POLICIES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </Field>
           </>}
 
           {/* ── Edit identifier ── */}
@@ -667,11 +788,51 @@ function NodeTypesSection({ userId, toast }) {
             <Field label="Validation Pattern (regex)">
               <input className="field-input" value={form.logicalIdPattern || ''} onChange={e => setForm(f => ({ ...f, logicalIdPattern: e.target.value }))} placeholder="e.g. ^[A-Z]{2}-\d{4}$" />
             </Field>
+          </>}
+
+          {/* ── Edit lifecycle ── */}
+          {modal.type === 'edit-lifecycle' && <>
+            <Field label="Lifecycle">
+              <select className="field-input" autoFocus value={form.lifecycleId || ''} onChange={e => setForm(f => ({ ...f, lifecycleId: e.target.value }))}>
+                <option value="">None</option>
+                {lifecycles.map(lc => {
+                  const lid = lc.id || lc.ID;
+                  return <option key={lid} value={lid}>{lc.name || lc.NAME || lid}</option>;
+                })}
+              </select>
+            </Field>
+          </>}
+
+          {/* ── Edit versioning ── */}
+          {modal.type === 'edit-versioning' && <>
             <Field label="Numbering Scheme">
-              <select className="field-input" value={form.numberingScheme || 'ALPHA_NUMERIC'} onChange={e => setForm(f => ({ ...f, numberingScheme: e.target.value }))}>
+              <select className="field-input" autoFocus value={form.numberingScheme || 'ALPHA_NUMERIC'} onChange={e => setForm(f => ({ ...f, numberingScheme: e.target.value }))}>
                 {NUMBERING_SCHEMES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
+            <Field label="Version Policy">
+              <select className="field-input" value={form.versionPolicy || 'ITERATE'} onChange={e => setForm(f => ({ ...f, versionPolicy: e.target.value }))}>
+                {VERSION_POLICIES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </Field>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: -4 }}>
+              {form.versionPolicy === 'NONE'    && 'Checkout does not change the visible version number (traceability only).'}
+              {form.versionPolicy === 'ITERATE' && 'Checkout increments the iteration: A.1 → A.2.'}
+              {form.versionPolicy === 'RELEASE' && 'Checkout starts a new revision: A.3 → B.1.'}
+            </div>
+          </>}
+
+          {/* ── Edit appearance (node type color + icon) ── */}
+          {modal.type === 'edit-appearance' && <>
+            <ColorField
+              label="Color"
+              value={form.color || ''}
+              onChange={v => setForm(f => ({ ...f, color: v }))}
+            />
+            <IconPicker
+              value={form.icon || ''}
+              onChange={v => setForm(f => ({ ...f, icon: v }))}
+            />
           </>}
 
           {/* ── Create attribute ── */}
@@ -734,6 +895,11 @@ function NodeTypesSection({ userId, toast }) {
                 <input className="field-input" type="number" min="0" value={form.maxCardinality ?? ''} onChange={e => setForm(f => ({ ...f, maxCardinality: e.target.value }))} placeholder="∞" />
               </Field>
             </div>
+            <ColorField
+              label="Color"
+              value={form.color || ''}
+              onChange={v => setForm(f => ({ ...f, color: v }))}
+            />
           </>}
 
           {/* ── Edit link type ── */}
@@ -757,9 +923,14 @@ function NodeTypesSection({ userId, toast }) {
                 <input className="field-input" type="number" min="0" value={form.maxCardinality ?? ''} onChange={e => setForm(f => ({ ...f, maxCardinality: e.target.value }))} placeholder="∞" />
               </Field>
             </div>
+            <ColorField
+              label="Color"
+              value={form.color || ''}
+              onChange={v => setForm(f => ({ ...f, color: v }))}
+            />
 
             <ModalSection label="Attributes" />
-            <LinkAttrTable userId={userId} linkTypeId={modal.ctx.linkTypeId} toast={toast} />
+            <LinkAttrTable userId={userId} linkTypeId={modal.ctx.linkTypeId} canWrite={canWrite} toast={toast} />
 
             <ModalSection label="Cascade Rules" />
             {(() => {
@@ -773,6 +944,7 @@ function NodeTypesSection({ userId, toast }) {
                   linkTypeId={modal.ctx.linkTypeId}
                   sourceLifecycleId={srcLcId}
                   targetLifecycleId={tgtLcId}
+                  canWrite={canWrite}
                   toast={toast}
                 />
               );
@@ -783,14 +955,16 @@ function NodeTypesSection({ userId, toast }) {
 
       {/* ── New node type button ── */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-        <button
-          className="btn btn-sm"
-          style={{ display: 'flex', alignItems: 'center', gap: 5 }}
-          onClick={() => openModal('create-nodetype', {}, { lifecycleId: lifecycles[0] ? (lifecycles[0].id || lifecycles[0].ID) : '', numberingScheme: 'ALPHA_NUMERIC' })}
-        >
-          <PlusIcon size={11} strokeWidth={2.5} />
-          New node type
-        </button>
+        {canWrite && (
+          <button
+            className="btn btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+            onClick={() => openModal('create-nodetype', {}, { lifecycleId: lifecycles[0] ? (lifecycles[0].id || lifecycles[0].ID) : '', numberingScheme: 'ALPHA_NUMERIC', versionPolicy: 'ITERATE' })}
+          >
+            <PlusIcon size={11} strokeWidth={2.5} />
+            New node type
+          </button>
+        )}
       </div>
 
       {types.map(nt => {
@@ -799,9 +973,15 @@ function NodeTypesSection({ userId, toast }) {
         const isExp      = expanded === id;
         const ntAttrs    = attrs[id] || [];
         const ntLinks    = links[id] || [];
-        const lidLabel   = nt.logical_id_label   || nt.LOGICAL_ID_LABEL   || 'Identifier';
-        const lidPattern = nt.logical_id_pattern || nt.LOGICAL_ID_PATTERN || '';
-        const numScheme  = nt.numbering_scheme   || nt.NUMBERING_SCHEME   || 'ALPHA_NUMERIC';
+        const lidLabel    = nt.logical_id_label   || nt.LOGICAL_ID_LABEL   || 'Identifier';
+        const lidPattern  = nt.logical_id_pattern || nt.LOGICAL_ID_PATTERN || '';
+        const numScheme   = nt.numbering_scheme   || nt.NUMBERING_SCHEME   || 'ALPHA_NUMERIC';
+        const verPolicy   = nt.version_policy     || nt.VERSION_POLICY     || 'ITERATE';
+        const lcId        = nt.lifecycle_id       || nt.LIFECYCLE_ID       || null;
+        const lcName      = lifecycles.find(lc => (lc.id || lc.ID) === lcId)?.name || lcId || '—';
+        const ntColor     = nt.color || nt.COLOR || null;
+        const ntIcon      = nt.icon  || nt.ICON  || null;
+        const NtIcon      = ntIcon ? NODE_ICONS[ntIcon] : null;
         return (
           <div key={id} className="settings-card">
             <div className="settings-card-hd" onClick={() => expand(nt)} style={{ display: 'flex', alignItems: 'center' }}>
@@ -811,11 +991,19 @@ function NodeTypesSection({ userId, toast }) {
                   : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />
                 }
               </span>
+              {NtIcon
+                ? <NtIcon size={14} strokeWidth={2} color={ntColor || 'var(--muted)'} style={{ marginRight: 4, flexShrink: 0 }} />
+                : ntColor
+                  ? <span style={{ width: 10, height: 10, borderRadius: '50%', background: ntColor, flexShrink: 0, marginRight: 4 }} />
+                  : null
+              }
               <span className="settings-card-name">{name}</span>
               <span className="settings-card-id">{id}</span>
-              <button className="panel-icon-btn" title="Delete node type" style={{ marginLeft: 'auto' }} onClick={e => deleteNodeType(e, nt)}>
-                <TrashIcon size={12} strokeWidth={2} color="var(--danger, #f87171)" />
-              </button>
+              {canWrite && (
+                <button className="panel-icon-btn" title="Delete node type" style={{ marginLeft: 'auto' }} onClick={e => deleteNodeType(e, nt)}>
+                  <TrashIcon size={12} strokeWidth={2} color="var(--danger, #f87171)" />
+                </button>
+              )}
             </div>
 
             {isExp && (
@@ -823,9 +1011,11 @@ function NodeTypesSection({ userId, toast }) {
                 {/* Identifier */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span className="settings-sub-label" style={{ margin: 0 }}>Identifier</span>
-                  <button className="panel-icon-btn" title="Edit identifier" onClick={() => openModal('edit-identity', { nodeTypeId: id }, { logicalIdLabel: lidLabel, logicalIdPattern: lidPattern, numberingScheme: numScheme })}>
-                    <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
-                  </button>
+                  {canWrite && (
+                    <button className="panel-icon-btn" title="Edit identifier" onClick={() => openModal('edit-identity', { nodeTypeId: id }, { logicalIdLabel: lidLabel, logicalIdPattern: lidPattern })}>
+                      <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
+                    </button>
+                  )}
                 </div>
                 <table className="settings-table">
                   <tbody>
@@ -837,9 +1027,83 @@ function NodeTypesSection({ userId, toast }) {
                       <td style={{ color: 'var(--muted)' }}>Pattern</td>
                       <td className="settings-td-mono">{lidPattern || '—'}</td>
                     </tr>
+                  </tbody>
+                </table>
+
+                {/* Lifecycle */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 }}>
+                  <span className="settings-sub-label" style={{ margin: 0 }}>Lifecycle</span>
+                  {canWrite && (
+                    <button className="panel-icon-btn" title="Change lifecycle" onClick={() => openModal('edit-lifecycle', { nodeTypeId: id }, { lifecycleId: lcId || '' })}>
+                      <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
+                    </button>
+                  )}
+                </div>
+                <table className="settings-table">
+                  <tbody>
                     <tr>
-                      <td style={{ color: 'var(--muted)' }}>Numbering</td>
+                      <td style={{ color: 'var(--muted)', width: 110 }}>Lifecycle</td>
+                      <td>{lcId ? <span className="settings-badge">{lcName}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {/* Versioning */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 }}>
+                  <span className="settings-sub-label" style={{ margin: 0 }}>Versioning</span>
+                  {canWrite && (
+                    <button className="panel-icon-btn" title="Edit versioning" onClick={() => openModal('edit-versioning', { nodeTypeId: id }, { numberingScheme: numScheme, versionPolicy: verPolicy })}>
+                      <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
+                    </button>
+                  )}
+                </div>
+                <table className="settings-table">
+                  <tbody>
+                    <tr>
+                      <td style={{ color: 'var(--muted)', width: 110 }}>Numbering</td>
                       <td><span className="settings-badge">{numScheme}</span></td>
+                    </tr>
+                    <tr>
+                      <td style={{ color: 'var(--muted)' }}>Policy</td>
+                      <td><span className="settings-badge">{verPolicy}</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {/* Appearance */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 }}>
+                  <span className="settings-sub-label" style={{ margin: 0 }}>Appearance</span>
+                  {canWrite && (
+                    <button className="panel-icon-btn" title="Edit appearance" onClick={() => openModal('edit-appearance', { nodeTypeId: id }, { color: ntColor || '', icon: ntIcon || '' })}>
+                      <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
+                    </button>
+                  )}
+                </div>
+                <table className="settings-table">
+                  <tbody>
+                    <tr>
+                      <td style={{ color: 'var(--muted)', width: 110 }}>Color</td>
+                      <td>
+                        {ntColor
+                          ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ width: 12, height: 12, borderRadius: 3, background: ntColor, display: 'inline-block' }} />
+                              <span className="settings-td-mono" style={{ fontSize: 10 }}>{ntColor}</span>
+                            </span>
+                          : <span style={{ color: 'var(--muted2)' }}>—</span>
+                        }
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style={{ color: 'var(--muted)' }}>Icon</td>
+                      <td>
+                        {NtIcon
+                          ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <NtIcon size={13} strokeWidth={2} color={ntColor || 'var(--muted)'} />
+                              <span style={{ fontSize: 10, color: 'var(--muted)' }}>{ntIcon}</span>
+                            </span>
+                          : <span style={{ color: 'var(--muted2)' }}>—</span>
+                        }
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -847,9 +1111,11 @@ function NodeTypesSection({ userId, toast }) {
                 {/* Attributes */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 }}>
                   <span className="settings-sub-label" style={{ margin: 0 }}>Attributes</span>
-                  <button className="panel-icon-btn" title="Add attribute" onClick={() => openModal('create-attr', { nodeTypeId: id }, { dataType: 'STRING', widgetType: 'TEXT', required: false })}>
-                    <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
-                  </button>
+                  {canWrite && (
+                    <button className="panel-icon-btn" title="Add attribute" onClick={() => openModal('create-attr', { nodeTypeId: id }, { dataType: 'STRING', widgetType: 'TEXT', required: false })}>
+                      <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
+                    </button>
+                  )}
                 </div>
                 {ntAttrs.length === 0 ? (
                   <div className="settings-empty-row">No attributes defined</div>
@@ -877,19 +1143,23 @@ function NodeTypesSection({ userId, toast }) {
                               <td style={{ color: 'var(--muted)' }}>{asec}</td>
                               <td>
                                 <div style={{ display: 'flex', gap: 4 }}>
-                                  <button className="panel-icon-btn" title="Edit" onClick={() => openModal('edit-attr', { nodeTypeId: id, attrId: aid }, {
-                                    label:          albl,
-                                    dataType:       a.data_type      || a.DATA_TYPE      || 'STRING',
-                                    widgetType:     a.widget_type    || a.WIDGET_TYPE    || 'TEXT',
-                                    required:       areq,
-                                    displaySection: a.display_section || a.DISPLAY_SECTION || '',
-                                    displayOrder:   a.display_order  ?? a.DISPLAY_ORDER  ?? '',
-                                  })}>
-                                    <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
-                                  </button>
-                                  <button className="panel-icon-btn" title="Delete" onClick={e => deleteAttr(e, id, a)}>
-                                    <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
-                                  </button>
+                                  {canWrite && (
+                                    <button className="panel-icon-btn" title="Edit" onClick={() => openModal('edit-attr', { nodeTypeId: id, attrId: aid }, {
+                                      label:          albl,
+                                      dataType:       a.data_type      || a.DATA_TYPE      || 'STRING',
+                                      widgetType:     a.widget_type    || a.WIDGET_TYPE    || 'TEXT',
+                                      required:       areq,
+                                      displaySection: a.display_section || a.DISPLAY_SECTION || '',
+                                      displayOrder:   a.display_order  ?? a.DISPLAY_ORDER  ?? '',
+                                    })}>
+                                      <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
+                                    </button>
+                                  )}
+                                  {canWrite && (
+                                    <button className="panel-icon-btn" title="Delete" onClick={e => deleteAttr(e, id, a)}>
+                                      <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -902,16 +1172,18 @@ function NodeTypesSection({ userId, toast }) {
                 {/* Outgoing Links */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 }}>
                   <span className="settings-sub-label" style={{ margin: 0 }}>Outgoing Links</span>
-                  <button className="panel-icon-btn" title="Add link type" onClick={() => openModal('create-link', { nodeTypeId: id }, { linkPolicy: 'VERSION_TO_MASTER', minCardinality: '0', targetNodeTypeId: types[0] ? (types[0].id || types[0].ID) : '' })}>
-                    <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
-                  </button>
+                  {canWrite && (
+                    <button className="panel-icon-btn" title="Add link type" onClick={() => openModal('create-link', { nodeTypeId: id }, { linkPolicy: 'VERSION_TO_MASTER', minCardinality: '0', targetNodeTypeId: types[0] ? (types[0].id || types[0].ID) : '' })}>
+                      <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
+                    </button>
+                  )}
                 </div>
                 {ntLinks.length === 0 ? (
                   <div className="settings-empty-row">No outgoing links defined</div>
                 ) : (
                   <table className="settings-table">
                     <thead>
-                      <tr><th>Name</th><th>Target</th><th>Policy</th><th>Cardinality</th><th></th></tr>
+                      <tr><th></th><th>Name</th><th>Target</th><th>Policy</th><th>Cardinality</th><th></th></tr>
                     </thead>
                     <tbody>
                       {ntLinks.map(lt => {
@@ -923,31 +1195,40 @@ function NodeTypesSection({ userId, toast }) {
                         const minC    = lt.min_cardinality ?? lt.MIN_CARDINALITY ?? 0;
                         const maxC    = lt.max_cardinality ?? lt.MAX_CARDINALITY;
                         const card    = maxC == null ? `${minC}..*` : `${minC}..${maxC}`;
+                        const ltColor = lt.color || lt.COLOR || null;
                         return (
                           <tr key={lid}>
+                            <td style={{ width: 18 }}>
+                              <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: ltColor || 'var(--border)' }} title={ltColor || 'No color'} />
+                            </td>
                             <td className="settings-td-mono">{lname}</td>
                             <td>{tgtName}</td>
                             <td><span className="settings-badge">{policy}</span></td>
                             <td style={{ color: 'var(--muted)' }}>{card}</td>
                             <td>
                               <div style={{ display: 'flex', gap: 4 }}>
-                                <button className="panel-icon-btn" title="Edit link type" onClick={() => openModal('edit-link', {
-                                  nodeTypeId:       id,
-                                  linkTypeId:       lid,
-                                  linkName:         lname,
-                                  targetNodeTypeId: tgtId,
-                                }, {
-                                  name:           lname,
-                                  description:    lt.description || lt.DESCRIPTION || '',
-                                  linkPolicy:     policy,
-                                  minCardinality: String(minC),
-                                  maxCardinality: maxC != null ? String(maxC) : '',
-                                })}>
-                                  <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
-                                </button>
-                                <button className="panel-icon-btn" title="Delete link type" onClick={e => deleteLt(e, id, lt)}>
-                                  <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
-                                </button>
+                                {canWrite && (
+                                  <button className="panel-icon-btn" title="Edit link type" onClick={() => openModal('edit-link', {
+                                    nodeTypeId:       id,
+                                    linkTypeId:       lid,
+                                    linkName:         lname,
+                                    targetNodeTypeId: tgtId,
+                                  }, {
+                                    name:           lname,
+                                    description:    lt.description || lt.DESCRIPTION || '',
+                                    linkPolicy:     policy,
+                                    minCardinality: String(minC),
+                                    maxCardinality: maxC != null ? String(maxC) : '',
+                                    color:          ltColor || '',
+                                  })}>
+                                    <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
+                                  </button>
+                                )}
+                                {canWrite && (
+                                  <button className="panel-icon-btn" title="Delete link type" onClick={e => deleteLt(e, id, lt)}>
+                                    <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -1081,7 +1362,7 @@ function TransitionFormFields({ form, setForm, states }) {
   );
 }
 
-function LifecyclesSection({ userId, toast }) {
+function LifecyclesSection({ userId, canWrite, toast }) {
   const [lcs,      setLcs]      = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [lcData,   setLcData]   = useState({});
@@ -1238,10 +1519,12 @@ function LifecyclesSection({ userId, toast }) {
       )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-        <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5 }} onClick={() => openModal('create-lc')}>
-          <PlusIcon size={11} strokeWidth={2.5} />
-          New lifecycle
-        </button>
+        {canWrite && (
+          <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5 }} onClick={() => openModal('create-lc')}>
+            <PlusIcon size={11} strokeWidth={2.5} />
+            New lifecycle
+          </button>
+        )}
       </div>
 
       {lcs.map(lc => {
@@ -1259,9 +1542,11 @@ function LifecyclesSection({ userId, toast }) {
               </span>
               <span className="settings-card-name">{name}</span>
               <span className="settings-card-id">{id}</span>
-              <button className="panel-icon-btn" title="Delete lifecycle" style={{ marginLeft: 'auto' }} onClick={e => deleteLifecycle(e, lc)}>
-                <TrashIcon size={12} strokeWidth={2} color="var(--danger, #f87171)" />
-              </button>
+              {canWrite && (
+                <button className="panel-icon-btn" title="Delete lifecycle" style={{ marginLeft: 'auto' }} onClick={e => deleteLifecycle(e, lc)}>
+                  <TrashIcon size={12} strokeWidth={2} color="var(--danger, #f87171)" />
+                </button>
+              )}
             </div>
 
             {isExp && data && (
@@ -1270,10 +1555,12 @@ function LifecyclesSection({ userId, toast }) {
                 {/* ── States ─────────────────────────────── */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <span className="settings-sub-label" style={{ margin: 0 }}>States</span>
-                  <button className="panel-icon-btn" title="Add state"
-                    onClick={() => openModal('create-state', { lifecycleId: id }, { color: STATE_DEFAULT_COLOR, displayOrder: '' })}>
-                    <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
-                  </button>
+                  {canWrite && (
+                    <button className="panel-icon-btn" title="Add state"
+                      onClick={() => openModal('create-state', { lifecycleId: id }, { color: STATE_DEFAULT_COLOR, displayOrder: '' })}>
+                      <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
+                    </button>
+                  )}
                 </div>
 
                 {states.length === 0 && <div className="settings-empty-row" style={{ marginBottom: 12 }}>No states defined</div>}
@@ -1311,19 +1598,23 @@ function LifecyclesSection({ userId, toast }) {
                       {/* Order badge */}
                       <span style={{ fontSize: 10, color: 'var(--muted)', minWidth: 24, textAlign: 'right' }}>#{order}</span>
                       {/* Actions */}
-                      <button className="panel-icon-btn" title="Edit state" onClick={() => openModal('edit-state', { lifecycleId: id, stateId: sid }, {
-                        name:         sname,
-                        isInitial:    !!(s.is_initial  || s.IS_INITIAL),
-                        isFrozen:     !!(s.is_frozen   || s.IS_FROZEN),
-                        isReleased:   !!(s.is_released || s.IS_RELEASED),
-                        displayOrder: order,
-                        color,
-                      })}>
-                        <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
-                      </button>
-                      <button className="panel-icon-btn" title="Delete state" onClick={() => deleteState(id, s)}>
-                        <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
-                      </button>
+                      {canWrite && (
+                        <button className="panel-icon-btn" title="Edit state" onClick={() => openModal('edit-state', { lifecycleId: id, stateId: sid }, {
+                          name:         sname,
+                          isInitial:    !!(s.is_initial  || s.IS_INITIAL),
+                          isFrozen:     !!(s.is_frozen   || s.IS_FROZEN),
+                          isReleased:   !!(s.is_released || s.IS_RELEASED),
+                          displayOrder: order,
+                          color,
+                        })}>
+                          <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
+                        </button>
+                      )}
+                      {canWrite && (
+                        <button className="panel-icon-btn" title="Delete state" onClick={() => deleteState(id, s)}>
+                          <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -1331,10 +1622,12 @@ function LifecyclesSection({ userId, toast }) {
                 {/* ── Transitions ────────────────────────── */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, marginBottom: 6 }}>
                   <span className="settings-sub-label" style={{ margin: 0 }}>Transitions</span>
-                  <button className="panel-icon-btn" title="Add transition"
-                    onClick={() => openModal('create-transition', { lifecycleId: id, states }, { actionType: 'NONE', versionStrategy: 'NONE' })}>
-                    <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
-                  </button>
+                  {canWrite && (
+                    <button className="panel-icon-btn" title="Add transition"
+                      onClick={() => openModal('create-transition', { lifecycleId: id, states }, { actionType: 'NONE', versionStrategy: 'NONE' })}>
+                      <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
+                    </button>
+                  )}
                 </div>
 
                 {data.transitions.length === 0 && <div className="settings-empty-row">No transitions defined</div>}
@@ -1377,19 +1670,23 @@ function LifecyclesSection({ userId, toast }) {
                         {vstrat && vstrat !== 'NONE' && <span className="settings-badge">{vstrat}</span>}
                       </div>
                       {/* Actions */}
-                      <button className="panel-icon-btn" title="Edit transition" onClick={() => openModal('edit-transition', { lifecycleId: id, transId: tid, states }, {
-                        name:            tname,
-                        fromStateId:     fromId,
-                        toStateId:       toId,
-                        guardExpr:       guard || '',
-                        actionType:      t.action_type || t.ACTION_TYPE || 'NONE',
-                        versionStrategy: vstrat || 'NONE',
-                      })}>
-                        <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
-                      </button>
-                      <button className="panel-icon-btn" title="Delete transition" onClick={() => deleteTransition(id, t)}>
-                        <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
-                      </button>
+                      {canWrite && (
+                        <button className="panel-icon-btn" title="Edit transition" onClick={() => openModal('edit-transition', { lifecycleId: id, transId: tid, states }, {
+                          name:            tname,
+                          fromStateId:     fromId,
+                          toStateId:       toId,
+                          guardExpr:       guard || '',
+                          actionType:      t.action_type || t.ACTION_TYPE || 'NONE',
+                          versionStrategy: vstrat || 'NONE',
+                        })}>
+                          <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
+                        </button>
+                      )}
+                      {canWrite && (
+                        <button className="panel-icon-btn" title="Delete transition" onClick={() => deleteTransition(id, t)}>
+                          <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -1404,7 +1701,7 @@ function LifecyclesSection({ userId, toast }) {
 }
 
 /* ── Action permissions for one project space ────────────────────── */
-function ProjectSpacePermissions({ userId, projectSpaceId, toast }) {
+function ProjectSpacePermissions({ userId, projectSpaceId, canWrite, toast }) {
   const [roles,    setRoles]    = useState([]);
   const [types,    setTypes]    = useState([]);
   const [selRole,  setSelRole]  = useState(null);   // { id, name }
@@ -1416,7 +1713,7 @@ function ProjectSpacePermissions({ userId, projectSpaceId, toast }) {
   useEffect(() => {
     Promise.all([
       api.getRoles(userId).then(d => {
-        const list = Array.isArray(d) ? d.filter(r => !r.isAdmin) : [];
+        const list = Array.isArray(d) ? d : [];
         setRoles(list);
         if (list.length > 0) setSelRole(list[0]);
       }),
@@ -1544,8 +1841,8 @@ function ProjectSpacePermissions({ userId, projectSpaceId, toast }) {
                         <div key={ntaId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--border)' }}>
                           <button
                             className="panel-icon-btn"
-                            disabled={isPending}
-                            title={isGranted ? `Revoke ${selRole.name}` : `Grant ${selRole.name}`}
+                            disabled={isPending || !canWrite}
+                            title={!canWrite ? 'Requires MANAGE_ROLES' : isGranted ? `Revoke ${selRole.name}` : `Grant ${selRole.name}`}
                             onClick={() => togglePerm(id, nta)}
                             style={{ flexShrink: 0, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                           >
@@ -1573,7 +1870,7 @@ function ProjectSpacePermissions({ userId, projectSpaceId, toast }) {
 }
 
 /* ── Project Spaces section ──────────────────────────────────────── */
-function ProjectSpacesSection({ userId, toast }) {
+function ProjectSpacesSection({ userId, canWrite, toast }) {
   const [spaces,   setSpaces]   = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [loading,  setLoading]  = useState(true);
@@ -1614,10 +1911,12 @@ function ProjectSpacesSection({ userId, toast }) {
         </MetaModal>
       )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-        <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5 }} onClick={() => { setForm({ name: '', description: '' }); setModal(true); }}>
-          <PlusIcon size={11} strokeWidth={2.5} />
-          New space
-        </button>
+        {canWrite && (
+          <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5 }} onClick={() => { setForm({ name: '', description: '' }); setModal(true); }}>
+            <PlusIcon size={11} strokeWidth={2.5} />
+            New space
+          </button>
+        )}
       </div>
       {spaces.map(ps => {
         const id    = ps.id   || ps.ID;
@@ -1642,7 +1941,7 @@ function ProjectSpacesSection({ userId, toast }) {
             </div>
             {isExp && (
               <div className="settings-card-body">
-                <ProjectSpacePermissions userId={userId} projectSpaceId={id} toast={toast} />
+                <ProjectSpacePermissions userId={userId} projectSpaceId={id} canWrite={canWrite} toast={toast} />
               </div>
             )}
           </div>
@@ -1653,7 +1952,7 @@ function ProjectSpacesSection({ userId, toast }) {
 }
 
 /* ── Roles sub-section ───────────────────────────────────────────── */
-function RolesSubSection({ userId, toast }) {
+function RolesSubSection({ userId, canWrite, toast }) {
   const [roles,    setRoles]    = useState(null);
   const [modal,    setModal]    = useState(null);   // null | 'create' | { role }
   const [form,     setForm]     = useState({});
@@ -1670,7 +1969,7 @@ function RolesSubSection({ userId, toast }) {
     setSaving(true);
     try {
       if (modal === 'create') {
-        await api.createRole(userId, form.name.trim(), form.description?.trim() || null, !!form.isAdmin);
+        await api.createRole(userId, form.name.trim(), form.description?.trim() || null);
       } else {
         await api.updateRole(userId, modal.role.id, form.name.trim(), form.description?.trim() || null);
       }
@@ -1708,34 +2007,33 @@ function RolesSubSection({ userId, toast }) {
           <Field label="Description">
             <textarea className="field-input" rows={2} style={{ resize: 'vertical' }} value={form.description || ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional description" />
           </Field>
-          {modal === 'create' && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-              <input type="checkbox" checked={!!form.isAdmin} onChange={e => setForm(f => ({ ...f, isAdmin: e.target.checked }))} />
-              Admin role — bypasses all permission checks
-            </label>
-          )}
         </MetaModal>
       )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-        <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5 }}
-          onClick={() => { setForm({ name: '', description: '', isAdmin: false }); setModal('create'); }}>
-          <PlusIcon size={11} strokeWidth={2.5} /> New role
-        </button>
+        {canWrite && (
+          <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+            onClick={() => { setForm({ name: '', description: '' }); setModal('create'); }}>
+            <PlusIcon size={11} strokeWidth={2.5} /> New role
+          </button>
+        )}
       </div>
       {roles.length === 0 && <div className="settings-empty-row">No roles yet.</div>}
       {roles.map(role => (
         <div key={role.id} className="settings-card" style={{ padding: '10px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ShieldIcon size={13} color={role.isAdmin ? 'var(--warn, #f59e0b)' : 'var(--accent)'} strokeWidth={1.5} />
+            <ShieldIcon size={13} color="var(--accent)" strokeWidth={1.5} />
             <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{role.name}</span>
             <span className="settings-card-id">{role.id}</span>
-            {role.isAdmin && <span className="settings-badge settings-badge--warn">Admin</span>}
-            <button className="panel-icon-btn" title="Edit role" onClick={() => { setForm({ name: role.name, description: role.description || '' }); setModal({ role }); }}>
-              <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
-            </button>
-            <button className="panel-icon-btn" title="Delete role" disabled={deleting === role.id} onClick={() => del(role)}>
-              <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
-            </button>
+            {canWrite && (
+              <button className="panel-icon-btn" title="Edit role" onClick={() => { setForm({ name: role.name, description: role.description || '' }); setModal({ role }); }}>
+                <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
+              </button>
+            )}
+            {canWrite && (
+              <button className="panel-icon-btn" title="Delete role" disabled={deleting === role.id} onClick={() => del(role)}>
+                <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+              </button>
+            )}
           </div>
           {role.description && (
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, paddingLeft: 21 }}>{role.description}</div>
@@ -1747,7 +2045,7 @@ function RolesSubSection({ userId, toast }) {
 }
 
 /* ── Users sub-section ───────────────────────────────────────────── */
-function UsersSubSection({ userId, toast }) {
+function UsersSubSection({ userId, canWrite, toast }) {
   const [users,       setUsers]       = useState(null);
   const [roles,       setRoles]       = useState([]);
   const [spaces,      setSpaces]      = useState([]);
@@ -1759,6 +2057,7 @@ function UsersSubSection({ userId, toast }) {
   const [assignForm,  setAssignForm]  = useState({});   // targetUserId → { roleId, spaceId }
   const [assigning,   setAssigning]   = useState(null);
   const [removing,    setRemoving]    = useState(null);
+  const [togglingAdmin, setTogglingAdmin] = useState(null);
 
   const loadUsers = useCallback(() =>
     api.listUsers(userId).then(d => setUsers(Array.isArray(d) ? d : [])), [userId]);
@@ -1826,6 +2125,15 @@ function UsersSubSection({ userId, toast }) {
     finally { setRemoving(null); }
   }
 
+  async function toggleAdmin(u, newValue) {
+    setTogglingAdmin(u.id);
+    try {
+      await api.setUserAdmin(userId, u.id, newValue);
+      await loadUsers();
+    } catch (e) { toast(e, 'error'); }
+    finally { setTogglingAdmin(null); }
+  }
+
   if (!users) return <div className="settings-loading">Loading…</div>;
 
   return (
@@ -1844,9 +2152,11 @@ function UsersSubSection({ userId, toast }) {
         </MetaModal>
       )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-        <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5 }} onClick={() => { setForm({ username: '', displayName: '', email: '' }); setModal(true); }}>
-          <PlusIcon size={11} strokeWidth={2.5} /> New user
-        </button>
+        {canWrite && (
+          <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5 }} onClick={() => { setForm({ username: '', displayName: '', email: '' }); setModal(true); }}>
+            <PlusIcon size={11} strokeWidth={2.5} /> New user
+          </button>
+        )}
       </div>
       {users.length === 0 && <div className="settings-empty-row">No users found.</div>}
       {users.map(u => {
@@ -1866,10 +2176,27 @@ function UsersSubSection({ userId, toast }) {
               <span className="settings-card-id">{uid}</span>
               {u.email && <span style={{ flex: 1, fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 8 }}>{u.email}</span>}
               {!active && <span className="settings-badge settings-badge--warn">Inactive</span>}
-              <button className="panel-icon-btn" title="Deactivate user" style={{ marginLeft: 4 }}
-                onClick={e => { e.stopPropagation(); deactivate(u); }}>
-                <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
-              </button>
+              {u.isAdmin && <span className="settings-badge settings-badge--warn" title="Administrator">Admin</span>}
+              {canWrite && (
+                <select
+                  className="field-input"
+                  style={{ height: 22, fontSize: 10, padding: '0 4px', width: 'auto', marginLeft: 6, flexShrink: 0 }}
+                  value={u.isAdmin ? 'admin' : 'user'}
+                  disabled={togglingAdmin === uid}
+                  onClick={e => e.stopPropagation()}
+                  onChange={e => { e.stopPropagation(); toggleAdmin(u, e.target.value === 'admin'); }}
+                  title="Admin status"
+                >
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              )}
+              {canWrite && (
+                <button className="panel-icon-btn" title="Deactivate user" style={{ marginLeft: 4 }}
+                  onClick={e => { e.stopPropagation(); deactivate(u); }}>
+                  <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                </button>
+              )}
             </div>
             {isExp && (
               <div className="settings-card-body" style={{ paddingTop: 10 }}>
@@ -1895,7 +2222,7 @@ function UsersSubSection({ userId, toast }) {
                     );
                   })}
                 </div>
-                {roles.length > 0 && spaces.length > 0 && (
+                {canWrite && roles.length > 0 && spaces.length > 0 && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
                     <select className="field-input" style={{ height: 24, fontSize: 11, padding: '0 6px', flex: 1 }}
                       value={assignForm[uid]?.roleId || ''}
@@ -1925,7 +2252,7 @@ function UsersSubSection({ userId, toast }) {
 }
 
 /* ── Users & Roles section (tab switcher) ────────────────────────── */
-function UsersRolesSection({ userId, toast }) {
+function UsersRolesSection({ userId, canWrite, toast }) {
   const [tab, setTab] = useState('roles');
   return (
     <div>
@@ -1944,8 +2271,8 @@ function UsersRolesSection({ userId, toast }) {
         ))}
       </div>
       {tab === 'roles'
-        ? <RolesSubSection userId={userId} toast={toast} />
-        : <UsersSubSection userId={userId} toast={toast} />
+        ? <RolesSubSection userId={userId} canWrite={canWrite} toast={toast} />
+        : <UsersSubSection userId={userId} canWrite={canWrite} toast={toast} />
       }
     </div>
   );
@@ -1953,7 +2280,26 @@ function UsersRolesSection({ userId, toast }) {
 
 /* ── Main SettingsPage ───────────────────────────────────────────── */
 export default function SettingsPage({ userId, projectSpaceId, onClose, toast }) {
-  const [activeSection, setActiveSection] = useState('node-types');
+  const [activeSection, setActiveSection] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(null); // null = loading
+
+  useEffect(() => {
+    api.getUserContext(userId, projectSpaceId)
+      .then(ctx => {
+        const admin = !!ctx?.isAdmin;
+        setIsAdmin(admin);
+        // Default to first visible section
+        const first = SECTIONS.find(s => !s.adminOnly || admin);
+        setActiveSection(first?.key ?? null);
+      })
+      .catch(() => {
+        setIsAdmin(false);
+        setActiveSection('api-playground');
+      });
+  }, [userId, projectSpaceId]);
+
+  const visibleSections = isAdmin === null ? [] : SECTIONS.filter(s => !s.adminOnly || isAdmin);
+
   return (
     <div className="settings-page">
       <div className="settings-sidenav">
@@ -1962,7 +2308,7 @@ export default function SettingsPage({ userId, projectSpaceId, onClose, toast })
           Settings &amp; Metadata
         </div>
         <div className="settings-sidenav-items">
-          {SECTIONS.map(({ key, label, Icon }) => (
+          {visibleSections.map(({ key, label, Icon }) => (
             <div key={key} className={`settings-nav-item ${activeSection === key ? 'active' : ''}`} onClick={() => setActiveSection(key)}>
               <Icon size={13} strokeWidth={1.8} color={activeSection === key ? 'var(--accent)' : 'var(--muted)'} />
               {label}
@@ -1972,13 +2318,15 @@ export default function SettingsPage({ userId, projectSpaceId, onClose, toast })
       </div>
       <div className="settings-content">
         <div className="settings-content-hd">
-          <span className="settings-content-title">{SECTIONS.find(s => s.key === activeSection)?.label}</span>
+          <span className="settings-content-title">{visibleSections.find(s => s.key === activeSection)?.label}</span>
           <button className="btn btn-sm" onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <CloseIcon size={12} strokeWidth={2.5} />
             Close
           </button>
         </div>
-        {activeSection === 'api-playground' ? (
+        {activeSection === null ? (
+          <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+        ) : activeSection === 'api-playground' ? (
           <ApiPlayground userId={userId} projectSpaceId={projectSpaceId} />
         ) : (
           <div className="settings-content-body">
