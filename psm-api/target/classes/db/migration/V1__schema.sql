@@ -53,6 +53,9 @@ CREATE TABLE node_type (
     logical_id_label   VARCHAR(100) DEFAULT 'Identifier',
     logical_id_pattern VARCHAR(500),
     numbering_scheme   VARCHAR(50)  NOT NULL DEFAULT 'ALPHA_NUMERIC',
+    version_policy     VARCHAR(20)  NOT NULL DEFAULT 'ITERATE',  -- NONE | ITERATE | RELEASE
+    color              VARCHAR(20),
+    icon               VARCHAR(50),
     created_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -70,6 +73,7 @@ CREATE TABLE attribute_definition (
     display_order   INT          NOT NULL DEFAULT 0,
     display_section VARCHAR(100),
     tooltip         VARCHAR(500),
+    as_name         INTEGER      NOT NULL DEFAULT 0,  -- only one per node_type; enforced at app level
     created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -97,6 +101,7 @@ CREATE TABLE link_type (
     max_cardinality         INT,
     link_logical_id_label   VARCHAR(100) DEFAULT 'Link ID',
     link_logical_id_pattern VARCHAR(500),
+    color                   VARCHAR(20),
     created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -269,22 +274,28 @@ CREATE TABLE view_attribute_override (
 -- ============================================================
 -- ACTION REGISTRY
 --
--- node_action           = global catalog (built-in + custom)
--- node_action_parameter = parameter schema per action
--- node_type_action      = enabled actions per node type
--- node_action_permission = flat allowlist:
---   node_type x node_action x project_space x role x lifecycle_state
+-- action               = global catalog (built-in + custom)
+-- action_parameter     = parameter schema per action
+-- node_type_action     = enabled actions per node type
+-- action_param_override= per node-type-action parameter overrides
+-- action_permission    = flat allowlist:
+--   action x project_space x role [x node_type] [x transition]
 --
--- Zero rows for (node_type, action, project_space) = open to all.
+--   scope = NODE     → permission by (action, node_type, project_space, role)
+--   scope = LIFECYCLE→ permission by (action, node_type, transition, project_space, role)
+--   scope = GLOBAL   → permission by (action, project_space, role); node_type/transition NULL
+--
+-- Zero rows for (action, project_space) = open to all.
 -- One or more rows = explicit allowlist.
--- For TRANSITION actions, lifecycle_state_id = the transition's from_state_id.
+-- Admins bypass all checks via isAdmin flag.
 -- display_category = STRUCTURAL hides an action from the UI action list.
 -- ============================================================
 
-CREATE TABLE node_action (
+CREATE TABLE action (
     id               VARCHAR(100)  NOT NULL PRIMARY KEY,
     action_code      VARCHAR(100)  NOT NULL,
     action_kind      VARCHAR(20)   NOT NULL DEFAULT 'BUILTIN',
+    scope            VARCHAR(20)   NOT NULL DEFAULT 'NODE',   -- NODE | LIFECYCLE | GLOBAL
     display_name     VARCHAR(200)  NOT NULL,
     description      VARCHAR(1000),
     handler_ref      VARCHAR(200)  NOT NULL,
@@ -295,9 +306,9 @@ CREATE TABLE node_action (
     CONSTRAINT uq_action_code UNIQUE (action_code)
 );
 
-CREATE TABLE node_action_parameter (
+CREATE TABLE action_parameter (
     id               VARCHAR(100)  NOT NULL PRIMARY KEY,
-    action_id        VARCHAR(100)  NOT NULL REFERENCES node_action(id),
+    action_id        VARCHAR(100)  NOT NULL REFERENCES action(id),
     param_name       VARCHAR(100)  NOT NULL,
     param_label      VARCHAR(200)  NOT NULL,
     data_type        VARCHAR(50)   NOT NULL DEFAULT 'STRING',
@@ -317,7 +328,7 @@ CREATE TABLE node_action_parameter (
 CREATE TABLE node_type_action (
     id                    VARCHAR(100) NOT NULL PRIMARY KEY,
     node_type_id          VARCHAR(36)  NOT NULL REFERENCES node_type(id),
-    action_id             VARCHAR(100) NOT NULL REFERENCES node_action(id),
+    action_id             VARCHAR(100) NOT NULL REFERENCES action(id),
     status                VARCHAR(20)  NOT NULL DEFAULT 'ENABLED',
     display_name_override VARCHAR(200),
     transition_id         VARCHAR(36)  REFERENCES lifecycle_transition(id),
@@ -325,23 +336,25 @@ CREATE TABLE node_type_action (
     CONSTRAINT uq_nodetype_action UNIQUE (node_type_id, action_id, transition_id)
 );
 
-CREATE TABLE node_action_param_override (
+CREATE TABLE action_param_override (
     id                  VARCHAR(100) NOT NULL PRIMARY KEY,
     node_type_action_id VARCHAR(100) NOT NULL REFERENCES node_type_action(id),
-    parameter_id        VARCHAR(100) NOT NULL REFERENCES node_action_parameter(id),
+    parameter_id        VARCHAR(100) NOT NULL REFERENCES action_parameter(id),
     default_value       VARCHAR(1000),
     allowed_values      VARCHAR(2000),
     required            SMALLINT,
     CONSTRAINT uq_napo UNIQUE (node_type_action_id, parameter_id)
 );
 
-CREATE TABLE node_action_permission (
-    id                 VARCHAR(100) NOT NULL PRIMARY KEY,
-    node_type_id       VARCHAR(36)  NOT NULL,
-    action_id          VARCHAR(100) NOT NULL REFERENCES node_action(id),
-    project_space_id   VARCHAR(36)  NOT NULL,
-    role_id            VARCHAR(36)  NOT NULL,
-    lifecycle_state_id VARCHAR(36)  REFERENCES lifecycle_state(id)
+CREATE TABLE action_permission (
+    id               VARCHAR(100) NOT NULL PRIMARY KEY,
+    action_id        VARCHAR(100) NOT NULL REFERENCES action(id),
+    project_space_id VARCHAR(36)  NOT NULL,
+    role_id          VARCHAR(36)  NOT NULL,
+    node_type_id     VARCHAR(36),   -- NULL for GLOBAL-scope actions
+    transition_id    VARCHAR(36),   -- NULL for NODE-scope; specific transition for LIFECYCLE-scope
+    CONSTRAINT uq_action_permission UNIQUE (action_id, project_space_id, role_id,
+                                            node_type_id, transition_id)
 );
 
 -- ============================================================
@@ -372,10 +385,8 @@ CREATE INDEX idx_ltc_child_state    ON link_type_cascade(child_from_state_id);
 CREATE INDEX idx_nta_nodetype       ON node_type_action(node_type_id);
 CREATE INDEX idx_nta_action         ON node_type_action(action_id);
 CREATE INDEX idx_nta_transition     ON node_type_action(transition_id);
-CREATE INDEX idx_napar_action       ON node_action_parameter(action_id);
-CREATE INDEX idx_napov_nta          ON node_action_param_override(node_type_action_id);
-CREATE INDEX idx_nap_node_type      ON node_action_permission(node_type_id);
-CREATE INDEX idx_nap_action         ON node_action_permission(action_id);
-CREATE INDEX idx_nap_ps             ON node_action_permission(project_space_id);
-CREATE INDEX idx_nap_role           ON node_action_permission(role_id);
-CREATE INDEX idx_nap_state          ON node_action_permission(lifecycle_state_id);
+CREATE INDEX idx_napar_action       ON action_parameter(action_id);
+CREATE INDEX idx_napov_nta          ON action_param_override(node_type_action_id);
+CREATE INDEX idx_ap_action          ON action_permission(action_id);
+CREATE INDEX idx_ap_nodetype        ON action_permission(node_type_id);
+CREATE INDEX idx_ap_role            ON action_permission(role_id);

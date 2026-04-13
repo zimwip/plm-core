@@ -1,29 +1,34 @@
 package com.plm.infrastructure;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.jooq.DSLContext;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * Publication d'événements PLM via WebSocket (pattern notification + fetch).
+ * Publication d'événements PLM via le pattern outbox transactionnel.
  *
- * Le frontend reçoit une notification légère puis rappelle
- * le REST endpoint pour récupérer les données complètes.
+ * Les événements sont écrits atomiquement dans event_outbox avec l'opération
+ * métier, puis lus par OutboxPoller et envoyés via WebSocket avant suppression.
  *
  * Topics :
  *  /topic/nodes/{nodeId} → événements sur un noeud spécifique
- *  /topic/locks           → vue globale des locks
+ *  /topic/global          → événements globaux (création de noeud)
+ *  /topic/baselines       → événements de baseline
+ *  /topic/transactions    → événements de transaction
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class PlmEventPublisher {
 
-    private final SimpMessagingTemplate messaging;
+    private final DSLContext dsl;
+    private final ObjectMapper objectMapper;
 
     public void lockAcquired(String nodeId, String lockedBy) {
         publish(nodeId, "LOCK_ACQUIRED", Map.of(
@@ -60,7 +65,7 @@ public class PlmEventPublisher {
     }
 
     public void baselineCreated(String baselineId, String name, String byUser) {
-        messaging.convertAndSend("/topic/baselines", Map.of(
+        enqueue("/topic/baselines", Map.of(
             "event",      "BASELINE_CREATED",
             "baselineId", baselineId,
             "name",       name,
@@ -70,7 +75,7 @@ public class PlmEventPublisher {
     }
 
     public void nodeCreated(String nodeId, String byUser) {
-        messaging.convertAndSend("/topic/global", Map.of(
+        enqueue("/topic/global", Map.of(
             "event",  "NODE_CREATED",
             "nodeId", nodeId,
             "byUser", byUser,
@@ -97,7 +102,7 @@ public class PlmEventPublisher {
     }
 
     public void transactionCommitted(String txId, java.util.List<String> nodeIds, String byUser) {
-        messaging.convertAndSend("/topic/transactions", Map.of(
+        enqueue("/topic/transactions", Map.of(
             "event",   "TX_COMMITTED",
             "txId",    txId,
             "byUser",  byUser,
@@ -116,7 +121,7 @@ public class PlmEventPublisher {
     }
 
     public void transactionRolledBack(String txId, java.util.List<String> nodeIds, String byUser) {
-        messaging.convertAndSend("/topic/transactions", Map.of(
+        enqueue("/topic/transactions", Map.of(
             "event",   "TX_ROLLED_BACK",
             "txId",    txId,
             "byUser",  byUser,
@@ -142,7 +147,7 @@ public class PlmEventPublisher {
                 "at",         LocalDateTime.now().toString()
             ));
         }
-        messaging.convertAndSend("/topic/transactions", Map.of(
+        enqueue("/topic/transactions", Map.of(
             "event",   "NODES_RELEASED",
             "byUser",  byUser,
             "nodeIds", nodeIds,
@@ -156,8 +161,23 @@ public class PlmEventPublisher {
     private void publish(String nodeId, String eventType, Map<String, Object> payload) {
         var envelope = new java.util.HashMap<>(payload);
         envelope.put("event", eventType);
+        enqueue("/topic/nodes/" + nodeId, envelope);
+        log.debug("Event enqueued: {} → node={}", eventType, nodeId);
+    }
 
-        messaging.convertAndSend("/topic/nodes/" + nodeId, envelope);
-        log.debug("Event published: {} → node={}", eventType, nodeId);
+    /**
+     * Inserts an event row into event_outbox within the current DB transaction.
+     * OutboxPoller picks it up after commit and delivers it via WebSocket.
+     */
+    private void enqueue(String destination, Object payload) {
+        try {
+            String json = objectMapper.writeValueAsString(payload);
+            dsl.execute(
+                "INSERT INTO event_outbox (id, destination, payload, created_at) VALUES (?,?,?,?)",
+                UUID.randomUUID().toString(), destination, json, LocalDateTime.now()
+            );
+        } catch (Exception e) {
+            log.error("Failed to enqueue event to outbox: destination={} error={}", destination, e.getMessage(), e);
+        }
     }
 }

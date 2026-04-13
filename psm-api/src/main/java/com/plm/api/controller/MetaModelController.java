@@ -144,6 +144,11 @@ public class MetaModelController {
         return ResponseEntity.ok(metaModelService.getAllNodeTypes());
     }
 
+    @GetMapping("/nodetypes/creatable")
+    public ResponseEntity<?> getCreatableNodeTypes() {
+        return ResponseEntity.ok(metaModelService.getCreatableNodeTypes());
+    }
+
     @PostMapping("/nodetypes")
     public ResponseEntity<Map<String, String>> createNodeType(@RequestBody Map<String, String> body) {
         String id = metaModelService.createNodeType(

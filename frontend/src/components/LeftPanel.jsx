@@ -32,6 +32,7 @@ export default function LeftPanel({
   userId,
   activeNodeId,
   onNavigate,
+  canCreateNode,
   onCreateNode,
   onCommit,
   onRollback,
@@ -211,9 +212,11 @@ export default function LeftPanel({
             <LayersIcon size={12} color="var(--muted)" strokeWidth={2} />
             <span className="panel-label">Objects</span>
           </div>
-          <button className="panel-icon-btn" title="Create new object" onClick={onCreateNode}>
-            <PlusIcon size={13} color="var(--accent)" strokeWidth={2.5} />
-          </button>
+          {canCreateNode && (
+            <button className="panel-icon-btn" title="Create new object" onClick={onCreateNode}>
+              <PlusIcon size={13} color="var(--accent)" strokeWidth={2.5} />
+            </button>
+          )}
         </div>
 
         <div className="node-list">

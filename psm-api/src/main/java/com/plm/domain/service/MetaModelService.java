@@ -1,5 +1,6 @@
 package com.plm.domain.service;
 
+import com.plm.domain.action.ActionPermissionService;
 import com.plm.infrastructure.security.PlmAction;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Gestion du méta-modèle PLM.
@@ -30,6 +32,7 @@ import java.util.UUID;
 public class MetaModelService {
 
     private final DSLContext dsl;
+    private final ActionPermissionService actionPermissionService;
 
     // ================================================================
     // LIFECYCLE
@@ -280,6 +283,16 @@ public class MetaModelService {
 
     public List<Record> getAllNodeTypes() {
         return dsl.select().from("node_type").orderBy(DSL.field("name")).fetch();
+    }
+
+    /**
+     * Returns only the node types the current user is allowed to create.
+     * Admins get all; other users are filtered by CHECKOUT action permission.
+     */
+    public List<Record> getCreatableNodeTypes() {
+        return getAllNodeTypes().stream()
+            .filter(nt -> actionPermissionService.canCreateNodeType(nt.get("id", String.class)))
+            .collect(Collectors.toList());
     }
 
     // ================================================================

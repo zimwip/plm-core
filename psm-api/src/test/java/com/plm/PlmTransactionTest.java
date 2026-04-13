@@ -46,9 +46,12 @@ class PlmTransactionTest {
     }
 
     private String createDoc() {
-        return nodeService.createNode("ps-default", NT_DOCUMENT, USER_ALICE, Map.of(
+        String nodeId = nodeService.createNode("ps-default", NT_DOCUMENT, USER_ALICE, Map.of(
             AD_DOC_TITLE, "Doc", AD_DOC_AUTHOR, "Alice", AD_DOC_CAT, "Design"
         ), null, null);
+        String txId = txService.findOpenTransaction(USER_ALICE);
+        txService.commitTransaction(txId, USER_ALICE, "Initial creation", null);
+        return nodeId;
     }
 
     /** Résout le statut de la transaction liée à une node_version. */

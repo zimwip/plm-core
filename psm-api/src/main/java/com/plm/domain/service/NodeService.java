@@ -33,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
  *   2. Trouve ou crée une transaction PLM
  *   3. Crée la version OPEN dans cette transaction (idempotent)
  *
- * Opérations sans txId (lecture seule) : createNode, buildObjectDescription
+ * Opérations sans txId (lecture seule) : buildObjectDescription
  *
  * createNode est un cas particulier : la version initiale est directement COMMITTED
  * (création = acte atomique, pas de review nécessaire).
@@ -103,19 +103,16 @@ public class NodeService {
             userId
         );
 
-        // Auto-créer une transaction committée pour la création initiale.
-        // Toute node_version doit appartenir à une transaction.
-        String creationTxId = UUID.randomUUID().toString();
-        dsl.execute(
-            """
-            INSERT INTO plm_transaction (ID, OWNER_ID, STATUS, COMMIT_COMMENT, CREATED_AT, COMMITTED_AT)
-            VALUES (?, ?, 'COMMITTED', 'Initial creation', ?, ?)
-            """,
-            creationTxId,
-            userId,
-            now,
-            now
-        );
+        // Lock the node immediately so it behaves like a checked-out node:
+        // the UI shows Checkin/Cancel instead of Checkout.
+        lockService.tryLock(nodeId, userId);
+
+        // Find or auto-create an OPEN transaction for this user.
+        // The node will only become visible to others once the transaction is committed.
+        String creationTxId = txService.findOpenTransaction(userId);
+        if (creationTxId == null) {
+            creationTxId = txService.openTransaction(userId);
+        }
 
         String lifecycleId = nodeType.get("lifecycle_id", String.class);
         String initialState = null;
@@ -128,7 +125,7 @@ public class NodeService {
                 .fetchOne("id", String.class);
         }
 
-        // Version initiale — appartient à la transaction de création (déjà committée)
+        // Version initiale — appartient à la transaction OPEN de l'utilisateur
         String versionId = UUID.randomUUID().toString();
         dsl.execute(
             """
@@ -810,7 +807,7 @@ public class NodeService {
         Record current =
             txId != null
                 ? versionService.getCurrentVersionForTx(nodeId, txId)
-                : versionService.getCurrentVersion(nodeId);
+                : txService.getCurrentVisibleVersion(nodeId);
 
         if (current == null) throw new IllegalStateException(
             "Node has no visible version: " + nodeId

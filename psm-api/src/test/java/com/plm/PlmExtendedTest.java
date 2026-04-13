@@ -84,7 +84,7 @@ class PlmExtendedTest {
     @Test
     @DisplayName("Signature : crée une version technique SIGNATURE sans changer révision.itération")
     void testSignaturePreservesIteration() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "Part A"), null, null);
+        String nodeId = setupNode("alice", Map.of(attrNameId, "Part A"));
 
         String txId = txService.openTransaction("bob");
         signatureService.sign(nodeId, "bob", txId, "Reviewed", "Looks good");
@@ -104,7 +104,7 @@ class PlmExtendedTest {
     @Test
     @DisplayName("Signature : un même utilisateur ne peut pas signer deux fois la même révision.itération")
     void testDuplicateSignatureRejected() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "Part A"), null, null);
+        String nodeId = setupNode("alice", Map.of(attrNameId, "Part A"));
 
         String txId = txService.openTransaction("bob");
         signatureService.sign(nodeId, "bob", txId, "Reviewed", null);
@@ -119,7 +119,7 @@ class PlmExtendedTest {
     @Test
     @DisplayName("Signature : après une modification de contenu (nouvelle itération), on peut re-signer")
     void testSignatureAfterContentChange() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "Part A"), null, null);
+        String nodeId = setupNode("alice", Map.of(attrNameId, "Part A"));
 
         String signTx1 = txService.openTransaction("bob");
         signatureService.sign(nodeId, "bob", signTx1, "Reviewed", null);
@@ -139,7 +139,7 @@ class PlmExtendedTest {
     @Test
     @DisplayName("Signatures : historique complet multi-versions")
     void testSignatureHistory() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "Part"), null, null);
+        String nodeId = setupNode("alice", Map.of(attrNameId, "Part"));
 
         String txBob = txService.openTransaction("bob");
         signatureService.sign(nodeId, "bob", txBob, "Reviewed", null);
@@ -160,7 +160,7 @@ class PlmExtendedTest {
     @Test
     @DisplayName("Baseline : prérequis Frozen vérifié avant création")
     void testBaselineRequiresFrozen() {
-        String parentId = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "Assembly"), null, null);
+        String parentId = setupNode("alice", Map.of(attrNameId, "Assembly"));
 
         // Pas Frozen → doit échouer
         assertThatThrownBy(() -> baselineService.createBaseline(parentId, "BL_01", null, "alice"))
@@ -172,9 +172,9 @@ class PlmExtendedTest {
     @DisplayName("Baseline : résolution eager des liens VERSION_TO_MASTER")
     void testBaselineResolvesV2MLinks() {
         // Parent + 2 enfants
-        String parentId = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "Assembly"), null, null);
-        String child1Id = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "Part 1"), null, null);
-        String child2Id = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "Part 2"), null, null);
+        String parentId = setupNode("alice", Map.of(attrNameId, "Assembly"));
+        String child1Id = setupNode("alice", Map.of(attrNameId, "Part 1"));
+        String child2Id = setupNode("alice", Map.of(attrNameId, "Part 2"));
 
         // Liens + Frozen dans la même transaction (commit requiert au moins une node_version)
         String transTx = txService.openTransaction("alice");
@@ -193,8 +193,8 @@ class PlmExtendedTest {
     @Test
     @DisplayName("Baseline : comparaison de deux baselines détecte les changements")
     void testBaselineComparison() {
-        String parentId = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "Assembly"), null, null);
-        String childId  = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "Part 1"), null, null);
+        String parentId = setupNode("alice", Map.of(attrNameId, "Assembly"));
+        String childId  = setupNode("alice", Map.of(attrNameId, "Part 1"));
 
         // Lien + Frozen A dans la même transaction
         String transTx1 = txService.openTransaction("alice");
@@ -263,11 +263,11 @@ class PlmExtendedTest {
             null, null
         );
 
-        String parent = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "A"), null, null);
-        String child1 = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "B"), null, null);
-        String child2 = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "C"), null, null);
-        String child3 = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "D"), null, null);
-        String child4 = nodeService.createNode(PS_DEFAULT, nodeTypeId, "alice", Map.of(attrNameId, "E"), null, null);
+        String parent = setupNode("alice", Map.of(attrNameId, "A"));
+        String child1 = setupNode("alice", Map.of(attrNameId, "B"));
+        String child2 = setupNode("alice", Map.of(attrNameId, "C"));
+        String child3 = setupNode("alice", Map.of(attrNameId, "D"));
+        String child4 = setupNode("alice", Map.of(attrNameId, "E"));
 
         // Version à pointer pour V2V
         String v1 = versionService.getCurrentVersion(child1).get("id", String.class);
@@ -288,5 +288,14 @@ class PlmExtendedTest {
     }
 
     // -------------------------------------------------------
+
+    /** Creates a node for the given user and immediately commits the creation transaction. */
+    private String setupNode(String userId, Map<String, String> attrs) {
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, userId, attrs, null, null);
+        String txId = txService.findOpenTransaction(userId);
+        txService.commitTransaction(txId, userId, "Initial creation", null);
+        return nodeId;
+    }
+
     private String uid() { return UUID.randomUUID().toString(); }
 }

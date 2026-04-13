@@ -135,6 +135,37 @@ public class ActionPermissionService {
         }
     }
 
+    // ── Node-type creation eligibility ───────────────────────────────
+
+    /**
+     * Returns {@code true} if the current user is allowed to create a node of the
+     * given type.  Creating a node is guarded by the CHECKOUT action at node-type
+     * scope (see {@link com.plm.domain.service.NodeService#createNode}).
+     */
+    public boolean canCreateNodeType(String nodeTypeId) {
+        PlmUserContext ctx = PlmSecurityContext.get();
+        if (ctx == null) return false;
+        if (ctx.isAdmin()) return true;
+
+        String checkoutActionId = dsl.select(DSL.field("id"))
+            .from("action")
+            .where("action_code = 'CHECKOUT'")
+            .fetchOne(DSL.field("id"), String.class);
+        if (checkoutActionId == null) return true; // no CHECKOUT action → open to all
+
+        // If no node_type_action row exists for (node_type, CHECKOUT) → open to all
+        String ntaId = dsl.select(DSL.field("id"))
+            .from("node_type_action")
+            .where("node_type_id = ?", nodeTypeId)
+            .and("action_id = ?", checkoutActionId)
+            .and("status = 'ENABLED'")
+            .limit(1)
+            .fetchOne(DSL.field("id"), String.class);
+        if (ntaId == null) return true;
+
+        return canExecuteCore(checkoutActionId, "NODE", nodeTypeId, null, ctx);
+    }
+
     // ── Global permission introspection ──────────────────────────────
 
     /**

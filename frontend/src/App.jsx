@@ -417,7 +417,8 @@ export default function App() {
   const [users,           setUsers]               = useState([]);
 
   // Data — nodes, tx, txNodes live in the global store
-  const [nodeTypes, setNodeTypes] = useState([]);
+  const [nodeTypes,          setNodeTypes]          = useState([]);
+  const [creatableNodeTypes, setCreatableNodeTypes] = useState([]);
 
   // Store
   const storeSetUserId     = usePlmStore(s => s.setUserId);
@@ -450,6 +451,7 @@ export default function App() {
         refreshTx();
       } else if (evt.event === 'NODE_CREATED') {
         refreshNodes();
+        refreshTx();
       }
     },
     userId,
@@ -479,8 +481,14 @@ export default function App() {
 
   // ── Data loading ───────────────────────────────────────────────
   const refreshNodeTypes = useCallback(async () => {
-    try { const d = await api.getNodeTypes(userId); setNodeTypes(Array.isArray(d) ? d : []); }
-    catch {}
+    try {
+      const [all, creatable] = await Promise.all([
+        api.getNodeTypes(userId),
+        api.getCreatableNodeTypes(userId),
+      ]);
+      setNodeTypes(Array.isArray(all) ? all : []);
+      setCreatableNodeTypes(Array.isArray(creatable) ? creatable : []);
+    } catch {}
   }, [userId]);
 
   const refreshProjectSpaces = useCallback(async () => {
@@ -642,6 +650,7 @@ export default function App() {
               userId={userId}
               activeNodeId={activeNodeId}
               onNavigate={navigate}
+              canCreateNode={creatableNodeTypes.length > 0}
               onCreateNode={() => setShowCreateNode(true)}
               onCommit={() => setShowCommit(true)}
               onRollback={handleRollback}
@@ -680,11 +689,11 @@ export default function App() {
         />
       )}
 
-      {showCreateNode && (
+      {showCreateNode && creatableNodeTypes.length > 0 && (
         <CreateNodeModal
           userId={userId}
-          nodeTypes={nodeTypes}
-          onCreated={async (nodeId) => { await refreshNodes(); navigate(nodeId); }}
+          nodeTypes={creatableNodeTypes}
+          onCreated={async (nodeId) => { await refreshAll(); navigate(nodeId); }}
           onClose={() => setShowCreateNode(false)}
           toast={toast}
         />

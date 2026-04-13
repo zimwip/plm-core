@@ -525,6 +525,19 @@ public class PlmTransactionService {
         // 6. node_version
         int versionsDeleted = dsl.execute("DELETE FROM node_version WHERE tx_id = ?", txId);
 
+        // 6b. Delete nodes orphaned by this rollback (created in this tx, no remaining versions)
+        if (!affectedNodeIds.isEmpty()) {
+            String placeholders = affectedNodeIds.stream()
+                .map(id -> "?")
+                .collect(Collectors.joining(", "));
+            List<Object> params = new ArrayList<>(affectedNodeIds);
+            dsl.execute(
+                "DELETE FROM node WHERE id IN (" + placeholders + ")" +
+                " AND NOT EXISTS (SELECT 1 FROM node_version WHERE node_id = node.id)",
+                params.toArray()
+            );
+        }
+
         // 7. Supprimer la transaction (pas de trace)
         dsl.execute("DELETE FROM plm_transaction WHERE id = ?", txId);
 

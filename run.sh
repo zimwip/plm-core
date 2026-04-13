@@ -8,8 +8,9 @@
 #   ./run.sh reset     # down --volumes, rebuild, start + watch
 #   ./run.sh down      # stop and remove containers
 #   ./run.sh local     # run all services natively (java + node must be in PATH)
-#   ./run.sh package   # build JARs + frontend → dist/ (compiler-free deploy)
-#   ./run.sh package -y  # same, skip confirmation if dist/ exists
+#   ./run.sh package          # build JARs + frontend → dist/ (compiler-free deploy)
+#   ./run.sh package -y       # same, skip confirmation if dist/ exists
+#   ./run.sh package --native # GraalVM static binaries (~20 MB, ~200 ms startup)
 #
 # File change → debounce 2s → rebuild/restart relevant service
 # ============================================================
@@ -482,12 +483,22 @@ run_local() {
 }
 
 # ── Package ─────────────────────────────────────────────────
-# Produces a dist/ directory containing pre-built JARs + static assets
+# Produces a dist/ directory containing pre-built artifacts + static assets
 # and a docker-compose.yml that starts everything without any compilation.
+#
+#   ./run.sh package            → JVM JARs (eclipse-temurin JRE at runtime)
+#   ./run.sh package --native   → GraalVM static binaries (~20 MB, ~200 ms)
 run_package() {
     local DIST="dist"
     local SKIP_CONFIRM=false
-    [[ "${2:-}" == "-y" || "${2:-}" == "--yes" ]] && SKIP_CONFIRM=true
+    local NATIVE_MODE=false
+
+    for arg in "$@"; do
+        case "$arg" in
+            -y|--yes)   SKIP_CONFIRM=true ;;
+            --native)   NATIVE_MODE=true  ;;
+        esac
+    done
 
     if [[ -d "$DIST" ]]; then
         if ! $SKIP_CONFIRM; then
@@ -499,22 +510,28 @@ run_package() {
     fi
     mkdir -p "$DIST/psm-api" "$DIST/pno-api" "$DIST/frontend/html"
 
-    log "=== PLM Core — package ==="
+    if $NATIVE_MODE; then
+        log "=== PLM Core — package (native) ==="
+        log "GraalVM static binaries — this takes ~5–10 min per service"
+    else
+        log "=== PLM Core — package ==="
+    fi
     log "Building pre-compiled distribution in ./$DIST/"
     echo ""
 
     # ── Helper: build builder stage, extract a path, clean up ──
     extract_from_builder() {
-        local service=$1       # human name
-        local ctx=$2           # build context dir
-        local tag=$3           # temporary image tag
-        local src_path=$4      # path inside container to copy
-        local dest=$5          # local destination
-        local build_args="${6:-}"  # optional extra --build-arg flags
+        local service=$1        # human name
+        local ctx=$2            # build context dir
+        local tag=$3            # temporary image tag
+        local src_path=$4       # path inside container to copy
+        local dest=$5           # local destination
+        local build_args="${6:-}"   # optional extra --build-arg flags
+        local dockerfile="${7:-Dockerfile}"
 
-        log "[$service] Building builder stage…"
+        log "[$service] Building builder stage (${dockerfile})…"
         # shellcheck disable=SC2086
-        docker build --target builder $build_args -t "$tag" "$ctx"
+        docker build --target builder $build_args --file "$ctx/$dockerfile" -t "$tag" "$ctx"
 
         log "[$service] Extracting artifacts…"
         local cid
@@ -525,136 +542,59 @@ run_package() {
         ok "[$service] Done."
     }
 
-    # ── PSM API ────────────────────────────────────────────────
-    extract_from_builder "psm-api" "psm-api" "plm-psm-pkg-builder" \
-        "/build/target" "$DIST/psm-api/_target" \
-        "--build-arg MAVEN_EXTRA_OPTS=-Pdist"
-    local psm_jar
-    psm_jar=$(ls "$DIST/psm-api/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1)
-    if [[ -z "$psm_jar" ]]; then
-        err "No JAR found in psm-api/target — build may have failed"; exit 1
-    fi
-    cp "$psm_jar" "$DIST/psm-api/app.jar"
-    rm -rf "$DIST/psm-api/_target"
-    echo ""
+    if $NATIVE_MODE; then
 
-    # ── PNO API ────────────────────────────────────────────────
-    extract_from_builder "pno-api" "pno-api" "plm-pno-pkg-builder" \
-        "/build/target" "$DIST/pno-api/_target" \
-        "--build-arg MAVEN_EXTRA_OPTS=-Pdist"
-    local pno_jar
-    pno_jar=$(ls "$DIST/pno-api/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1)
-    if [[ -z "$pno_jar" ]]; then
-        err "No JAR found in pno-api/target — build may have failed"; exit 1
-    fi
-    cp "$pno_jar" "$DIST/pno-api/app.jar"
-    rm -rf "$DIST/pno-api/_target"
-    echo ""
+        # ── Native: PSM API ────────────────────────────────────────
+        extract_from_builder "psm-api" "psm-api" "plm-psm-native-builder" \
+            "/build/target/server" "$DIST/psm-api/server" \
+            "" "Dockerfile.native"
+        chmod +x "$DIST/psm-api/server"
+        echo ""
 
-    # ── Frontend ───────────────────────────────────────────────
-    extract_from_builder "frontend" "frontend" "plm-fe-pkg-builder" \
-        "/app/dist/." "$DIST/frontend/html"
-    cp frontend/nginx.conf           "$DIST/frontend/nginx.conf"
-    cp frontend/docker-entrypoint.sh "$DIST/frontend/docker-entrypoint.sh"
-    echo ""
+        # ── Native: PNO API ────────────────────────────────────────
+        extract_from_builder "pno-api" "pno-api" "plm-pno-native-builder" \
+            "/build/target/server" "$DIST/pno-api/server" \
+            "" "Dockerfile.native"
+        chmod +x "$DIST/pno-api/server"
+        echo ""
 
-    # ── Thin Dockerfiles ───────────────────────────────────────
-    log "Writing thin runtime Dockerfiles…"
+        # ── Frontend (same for both modes) ─────────────────────────
+        extract_from_builder "frontend" "frontend" "plm-fe-pkg-builder" \
+            "/app/dist/." "$DIST/frontend/html"
+        cp frontend/nginx.conf           "$DIST/frontend/nginx.conf"
+        cp frontend/docker-entrypoint.sh "$DIST/frontend/docker-entrypoint.sh"
+        echo ""
 
-    # Dist Dockerfiles use a two-stage build:
-    #   Stage 1 (jlink): eclipse-temurin:21-alpine — full JDK for jar/jdeps/jlink,
-    #                     never ends up in the final image.
-    #   Stage 2 (runtime): bare Alpine + the stripped custom JRE + app.jar.
-    #
-    # jdeps derives the exact module set from the pre-built JAR so the JRE is
-    # as small as possible.  The EXTRA set covers modules Spring Boot loads
-    # dynamically (reflection, TLS, JNDI) that jdeps cannot see statically.
+        # ── Native Dockerfiles ─────────────────────────────────────
+        log "Writing native runtime Dockerfiles…"
 
-    cat > "$DIST/psm-api/Dockerfile" << 'EOF'
-# Stage 1: jdeps analysis + jlink custom JRE
-FROM eclipse-temurin:21-alpine AS jlink
-COPY app.jar /tmp/app.jar
-RUN mkdir -p /tmp/jdeps && cd /tmp/jdeps && jar xf /tmp/app.jar && \
-    DEPS=$(jdeps \
-        --multi-release 21 \
-        --ignore-missing-deps \
-        --print-module-deps \
-        --class-path '/tmp/jdeps/BOOT-INF/lib/*' \
-        /tmp/jdeps/BOOT-INF/classes \
-        2>/dev/null | tail -1) && \
-    EXTRA="jdk.crypto.ec,jdk.crypto.cryptoki,jdk.naming.dns,jdk.unsupported" && \
-    MODULES=$(printf '%s' "$DEPS,$EXTRA" | tr ',' '\n' | grep -v '^$' | sort -u | tr '\n' ',' | sed 's/,$//') && \
-    echo "=== jlink modules: $MODULES ===" && \
-    jlink \
-        --add-modules "$MODULES" \
-        --strip-debug \
-        --no-man-pages \
-        --no-header-files \
-        --compress=zip-6 \
-        --output /custom-jre
-
-# Stage 2: lean runtime
-FROM alpine:3.21 AS runtime
+        cat > "$DIST/psm-api/Dockerfile" << 'EOF'
+FROM alpine:3.21
 RUN apk add --no-cache wget
-COPY --from=jlink /custom-jre /opt/jre
 RUN addgroup -S plm && adduser -S plm -G plm
 USER plm
 WORKDIR /app
-COPY app.jar .
+COPY server .
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
     CMD wget -qO- http://localhost:8080/actuator/health || exit 1
-ENTRYPOINT ["/opt/jre/bin/java", \
-    "-XX:+UseContainerSupport", \
-    "-XX:MaxRAMPercentage=75.0", \
-    "-Djava.awt.headless=true", \
-    "-Djava.security.egd=file:/dev/./urandom", \
-    "-jar", "app.jar"]
+ENTRYPOINT ["./server"]
 EOF
 
-    cat > "$DIST/pno-api/Dockerfile" << 'EOF'
-# Stage 1: jdeps analysis + jlink custom JRE
-FROM eclipse-temurin:21-alpine AS jlink
-COPY app.jar /tmp/app.jar
-RUN mkdir -p /tmp/jdeps && cd /tmp/jdeps && jar xf /tmp/app.jar && \
-    DEPS=$(jdeps \
-        --multi-release 21 \
-        --ignore-missing-deps \
-        --print-module-deps \
-        --class-path '/tmp/jdeps/BOOT-INF/lib/*' \
-        /tmp/jdeps/BOOT-INF/classes \
-        2>/dev/null | tail -1) && \
-    EXTRA="jdk.crypto.ec,jdk.crypto.cryptoki,jdk.naming.dns,jdk.unsupported" && \
-    MODULES=$(printf '%s' "$DEPS,$EXTRA" | tr ',' '\n' | grep -v '^$' | sort -u | tr '\n' ',' | sed 's/,$//') && \
-    echo "=== jlink modules: $MODULES ===" && \
-    jlink \
-        --add-modules "$MODULES" \
-        --strip-debug \
-        --no-man-pages \
-        --no-header-files \
-        --compress=zip-6 \
-        --output /custom-jre
-
-# Stage 2: lean runtime
-FROM alpine:3.21 AS runtime
+        cat > "$DIST/pno-api/Dockerfile" << 'EOF'
+FROM alpine:3.21
 RUN apk add --no-cache wget
-COPY --from=jlink /custom-jre /opt/jre
 RUN addgroup -S pno && adduser -S pno -G pno
 USER pno
 WORKDIR /app
-COPY app.jar .
+COPY server .
 EXPOSE 8081
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
     CMD wget -qO- http://localhost:8081/actuator/health || exit 1
-ENTRYPOINT ["/opt/jre/bin/java", \
-    "-XX:+UseContainerSupport", \
-    "-XX:MaxRAMPercentage=75.0", \
-    "-Djava.awt.headless=true", \
-    "-Djava.security.egd=file:/dev/./urandom", \
-    "-jar", "app.jar"]
+ENTRYPOINT ["./server"]
 EOF
 
-    cat > "$DIST/frontend/Dockerfile" << 'EOF'
+        cat > "$DIST/frontend/Dockerfile" << 'EOF'
 FROM nginx:alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker-entrypoint.sh /docker-entrypoint.sh
@@ -664,10 +604,220 @@ EXPOSE 80
 ENTRYPOINT ["/docker-entrypoint.sh"]
 EOF
 
-    # ── docker-compose.yml ─────────────────────────────────────
-    log "Writing dist/docker-compose.yml…"
+        # ── Native docker-compose.yml ──────────────────────────────
+        log "Writing dist/docker-compose.yml (native)…"
 
-    cat > "$DIST/docker-compose.yml" << 'EOF'
+        cat > "$DIST/docker-compose.yml" << 'EOF'
+# ============================================================
+# PLM Core — pre-built native distribution
+# No JVM required: static binaries run directly on Alpine.
+#
+# Usage:
+#   cd dist/
+#   docker compose up --build   # first run (builds thin images)
+#   docker compose up           # subsequent runs
+#   docker compose down -v      # stop + wipe database
+#
+# Set PG_PASSWORD in a .env file or export it before running.
+# ============================================================
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: plm-postgres
+    environment:
+      POSTGRES_DB:       plmdb
+      POSTGRES_USER:     plm
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    volumes:
+      - plm-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plm -d plmdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  pno-api:
+    build: ./pno-api
+    image: pno-api:native
+    container_name: pno-api
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
+      SPRING_DATASOURCE_USERNAME:          plm
+      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:-changeme}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     pno
+      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
+      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        pno
+      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_PNO:               INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  psm-api:
+    build: ./psm-api
+    image: psm-api:native
+    container_name: psm-api
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
+      SPRING_DATASOURCE_USERNAME:          plm
+      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:-changeme}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
+      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        psm
+      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     psm
+      PNO_API_URL:                         http://pno-api:8081
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_PLM:               INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pno-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  plm-frontend:
+    build: ./frontend
+    image: plm-frontend:native
+    container_name: plm-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      psm-api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+networks:
+  plm-net:
+    driver: bridge
+
+volumes:
+  plm-pgdata:
+    driver: local
+EOF
+
+    else
+
+        # ── JVM: PSM API ───────────────────────────────────────────
+        extract_from_builder "psm-api" "psm-api" "plm-psm-pkg-builder" \
+            "/build/target" "$DIST/psm-api/_target" \
+            "--build-arg MAVEN_EXTRA_OPTS=-Pdist"
+        local psm_jar
+        psm_jar=$(ls "$DIST/psm-api/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1)
+        if [[ -z "$psm_jar" ]]; then
+            err "No JAR found in psm-api/target — build may have failed"; exit 1
+        fi
+        cp "$psm_jar" "$DIST/psm-api/app.jar"
+        rm -rf "$DIST/psm-api/_target"
+        echo ""
+
+        # ── JVM: PNO API ───────────────────────────────────────────
+        extract_from_builder "pno-api" "pno-api" "plm-pno-pkg-builder" \
+            "/build/target" "$DIST/pno-api/_target" \
+            "--build-arg MAVEN_EXTRA_OPTS=-Pdist"
+        local pno_jar
+        pno_jar=$(ls "$DIST/pno-api/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1)
+        if [[ -z "$pno_jar" ]]; then
+            err "No JAR found in pno-api/target — build may have failed"; exit 1
+        fi
+        cp "$pno_jar" "$DIST/pno-api/app.jar"
+        rm -rf "$DIST/pno-api/_target"
+        echo ""
+
+        # ── Frontend ───────────────────────────────────────────────
+        extract_from_builder "frontend" "frontend" "plm-fe-pkg-builder" \
+            "/app/dist/." "$DIST/frontend/html"
+        cp frontend/nginx.conf           "$DIST/frontend/nginx.conf"
+        cp frontend/docker-entrypoint.sh "$DIST/frontend/docker-entrypoint.sh"
+        echo ""
+
+        # ── JVM Thin Dockerfiles ───────────────────────────────────
+        log "Writing thin runtime Dockerfiles…"
+
+        cat > "$DIST/psm-api/Dockerfile" << 'EOF'
+FROM eclipse-temurin:21-jre-alpine
+RUN apk add --no-cache wget
+RUN addgroup -S plm && adduser -S plm -G plm
+USER plm
+WORKDIR /app
+COPY app.jar .
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+ENTRYPOINT ["java", \
+    "-XX:+UseContainerSupport", \
+    "-XX:MaxRAMPercentage=75.0", \
+    "-Djava.awt.headless=true", \
+    "-Djava.security.egd=file:/dev/./urandom", \
+    "-jar", "app.jar"]
+EOF
+
+        cat > "$DIST/pno-api/Dockerfile" << 'EOF'
+FROM eclipse-temurin:21-jre-alpine
+RUN apk add --no-cache wget
+RUN addgroup -S pno && adduser -S pno -G pno
+USER pno
+WORKDIR /app
+COPY app.jar .
+EXPOSE 8081
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget -qO- http://localhost:8081/actuator/health || exit 1
+ENTRYPOINT ["java", \
+    "-XX:+UseContainerSupport", \
+    "-XX:MaxRAMPercentage=75.0", \
+    "-Djava.awt.headless=true", \
+    "-Djava.security.egd=file:/dev/./urandom", \
+    "-jar", "app.jar"]
+EOF
+
+        cat > "$DIST/frontend/Dockerfile" << 'EOF'
+FROM nginx:alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+COPY html /usr/share/nginx/html
+EXPOSE 80
+ENTRYPOINT ["/docker-entrypoint.sh"]
+EOF
+
+        # ── JVM docker-compose.yml ─────────────────────────────────
+        log "Writing dist/docker-compose.yml…"
+
+        cat > "$DIST/docker-compose.yml" << 'EOF'
 # ============================================================
 # PLM Core — pre-built distribution
 # No compilation required: images are built from local JARs.
@@ -790,27 +940,48 @@ volumes:
     driver: local
 EOF
 
-    # ── .env.example ───────────────────────────────────────────
+    fi
+
+    # ── .env.example (same for both modes) ───────────────────
     cat > "$DIST/.env.example" << 'EOF'
 # Copy to .env and set a strong password before first launch.
 PG_PASSWORD=changeme
 EOF
 
     echo ""
-    echo "  ┌──────────────────────────────────────────────────────┐"
-    echo "  │  Distribution ready in ./$DIST/                      │"
-    echo "  │                                                        │"
-    echo "  │  Contents:                                             │"
-    echo "  │    dist/psm-api/app.jar   + Dockerfile (no compiler)  │"
-    echo "  │    dist/pno-api/app.jar   + Dockerfile (no compiler)  │"
-    echo "  │    dist/frontend/html/    + Dockerfile (nginx)        │"
-    echo "  │    dist/docker-compose.yml                             │"
-    echo "  │                                                        │"
-    echo "  │  To deploy:                                            │"
-    echo "  │    cd dist/                                            │"
-    echo "  │    cp .env.example .env && vi .env                     │"
-    echo "  │    docker compose up --build                           │"
-    echo "  └──────────────────────────────────────────────────────┘"
+    if $NATIVE_MODE; then
+        echo "  ┌────────────────────────────────────────────────────────────┐"
+        echo "  │  Native distribution ready in ./$DIST/                     │"
+        echo "  │                                                              │"
+        echo "  │  Contents:                                                   │"
+        echo "  │    dist/psm-api/server    + Dockerfile (static binary)      │"
+        echo "  │    dist/pno-api/server    + Dockerfile (static binary)      │"
+        echo "  │    dist/frontend/html/    + Dockerfile (nginx)              │"
+        echo "  │    dist/docker-compose.yml                                   │"
+        echo "  │                                                              │"
+        echo "  │  Images: ~20 MB per service  |  Startup: ~200 ms            │"
+        echo "  │                                                              │"
+        echo "  │  To deploy:                                                  │"
+        echo "  │    cd dist/                                                  │"
+        echo "  │    cp .env.example .env && vi .env                           │"
+        echo "  │    docker compose up --build                                 │"
+        echo "  └────────────────────────────────────────────────────────────┘"
+    else
+        echo "  ┌──────────────────────────────────────────────────────┐"
+        echo "  │  Distribution ready in ./$DIST/                      │"
+        echo "  │                                                        │"
+        echo "  │  Contents:                                             │"
+        echo "  │    dist/psm-api/app.jar   + Dockerfile (no compiler)  │"
+        echo "  │    dist/pno-api/app.jar   + Dockerfile (no compiler)  │"
+        echo "  │    dist/frontend/html/    + Dockerfile (nginx)        │"
+        echo "  │    dist/docker-compose.yml                             │"
+        echo "  │                                                        │"
+        echo "  │  To deploy:                                            │"
+        echo "  │    cd dist/                                            │"
+        echo "  │    cp .env.example .env && vi .env                     │"
+        echo "  │    docker compose up --build                           │"
+        echo "  └──────────────────────────────────────────────────────┘"
+    fi
     echo ""
     ok "Package complete."
 }

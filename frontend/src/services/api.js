@@ -147,6 +147,10 @@ export const api = {
   getNodeTypes: (userId) =>
     request('GET', '/metamodel/nodetypes', userId),
 
+  // Lister les types de noeuds que l'utilisateur courant peut créer
+  getCreatableNodeTypes: (userId) =>
+    request('GET', '/metamodel/nodetypes/creatable', userId),
+
   // Lister tous les noeuds (dernière version committée)
   listNodes: (userId) =>
     request('GET', '/nodes', userId),

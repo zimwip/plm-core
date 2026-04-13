@@ -1,0 +1,47 @@
+# ============================================================
+# PSM API - Dockerfile.native (GraalVM Native Image)
+#
+# Stage 1 (builder) : GraalVM CE 21 (musl) + Maven
+#                     → Spring Boot AOT + native-image compilation
+#                     → fully-static musl binary  target/server
+# Stage 2 (runtime) : bare Alpine 3.21 (no JVM required)
+#
+# Build time : ~5–10 min (native-image is slow by design)
+# Image size  : ~20 MB
+# Startup     : ~200 ms
+# ============================================================
+
+# ── Stage 1: compile ─────────────────────────────────────────
+FROM ghcr.io/graalvm/native-image-community:21-muslib AS builder
+
+WORKDIR /build
+
+# Install Maven (Oracle Linux base, uses microdnf)
+RUN microdnf install -y maven findutils && microdnf clean all
+
+COPY pom.xml .
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn dependency:go-offline --no-transfer-progress 2>/dev/null || true
+
+COPY src ./src
+# -Pnative,dist : native-image compilation + no Swagger UI assets
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -Pnative,dist clean package -Dmaven.test.skip=true --no-transfer-progress
+
+# ── Stage 2: runtime ─────────────────────────────────────────
+FROM alpine:3.21 AS runtime
+
+RUN apk add --no-cache wget
+
+RUN addgroup -S plm && adduser -S plm -G plm
+USER plm
+WORKDIR /app
+
+COPY --chown=plm:plm --from=builder /build/target/server .
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
+    CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+
+ENTRYPOINT ["./server"]

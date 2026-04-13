@@ -115,7 +115,7 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Création d'un noeud → état initial = Draft, révision A, itération 1")
     void testNodeCreation() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Mon Document"), null, null);
+        String nodeId = setupNode(Map.of(attrNameId, "Mon Document"));
 
         var version = versionService.getCurrentVersion(nodeId);
         assertThat(version).isNotNull();
@@ -128,7 +128,7 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Modification de contenu → incrémente l'itération A.1 → A.2")
     void testContentModification() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc v1"), null, null);
+        String nodeId = setupNode(Map.of(attrNameId, "Doc v1"));
 
         String txId = txService.openTransaction(ALICE);
         nodeService.modifyNode(nodeId, ALICE, txId, Map.of(attrNameId, "Doc v2"), "Update name");
@@ -143,7 +143,7 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Changement de lifecycle → même révision.itération, nouvelle version technique")
     void testLifecycleChangePreservesIteration() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"), null, null);
+        String nodeId = setupNode(Map.of(attrNameId, "Doc"));
 
         String txId = txService.openTransaction(ALICE);
         lifecycleService.applyTransition(nodeId, transitionToReviewId, ALICE, txId);
@@ -160,7 +160,7 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Passage Released → nouvelle révision B, itération 1")
     void testReleaseIncrementsRevision() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"), null, null);
+        String nodeId = setupNode(Map.of(attrNameId, "Doc"));
 
         String tx1 = txService.openTransaction(ALICE);
         lifecycleService.applyTransition(nodeId, transitionToReviewId, ALICE, tx1);
@@ -178,7 +178,7 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Audit trail : plusieurs versions avec même révision.itération pour les changements lifecycle")
     void testAuditTrail() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"), null, null);
+        String nodeId = setupNode(Map.of(attrNameId, "Doc"));
 
         String txId = txService.openTransaction(ALICE);
         lifecycleService.applyTransition(nodeId, transitionToReviewId, ALICE, txId);
@@ -206,7 +206,7 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Lock exclusif : fail-fast si noeud déjà locké par une autre transaction")
     void testLockConflict() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"), null, null);
+        String nodeId = setupNode(Map.of(attrNameId, "Doc"));
 
         // Alice checkout le noeud : acquiert le lock et crée une version OPEN
         String aliceTxId = txService.openTransaction(ALICE);
@@ -222,7 +222,7 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Server-Driven UI : payload contient attributs et actions disponibles")
     void testObjectDescription() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"), null, null);
+        String nodeId = setupNode(Map.of(attrNameId, "Doc"));
 
         var desc = nodeService.buildObjectDescription(nodeId, ALICE, null);
 
@@ -236,6 +236,14 @@ class PlmIntegrationTest {
     }
 
     // -------------------------------------------------------
+
+    /** Creates a node for ALICE and immediately commits the creation transaction. */
+    private String setupNode(Map<String, String> attrs) {
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, attrs, null, null);
+        String txId = txService.findOpenTransaction(ALICE);
+        txService.commitTransaction(txId, ALICE, "Initial creation", null);
+        return nodeId;
+    }
 
     private String uid() { return UUID.randomUUID().toString(); }
 }
