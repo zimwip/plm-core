@@ -48,13 +48,9 @@ public class ActionPermissionService {
     /**
      * Throws {@link AccessDeniedException} if the current user cannot execute
      * the given node_type_action.
-     *
-     * <p>{@code currentStateId} is kept for backward compatibility but no longer
-     * participates in the permission lookup — state filtering is the caller's
-     * responsibility (see {@link com.plm.domain.action.ActionService}).
      */
-    public void assertCanExecute(String nodeTypeActionId, String currentStateId) {
-        if (!canExecute(nodeTypeActionId, currentStateId)) {
+    public void assertCanExecute(String nodeTypeActionId) {
+        if (!canExecute(nodeTypeActionId)) {
             PlmUserContext ctx = PlmSecurityContext.get();
             throw new AccessDeniedException(
                 "User " + (ctx != null ? ctx.getUserId() : "unknown")
@@ -64,9 +60,8 @@ public class ActionPermissionService {
 
     /**
      * Returns {@code true} if the current user can execute the given node_type_action.
-     * {@code currentStateId} is ignored — kept for backward compatibility.
      */
-    public boolean canExecute(String nodeTypeActionId, String currentStateId) {
+    public boolean canExecute(String nodeTypeActionId) {
         PlmUserContext ctx = PlmSecurityContext.get();
         if (ctx == null || ctx.isAdmin()) return true;
 

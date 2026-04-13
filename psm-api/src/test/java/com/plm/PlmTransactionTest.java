@@ -48,7 +48,7 @@ class PlmTransactionTest {
     private String createDoc() {
         return nodeService.createNode("ps-default", NT_DOCUMENT, USER_ALICE, Map.of(
             AD_DOC_TITLE, "Doc", AD_DOC_AUTHOR, "Alice", AD_DOC_CAT, "Design"
-        ));
+        ), null, null);
     }
 
     /** Résout le statut de la transaction liée à une node_version. */
@@ -222,7 +222,7 @@ class PlmTransactionTest {
 
         nodeService.modifyNode(nodeId, USER_ALICE, txId, Map.of(AD_DOC_TITLE, "Final title"), "Done");
 
-        txService.commitTransaction(txId, USER_ALICE, "Feature A complete — reviewed and validated");
+        txService.commitTransaction(txId, USER_ALICE, "Feature A complete — reviewed and validated", null);
 
         // Statut tx → COMMITTED
         var tx = txService.getTransaction(txId);
@@ -248,11 +248,11 @@ class PlmTransactionTest {
         String txId   = txService.openTransaction(USER_ALICE);
         nodeService.checkout(nodeId, USER_ALICE, txId);
 
-        assertThatThrownBy(() -> txService.commitTransaction(txId, USER_ALICE, ""))
+        assertThatThrownBy(() -> txService.commitTransaction(txId, USER_ALICE, "", null))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("comment is required");
 
-        assertThatThrownBy(() -> txService.commitTransaction(txId, USER_ALICE, null))
+        assertThatThrownBy(() -> txService.commitTransaction(txId, USER_ALICE, null, null))
             .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -263,7 +263,7 @@ class PlmTransactionTest {
         String txId = txService.openTransaction(USER_ALICE);
 
         asBob();
-        assertThatThrownBy(() -> txService.commitTransaction(txId, USER_BOB, "Trying to commit"))
+        assertThatThrownBy(() -> txService.commitTransaction(txId, USER_BOB, "Trying to commit", null))
             .isInstanceOf(PermissionService.AccessDeniedException.class);
     }
 
@@ -275,7 +275,7 @@ class PlmTransactionTest {
         String txId   = txService.openTransaction(USER_ALICE);
         nodeService.modifyNode(nodeId, USER_ALICE, txId, Map.of(AD_DOC_TITLE, "New title"), "Done");
 
-        txService.commitTransaction(txId, USER_ALICE, "Feature complete");
+        txService.commitTransaction(txId, USER_ALICE, "Feature complete", null);
 
         // Bob voit maintenant la nouvelle version (tx committée)
         asBob();
@@ -380,9 +380,9 @@ class PlmTransactionTest {
         String nodeId = createDoc();
         String txId = txService.openTransaction(USER_ALICE);
         nodeService.modifyNode(nodeId, USER_ALICE, txId, Map.of(AD_DOC_TITLE, "v2"), "setup");
-        txService.commitTransaction(txId, USER_ALICE, "Done");
+        txService.commitTransaction(txId, USER_ALICE, "Done", null);
 
-        assertThatThrownBy(() -> txService.commitTransaction(txId, USER_ALICE, "Again"))
+        assertThatThrownBy(() -> txService.commitTransaction(txId, USER_ALICE, "Again", null))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("already");
     }

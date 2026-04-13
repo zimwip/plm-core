@@ -453,7 +453,7 @@ public class MetaModelController {
         @PathVariable String ntaId,
         @RequestBody Map<String, String> body
     ) {
-        metaModelService.setNodeTypeActionPermission(ntaId, body.get("roleId"), body.get("lifecycleStateId"));
+        metaModelService.setNodeTypeActionPermission(ntaId, body.get("roleId"));
         return ResponseEntity.ok(Map.of("id", ntaId));
     }
 
@@ -463,7 +463,7 @@ public class MetaModelController {
         @PathVariable String ntaId,
         @RequestBody Map<String, String> body
     ) {
-        metaModelService.removeNodeTypeActionPermission(ntaId, body.get("roleId"), body.get("lifecycleStateId"));
+        metaModelService.removeNodeTypeActionPermission(ntaId, body.get("roleId"));
         return ResponseEntity.noContent().build();
     }
 

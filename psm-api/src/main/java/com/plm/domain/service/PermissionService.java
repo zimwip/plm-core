@@ -84,7 +84,7 @@ public class PermissionService {
 
         if (ntaId == null) return; // no action registered → open to all
 
-        if (!actionPermissionService.canExecute(ntaId, null)) {
+        if (!actionPermissionService.canExecute(ntaId)) {
             throw new AccessDeniedException(
                 "User " + ctx.getUserId() + " cannot trigger transition " + transitionId);
         }
@@ -312,7 +312,7 @@ public class PermissionService {
             .fetchOne(DSL.field("id"), String.class);
         if (ntaId == null) return false;
 
-        return actionPermissionService.canExecute(ntaId, null);
+        return actionPermissionService.canExecute(ntaId);
     }
 
     /**
@@ -332,7 +332,7 @@ public class PermissionService {
             .fetchOne(DSL.field("id"), String.class);
         if (ntaId == null) return false;
 
-        return actionPermissionService.canExecute(ntaId, null);
+        return actionPermissionService.canExecute(ntaId);
     }
 
     private void assertCurrentUserIsAdmin() {

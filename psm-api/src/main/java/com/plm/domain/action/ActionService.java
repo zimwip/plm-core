@@ -112,7 +112,7 @@ public class ActionService {
             }
 
             // Permission check
-            if (!permissionService.canExecute(ntaId, currentStateId)) continue;
+            if (!permissionService.canExecute(ntaId)) continue;
 
             // Build display name
             String overrideName = row.get("display_name_override", String.class);

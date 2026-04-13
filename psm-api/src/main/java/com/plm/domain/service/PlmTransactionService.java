@@ -168,16 +168,6 @@ public class PlmTransactionService {
     // COMMIT
     // ================================================================
 
-    /** Backward-compatible overload — commits all nodes in the transaction. */
-    @Transactional
-    public String commitTransaction(
-        String txId,
-        String userId,
-        String comment
-    ) {
-        return commitTransaction(txId, userId, comment, null);
-    }
-
     /**
      * Commit partiel ou total.
      *

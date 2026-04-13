@@ -54,12 +54,7 @@
             <version>${flyway.version}</version>
         </dependency>
 
-        <!-- OpenAPI / Swagger -->
-        <dependency>
-            <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>2.4.0</version>
-        </dependency>
+        <!-- OpenAPI / Swagger — UI variant added by the dev profile below -->
 
         <!-- Caffeine cache — for PnoApiClient user-context cache -->
         <dependency>
@@ -209,4 +204,38 @@
 
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          dev (default): full Swagger UI for interactive API exploration.
+          Activated automatically unless another profile is explicitly requested.
+        -->
+        <profile>
+            <id>dev</id>
+            <activation><activeByDefault>true</activeByDefault></activation>
+            <dependencies>
+                <dependency>
+                    <groupId>org.springdoc</groupId>
+                    <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                    <version>2.4.0</version>
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <!--
+          dist: API spec only — drops the swagger-ui-dist webjar (~10 MB).
+          Activated by run.sh package via -Pdist; suppresses 'dev' automatically.
+        -->
+        <profile>
+            <id>dist</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.springdoc</groupId>
+                    <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+                    <version>2.4.0</version>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+
 </project>

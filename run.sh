@@ -510,9 +510,11 @@ run_package() {
         local tag=$3           # temporary image tag
         local src_path=$4      # path inside container to copy
         local dest=$5          # local destination
+        local build_args="${6:-}"  # optional extra --build-arg flags
 
         log "[$service] Building builder stage…"
-        docker build --target builder -t "$tag" "$ctx"
+        # shellcheck disable=SC2086
+        docker build --target builder $build_args -t "$tag" "$ctx"
 
         log "[$service] Extracting artifacts…"
         local cid
@@ -525,7 +527,8 @@ run_package() {
 
     # ── PSM API ────────────────────────────────────────────────
     extract_from_builder "psm-api" "psm-api" "plm-psm-pkg-builder" \
-        "/build/target" "$DIST/psm-api/_target"
+        "/build/target" "$DIST/psm-api/_target" \
+        "--build-arg MAVEN_EXTRA_OPTS=-Pdist"
     local psm_jar
     psm_jar=$(ls "$DIST/psm-api/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1)
     if [[ -z "$psm_jar" ]]; then
@@ -537,7 +540,8 @@ run_package() {
 
     # ── PNO API ────────────────────────────────────────────────
     extract_from_builder "pno-api" "pno-api" "plm-pno-pkg-builder" \
-        "/build/target" "$DIST/pno-api/_target"
+        "/build/target" "$DIST/pno-api/_target" \
+        "--build-arg MAVEN_EXTRA_OPTS=-Pdist"
     local pno_jar
     pno_jar=$(ls "$DIST/pno-api/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1)
     if [[ -z "$pno_jar" ]]; then
@@ -550,14 +554,49 @@ run_package() {
     # ── Frontend ───────────────────────────────────────────────
     extract_from_builder "frontend" "frontend" "plm-fe-pkg-builder" \
         "/app/dist/." "$DIST/frontend/html"
-    cp frontend/nginx.conf "$DIST/frontend/nginx.conf"
+    cp frontend/nginx.conf           "$DIST/frontend/nginx.conf"
+    cp frontend/docker-entrypoint.sh "$DIST/frontend/docker-entrypoint.sh"
     echo ""
 
     # ── Thin Dockerfiles ───────────────────────────────────────
     log "Writing thin runtime Dockerfiles…"
 
+    # Dist Dockerfiles use a two-stage build:
+    #   Stage 1 (jlink): eclipse-temurin:21-alpine — full JDK for jar/jdeps/jlink,
+    #                     never ends up in the final image.
+    #   Stage 2 (runtime): bare Alpine + the stripped custom JRE + app.jar.
+    #
+    # jdeps derives the exact module set from the pre-built JAR so the JRE is
+    # as small as possible.  The EXTRA set covers modules Spring Boot loads
+    # dynamically (reflection, TLS, JNDI) that jdeps cannot see statically.
+
     cat > "$DIST/psm-api/Dockerfile" << 'EOF'
-FROM eclipse-temurin:21-jre-alpine
+# Stage 1: jdeps analysis + jlink custom JRE
+FROM eclipse-temurin:21-alpine AS jlink
+COPY app.jar /tmp/app.jar
+RUN mkdir -p /tmp/jdeps && cd /tmp/jdeps && jar xf /tmp/app.jar && \
+    DEPS=$(jdeps \
+        --multi-release 21 \
+        --ignore-missing-deps \
+        --print-module-deps \
+        --class-path '/tmp/jdeps/BOOT-INF/lib/*' \
+        /tmp/jdeps/BOOT-INF/classes \
+        2>/dev/null | tail -1) && \
+    EXTRA="jdk.crypto.ec,jdk.crypto.cryptoki,jdk.naming.dns,jdk.unsupported" && \
+    MODULES=$(printf '%s' "$DEPS,$EXTRA" | tr ',' '\n' | grep -v '^$' | sort -u | tr '\n' ',' | sed 's/,$//') && \
+    echo "=== jlink modules: $MODULES ===" && \
+    jlink \
+        --add-modules "$MODULES" \
+        --strip-debug \
+        --no-man-pages \
+        --no-header-files \
+        --compress=zip-6 \
+        --output /custom-jre
+
+# Stage 2: lean runtime
+FROM alpine:3.21 AS runtime
+RUN apk add --no-cache wget
+COPY --from=jlink /custom-jre /opt/jre
 RUN addgroup -S plm && adduser -S plm -G plm
 USER plm
 WORKDIR /app
@@ -565,25 +604,52 @@ COPY app.jar .
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget -qO- http://localhost:8080/actuator/health || exit 1
-ENTRYPOINT ["java", \
+ENTRYPOINT ["/opt/jre/bin/java", \
     "-XX:+UseContainerSupport", \
     "-XX:MaxRAMPercentage=75.0", \
+    "-Djava.awt.headless=true", \
     "-Djava.security.egd=file:/dev/./urandom", \
     "-jar", "app.jar"]
 EOF
 
     cat > "$DIST/pno-api/Dockerfile" << 'EOF'
-FROM eclipse-temurin:21-jre-alpine
-RUN addgroup -S plm && adduser -S plm -G plm
-USER plm
+# Stage 1: jdeps analysis + jlink custom JRE
+FROM eclipse-temurin:21-alpine AS jlink
+COPY app.jar /tmp/app.jar
+RUN mkdir -p /tmp/jdeps && cd /tmp/jdeps && jar xf /tmp/app.jar && \
+    DEPS=$(jdeps \
+        --multi-release 21 \
+        --ignore-missing-deps \
+        --print-module-deps \
+        --class-path '/tmp/jdeps/BOOT-INF/lib/*' \
+        /tmp/jdeps/BOOT-INF/classes \
+        2>/dev/null | tail -1) && \
+    EXTRA="jdk.crypto.ec,jdk.crypto.cryptoki,jdk.naming.dns,jdk.unsupported" && \
+    MODULES=$(printf '%s' "$DEPS,$EXTRA" | tr ',' '\n' | grep -v '^$' | sort -u | tr '\n' ',' | sed 's/,$//') && \
+    echo "=== jlink modules: $MODULES ===" && \
+    jlink \
+        --add-modules "$MODULES" \
+        --strip-debug \
+        --no-man-pages \
+        --no-header-files \
+        --compress=zip-6 \
+        --output /custom-jre
+
+# Stage 2: lean runtime
+FROM alpine:3.21 AS runtime
+RUN apk add --no-cache wget
+COPY --from=jlink /custom-jre /opt/jre
+RUN addgroup -S pno && adduser -S pno -G pno
+USER pno
 WORKDIR /app
 COPY app.jar .
 EXPOSE 8081
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget -qO- http://localhost:8081/actuator/health || exit 1
-ENTRYPOINT ["java", \
+ENTRYPOINT ["/opt/jre/bin/java", \
     "-XX:+UseContainerSupport", \
     "-XX:MaxRAMPercentage=75.0", \
+    "-Djava.awt.headless=true", \
     "-Djava.security.egd=file:/dev/./urandom", \
     "-jar", "app.jar"]
 EOF
@@ -591,9 +657,11 @@ EOF
     cat > "$DIST/frontend/Dockerfile" << 'EOF'
 FROM nginx:alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 COPY html /usr/share/nginx/html
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
 EOF
 
     # ── docker-compose.yml ─────────────────────────────────────

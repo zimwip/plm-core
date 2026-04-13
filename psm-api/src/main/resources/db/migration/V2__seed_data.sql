@@ -120,43 +120,46 @@ INSERT INTO link_type_cascade (id, link_type_id, parent_transition_id, child_fro
 -- ACTION CATALOG
 -- ============================================================
 
-INSERT INTO node_action (id, action_code, action_kind, display_name, description, handler_ref, display_category, requires_tx, is_default) VALUES
-  -- Structural permission anchor (hidden from UI action list)
-  ('act-read',        'READ',        'BUILTIN', 'Read',           'Read access to nodes of this type',           'noopActionHandler',       'STRUCTURAL', 0, 0),
+INSERT INTO action (id, action_code, action_kind, scope, display_name, description, handler_ref, display_category, requires_tx, is_default) VALUES
+  -- Structural permission anchors (hidden from UI action list)
+  ('act-read',             'READ',             'BUILTIN', 'NODE',      'Read',                    'Read access to nodes of this type',                                               'noopActionHandler',       'STRUCTURAL', 0, 0),
+  ('act-manage-metamodel', 'MANAGE_METAMODEL', 'BUILTIN', 'GLOBAL',    'Manage Metamodel',        'Create/update/delete lifecycle, node types, link types, attribute definitions',   '_global',                 'STRUCTURAL', 0, 0),
+  ('act-manage-roles',     'MANAGE_ROLES',     'BUILTIN', 'GLOBAL',    'Manage Roles & Permissions','Configure action permissions, views, and view overrides',                      '_global',                 'STRUCTURAL', 0, 0),
+  ('act-manage-baselines', 'MANAGE_BASELINES', 'BUILTIN', 'GLOBAL',    'Manage Baselines',        'Create baselines (service-level, outside action dispatch)',                      '_global',                 'STRUCTURAL', 0, 0),
   -- Operational actions
-  ('act-checkout',    'CHECKOUT',    'BUILTIN', 'Checkout',       'Open a node for editing',                     'checkoutActionHandler',   'SECONDARY',  0, 1),
-  ('act-checkin',     'CHECKIN',     'BUILTIN', 'Check In',       'Commit this node and close its transaction',  'checkinActionHandler',    'SECONDARY',  1, 1),
-  ('act-update-node', 'UPDATE_NODE', 'BUILTIN', 'Update Node',    'Save attribute changes to the open version',  'updateNodeActionHandler', 'SECONDARY',  1, 1),
-  ('act-transition',  'TRANSITION',  'BUILTIN', 'Transition',     'Apply a lifecycle state transition',          'transitionActionHandler', 'PRIMARY',    1, 0),
-  ('act-sign',        'SIGN',        'BUILTIN', 'Sign',           'Record an electronic signature',              'signActionHandler',       'PRIMARY',    1, 1),
-  ('act-create-link', 'CREATE_LINK', 'BUILTIN', 'Create Link',    'Add a link to another node',                  'createLinkActionHandler', 'SECONDARY',  1, 1),
-  ('act-update-link', 'UPDATE_LINK', 'BUILTIN', 'Update Link',    'Modify link attributes',                      'updateLinkActionHandler', 'SECONDARY',  1, 1),
-  ('act-delete-link', 'DELETE_LINK', 'BUILTIN', 'Delete Link',    'Remove a link between nodes',                 'deleteLinkActionHandler', 'DANGEROUS',  1, 1),
-  ('act-baseline',    'BASELINE',    'BUILTIN', 'Create Baseline','Tag a frozen tree as a baseline',             'baselineActionHandler',   'SECONDARY',  0, 1);
+  ('act-checkout',    'CHECKOUT',    'BUILTIN', 'NODE',      'Checkout',       'Open a node for editing',                    'checkoutActionHandler',   'SECONDARY',  0, 1),
+  ('act-checkin',     'CHECKIN',     'BUILTIN', 'NODE',      'Check In',       'Commit this node and close its transaction', 'checkinActionHandler',    'SECONDARY',  1, 1),
+  ('act-update-node', 'UPDATE_NODE', 'BUILTIN', 'NODE',      'Update Node',    'Save attribute changes to the open version', 'updateNodeActionHandler', 'SECONDARY',  1, 1),
+  ('act-transition',  'TRANSITION',  'BUILTIN', 'LIFECYCLE', 'Transition',     'Apply a lifecycle state transition',         'transitionActionHandler', 'PRIMARY',    1, 0),
+  ('act-sign',        'SIGN',        'BUILTIN', 'NODE',      'Sign',           'Record an electronic signature',             'signActionHandler',       'PRIMARY',    1, 1),
+  ('act-create-link', 'CREATE_LINK', 'BUILTIN', 'NODE',      'Create Link',    'Add a link to another node',                 'createLinkActionHandler', 'SECONDARY',  1, 1),
+  ('act-update-link', 'UPDATE_LINK', 'BUILTIN', 'NODE',      'Update Link',    'Modify link attributes',                     'updateLinkActionHandler', 'SECONDARY',  1, 1),
+  ('act-delete-link', 'DELETE_LINK', 'BUILTIN', 'NODE',      'Delete Link',    'Remove a link between nodes',                'deleteLinkActionHandler', 'DANGEROUS',  1, 1),
+  ('act-baseline',    'BASELINE',    'BUILTIN', 'NODE',      'Create Baseline','Tag a frozen tree as a baseline',            'baselineActionHandler',   'SECONDARY',  0, 1);
 
 -- Parameters for SIGN
-INSERT INTO node_action_parameter (id, action_id, param_name, param_label, data_type, required, default_value, allowed_values, widget_type, display_order) VALUES
+INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, default_value, allowed_values, widget_type, display_order) VALUES
   ('nap-sign-meaning', 'act-sign', 'meaning', 'Meaning', 'ENUM',   1, 'Reviewed', '["Reviewed","Approved","Verified","Acknowledged"]', 'DROPDOWN', 1),
   ('nap-sign-comment', 'act-sign', 'comment', 'Comment', 'STRING', 0, NULL,       NULL,                                                 'TEXTAREA', 2);
 
 -- Parameters for BASELINE
-INSERT INTO node_action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
+INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
   ('nap-bl-name', 'act-baseline', 'name',        'Baseline Name', 'STRING', 1, 'TEXT',     1),
   ('nap-bl-desc', 'act-baseline', 'description', 'Description',   'STRING', 0, 'TEXTAREA', 2);
 
 -- Parameters for CREATE_LINK
-INSERT INTO node_action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
-  ('nap-lnk-type',   'act-create-link', 'linkTypeId',    'Link Type',    'ENUM',     1, 'DROPDOWN', 1),
-  ('nap-lnk-target', 'act-create-link', 'targetNodeId',  'Target Node',  'NODE_REF', 1, 'DROPDOWN', 2),
-  ('nap-lnk-lid',    'act-create-link', 'linkLogicalId', 'Link ID',      'STRING',   1, 'TEXT',     3);
+INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
+  ('nap-lnk-type',   'act-create-link', 'linkTypeId',    'Link Type',   'ENUM',     1, 'DROPDOWN', 1),
+  ('nap-lnk-target', 'act-create-link', 'targetNodeId',  'Target Node', 'NODE_REF', 1, 'DROPDOWN', 2),
+  ('nap-lnk-lid',    'act-create-link', 'linkLogicalId', 'Link ID',     'STRING',   1, 'TEXT',     3);
 
 -- Parameters for UPDATE_LINK
-INSERT INTO node_action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
+INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
   ('nap-ul-linkid', 'act-update-link', 'linkId',    'Link ID',         'STRING', 1, 'TEXT', 1),
   ('nap-ul-logid',  'act-update-link', 'logicalId', 'Link Logical ID', 'STRING', 0, 'TEXT', 2);
 
 -- Parameters for DELETE_LINK
-INSERT INTO node_action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
+INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
   ('nap-dl-linkid', 'act-delete-link', 'linkId', 'Link ID', 'STRING', 1, 'TEXT', 1);
 
 -- ============================================================
@@ -203,80 +206,96 @@ INSERT INTO node_type_action (id, node_type_id, action_id, status, transition_id
   ('nta-tr-obsolete-prt', 'nt-part', 'act-transition', 'ENABLED', 'tr-obsolete', 50);
 
 -- ============================================================
--- NODE ACTION PERMISSIONS (for ps-default)
+-- ACTION PERMISSIONS (for ps-default)
 --
--- Each action carries its own explicit allowlist. Zero rows = open to all,
--- so every action that should be restricted must have at least one row.
--- Admins bypass all checks via isAdmin flag.
+-- NODE-scope actions:
+--   act-read              : DESIGNER + REVIEWER + READER
+--   act-checkout          : DESIGNER
+--   act-checkin           : DESIGNER
+--   act-update-node       : DESIGNER
+--   act-sign              : REVIEWER
+--   act-create/update/delete-link: DESIGNER
+--   act-baseline          : ADMIN only
 --
--- act-read              : DESIGNER + REVIEWER + READER
--- act-checkout          : DESIGNER
--- act-checkin           : DESIGNER
--- act-update-node       : DESIGNER
--- act-sign              : REVIEWER
--- act-create/update/delete-link: DESIGNER
--- act-baseline          : ADMIN only
--- act-transition        : state-scoped rows below
+-- LIFECYCLE-scope (per transition):
+--   tr-freeze   — DESIGNER + ADMIN
+--   tr-unfreeze — ADMIN only
+--   tr-release  — REVIEWER + ADMIN
+--   tr-revise   — DESIGNER + ADMIN
+--   tr-obsolete — ADMIN only
+--
+-- GLOBAL-scope:
+--   act-manage-metamodel / act-manage-roles / act-manage-baselines: ADMIN only
 -- ============================================================
 
-INSERT INTO node_action_permission (id, node_type_id, action_id, project_space_id, role_id, lifecycle_state_id) VALUES
+INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_type_id, transition_id) VALUES
   -- act-read: DESIGNER, REVIEWER, READER on both node types
-  ('nap-rd-d-doc',  'nt-document', 'act-read',  'ps-default', 'role-designer', NULL),
-  ('nap-rd-d-prt',  'nt-part',     'act-read',  'ps-default', 'role-designer', NULL),
-  ('nap-rd-r-doc',  'nt-document', 'act-read',  'ps-default', 'role-reviewer', NULL),
-  ('nap-rd-r-prt',  'nt-part',     'act-read',  'ps-default', 'role-reviewer', NULL),
-  ('nap-rd-ro-doc', 'nt-document', 'act-read',  'ps-default', 'role-reader',   NULL),
-  ('nap-rd-ro-prt', 'nt-part',     'act-read',  'ps-default', 'role-reader',   NULL),
+  ('nap-rd-d-doc',  'act-read', 'ps-default', 'role-designer', 'nt-document', NULL),
+  ('nap-rd-d-prt',  'act-read', 'ps-default', 'role-designer', 'nt-part',     NULL),
+  ('nap-rd-r-doc',  'act-read', 'ps-default', 'role-reviewer', 'nt-document', NULL),
+  ('nap-rd-r-prt',  'act-read', 'ps-default', 'role-reviewer', 'nt-part',     NULL),
+  ('nap-rd-ro-doc', 'act-read', 'ps-default', 'role-reader',   'nt-document', NULL),
+  ('nap-rd-ro-prt', 'act-read', 'ps-default', 'role-reader',   'nt-part',     NULL),
 
   -- act-checkout: DESIGNER only
-  ('nap-co-d-doc',  'nt-document', 'act-checkout',    'ps-default', 'role-designer', NULL),
-  ('nap-co-d-prt',  'nt-part',     'act-checkout',    'ps-default', 'role-designer', NULL),
+  ('nap-co-d-doc',  'act-checkout',    'ps-default', 'role-designer', 'nt-document', NULL),
+  ('nap-co-d-prt',  'act-checkout',    'ps-default', 'role-designer', 'nt-part',     NULL),
 
   -- act-checkin: DESIGNER only
-  ('nap-ci-d-doc',  'nt-document', 'act-checkin',     'ps-default', 'role-designer', NULL),
-  ('nap-ci-d-prt',  'nt-part',     'act-checkin',     'ps-default', 'role-designer', NULL),
+  ('nap-ci-d-doc',  'act-checkin',     'ps-default', 'role-designer', 'nt-document', NULL),
+  ('nap-ci-d-prt',  'act-checkin',     'ps-default', 'role-designer', 'nt-part',     NULL),
 
   -- act-update-node: DESIGNER only
-  ('nap-un-d-doc',  'nt-document', 'act-update-node', 'ps-default', 'role-designer', NULL),
-  ('nap-un-d-prt',  'nt-part',     'act-update-node', 'ps-default', 'role-designer', NULL),
+  ('nap-un-d-doc',  'act-update-node', 'ps-default', 'role-designer', 'nt-document', NULL),
+  ('nap-un-d-prt',  'act-update-node', 'ps-default', 'role-designer', 'nt-part',     NULL),
 
   -- act-sign: REVIEWER only
-  ('nap-sg-r-doc',  'nt-document', 'act-sign',  'ps-default', 'role-reviewer', NULL),
-  ('nap-sg-r-prt',  'nt-part',     'act-sign',  'ps-default', 'role-reviewer', NULL),
+  ('nap-sg-r-doc',  'act-sign',        'ps-default', 'role-reviewer', 'nt-document', NULL),
+  ('nap-sg-r-prt',  'act-sign',        'ps-default', 'role-reviewer', 'nt-part',     NULL),
 
   -- act-create-link: DESIGNER
-  ('nap-cl-d-doc',  'nt-document', 'act-create-link', 'ps-default', 'role-designer', NULL),
-  ('nap-cl-d-prt',  'nt-part',     'act-create-link', 'ps-default', 'role-designer', NULL),
+  ('nap-cl-d-doc',  'act-create-link', 'ps-default', 'role-designer', 'nt-document', NULL),
+  ('nap-cl-d-prt',  'act-create-link', 'ps-default', 'role-designer', 'nt-part',     NULL),
 
   -- act-update-link: DESIGNER
-  ('nap-ul-d-doc',  'nt-document', 'act-update-link', 'ps-default', 'role-designer', NULL),
-  ('nap-ul-d-prt',  'nt-part',     'act-update-link', 'ps-default', 'role-designer', NULL),
+  ('nap-ul-d-doc',  'act-update-link', 'ps-default', 'role-designer', 'nt-document', NULL),
+  ('nap-ul-d-prt',  'act-update-link', 'ps-default', 'role-designer', 'nt-part',     NULL),
 
   -- act-delete-link: DESIGNER
-  ('nap-dl-d-doc',  'nt-document', 'act-delete-link', 'ps-default', 'role-designer', NULL),
-  ('nap-dl-d-prt',  'nt-part',     'act-delete-link', 'ps-default', 'role-designer', NULL),
+  ('nap-dl-d-doc',  'act-delete-link', 'ps-default', 'role-designer', 'nt-document', NULL),
+  ('nap-dl-d-prt',  'act-delete-link', 'ps-default', 'role-designer', 'nt-part',     NULL),
 
   -- act-baseline: ADMIN only
-  ('nap-bl-a-doc',  'nt-document', 'act-baseline', 'ps-default', 'role-admin', NULL),
-  ('nap-bl-a-prt',  'nt-part',     'act-baseline', 'ps-default', 'role-admin', NULL),
+  ('nap-bl-a-doc',  'act-baseline',    'ps-default', 'role-admin',    'nt-document', NULL),
+  ('nap-bl-a-prt',  'act-baseline',    'ps-default', 'role-admin',    'nt-part',     NULL),
 
-  -- act-transition: st-inwork (freeze) → DESIGNER + ADMIN
-  ('nap-tr-d-doc-iw', 'nt-document', 'act-transition', 'ps-default', 'role-designer', 'st-inwork'),
-  ('nap-tr-d-prt-iw', 'nt-part',     'act-transition', 'ps-default', 'role-designer', 'st-inwork'),
-  ('nap-tr-a-doc-iw', 'nt-document', 'act-transition', 'ps-default', 'role-admin',    'st-inwork'),
-  ('nap-tr-a-prt-iw', 'nt-part',     'act-transition', 'ps-default', 'role-admin',    'st-inwork'),
+  -- act-transition: per transition (LIFECYCLE scope)
+  -- tr-freeze: DESIGNER + ADMIN
+  ('ap-tr-d-doc-freeze',   'act-transition', 'ps-default', 'role-designer', 'nt-document', 'tr-freeze'),
+  ('ap-tr-a-doc-freeze',   'act-transition', 'ps-default', 'role-admin',    'nt-document', 'tr-freeze'),
+  ('ap-tr-d-prt-freeze',   'act-transition', 'ps-default', 'role-designer', 'nt-part',     'tr-freeze'),
+  ('ap-tr-a-prt-freeze',   'act-transition', 'ps-default', 'role-admin',    'nt-part',     'tr-freeze'),
+  -- tr-unfreeze: ADMIN only
+  ('ap-tr-a-doc-unfreeze', 'act-transition', 'ps-default', 'role-admin',    'nt-document', 'tr-unfreeze'),
+  ('ap-tr-a-prt-unfreeze', 'act-transition', 'ps-default', 'role-admin',    'nt-part',     'tr-unfreeze'),
+  -- tr-release: REVIEWER + ADMIN
+  ('ap-tr-r-doc-release',  'act-transition', 'ps-default', 'role-reviewer', 'nt-document', 'tr-release'),
+  ('ap-tr-a-doc-release',  'act-transition', 'ps-default', 'role-admin',    'nt-document', 'tr-release'),
+  ('ap-tr-r-prt-release',  'act-transition', 'ps-default', 'role-reviewer', 'nt-part',     'tr-release'),
+  ('ap-tr-a-prt-release',  'act-transition', 'ps-default', 'role-admin',    'nt-part',     'tr-release'),
+  -- tr-revise: DESIGNER + ADMIN
+  ('ap-tr-d-doc-revise',   'act-transition', 'ps-default', 'role-designer', 'nt-document', 'tr-revise'),
+  ('ap-tr-a-doc-revise',   'act-transition', 'ps-default', 'role-admin',    'nt-document', 'tr-revise'),
+  ('ap-tr-d-prt-revise',   'act-transition', 'ps-default', 'role-designer', 'nt-part',     'tr-revise'),
+  ('ap-tr-a-prt-revise',   'act-transition', 'ps-default', 'role-admin',    'nt-part',     'tr-revise'),
+  -- tr-obsolete: ADMIN only
+  ('ap-tr-a-doc-obsolete', 'act-transition', 'ps-default', 'role-admin',    'nt-document', 'tr-obsolete'),
+  ('ap-tr-a-prt-obsolete', 'act-transition', 'ps-default', 'role-admin',    'nt-part',     'tr-obsolete'),
 
-  -- act-transition: st-frozen (reject/release) → REVIEWER + ADMIN only
-  ('nap-tr-r-doc-fz', 'nt-document', 'act-transition', 'ps-default', 'role-reviewer', 'st-frozen'),
-  ('nap-tr-r-prt-fz', 'nt-part',     'act-transition', 'ps-default', 'role-reviewer', 'st-frozen'),
-  ('nap-tr-a-doc-fz', 'nt-document', 'act-transition', 'ps-default', 'role-admin',    'st-frozen'),
-  ('nap-tr-a-prt-fz', 'nt-part',     'act-transition', 'ps-default', 'role-admin',    'st-frozen'),
-
-  -- act-transition: st-released (revise + obsolete) → DESIGNER + ADMIN
-  ('nap-tr-d-doc-rl', 'nt-document', 'act-transition', 'ps-default', 'role-designer', 'st-released'),
-  ('nap-tr-d-prt-rl', 'nt-part',     'act-transition', 'ps-default', 'role-designer', 'st-released'),
-  ('nap-tr-a-doc-rl', 'nt-document', 'act-transition', 'ps-default', 'role-admin',    'st-released'),
-  ('nap-tr-a-prt-rl', 'nt-part',     'act-transition', 'ps-default', 'role-admin',    'st-released');
+  -- GLOBAL-scope: ADMIN only
+  ('ap-gl-mm-admin', 'act-manage-metamodel', 'ps-default', 'role-admin', NULL, NULL),
+  ('ap-gl-rl-admin', 'act-manage-roles',     'ps-default', 'role-admin', NULL, NULL),
+  ('ap-gl-bl-admin', 'act-manage-baselines', 'ps-default', 'role-admin', NULL, NULL);
 
 -- ============================================================
 -- ATTRIBUTE VIEWS

@@ -115,7 +115,7 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Création d'un noeud → état initial = Draft, révision A, itération 1")
     void testNodeCreation() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Mon Document"));
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Mon Document"), null, null);
 
         var version = versionService.getCurrentVersion(nodeId);
         assertThat(version).isNotNull();
@@ -128,11 +128,11 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Modification de contenu → incrémente l'itération A.1 → A.2")
     void testContentModification() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc v1"));
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc v1"), null, null);
 
         String txId = txService.openTransaction(ALICE);
         nodeService.modifyNode(nodeId, ALICE, txId, Map.of(attrNameId, "Doc v2"), "Update name");
-        txService.commitTransaction(txId, ALICE, "Content update done");
+        txService.commitTransaction(txId, ALICE, "Content update done", null);
 
         var version = versionService.getCurrentVersion(nodeId);
         assertThat(version.get("revision", String.class)).isEqualTo("A");
@@ -143,11 +143,11 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Changement de lifecycle → même révision.itération, nouvelle version technique")
     void testLifecycleChangePreservesIteration() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"));
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"), null, null);
 
         String txId = txService.openTransaction(ALICE);
         lifecycleService.applyTransition(nodeId, transitionToReviewId, ALICE, txId);
-        txService.commitTransaction(txId, ALICE, "Submitted for review");
+        txService.commitTransaction(txId, ALICE, "Submitted for review", null);
 
         var version = versionService.getCurrentVersion(nodeId);
         // Itération toujours à 1, révision toujours A
@@ -160,15 +160,15 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Passage Released → nouvelle révision B, itération 1")
     void testReleaseIncrementsRevision() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"));
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"), null, null);
 
         String tx1 = txService.openTransaction(ALICE);
         lifecycleService.applyTransition(nodeId, transitionToReviewId, ALICE, tx1);
-        txService.commitTransaction(tx1, ALICE, "Submitted");
+        txService.commitTransaction(tx1, ALICE, "Submitted", null);
 
         String tx2 = txService.openTransaction(ALICE);
         lifecycleService.applyTransition(nodeId, transitionToReleasedId, ALICE, tx2);
-        txService.commitTransaction(tx2, ALICE, "Released");
+        txService.commitTransaction(tx2, ALICE, "Released", null);
 
         var version = versionService.getCurrentVersion(nodeId);
         assertThat(version.get("revision", String.class)).isEqualTo("B");
@@ -178,11 +178,11 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Audit trail : plusieurs versions avec même révision.itération pour les changements lifecycle")
     void testAuditTrail() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"));
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"), null, null);
 
         String txId = txService.openTransaction(ALICE);
         lifecycleService.applyTransition(nodeId, transitionToReviewId, ALICE, txId);
-        txService.commitTransaction(txId, ALICE, "Submitted");
+        txService.commitTransaction(txId, ALICE, "Submitted", null);
 
         int versionCount = dsl.fetchCount(
             dsl.selectOne().from("NODE_VERSION").where("NODE_ID = ?", nodeId)
@@ -206,7 +206,7 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Lock exclusif : fail-fast si noeud déjà locké par une autre transaction")
     void testLockConflict() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"));
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"), null, null);
 
         // Alice checkout le noeud : acquiert le lock et crée une version OPEN
         String aliceTxId = txService.openTransaction(ALICE);
@@ -222,7 +222,7 @@ class PlmIntegrationTest {
     @Test
     @DisplayName("Server-Driven UI : payload contient attributs et actions disponibles")
     void testObjectDescription() {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"));
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, Map.of(attrNameId, "Doc"), null, null);
 
         var desc = nodeService.buildObjectDescription(nodeId, ALICE, null);
 

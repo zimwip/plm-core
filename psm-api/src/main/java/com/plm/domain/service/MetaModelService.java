@@ -420,16 +420,6 @@ public class MetaModelService {
         return id;
     }
 
-    /** Backward-compatible overload for tests that don't supply identity fields. */
-    @PlmAction("MANAGE_METAMODEL")
-    public String createLinkType(String name, String description,
-                                 String sourceNodeTypeId, String targetNodeTypeId,
-                                 String linkPolicy,
-                                 int minCardinality, Integer maxCardinality) {
-        return createLinkType(name, description, sourceNodeTypeId, targetNodeTypeId,
-            linkPolicy, minCardinality, maxCardinality, null, null);
-    }
-
     @PlmAction("MANAGE_METAMODEL")
     @Transactional
     public void updateLinkTypeIdentity(String linkTypeId, String linkLogicalIdLabel, String linkLogicalIdPattern) {
@@ -898,14 +888,10 @@ public class MetaModelService {
      * node_type_action in this project space. For LIFECYCLE-scope actions (transitions),
      * {@code transition_id} is taken from the NTA row — granting access to that specific
      * transition. For NODE-scope actions, {@code transition_id} is NULL.
-     *
-     * <p>{@code lifecycleStateId} is accepted for API backward compatibility but is ignored;
-     * scope is now determined by the action's {@code scope} column.
      */
     @PlmAction("MANAGE_ROLES")
     @Transactional
-    public void setNodeTypeActionPermission(String nodeTypeActionId, String roleId,
-                                             String lifecycleStateId) {
+    public void setNodeTypeActionPermission(String nodeTypeActionId, String roleId) {
         String psId = com.plm.infrastructure.security.PlmProjectSpaceContext.require();
 
         var derived = resolveNtaForPermission(nodeTypeActionId);
@@ -927,13 +913,10 @@ public class MetaModelService {
 
     /**
      * Removes the permission row for the given role on this node_type_action.
-     *
-     * <p>{@code lifecycleStateId} is accepted for API backward compatibility but is ignored.
      */
     @PlmAction("MANAGE_ROLES")
     @Transactional
-    public void removeNodeTypeActionPermission(String nodeTypeActionId, String roleId,
-                                                String lifecycleStateId) {
+    public void removeNodeTypeActionPermission(String nodeTypeActionId, String roleId) {
         String psId = com.plm.infrastructure.security.PlmProjectSpaceContext.require();
 
         var derived = resolveNtaForPermission(nodeTypeActionId);

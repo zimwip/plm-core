@@ -142,7 +142,7 @@ class PlmRoleAndViewTest {
         // Designer freeze d'abord
         String txId = txService.openTransaction(USER_ALICE);
         lifecycleService.applyTransition(nodeId, TR_FREEZE, USER_ALICE, txId);
-        txService.commitTransaction(txId, USER_ALICE, "Frozen");
+        txService.commitTransaction(txId, USER_ALICE, "Frozen", null);
 
         // Alice (designer) ne peut pas releaser
         asDesigner();
@@ -189,7 +189,7 @@ class PlmRoleAndViewTest {
 
         String txId = txService.openTransaction(USER_ALICE);
         lifecycleService.applyTransition(nodeId, TR_FREEZE, USER_ALICE, txId);
-        txService.commitTransaction(txId, USER_ALICE, "Frozen");
+        txService.commitTransaction(txId, USER_ALICE, "Frozen", null);
 
         // Bob (reviewer) consulte en Frozen → vue 'view-reviewer-frozen' active
         asReviewer();
@@ -253,7 +253,7 @@ class PlmRoleAndViewTest {
 
         String txId = txService.openTransaction(USER_ALICE);
         lifecycleService.applyTransition(nodeId, TR_FREEZE, USER_ALICE, txId);
-        txService.commitTransaction(txId, USER_ALICE, "Frozen");
+        txService.commitTransaction(txId, USER_ALICE, "Frozen", null);
 
         asReviewer();
         var desc = nodeService.buildObjectDescription(nodeId, USER_BOB, ROLE_REVIEWER);
@@ -321,7 +321,7 @@ class PlmRoleAndViewTest {
             AD_DOC_TITLE,  "Test Document",
             AD_DOC_AUTHOR, "Alice",
             AD_DOC_CAT,    "Design"
-        ));
+        ), null, null);
     }
 
     private void asAdmin() {

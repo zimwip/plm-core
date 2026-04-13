@@ -184,26 +184,6 @@ public class NodeService {
         return nodeId;
     }
 
-    /**
-     * Convenience overload without identity fields (backward-compatible).
-     */
-    @Transactional
-    public String createNode(
-        String projectSpaceId,
-        String nodeTypeId,
-        String userId,
-        Map<String, String> attributes
-    ) {
-        return createNode(
-            projectSpaceId,
-            nodeTypeId,
-            userId,
-            attributes,
-            null,
-            null
-        );
-    }
-
     // ================================================================
     // LISTE — dernière version COMMITTED par noeud
     // ================================================================
@@ -806,27 +786,6 @@ public class NodeService {
             linkLogicalId
         );
         return linkId;
-    }
-
-    /** Backward-compatible overload for tests that don't supply a linkLogicalId. */
-    public String createLink(
-        String linkTypeId,
-        String sourceNodeId,
-        String targetNodeId,
-        String pinnedVersionId,
-        String userId,
-        String txId
-    ) {
-        // Generate a placeholder logical ID for backward compatibility
-        return createLink(
-            linkTypeId,
-            sourceNodeId,
-            targetNodeId,
-            pinnedVersionId,
-            userId,
-            txId,
-            "LNK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase()
-        );
     }
 
     // ================================================================
