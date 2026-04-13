@@ -410,6 +410,7 @@ export default function App() {
   const [userId,          setUserId]             = useState('user-alice');
   const [projectSpaceId,  setProjectSpaceIdState] = useState(DEFAULT_PROJECT_SPACE);
   const [projectSpaces,   setProjectSpaces]       = useState([]);
+  const [users,           setUsers]               = useState([]);
 
   // Data — nodes, tx, txNodes live in the global store
   const [nodeTypes, setNodeTypes] = useState([]);
@@ -483,12 +484,18 @@ export default function App() {
     catch {}
   }, [userId]);
 
+  const refreshUsers = useCallback(async () => {
+    try { const d = await api.listUsers(userId); setUsers(Array.isArray(d) ? d.filter(u => u.active !== false) : []); }
+    catch {}
+  }, [userId]);
+
   // Sync userId into store and trigger initial load
   useEffect(() => {
     storeSetUserId(userId);
     refreshAll();
     refreshNodeTypes();
     refreshProjectSpaces();
+    refreshUsers();
   }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── User switch ────────────────────────────────────────────────
@@ -605,6 +612,7 @@ export default function App() {
       <Header
         userId={userId}
         onUserChange={handleUserChange}
+        users={users}
         nodeTypes={nodeTypes}
         searchQuery={searchQuery}
         searchType={searchType}

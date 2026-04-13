@@ -329,8 +329,9 @@ export const api = {
     pnoRequest('DELETE', `/roles/${roleId}`, userId),
 
   // Project Spaces — served by pno-api
+  // Filtered to spaces where userId holds a role (admins see all)
   listProjectSpaces: (userId) =>
-    pnoRequest('GET', '/project-spaces', userId),
+    pnoRequest('GET', `/project-spaces${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`, userId),
 
   createProjectSpace: (userId, name, description) =>
     pnoRequest('POST', '/project-spaces', userId, { name, description }),

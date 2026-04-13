@@ -18,19 +18,57 @@ public class ProjectSpaceService {
     private final DSLContext dsl;
 
     public List<Map<String, Object>> listProjectSpaces() {
+        return listProjectSpaces(null);
+    }
+
+    /**
+     * Returns project spaces visible to a given user.
+     * Admin users see all spaces; non-admin users see only spaces where they hold a role.
+     * When userId is null or blank, all active spaces are returned (internal/admin use).
+     */
+    public List<Map<String, Object>> listProjectSpaces(String userId) {
+        if (userId != null && !userId.isBlank()) {
+            // Check if user is admin
+            Integer adminCount = dsl.select(DSL.count())
+                .from("user_role ur")
+                .join("pno_role r").on("ur.role_id = r.id")
+                .where(DSL.condition("ur.user_id = ?", userId))
+                .and(DSL.condition("r.is_admin = 1"))
+                .fetchOne(0, Integer.class);
+
+            if (adminCount == null || adminCount == 0) {
+                // Non-admin: only spaces where the user has at least one role
+                return dsl.select()
+                    .from("project_space")
+                    .where("active = 1")
+                    .and(DSL.exists(
+                        dsl.select(DSL.field("1"))
+                           .from("user_role")
+                           .where(DSL.condition("user_id = ?", userId))
+                           .and(DSL.condition("project_space_id = project_space.id"))
+                    ))
+                    .orderBy(DSL.field("name"))
+                    .fetch()
+                    .map(r -> toMap(r));
+            }
+        }
+
+        // Admin or no filter: return all active spaces
         return dsl.select().from("project_space")
             .where("active = 1")
             .orderBy(DSL.field("name"))
             .fetch()
-            .map(r -> {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("id",          r.get("id",          String.class));
-                m.put("name",        r.get("name",        String.class));
-                m.put("description", r.get("description", String.class));
-                m.put("createdAt",   r.get("created_at",  Object.class));
-                m.put("active",      Integer.valueOf(1).equals(r.get("active", Integer.class)));
-                return m;
-            });
+            .map(r -> toMap(r));
+    }
+
+    private Map<String, Object> toMap(org.jooq.Record r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id",          r.get("id",          String.class));
+        m.put("name",        r.get("name",        String.class));
+        m.put("description", r.get("description", String.class));
+        m.put("createdAt",   r.get("created_at",  Object.class));
+        m.put("active",      Integer.valueOf(1).equals(r.get("active", Integer.class)));
+        return m;
     }
 
     @Transactional

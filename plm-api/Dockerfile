@@ -10,12 +10,12 @@ WORKDIR /build
 # Copier le POM en premier pour profiter du cache des dépendances Maven
 COPY pom.xml .
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn dependency:go-offline -q 2>/dev/null || true
+    mvn dependency:go-offline --no-transfer-progress 2>/dev/null || true
 
 # Copier les sources et compiler
 COPY src ./src
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn clean package -Dmaven.test.skip=true -q
+    mvn clean package -Dmaven.test.skip=true --no-transfer-progress
 
 # ============================================================
 # Stage 2 : Image de runtime minimale

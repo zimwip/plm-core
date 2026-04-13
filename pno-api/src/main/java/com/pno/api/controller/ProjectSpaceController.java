@@ -15,8 +15,8 @@ public class ProjectSpaceController {
     private final ProjectSpaceService projectSpaceService;
 
     @GetMapping
-    public ResponseEntity<?> list() {
-        return ResponseEntity.ok(projectSpaceService.listProjectSpaces());
+    public ResponseEntity<?> list(@RequestParam(required = false) String userId) {
+        return ResponseEntity.ok(projectSpaceService.listProjectSpaces(userId));
     }
 
     @PostMapping

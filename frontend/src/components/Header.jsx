@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HexIcon } from './Icons';
 
-const USERS = [
-  { id: 'user-admin',   label: 'Admin',   role: 'ADMIN',    color: '#e8c547' },
-  { id: 'user-alice',   label: 'Alice',   role: 'DESIGNER', color: '#5b9cf6' },
-  { id: 'user-bob',     label: 'Bob',     role: 'REVIEWER', color: '#56d18e' },
-  { id: 'user-charlie', label: 'Charlie', role: 'READER',   color: '#a78bfa' },
-];
+const USER_PALETTE = ['#5b9cf6', '#56d18e', '#e8c547', '#a78bfa', '#f87171', '#34d399', '#fb923c', '#60a5fa'];
+
+function userColor(userId) {
+  // Stable color per user derived from id hash
+  if (!userId) return '#64748b';
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) & 0xffffffff;
+  return USER_PALETTE[Math.abs(h) % USER_PALETTE.length];
+}
 
 const STATE_COLORS = {
   'st-draft':    '#6aacff',
@@ -17,13 +20,13 @@ const STATE_COLORS = {
 };
 
 export default function Header({
-  userId, onUserChange,
+  userId, onUserChange, users,
   nodeTypes, nodes,
   searchQuery, searchType, onSearchChange, onSearchTypeChange,
   projectSpaces, projectSpaceId, onProjectSpaceChange,
   onNavigate,
 }) {
-  const currentUser = USERS.find(u => u.id === userId);
+  const currentUser = (users || []).find(u => u.id === userId);
 
   const [suggestions, setSuggestions] = useState([]);
   const [showSug,     setShowSug]     = useState(false);
@@ -177,16 +180,16 @@ export default function Header({
         )}
 
         <div className="user-select-wrap">
-          <span className="user-dot" style={{ background: currentUser?.color || '#64748b' }} />
+          <span className="user-dot" style={{ background: userColor(userId) }} />
           <div style={{ position: 'relative' }}>
             <select
               className="user-select"
               value={userId}
               onChange={e => onUserChange(e.target.value)}
             >
-              {USERS.map(u => (
+              {(users || []).map(u => (
                 <option key={u.id} value={u.id}>
-                  {u.label} · {u.role}
+                  {u.displayName || u.username}
                 </option>
               ))}
             </select>
