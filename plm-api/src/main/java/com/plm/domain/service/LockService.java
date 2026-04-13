@@ -5,165 +5,150 @@ import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 /**
- * Gestion des locks pessimistes sur les noeuds PLM.
+ * Lock pessimiste sur les noeuds PLM.
  *
- * La transaction PLM est désormais un élément de première classe :
- * le txId est toujours passé EXPLICITEMENT par l'appelant.
- * Il n'y a plus de création automatique de transaction ici.
+ * Le lock est porté par la table {@code node} (colonnes locked_by / locked_at),
+ * indépendamment du modèle de transaction et de versioning.
  *
- * C'est l'API / le service appelant qui est responsable de :
- *   1. Ouvrir une transaction (PlmTransactionService.openTransaction)
- *   2. Passer le txId à chaque opération d'authoring
- *   3. Commiter ou annuler la transaction
+ *   Noeud libre  → node.locked_by IS NULL
+ *   Noeud locké  → node.locked_by IS NOT NULL
+ *
+ * {@link #tryLock} et {@link #unlock} sont les SEULS endroits qui écrivent
+ * ces colonnes.
+ *
+ * {@link NodeService#checkout} est le point d'entrée de haut niveau qui
+ * coordonne : tryLock → find/create transaction → create OPEN version.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class LockService {
 
-    private static final int LOCK_DURATION_MINUTES = 30;
-
     private final DSLContext dsl;
 
     // ================================================================
-    // CHECKIN — txId OBLIGATOIRE
+    // TRY LOCK
     // ================================================================
 
     /**
-     * Acquiert un lock sur un noeud dans le contexte d'une transaction.
+     * Tente d'acquérir le lock sur {@code nodeId} pour {@code userId}.
      *
-     * Idempotent : si le noeud est déjà locké par la MÊME transaction, pas d'erreur.
-     * Fail-fast  : si le noeud est locké par une AUTRE transaction → LockConflictException.
+     * <p>Utilise {@code SELECT … FOR UPDATE} pour une acquisition atomique
+     * (la ligne node est verrouillée au niveau base de données pour toute
+     * la durée de la transaction Spring courante, évitant les races
+     * concurrentes entre deux checkouts simultanés sur le même noeud).
      *
-     * @param nodeId  noeud à locker
-     * @param userId  utilisateur qui demande le lock
-     * @param txId    transaction PLM — DOIT exister et être OPEN
+     * <ul>
+     *   <li>Si {@code node.locked_by} est NULL → acquiert le lock.</li>
+     *   <li>Si {@code node.locked_by == userId} → idempotent, retour silencieux.</li>
+     *   <li>Si {@code node.locked_by} est un autre utilisateur → {@link LockConflictException}.</li>
+     * </ul>
      */
     @Transactional
-    public void checkin(String nodeId, String userId, String txId) {
-        validateTxOpen(txId, userId);
+    public void tryLock(String nodeId, String userId) {
+        Record row = dsl.fetchOne(
+            "SELECT locked_by FROM node WHERE id = ? FOR UPDATE", nodeId);
+        if (row == null) throw new IllegalArgumentException("Node not found: " + nodeId);
 
-        Record existing = dsl.select()
-            .from("plm_lock")
-            .where("node_id = ?", nodeId)
-            .and("expires_at > ?", LocalDateTime.now())
-            .fetchOne();
+        String currentOwner = row.get("locked_by", String.class);
 
-        if (existing != null) {
-            String existingTxId = existing.get("tx_id", String.class);
-            if (txId.equals(existingTxId)) {
-                log.debug("Node {} already locked by tx {} — idempotent", nodeId, txId);
-                return;
-            }
-            throw new LockConflictException(nodeId,
-                existing.get("locked_by", String.class), existingTxId);
+        if (currentOwner == null) {
+            dsl.execute(
+                "UPDATE node SET locked_by = ?, locked_at = ? WHERE id = ?",
+                userId, LocalDateTime.now(), nodeId);
+            log.debug("Node {} locked by {}", nodeId, userId);
+        } else if (currentOwner.equals(userId)) {
+            log.debug("Node {} already locked by {} — idempotent", nodeId, userId);
+        } else {
+            throw new LockConflictException(nodeId, currentOwner);
         }
-
-        LocalDateTime now = LocalDateTime.now();
-        dsl.execute(
-            "INSERT INTO plm_lock (ID, NODE_ID, LOCKED_BY, LOCKED_AT, EXPIRES_AT, TX_ID) VALUES (?,?,?,?,?,?)",
-            UUID.randomUUID().toString(), nodeId, userId,
-            now, now.plusMinutes(LOCK_DURATION_MINUTES), txId
-        );
-        log.info("Lock acquired: node={} user={} tx={}", nodeId, userId, txId);
     }
 
     /**
-     * Checkin cascade : lock récursif sur tous les descendants VERSION_TO_MASTER.
+     * Lock cascade : acquiert le lock sur {@code rootNodeId} et tous ses
+     * descendants reliés par des liens VERSION_TO_MASTER.
      * Fail-fast au premier conflit.
      */
     @Transactional
-    public void checkinCascade(String rootNodeId, String userId, String txId) {
+    public void tryLockCascade(String rootNodeId, String userId) {
         List<String> toLock = resolveV2MDescendants(rootNodeId);
         toLock.add(0, rootNodeId);
         for (String nodeId : toLock) {
-            checkin(nodeId, userId, txId);
+            tryLock(nodeId, userId);
         }
-        log.info("Cascade lock: root={} count={} tx={}", rootNodeId, toLock.size(), txId);
+        log.info("Cascade lock: root={} count={} user={}", rootNodeId, toLock.size(), userId);
     }
 
+    // ================================================================
+    // UNLOCK
+    // ================================================================
+
     /**
-     * Checkout unitaire : libère le lock d'un noeud sans fermer la transaction.
-     * Usage rare — préférer le commit/rollback qui libère tous les locks d'un coup.
+     * Libère le lock sur {@code nodeId} : efface locked_by et locked_at.
+     * Appelé au commit / checkin pour chaque noeud commité.
      */
     @Transactional
-    public void checkout(String nodeId, String userId) {
-        int n = dsl.execute("DELETE FROM plm_lock WHERE node_id = ? AND locked_by = ?", nodeId, userId);
-        if (n == 0) throw new IllegalStateException("No active lock on node " + nodeId + " for " + userId);
-        log.info("Lock released (unit checkout): node={} user={}", nodeId, userId);
+    public void unlock(String nodeId) {
+        dsl.execute(
+            "UPDATE node SET locked_by = NULL, locked_at = NULL WHERE id = ?",
+            nodeId);
+        log.debug("Node {} unlocked", nodeId);
     }
 
     // ================================================================
     // INTERROGATION
     // ================================================================
 
-    public boolean isLockedBy(String nodeId, String userId) {
-        return dsl.fetchCount(dsl.selectOne().from("plm_lock")
-            .where("node_id = ?", nodeId).and("locked_by = ?", userId)
-            .and("expires_at > ?", LocalDateTime.now())) > 0;
-    }
-
-    public boolean isLockedByTx(String nodeId, String txId) {
-        return dsl.fetchCount(dsl.selectOne().from("plm_lock")
-            .where("node_id = ?", nodeId).and("tx_id = ?", txId)
-            .and("expires_at > ?", LocalDateTime.now())) > 0;
-    }
-
     public boolean isLocked(String nodeId) {
-        return dsl.fetchCount(dsl.selectOne().from("plm_lock")
-            .where("node_id = ?", nodeId).and("expires_at > ?", LocalDateTime.now())) > 0;
+        String owner = dsl.select().from("node").where("id = ?", nodeId)
+            .fetchOne("locked_by", String.class);
+        return owner != null;
+    }
+
+    public boolean isLockedBy(String nodeId, String userId) {
+        String owner = dsl.select().from("node").where("id = ?", nodeId)
+            .fetchOne("locked_by", String.class);
+        return userId.equals(owner);
+    }
+
+    /**
+     * Retourne true si le noeud est locké ET possède une version OPEN dans {@code txId}.
+     * Utilisé par les tests pour vérifier qu'un checkout a bien eu lieu.
+     */
+    public boolean isLockedByTx(String nodeId, String txId) {
+        if (!isLocked(nodeId)) return false;
+        return dsl.fetchCount(
+            dsl.selectOne().from("node_version")
+               .where("node_id = ?", nodeId).and("tx_id = ?", txId)) > 0;
     }
 
     public LockInfo getLockInfo(String nodeId) {
-        Record r = dsl.select().from("plm_lock")
-            .where("node_id = ?", nodeId).and("expires_at > ?", LocalDateTime.now()).fetchOne();
-        if (r == null) return LockInfo.FREE;
-        return new LockInfo(true, r.get("locked_by", String.class),
-            r.get("tx_id", String.class), r.get("expires_at", LocalDateTime.class));
-    }
-
-    // ================================================================
-    // NETTOYAGE
-    // ================================================================
-
-    @Scheduled(fixedDelay = 300_000)
-    @Transactional
-    public void cleanExpiredLocks() {
-        int n = dsl.execute("DELETE FROM plm_lock WHERE expires_at < ?", LocalDateTime.now());
-        if (n > 0) log.info("Cleaned {} expired locks", n);
+        Record row = dsl.select().from("node").where("id = ?", nodeId).fetchOne();
+        if (row == null) return LockInfo.FREE;
+        String lockedBy = row.get("locked_by", String.class);
+        if (lockedBy == null) return LockInfo.FREE;
+        return new LockInfo(true, lockedBy, row.get("locked_at", LocalDateTime.class));
     }
 
     // ================================================================
     // Helpers
     // ================================================================
 
-    /** Vérifie que la transaction existe, est OPEN et appartient à l'utilisateur. */
-    private void validateTxOpen(String txId, String userId) {
-        Record tx = dsl.select().from("plm_transaction").where("id = ?", txId).fetchOne();
-        if (tx == null)
-            throw new IllegalArgumentException("Transaction not found: " + txId);
-        if (!"OPEN".equals(tx.get("status", String.class)))
-            throw new IllegalStateException("Transaction " + txId + " is not OPEN");
-        if (!userId.equals(tx.get("owner_id", String.class)))
-            throw new PermissionService.AccessDeniedException(
-                "Transaction " + txId + " does not belong to user " + userId);
-    }
-
     private List<String> resolveV2MDescendants(String nodeId) {
         List<String> children = dsl.select(
                 DSL.field("nl.target_node_id").as("target_node_id"))
-            .from("node_link nl").join("link_type lt").on("nl.link_type_id = lt.id")
-            .where("nl.source_node_id = ?", nodeId)
+            .from("node_version_link nl")
+            .join("link_type lt").on("nl.link_type_id = lt.id")
+            .join("node_version nv_src").on("nv_src.id = nl.source_node_version_id")
+            .where("nv_src.node_id = ?", nodeId)
             .and("lt.link_policy = 'VERSION_TO_MASTER'").and("nl.pinned_version_id IS NULL")
             .fetch("target_node_id", String.class);
         List<String> all = new ArrayList<>(children);
@@ -175,13 +160,13 @@ public class LockService {
     // Types
     // ================================================================
 
-    public record LockInfo(boolean locked, String lockedBy, String txId, LocalDateTime expiresAt) {
-        static final LockInfo FREE = new LockInfo(false, null, null, null);
+    public record LockInfo(boolean locked, String lockedBy, LocalDateTime lockedAt) {
+        static final LockInfo FREE = new LockInfo(false, null, null);
     }
 
     public static class LockConflictException extends com.plm.domain.exception.PlmFunctionalException {
-        public LockConflictException(String nodeId, String lockedBy, String txId) {
-            super("Node " + nodeId + " is locked by " + lockedBy + " in tx " + txId, 409);
+        public LockConflictException(String nodeId, String lockedBy) {
+            super("Node " + nodeId + " is locked by " + lockedBy, 409);
         }
     }
 }

@@ -8,8 +8,6 @@ import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-
 /**
  * Vérification des permissions PLM basées sur les rôles.
  *
@@ -176,41 +174,6 @@ public class PermissionService {
         String  finalSection  = viewSection != null ? viewSection : stateDisplaySection;
 
         return new AttributeOverride(finalEditable, finalVisible, finalOrder, finalSection);
-    }
-
-    // ================================================================
-    // GESTION DES RÔLES (admin)
-    // ================================================================
-
-    public String createRole(String name, String description, boolean isAdmin) {
-        assertCurrentUserIsAdmin();
-        String id = java.util.UUID.randomUUID().toString();
-        dsl.execute(
-            "INSERT INTO plm_role (ID, NAME, DESCRIPTION, IS_ADMIN, CREATED_AT) VALUES (?,?,?,?,?)",
-            id, name, description, isAdmin ? 1 : 0, java.time.LocalDateTime.now()
-        );
-        log.info("Role created: {}", name);
-        return id;
-    }
-
-    public String createUser(String username, String displayName, String email) {
-        assertCurrentUserIsAdmin();
-        String id = java.util.UUID.randomUUID().toString();
-        dsl.execute(
-            "INSERT INTO plm_user (ID, USERNAME, DISPLAY_NAME, EMAIL, CREATED_AT) VALUES (?,?,?,?,?)",
-            id, username, displayName, email, java.time.LocalDateTime.now()
-        );
-        log.info("User created: {}", username);
-        return id;
-    }
-
-    public void assignRole(String userId, String roleId) {
-        assertCurrentUserIsAdmin();
-        dsl.execute(
-            "INSERT INTO user_role (ID, USER_ID, ROLE_ID) VALUES (?,?,?)",
-            java.util.UUID.randomUUID().toString(), userId, roleId
-        );
-        log.info("Role {} assigned to user {}", roleId, userId);
     }
 
     public void setNodeTypePermission(

@@ -1,5 +1,6 @@
 package com.plm.domain.service;
 
+import com.plm.infrastructure.PlmEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -34,8 +35,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class BaselineService {
 
-    private final DSLContext     dsl;
-    private final VersionService versionService;
+    private final DSLContext        dsl;
+    private final VersionService    versionService;
+    private final PlmEventPublisher eventPublisher;
 
     /**
      * Crée une baseline sur un noeud racine.
@@ -67,6 +69,7 @@ public class BaselineService {
             dsl.selectOne().from("baseline_entry").where("baseline_id = ?", baselineId)
         );
 
+        eventPublisher.baselineCreated(baselineId, name, userId);
         log.info("Baseline created: id={} name='{}' entries={} user={}", baselineId, name, entryCount, userId);
         return baselineId;
     }
@@ -78,7 +81,7 @@ public class BaselineService {
     public List<Record> getBaselineContent(String baselineId) {
         return dsl.select()
             .from("baseline_entry be")
-            .join("node_link nl").on("be.node_link_id = nl.id")
+            .join("node_version_link nl").on("be.node_link_id = nl.id")
             .join("node_version nv").on("be.resolved_version_id = nv.id")
             .join("node n").on("nv.node_id = n.id")
             .where("be.baseline_id = ?", baselineId)
@@ -142,9 +145,10 @@ public class BaselineService {
                 DSL.field("nl.id").as("nl_id"),
                 DSL.field("lt.link_policy").as("lt_link_policy"),
                 DSL.field("nl.target_node_id").as("nl_target_node_id"))
-            .from("node_link nl")
+            .from("node_version_link nl")
             .join("link_type lt").on("nl.link_type_id = lt.id")
-            .where("nl.source_node_id = ?", parentNodeId)
+            .join("node_version nv_src").on("nv_src.id = nl.source_node_version_id")
+            .where("nv_src.node_id = ?", parentNodeId)
             .fetch();
 
         for (Record link : links) {

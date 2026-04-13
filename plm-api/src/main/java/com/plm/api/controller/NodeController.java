@@ -1,6 +1,9 @@
 package com.plm.api.controller;
 
+import com.plm.domain.action.ActionDispatcher;
+import com.plm.domain.action.ActionResult;
 import com.plm.domain.service.*;
+import com.plm.infrastructure.security.PlmProjectSpaceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -10,22 +13,27 @@ import java.util.Map;
 /**
  * API REST pour les noeuds PLM.
  *
- * Convention pour les opérations d'authoring (modifyNode, transition, signature, lien) :
- *   - Le header X-PLM-Tx est OBLIGATOIRE et doit contenir un txId OPEN
- *   - La transaction est ouverte via POST /api/transactions avant d'appeler ces endpoints
- *   - La transaction est committée/annulée via POST /api/transactions/{id}/commit|rollback
+ * Toutes les opérations d'écriture (checkout, modification, transition, signature, lien)
+ * passent exclusivement par l'endpoint générique :
+ *
+ *   POST /api/nodes/{nodeId}/actions/{nodeTypeActionId}
+ *   Header: X-PLM-Tx (requis si l'action a requires_tx = true)
+ *   Body:   { "userId": "...", "parameters": { ... } }
+ *
+ * L'identifiant nodeTypeActionId est l'id de node_type_action, obtenu via
+ * GET /api/nodes/{nodeId}/description (champ actions[].id dans le payload UI).
  *
  * Opérations en lecture (GET) et création (POST /api/nodes) : pas de txId requis.
  */
 @RestController
-@RequestMapping("/api/nodes")
+@RequestMapping("/api/psm/nodes")
 @RequiredArgsConstructor
 public class NodeController {
 
     private final NodeService       nodeService;
-    private final LifecycleService  lifecycleService;
     private final LockService       lockService;
-    private final PermissionService permissionService;
+    private final SignatureService  signatureService;
+    private final ActionDispatcher  actionDispatcher;
 
     // ── Création ──────────────────────────────────────────────────────
 
@@ -33,12 +41,16 @@ public class NodeController {
     public ResponseEntity<Map<String, String>> createNode(
         @RequestBody Map<String, Object> body
     ) {
+        String projectSpaceId = PlmProjectSpaceContext.require();
         String nodeTypeId = (String) body.get("nodeTypeId");
         String userId     = (String) body.get("userId");
+        String logicalId  = (String) body.get("logicalId");
+        String externalId = (String) body.get("externalId");
         @SuppressWarnings("unchecked")
         Map<String, String> attributes = (Map<String, String>) body.getOrDefault("attributes", Map.of());
 
-        String nodeId = nodeService.createNode(nodeTypeId, userId, attributes);
+        String nodeId = nodeService.createNode(projectSpaceId, nodeTypeId, userId, attributes,
+                                               logicalId, externalId);
         return ResponseEntity.ok(Map.of("nodeId", nodeId));
     }
 
@@ -46,13 +58,13 @@ public class NodeController {
 
     @GetMapping
     public ResponseEntity<?> listNodes() {
-        return ResponseEntity.ok(nodeService.listNodes());
+        return ResponseEntity.ok(nodeService.listNodes(PlmProjectSpaceContext.require()));
     }
 
     // ── Lecture (Server-Driven UI) ────────────────────────────────────
 
     /**
-     * Retourne le payload UI complet.
+     * Retourne le payload UI complet (attributs, actions disponibles, état, lock…).
      * txId optionnel : si fourni, montre la version OPEN de la transaction (si owner).
      */
     @GetMapping("/{nodeId}/description")
@@ -64,77 +76,16 @@ public class NodeController {
         return ResponseEntity.ok(nodeService.buildObjectDescription(nodeId, userId, txId));
     }
 
-    // ── Checkout — X-PLM-Tx obligatoire ──────────────────────────────
+    // ── Liens — lecture ───────────────────────────────────────────────
 
-    /**
-     * Ouvre un noeud en édition : acquiert le lock et crée une version OPEN
-     * (copie exacte de la version courante) dans la transaction.
-     * Idempotent : si le noeud est déjà checké-out dans cette tx, retourne la version existante.
-     */
-    @PostMapping("/{nodeId}/checkout")
-    public ResponseEntity<Map<String, String>> checkoutNode(
-        @PathVariable String nodeId,
-        @RequestHeader("X-PLM-Tx") String txId,
-        @RequestBody   Map<String, String> body
-    ) {
-        String userId    = body.get("userId");
-        String versionId = nodeService.checkoutNode(nodeId, userId, txId);
-        return ResponseEntity.ok(Map.of("versionId", versionId, "txId", txId));
+    @GetMapping("/{nodeId}/links/children")
+    public ResponseEntity<?> getChildLinks(@PathVariable String nodeId) {
+        return ResponseEntity.ok(nodeService.getChildLinks(nodeId));
     }
 
-    // ── Modification — X-PLM-Tx obligatoire ──────────────────────────
-
-    @PutMapping("/{nodeId}")
-    public ResponseEntity<Map<String, String>> modifyNode(
-        @PathVariable String nodeId,
-        @RequestHeader("X-PLM-Tx") String txId,
-        @RequestBody   Map<String, Object> body
-    ) {
-        String userId = (String) body.get("userId");
-        @SuppressWarnings("unchecked")
-        Map<String, String> attributes = (Map<String, String>) body.getOrDefault("attributes", Map.of());
-        String description = (String) body.getOrDefault("description", "");
-
-        String versionId = nodeService.modifyNode(nodeId, userId, txId, attributes, description);
-        return ResponseEntity.ok(Map.of("versionId", versionId, "txId", txId));
-    }
-
-    // ── Transitions — X-PLM-Tx obligatoire ───────────────────────────
-
-    @PostMapping("/{nodeId}/transitions/{transitionId}")
-    public ResponseEntity<Map<String, String>> applyTransition(
-        @PathVariable  String nodeId,
-        @PathVariable  String transitionId,
-        @RequestHeader("X-PLM-Tx") String txId,
-        @RequestBody   Map<String, String> body
-    ) {
-        String userId = body.get("userId");
-        permissionService.assertCanTransition(transitionId);
-        String versionId = lifecycleService.applyTransition(nodeId, transitionId, userId, txId);
-        return ResponseEntity.ok(Map.of("versionId", versionId, "txId", txId));
-    }
-
-    @GetMapping("/{nodeId}/transitions")
-    public ResponseEntity<?> getAvailableTransitions(@PathVariable String nodeId) {
-        return ResponseEntity.ok(lifecycleService.getAvailableTransitions(nodeId));
-    }
-
-    // ── Liens — X-PLM-Tx obligatoire ─────────────────────────────────
-
-    @PostMapping("/links")
-    public ResponseEntity<Map<String, String>> createLink(
-        @RequestHeader("X-PLM-Tx") String txId,
-        @RequestBody   Map<String, Object> body
-    ) {
-        String linkId = nodeService.createLink(
-            (String) body.get("linkTypeId"),
-            (String) body.get("sourceNodeId"),
-            (String) body.get("targetNodeId"),
-            (String) body.get("pinnedVersionId"),
-            (String) body.get("userId"),
-            txId
-        );
-        return ResponseEntity.ok(Map.of("linkId", linkId, "txId", txId));
+    @GetMapping("/{nodeId}/links/parents")
+    public ResponseEntity<?> getParentLinks(@PathVariable String nodeId) {
+        return ResponseEntity.ok(nodeService.getParentLinks(nodeId));
     }
 
     // ── Historique des versions ───────────────────────────────────────
@@ -144,6 +95,14 @@ public class NodeController {
         return ResponseEntity.ok(nodeService.getVersionHistory(nodeId));
     }
 
+    @GetMapping("/{nodeId}/versions/diff")
+    public ResponseEntity<?> getVersionDiff(
+            @PathVariable String nodeId,
+            @RequestParam int v1,
+            @RequestParam int v2) {
+        return ResponseEntity.ok(nodeService.getVersionDiff(nodeId, v1, v2));
+    }
+
     // ── Lock info ─────────────────────────────────────────────────────
 
     @GetMapping("/{nodeId}/lock")
@@ -151,9 +110,40 @@ public class NodeController {
         LockService.LockInfo info = lockService.getLockInfo(nodeId);
         return ResponseEntity.ok(Map.of(
             "locked",   info.locked(),
-            "lockedBy", info.lockedBy() != null ? info.lockedBy() : "",
-            "txId",     info.txId() != null ? info.txId() : ""
+            "lockedBy", info.lockedBy() != null ? info.lockedBy() : ""
         ));
+    }
+
+    // ── Signatures — lecture ──────────────────────────────────────────
+
+    @GetMapping("/{nodeId}/signatures")
+    public ResponseEntity<?> getSignatures(@PathVariable String nodeId) {
+        return ResponseEntity.ok(signatureService.getSignaturesForCurrentIteration(nodeId));
+    }
+
+    @GetMapping("/{nodeId}/signatures/history")
+    public ResponseEntity<?> getSignatureHistory(@PathVariable String nodeId) {
+        return ResponseEntity.ok(signatureService.getFullSignatureHistory(nodeId));
+    }
+
+    // ── Actions (seul point d'entrée pour toutes les écritures) ───────
+
+    @PostMapping("/{nodeId}/actions/{nodeTypeActionId}")
+    public ResponseEntity<?> executeAction(
+        @PathVariable  String nodeId,
+        @PathVariable  String nodeTypeActionId,
+        @RequestHeader(value = "X-PLM-Tx", required = false) String txId,
+        @RequestBody   Map<String, Object> body
+    ) {
+        String userId = (String) body.get("userId");
+        @SuppressWarnings("unchecked")
+        Map<String, String> params = (Map<String, String>) body.getOrDefault("parameters", Map.of());
+
+        String currentStateId = nodeService.getCurrentStateId(nodeId, txId);
+
+        ActionResult result = actionDispatcher.dispatch(
+            nodeTypeActionId, nodeId, currentStateId, userId, txId, params);
+        return ResponseEntity.ok(result.data());
     }
 
 }

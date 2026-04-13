@@ -8,52 +8,20 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 /**
- * API de gestion des rôles, utilisateurs, permissions et vues.
- * Toutes les opérations d'écriture sont réservées aux admins (vérification dans PermissionService).
+ * API de gestion des permissions PSM (node type, transitions, vues).
+ *
+ * Les rôles et utilisateurs sont gérés par pno-api (/api/pno/...).
+ * Ce contrôleur gère uniquement ce qui est propre au PSM :
+ *   - droits d'accès d'un rôle sur un type de noeud
+ *   - droits de transition
+ *   - vues d'attributs
  */
 @RestController
-@RequestMapping("/api/admin")
+@RequestMapping("/api/psm/admin")
 @RequiredArgsConstructor
 public class RoleController {
 
     private final PermissionService permissionService;
-
-    // ================================================================
-    // ROLES
-    // ================================================================
-
-    @PostMapping("/roles")
-    public ResponseEntity<Map<String, String>> createRole(@RequestBody Map<String, Object> body) {
-        String id = permissionService.createRole(
-            (String)  body.get("name"),
-            (String)  body.get("description"),
-            Boolean.TRUE.equals(body.get("isAdmin"))
-        );
-        return ResponseEntity.ok(Map.of("id", id));
-    }
-
-    // ================================================================
-    // UTILISATEURS
-    // ================================================================
-
-    @PostMapping("/users")
-    public ResponseEntity<Map<String, String>> createUser(@RequestBody Map<String, String> body) {
-        String id = permissionService.createUser(
-            body.get("username"),
-            body.get("displayName"),
-            body.get("email")
-        );
-        return ResponseEntity.ok(Map.of("id", id));
-    }
-
-    @PostMapping("/users/{userId}/roles/{roleId}")
-    public ResponseEntity<Void> assignRole(
-        @PathVariable String userId,
-        @PathVariable String roleId
-    ) {
-        permissionService.assignRole(userId, roleId);
-        return ResponseEntity.ok().build();
-    }
 
     // ================================================================
     // PERMISSIONS NODETYPES
@@ -67,7 +35,7 @@ public class RoleController {
     ) {
         permissionService.setNodeTypePermission(
             roleId, nodeTypeId,
-            !Boolean.FALSE.equals(body.get("canRead")),       // défaut true
+            !Boolean.FALSE.equals(body.get("canRead")),
             Boolean.TRUE.equals(body.get("canWrite")),
             Boolean.TRUE.equals(body.get("canTransition")),
             Boolean.TRUE.equals(body.get("canSign")),
@@ -116,14 +84,13 @@ public class RoleController {
         @PathVariable String attrId,
         @RequestBody Map<String, Object> body
     ) {
-        Boolean visible      = (Boolean) body.get("visible");
-        Boolean editable     = (Boolean) body.get("editable");
-        Integer displayOrder = (Integer) body.get("displayOrder");
-        String  section      = (String)  body.get("displaySection");
-
-        permissionService.setViewOverride(viewId, attrId, visible, editable, displayOrder, section);
+        permissionService.setViewOverride(
+            viewId, attrId,
+            (Boolean) body.get("visible"),
+            (Boolean) body.get("editable"),
+            (Integer) body.get("displayOrder"),
+            (String)  body.get("displaySection")
+        );
         return ResponseEntity.ok().build();
     }
-
-    // ================================================================
 }

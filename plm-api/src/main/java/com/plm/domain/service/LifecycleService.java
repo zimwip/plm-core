@@ -1,6 +1,8 @@
 package com.plm.domain.service;
 
 import com.plm.domain.model.Enums.ChangeType;
+import com.plm.domain.model.Enums.VersionStrategy;
+import com.plm.infrastructure.PlmEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -9,9 +11,9 @@ import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Application des transitions de lifecycle.
@@ -25,9 +27,10 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class LifecycleService {
 
-    private final DSLContext     dsl;
-    private final VersionService versionService;
-    private final LockService    lockService;
+    private final DSLContext        dsl;
+    private final VersionService    versionService;
+    private final LockService       lockService;
+    private final PlmEventPublisher eventPublisher;
 
     /**
      * Applique une transition de lifecycle.
@@ -40,10 +43,14 @@ public class LifecycleService {
             .where("id = ?", transitionId).fetchOne();
         if (transition == null) throw new IllegalArgumentException("Transition not found: " + transitionId);
 
-        String fromStateId = transition.get("from_state_id", String.class);
-        String toStateId   = transition.get("to_state_id",   String.class);
-        String guardExpr   = transition.get("guard_expr",    String.class);
-        String actionType  = transition.get("action_type",   String.class);
+        String fromStateId      = transition.get("from_state_id",    String.class);
+        String toStateId        = transition.get("to_state_id",      String.class);
+        String guardExpr        = transition.get("guard_expr",       String.class);
+        String actionType       = transition.get("action_type",      String.class);
+        String strategyRaw      = transition.get("version_strategy", String.class);
+        VersionStrategy strategy = strategyRaw != null
+            ? VersionStrategy.valueOf(strategyRaw)
+            : VersionStrategy.NONE;
 
         // Vérifier l'état courant (version publique)
         Record current = versionService.getCurrentVersion(nodeId);
@@ -55,25 +62,31 @@ public class LifecycleService {
         // Vérifier permission transition
         // (délégué à permissionService dans NodeController — ici on fait confiance à l'appelant)
 
-        // Acquérir le lock dans la transaction
-        lockService.checkin(nodeId, userId, txId);
-
         // Évaluer la garde
         if (guardExpr != null && !evaluateGuard(guardExpr, nodeId, toStateId)) {
             throw new GuardException("Guard '" + guardExpr + "' failed for transition " + transitionId);
         }
 
-        // Créer la version LIFECYCLE (pas d'incrément d'itération)
+        // Créer la version LIFECYCLE avec la stratégie de numérotation de la transition
         String versionId = versionService.createVersion(
             nodeId, userId, txId,
-            ChangeType.LIFECYCLE, toStateId,
+            ChangeType.LIFECYCLE, strategy, toStateId,
             Collections.emptyMap(),
             "Lifecycle transition: " + fromStateId + " → " + toStateId
         );
 
-        // Exécuter l'action post-transition
-        if (actionType != null) executeAction(actionType, nodeId, userId, txId);
+        // Acquiert le lock (conflit → exception + rollback) et écrit locked_by / locked_at.
+        lockService.tryLock(nodeId, userId);
 
+        // Cascade data-driven : consulte link_type_cascade pour la transition parente
+        executeCascade(nodeId, transitionId, userId, txId);
+
+        // Exécuter les actions supplémentaires (REQUIRE_SIGNATURE…)
+        if (actionType != null && !"NONE".equals(actionType) && !"CASCADE_FROZEN".equals(actionType)) {
+            executeAction(actionType, nodeId, userId, txId);
+        }
+
+        eventPublisher.stateChanged(nodeId, fromStateId, toStateId, userId);
         log.info("Transition: node={} {}→{} tx={} user={}", nodeId, fromStateId, toStateId, txId, userId);
         return versionId;
     }
@@ -103,7 +116,8 @@ public class LifecycleService {
         Record current = versionService.getCurrentVersion(nodeId);
         if (current == null) return false;
         String currentVersionId = current.get("id", String.class);
-        int missing = dsl.fetchCount(dsl.select().from("attribute_definition ad")
+        // Use explicit column to avoid duplicate "id" column in H2 derived-table wrapping
+        int missing = dsl.fetchCount(dsl.select(DSL.field("ad.id")).from("attribute_definition ad")
             .join("attribute_state_rule asr").on("asr.attribute_definition_id = ad.id")
             .where("ad.node_type_id = ?", nodeTypeId)
             .and("asr.lifecycle_state_id = ?", targetStateId).and("asr.required = 1")
@@ -122,36 +136,111 @@ public class LifecycleService {
     // ================================================================
 
     private void executeAction(String actionType, String nodeId, String userId, String txId) {
-        if ("CASCADE_FROZEN".equals(actionType)) executeCascadeFrozen(nodeId, userId, txId);
-        else log.warn("Unknown action: {}", actionType);
+        log.warn("Unknown or unhandled action type: {}", actionType);
     }
 
-    private void executeCascadeFrozen(String nodeId, String userId, String txId) {
-        String frozenStateId = dsl.select(DSL.field("ls.id").as("ls_id"))
-            .from("lifecycle_state ls")
-            .join("node_type nt").on("nt.lifecycle_id = ls.lifecycle_id")
-            .join("node n").on("n.node_type_id = nt.id")
-            .where("n.id = ?", nodeId).and("ls.is_frozen = 1")
-            .fetchOne("ls_id", String.class);
-        if (frozenStateId == null) return;
+    /**
+     * Data-driven cascade: for each outgoing link that has a cascade rule whose
+     * parent_transition_id matches the transition just fired on the parent node,
+     * fire the configured child transition on eligible child nodes.
+     * No-op when no rules are defined for this transition.
+     */
+    private void executeCascade(String nodeId, String parentTransitionId, String userId, String txId) {
+        // Find all cascade rules triggered by the parent firing parentTransitionId.
+        // child_from_state_id scopes each rule: only children currently in that state
+        // are eligible. Children in other states (e.g. Released) are silently skipped.
+        // We join child_transition to obtain to_state_id for the diamond guard.
+        var rules = dsl.select(
+                DSL.field("nl.target_node_id").as("child_id"),
+                DSL.field("ltc.child_from_state_id").as("child_from_state_id"),
+                DSL.field("ltc.child_transition_id").as("child_transition_id"),
+                DSL.field("lt.to_state_id").as("to_state_id")
+            )
+            .from("node_version_link nl")
+            .join("link_type_cascade ltc").on("ltc.link_type_id = nl.link_type_id")
+            .join("lifecycle_transition lt").on("lt.id = ltc.child_transition_id")
+            .join("node_version nv_src").on("nv_src.id = nl.source_node_version_id")
+            .where("nv_src.node_id = ?", nodeId)
+            .and("ltc.parent_transition_id = ?", parentTransitionId)
+            .and("nl.pinned_version_id IS NULL") // VERSION_TO_MASTER links only
+            .fetch();
 
-        List<String> children = dsl.select(DSL.field("nl.target_node_id").as("target_node_id"))
-            .from("node_link nl")
-            .join("link_type lt").on("nl.link_type_id = lt.id")
-            .where("nl.source_node_id = ?", nodeId)
-            .and("lt.link_policy = 'VERSION_TO_MASTER'").and("nl.pinned_version_id IS NULL")
-            .fetch("target_node_id", String.class);
+        List<String> errors = new ArrayList<>();
 
-        for (String childId : children) {
-            lockService.checkin(childId, userId, txId);
-            versionService.createVersion(childId, userId, txId,
-                ChangeType.LIFECYCLE, frozenStateId, Collections.emptyMap(),
-                "Cascade frozen from: " + nodeId);
-            executeCascadeFrozen(childId, userId, txId);
+        for (Record rule : rules) {
+            String childId            = rule.get("child_id",            String.class);
+            String childFromStateId   = rule.get("child_from_state_id", String.class);
+            String childTransitionId  = rule.get("child_transition_id", String.class);
+            String toStateId          = rule.get("to_state_id",         String.class);
+
+            // Idempotency guard: if the child already has an OPEN version in this
+            // transaction that is already in the target state, the cascade was applied
+            // via another branch (diamond hierarchy). Skip to avoid a duplicate
+            // LIFECYCLE version with an identical fingerprint causing a false no-op error.
+            Record openInTx = versionService.getCurrentVersionForTx(childId, txId);
+            if (openInTx != null
+                    && txId.equals(openInTx.get("tx_id", String.class))
+                    && toStateId.equals(openInTx.get("lifecycle_state_id", String.class))) {
+                log.debug("Cascade: child {} already at state {} in tx {} — skipping (diamond)", childId, toStateId, txId);
+                continue;
+            }
+
+            // Resolve the child's current committed state
+            Record childCurrent = versionService.getCurrentVersion(childId);
+            if (childCurrent == null) {
+                log.warn("Cascade: child node {} has no version, skipping", childId);
+                continue;
+            }
+            String childCurrentStateId = childCurrent.get("lifecycle_state_id", String.class);
+
+            // Rule scope check: this cascade rule only applies when the child is in
+            // child_from_state_id. Children in any other state (e.g. Released, already
+            // Frozen) are silently skipped — the rule simply doesn't concern them.
+            if (!childFromStateId.equals(childCurrentStateId)) {
+                log.debug("Cascade: child {} is in state {} (rule expects {}) — skipping",
+                    childId, childCurrentStateId, childFromStateId);
+                continue;
+            }
+
+            // Delegate to applyTransition using the exact transition configured in the rule.
+            // Guards, versioning strategy, actions and recursive cascade are all handled inside.
+            // Catch and flatten errors so the user gets a complete picture of what's blocking.
+            String childLabel = resolveLabel(childId);
+            try {
+                applyTransition(childId, childTransitionId, userId, txId);
+            } catch (CascadeBlockedException cbe) {
+                // Flatten nested cascade errors from sub-children
+                errors.addAll(cbe.getBlockedNodes());
+            } catch (Exception e) {
+                errors.add("'" + childLabel + "': " + e.getMessage());
+            }
         }
+
+        if (!errors.isEmpty()) {
+            throw new CascadeBlockedException(errors);
+        }
+    }
+
+    private String resolveLabel(String nodeId) {
+        String logicalId = dsl.select().from("node").where("id = ?", nodeId)
+            .fetchOne("logical_id", String.class);
+        return logicalId != null ? logicalId : nodeId;
     }
 
     public static class GuardException extends com.plm.domain.exception.PlmFunctionalException {
         public GuardException(String msg) { super(msg, 422); }
+    }
+
+    public static class CascadeBlockedException extends com.plm.domain.exception.PlmFunctionalException {
+        private final List<String> blockedNodes;
+
+        public CascadeBlockedException(List<String> blockedNodes) {
+            super("Cascade blocked — the following nodes cannot be transitioned:\n"
+                + blockedNodes.stream().map(s -> "  • " + s).collect(java.util.stream.Collectors.joining("\n")),
+                422);
+            this.blockedNodes = List.copyOf(blockedNodes);
+        }
+
+        public List<String> getBlockedNodes() { return blockedNodes; }
     }
 }

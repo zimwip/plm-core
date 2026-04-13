@@ -7,7 +7,10 @@ tout le contexte de conception et les décisions prises.
 
 ## Ce qu'on a construit
 
-Un **PLM (Product Lifecycle Management) minimaliste et extensible** en Spring Boot + JOOQ.
+Un **PLM (Product Lifecycle Management) minimaliste et extensible** en architecture multi-service :
+- **plm-api** (PSM — Product Structure Management) : noeuds, versions, lifecycle, signatures, baselines, méta-modèle, permissions
+- **pno-api** (PNO — People & Organisation) : utilisateurs, rôles, espaces projet
+
 L'objectif est d'avoir une base solide et propre avant d'ajouter des fonctionnalités métier.
 
 ---
@@ -16,14 +19,37 @@ L'objectif est d'avoir une base solide et propre avant d'ajouter des fonctionnal
 
 | Composant | Choix | Raison |
 |-----------|-------|--------|
-| Backend | Spring Boot 3.2 + Java 21 | Standard entreprise |
-| Persistence | JOOQ (SQL typé) | Modèle relationnel complexe, pas adapté à JPA |
-| DB dev | Apache Derby in-memory | Zéro config, tests rapides |
-| DB prod | PostgreSQL 16 | Robustesse, switch trivial |
+| Backend PSM | Spring Boot 3.2 + Java 21 | Standard entreprise |
+| Backend PNO | Spring Boot 3.2 + Java 21 | Même stack, service séparé |
+| Persistence | JOOQ (SQL typé, plain SQL) | Modèle relationnel complexe, pas adapté à JPA |
+| DB dev | H2 in-memory (mode PostgreSQL) | Zéro config, tests rapides |
+| DB prod | PostgreSQL 16, deux schémas (`psm` + `pno`) | Robustesse, switch trivial |
 | Migrations | Flyway | Versioning du schéma reproductible |
 | Frontend | React 18 + nginx | SPA simple, no framework lourd |
 | Temps réel | WebSocket STOMP | Notifications lock/état uniquement |
 | Packaging | Docker Compose | dev et prod en un seul fichier |
+
+---
+
+## Architecture inter-services
+
+```
+Browser
+  │
+  └─► nginx (port 3000)
+        ├── /api/psm/  ──────────────► plm-api (port 8080)  [schéma psm]
+        ├── /api/pno/  ──────────────► pno-api (port 8081)  [schéma pno]
+        ├── /actuator/ ──────────────► plm-api (port 8080)
+        └── /ws        ──────────────► plm-api (port 8080)
+
+plm-api
+  └── PlmAuthFilter → PnoApiClient ──► GET /api/pno/users/{id}/context
+                      (Caffeine 30s)
+```
+
+**Règle d'URL :** tout nouveau controller PSM → `@RequestMapping("/api/psm/...")`, PNO → `@RequestMapping("/api/pno/...")`.
+
+**Auth inter-services :** `PlmAuthFilter` ne touche plus la base de données. Il appelle `pno-api` via HTTP (cache Caffeine 30 s, 500 entrées). Le endpoint `/api/pno/users/{id}/context` est exempt d'authentification dans `PnoAuthFilter` (appelé avant que le contexte utilisateur soit établi).
 
 ---
 
@@ -65,110 +91,242 @@ Règles de numérotation :
 Une vue peut **restreindre** mais **jamais élargir** les droits définis par l'état.
 C'est la règle la plus importante à ne pas casser.
 
+### 7. Modèle de transaction PLM
+
+```
+OPEN ──────► COMMITTED   (commit avec commentaire obligatoire)
+  │
+  └────────► ROLLEDBACK  (rollback — versions OPEN supprimées physiquement)
+```
+
+**Règles clés :**
+- Un utilisateur ne peut avoir qu'**une seule transaction OPEN** à la fois
+- Création **automatique** au premier checkin OU **explicite** (bouton "Ouvrir une transaction")
+- Le commit **libère tous les locks** de la transaction en une seule opération
+- Le commentaire de commit est **obligatoire** (comme un message Git)
+- Le rollback **supprime physiquement** les versions OPEN et la transaction elle-même
+- Nettoyage automatique des tx OPEN > 24h (auto-rollback)
+- **Dépendance circulaire** LockService ↔ PlmTransactionService résolue avec `@Lazy`
+
+**Visibilité des node_version :**
+| tx_status   | Visible par |
+|-------------|------------|
+| `COMMITTED` | Tout le monde |
+| `OPEN`      | Owner de la tx + admins |
+
 ---
 
 ## Structure des fichiers
 
 ```
 plm-core/
-├── ARCHITECTURE.md          ← décisions de conception complètes
-├── README.md                ← guide de démarrage et API
-├── CLAUDE.md                ← ce fichier
-├── docker-compose.yml       ← dev (Derby) et prod (PostgreSQL)
-├── Dockerfile               ← backend Spring Boot multi-stage
-├── pom.xml                  ← dépendances Maven
-├── .env.example             ← variables d'environnement
+├── ARCHITECTURE.md
+├── README.md
+├── CLAUDE.md                    ← ce fichier
+├── docker-compose.yml           ← orchestration complète (postgres, plm-api, pno-api, frontend)
+├── run.sh                       ← watch + rebuild automatique en dev
+├── .env.example
 │
-├── frontend/                ← React 18 + nginx
+├── frontend/                    ← React 18 + nginx
 │   ├── Dockerfile
-│   ├── nginx.conf           ← proxy /api/ et /ws vers backend
+│   ├── nginx.conf               ← /api/psm/ → plm-api, /api/pno/ → pno-api, /ws → plm-api
 │   ├── package.json
 │   └── src/
-│       ├── App.js           ← application complète (composants + styles)
-│       ├── index.js
-│       ├── services/api.js  ← couche API REST
+│       ├── App.jsx
+│       ├── main.jsx
+│       ├── services/api.js      ← BASE='/api/psm', BASE_PNO='/api/pno'
 │       └── hooks/useWebSocket.js
 │
-└── src/
-    ├── main/
-    │   ├── java/com/plm/
-    │   │   ├── PlmApplication.java
-    │   │   ├── api/controller/
-    │   │   │   ├── NodeController.java
-    │   │   │   ├── MetaModelAndBaselineController.java
-    │   │   │   └── RoleController.java
-    │   │   ├── domain/
-    │   │   │   ├── model/Enums.java
-    │   │   │   └── service/
-    │   │   │       ├── LockService.java          ← checkin/checkout/cascade
-    │   │   │       ├── VersionService.java        ← règles revision.iteration
-    │   │   │       ├── ValidationService.java     ← règles attribut×état
-    │   │   │       ├── LifecycleService.java      ← transitions, guards, actions
-    │   │   │       ├── NodeService.java           ← CRUD + payload UI
-    │   │   │       ├── SignatureService.java      ← signatures électroniques
-    │   │   │       ├── BaselineService.java       ← tag + résolution V2M
-    │   │   │       ├── MetaModelService.java      ← CRUD méta-modèle
-    │   │   │       └── PermissionService.java     ← rôles, vues, overrides
-    │   │   └── infrastructure/
-    │   │       ├── WebSocketConfig.java
-    │   │       ├── PlmEventPublisher.java
-    │   │       └── security/
-    │   │           ├── PlmUserContext.java        ← identité + rôles par requête
-    │   │           ├── PlmSecurityContext.java    ← ThreadLocal holder
-    │   │           └── PlmAuthFilter.java         ← résolution depuis X-PLM-User
-    │   └── resources/
-    │       ├── application.properties
-    │       └── db/migration/
-    │           ├── V1__init_schema.sql    ← schéma de base
-    │           ├── V2__signatures.sql     ← signatures électroniques
-    │           ├── V3__roles_and_views.sql← rôles, permissions, vues
-    │           └── V4__seed_data.sql      ← données initiales
-    └── test/java/com/plm/
-        ├── PlmIntegrationTest.java        ← tests versioning + locks
-        ├── PlmExtendedTest.java           ← tests signatures + baselines
-        └── PlmRoleAndViewTest.java        ← tests rôles + vues
+├── plm-api/                     ← PSM — Product Structure Management (port 8080)
+│   ├── Dockerfile
+│   ├── pom.xml
+│   └── src/
+│       ├── main/
+│       │   ├── java/com/plm/
+│       │   │   ├── PlmApplication.java
+│       │   │   ├── api/controller/
+│       │   │   │   ├── NodeController.java          (/api/psm/nodes)
+│       │   │   │   ├── MetaModelController.java     (/api/psm/metamodel)
+│       │   │   │   ├── BaselineController.java      (/api/psm/baselines)
+│       │   │   │   ├── TransactionController.java   (/api/psm/transactions)
+│       │   │   │   └── RoleController.java          (/api/psm/admin — permissions PSM uniquement)
+│       │   │   ├── domain/
+│       │   │   │   ├── model/Enums.java
+│       │   │   │   └── service/
+│       │   │   │       ├── LockService.java          ← checkin/checkout/cascade
+│       │   │   │       ├── VersionService.java       ← règles revision.iteration
+│       │   │   │       ├── ValidationService.java    ← règles attribut×état
+│       │   │   │       ├── LifecycleService.java     ← transitions, guards, actions
+│       │   │   │       ├── NodeService.java          ← CRUD + payload UI
+│       │   │   │       ├── SignatureService.java     ← signatures électroniques
+│       │   │   │       ├── BaselineService.java      ← tag + résolution V2M
+│       │   │   │       ├── MetaModelService.java     ← CRUD méta-modèle
+│       │   │   │       ├── PermissionService.java    ← droits node-type, vues, overrides
+│       │   │   │       ├── PlmTransactionService.java← cycle de vie tx (open/commit/rollback)
+│       │   │   │       └── FingerPrintService.java
+│       │   │   └── infrastructure/
+│       │   │       ├── WebSocketConfig.java
+│       │   │       ├── PlmEventPublisher.java
+│       │   │       └── security/
+│       │   │           ├── PlmUserContext.java       ← identité + rôles par requête
+│       │   │           ├── PlmSecurityContext.java   ← ThreadLocal holder
+│       │   │           ├── PlmProjectSpaceContext.java
+│       │   │           ├── PlmAuthFilter.java        ← délègue à PnoApiClient (HTTP)
+│       │   │           └── PnoApiClient.java         ← cache Caffeine 30s → pno-api
+│       │   └── resources/
+│       │       ├── application.properties
+│       │       └── db/migration/                    ← schéma psm
+│       │           ├── V1__schema.sql
+│       │           ├── V2__seed_data.sql
+│       │           ├── V3__link_logical_id.sql
+│       │           ├── V4__cascade_child_state.sql
+│       │           ├── V5__action_registry.sql
+│       │           ├── V6__action_registry_v2.sql
+│       │           ├── V7__update_node_action.sql
+│       │           ├── V8__checkin_action.sql
+│       │           ├── V9__project_space_action_permissions.sql
+│       │           ├── V10__node_lock.sql
+│       │           └── V11__extract_pno_tables.sql  ← supprime plm_role/plm_user/user_role/project_space
+│       └── test/java/com/plm/
+│           ├── PlmIntegrationTest.java
+│           ├── PlmExtendedTest.java
+│           ├── PlmRoleAndViewTest.java
+│           └── PlmTransactionTest.java
+│
+└── pno-api/                     ← PNO — People & Organisation (port 8081)
+    ├── Dockerfile
+    ├── pom.xml
+    └── src/
+        ├── main/
+        │   ├── java/com/pno/
+        │   │   ├── PnoApplication.java
+        │   │   ├── api/controller/
+        │   │   │   ├── UserController.java           (/api/pno/users — incl. /context)
+        │   │   │   ├── RoleController.java           (/api/pno/roles)
+        │   │   │   └── ProjectSpaceController.java   (/api/pno/project-spaces)
+        │   │   ├── domain/service/
+        │   │   │   ├── UserService.java              ← getUserContext() appelé par plm-api
+        │   │   │   ├── RoleService.java
+        │   │   │   └── ProjectSpaceService.java
+        │   │   └── infrastructure/security/
+        │   │       ├── PnoAuthFilter.java            ← bypass sur /context + /actuator
+        │   │       ├── PnoUserContext.java
+        │   │       └── PnoSecurityContext.java
+        │   └── resources/
+        │       ├── application.properties
+        │       └── db/migration/                    ← schéma pno
+        │           ├── V1__schema.sql               ← pno_role, pno_user, user_role, project_space
+        │           └── V2__seed_data.sql            ← seed autoritatif (rôles, users, espaces)
+        └── test/java/com/pno/
+            └── PnoSmokeTest.java
 ```
 
 ---
 
-## Utilisateurs et rôles du seed
+## Utilisateurs et rôles du seed (pno-api)
 
-| ID           | Username | Rôle     | can_write | can_sign | can_baseline |
-|--------------|----------|----------|-----------|----------|--------------|
-| user-admin   | admin    | ADMIN    | tout      | oui      | oui          |
-| user-alice   | alice    | DESIGNER | oui       | non      | non          |
-| user-bob     | bob      | REVIEWER | non       | oui      | non          |
-| user-charlie | charlie  | READER   | non       | non      | non          |
+| ID           | Username | Rôle     | is_admin | Notes PSM par défaut          |
+|--------------|----------|----------|----------|-------------------------------|
+| user-admin   | admin    | ADMIN    | oui      | bypass tous les checks        |
+| user-alice   | alice    | DESIGNER | non      | can_write, pas can_sign       |
+| user-bob     | bob      | REVIEWER | non      | can_sign, pas can_write       |
+| user-charlie | charlie  | READER   | non      | lecture seule                 |
 
-Header HTTP à utiliser : `X-PLM-User: user-alice`
+**Espaces projet :** `ps-default` (espace standard)
+
+Header HTTP à utiliser : `X-PLM-User: user-alice` + `X-PLM-ProjectSpace: ps-default`
+
+---
+
+## API PSM (plm-api, port 8080)
+
+```
+# Noeuds
+GET    /api/psm/nodes
+POST   /api/psm/nodes
+GET    /api/psm/nodes/{id}/description
+GET    /api/psm/nodes/{id}/versions
+GET    /api/psm/nodes/{id}/links/children
+GET    /api/psm/nodes/{id}/links/parents
+GET    /api/psm/nodes/{id}/signatures
+POST   /api/psm/nodes/{id}/actions/{ntaId}
+
+# Méta-modèle
+GET    /api/psm/metamodel/nodetypes
+POST   /api/psm/metamodel/nodetypes
+GET    /api/psm/metamodel/lifecycles
+POST   /api/psm/metamodel/lifecycles
+GET    /api/psm/metamodel/linktypes
+POST   /api/psm/metamodel/linktypes
+
+# Transactions
+POST   /api/psm/transactions
+GET    /api/psm/transactions/current
+POST   /api/psm/transactions/{id}/commit
+POST   /api/psm/transactions/{id}/rollback
+
+# Baselines
+GET    /api/psm/baselines
+POST   /api/psm/baselines
+GET    /api/psm/baselines/{id}/content
+
+# Admin PSM (permissions, vues)
+PUT    /api/psm/admin/roles/{roleId}/nodetypes/{nodeTypeId}/permissions
+POST   /api/psm/admin/nodetypes/{nodeTypeId}/views
+```
+
+## API PNO (pno-api, port 8081)
+
+```
+GET    /api/pno/users
+POST   /api/pno/users
+GET    /api/pno/users/{id}/context?projectSpaceId=  ← appelé par plm-api (auth bypassée)
+POST   /api/pno/users/{id}/roles/{roleId}
+DELETE /api/pno/users/{id}/roles/{roleId}
+
+GET    /api/pno/roles
+POST   /api/pno/roles
+PUT    /api/pno/roles/{id}
+DELETE /api/pno/roles/{id}
+
+GET    /api/pno/project-spaces
+POST   /api/pno/project-spaces
+DELETE /api/pno/project-spaces/{id}
+```
 
 ---
 
 ## Démarrage rapide
 
 ```bash
-# Dev (Derby in-memory)
+# Dev (H2 in-memory)
 docker compose up --build
 # → Frontend : http://localhost:3000
-# → API      : http://localhost:8080/api
+# → PSM API  : http://localhost:8080/api/psm
+# → PNO API  : http://localhost:8081/api/pno
 
 # Prod (PostgreSQL)
 cp .env.example .env   # éditer PG_PASSWORD
 docker compose --profile prod up --build
 
-# Tests
-mvn test
+# Tests PSM — MUST run inside the Docker container (host has no javac)
+docker exec plm-backend mvn test -f /app/pom.xml
+
+# Tests PNO
+docker exec pno-api mvn test -f /app/pom.xml
 ```
+
+> **Important:** Never run `mvn` directly on the host. The host only ships a JRE (no compiler).
+> The full JDK lives inside the containers. Always use `docker exec`.
 
 ---
 
 ## Ce qui reste à faire (backlog)
 
 ### Priorité haute
-- [ ] **Pagination** sur les listes de noeuds (`GET /api/nodes?page=&size=&type=`)
-- [ ] **Recherche** par attribut (`GET /api/nodes/search?q=...`)
-- [ ] **Audit trail endpoint** (`GET /api/nodes/{id}/versions` — toutes les versions techniques)
-- [ ] **Correction PlmAuthFilter** : la variable `roles` est déclarée avec `var` dans une boucle for — à corriger en Java 21 propre
+- [ ] **Pagination** sur les listes de noeuds (`GET /api/psm/nodes?page=&size=&type=`)
+- [ ] **Recherche** par attribut (`GET /api/psm/nodes/search?q=...`)
+- [ ] **Audit trail endpoint** (`GET /api/psm/nodes/{id}/versions` — toutes les versions techniques)
 - [ ] **Tests PlmRoleAndViewTest** : certains tests supposent que le SecurityContext est actif dans les services — vérifier que `PlmSecurityContext.get()` fonctionne bien en contexte de test sans filtre HTTP
 
 ### Priorité moyenne
@@ -188,25 +346,35 @@ mvn test
 
 ## Points d'attention techniques
 
-### Derby vs PostgreSQL
-Certaines requêtes SQL utilisent des guillemets doubles pour les alias de colonnes
-(ex: `nl.ID`, `lt.LINK_POLICY`). Derby et PostgreSQL ont des comportements légèrement
-différents sur les alias. À tester avec PostgreSQL avant la mise en prod.
+### Podman vs Docker
+Le projet tourne sous **Podman**, pas Docker. `127.0.0.11` (DNS embarqué Docker) n'existe pas.
+nginx utilise du `proxy_pass` simple sans directive `resolver`. L'ordre de démarrage est
+garanti par `depends_on: condition: service_healthy` dans docker-compose.
+
+### H2 vs PostgreSQL
+H2 en mode PostgreSQL est utilisé pour les tests et le dev local. Les noms de contraintes FK
+suivent la convention `{table}_{col}_fkey` (compatible H2 2.x + PostgreSQL). Les `DROP CONSTRAINT IF EXISTS`
+sont sécurisés sur les deux bases.
 
 ### JOOQ sans code generation
 Le projet utilise JOOQ en mode "plain SQL" (sans génération de classes).
-C'est intentionnel pour démarrer rapidement, mais l'étape suivante serait
-d'activer la génération de code JOOQ depuis le schéma Flyway.
+C'est intentionnel pour démarrer rapidement. L'étape suivante serait d'activer
+la génération de code JOOQ depuis le schéma Flyway.
 
 ### PlmSecurityContext en test
 Les tests injectent manuellement le contexte via `PlmSecurityContext.set(...)`.
-En production, c'est `PlmAuthFilter` qui le fait. Cette dualité doit être
+En production, c'est `PlmAuthFilter` (via `PnoApiClient`) qui le fait. Cette dualité doit être
 documentée pour les futurs développeurs.
 
 ### Frontend : pas de state management global
 Le frontend est intentionnellement simple (pas de Redux/Zustand).
 L'état est local à chaque composant + rechargement depuis l'API.
 Acceptable pour un POC, à revoir si le volume de données augmente.
+
+### Séparation des responsabilités PSM / PNO
+- **plm-api** ne gère plus les utilisateurs, rôles ni espaces projet. Il en conserve uniquement les `id` (VARCHAR) comme références non-contraintes.
+- **pno-api** est la source de vérité pour tout ce qui touche à l'identité et à l'organisation.
+- `RoleController` dans plm-api gère uniquement les permissions PSM (node_type_permission, transition_permission, attribute_view) — pas les rôles eux-mêmes.
 
 ---
 
@@ -219,68 +387,3 @@ Colle ce fichier au début de ta conversation et dis par exemple :
 
 Claude pourra reprendre immédiatement sans avoir besoin de ré-expliquer
 l'architecture depuis le début.
-
----
-
-## Mise à jour — Modèle de transaction enrichi (session 5)
-
-### Modèle de transaction PLM
-
-```
-OPEN ──────► COMMITTED   (commit avec commentaire obligatoire)
-  │
-  └────────► ROLLEDBACK  (annulation — versions conservées pour audit)
-```
-
-**Règles clés :**
-- Un utilisateur ne peut avoir qu'**une seule transaction OPEN** à la fois
-- Création **automatique** au premier checkin OU **explicite** (bouton "Ouvrir une transaction")
-- Le commit **libère tous les locks** de la transaction en une seule opération
-- Le commentaire de commit est **obligatoire** (comme un message Git)
-- Le rollback **supprime physiquement** les versions OPEN et la transaction elle-même → le noeud retrouve exactement son état avant le checkin
-
-**Visibilité des node_version :**
-| tx_status   | Visible par |
-|-------------|------------|
-| `COMMITTED` | Tout le monde |
-| `OPEN`      | Owner de la tx + admins |
-
-Il n'existe **pas** de statut `ROLLEDBACK` sur les versions : elles sont supprimées physiquement au rollback. La transaction elle-même est aussi supprimée (pas de trace).
-
-**node_version enrichie :**
-- `tx_id` → référence la transaction PLM
-- `tx_status` → `OPEN` | `COMMITTED` uniquement
-
-### JOOQ Code Generation
-
-Pipeline Maven : `generate-sources`
-1. **Flyway Maven Plugin** → applique les migrations sur une Derby dédiée (`target/jooq-codegen-db`)
-2. **JOOQ Codegen Plugin** → génère les classes Java dans `target/generated-sources/jooq/com/plm/generated/jooq/`
-3. **Build Helper Plugin** → ajoute le répertoire au classpath
-
-Classes générées : Tables, Records (fluent setters), POJOs immuables, ForcedTypes (boolean, LocalDateTime).
-
-### Nouveaux fichiers (session 5)
-- `V5__transaction_model.sql` — enrichissement `plm_transaction` (statuts OPEN/COMMITTED) + colonnes `tx_id`/`tx_status` (OPEN/COMMITTED) sur `node_version`
-- `PlmTransactionService.java` — cycle de vie complet (open/commit/rollback/visibilité)
-- `LockService.java` — refactoré pour intégration tx (checkin retourne txId, plus de checkout auto)
-- `VersionService.java` — `tx_id`/`tx_status` attachés à chaque version créée
-- `TransactionController.java` — API REST `/api/transactions`
-- `PlmTransactionTest.java` — 14 tests couvrant tous les cas
-
-### API Transactions
-```
-POST   /api/transactions                  → ouvre une tx explicitement
-GET    /api/transactions                  → liste (filtrée par visibilité)
-GET    /api/transactions/current          → tx OPEN de l'utilisateur courant
-GET    /api/transactions/{txId}           → détail (règles de visibilité)
-GET    /api/transactions/{txId}/versions  → versions dans la tx
-POST   /api/transactions/{txId}/commit    → commit (body: {userId, comment})
-POST   /api/transactions/{txId}/rollback  → rollback (body: {userId})
-```
-
-### Points d'attention
-- **Dépendance circulaire** LockService ↔ PlmTransactionService résolue avec `@Lazy`
-- **checkinCascade** : réutilise la même transaction pour toute la cascade
-- **VersionService** : ne fait plus `lockService.checkout()` — c'est le commit qui libère
-- **Stale transactions** : nettoyage automatique des tx OPEN > 24h (auto-rollback)

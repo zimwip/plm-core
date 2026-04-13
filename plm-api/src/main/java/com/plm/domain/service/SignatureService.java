@@ -1,6 +1,7 @@
 package com.plm.domain.service;
 
 import com.plm.domain.model.Enums.ChangeType;
+import com.plm.infrastructure.PlmEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -24,10 +25,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SignatureService {
 
-    private final DSLContext     dsl;
-    private final LockService    lockService;
-    private final VersionService versionService;
+    private final DSLContext        dsl;
+    private final LockService       lockService;
+    private final VersionService    versionService;
     private final PermissionService permissionService;
+    private final PlmEventPublisher eventPublisher;
 
     /**
      * Appose une signature électronique.
@@ -54,16 +56,16 @@ public class SignatureService {
         if (alreadySigned) throw new IllegalStateException(
             "User " + userId + " already signed " + nodeId + " at " + revision + "." + iteration);
 
-        // Checkin dans la transaction
-        lockService.checkin(nodeId, userId, txId);
-
-        // Créer la version SIGNATURE
+        // Créer la version SIGNATURE — NONE : pas de changement de numérotation
         String newVersionId = versionService.createVersion(
             nodeId, userId, txId,
-            ChangeType.SIGNATURE, null,
+            ChangeType.SIGNATURE, com.plm.domain.model.Enums.VersionStrategy.NONE, null,
             Collections.emptyMap(),
             "Signature: " + meaning + (comment != null ? " — " + comment : "")
         );
+
+        // Acquiert le lock (conflit → exception + rollback) et écrit locked_by / locked_at.
+        lockService.tryLock(nodeId, userId);
 
         // Enregistrer la signature
         String sigId = UUID.randomUUID().toString();
@@ -72,6 +74,7 @@ public class SignatureService {
             VALUES (?,?,?,?,?,?,?)
             """, sigId, nodeId, newVersionId, userId, LocalDateTime.now(), meaning, comment);
 
+        eventPublisher.signed(nodeId, userId, meaning);
         log.info("Signature: node={} user={} meaning={} {}.{} tx={}", nodeId, userId, meaning, revision, iteration, txId);
         return sigId;
     }

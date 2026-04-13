@@ -1,26 +1,40 @@
 // hooks/useWebSocket.js
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 
-export function useWebSocket(nodeId, onEvent) {
-  const clientRef = useRef(null);
+/**
+ * Subscribe to one or more STOMP topics over SockJS.
+ *
+ * @param {string|string[]} topics  Full STOMP destination(s), e.g. '/topic/nodes/abc'
+ * @param {function}        onEvent Called with the parsed JSON payload for every message
+ * @param {string}          userId  Forwarded in the STOMP CONNECT frame as X-PLM-User
+ */
+export function useWebSocket(topics, onEvent, userId) {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
+  // Normalize to array and build a stable dep-key string
+  const topicArr = Array.isArray(topics) ? topics : (topics ? [topics] : []);
+  const topicKey = topicArr.join('\0');
+
   useEffect(() => {
-    if (!nodeId) return;
+    if (topicArr.length === 0) return;
 
     const client = new Client({
       webSocketFactory: () => new SockJS('/ws'),
+      // Pass userId in the STOMP CONNECT frame — browser blocks custom headers on XHR
+      connectHeaders: userId ? { 'X-PLM-User': userId } : {},
       onConnect: () => {
-        client.subscribe(`/topic/nodes/${nodeId}`, (msg) => {
-          try {
-            const event = JSON.parse(msg.body);
-            onEventRef.current(event);
-          } catch (e) {
-            console.warn('WS parse error', e);
-          }
+        topicArr.forEach(topic => {
+          client.subscribe(topic, (msg) => {
+            try {
+              const event = JSON.parse(msg.body);
+              onEventRef.current(event);
+            } catch (e) {
+              console.warn('WS parse error', e);
+            }
+          });
         });
       },
       onStompError: (frame) => {
@@ -30,8 +44,6 @@ export function useWebSocket(nodeId, onEvent) {
     });
 
     client.activate();
-    clientRef.current = client;
-
     return () => client.deactivate();
-  }, [nodeId]);
+  }, [topicKey, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 }

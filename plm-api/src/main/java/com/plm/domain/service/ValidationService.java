@@ -139,12 +139,31 @@ public class ValidationService {
                                                   Map<String, String> attrs) {
         List<String> violations = new ArrayList<>();
 
-        String nodeTypeId = dsl.select()
-            .from("node")
-            .where("id = ?", nodeId)
-            .fetchOne("node_type_id", String.class);
+        // Fetch node + node_type in one query to get identity fields
+        Record nodeInfo = dsl.fetchOne("""
+            SELECT n.node_type_id, n.logical_id,
+                   nt.logical_id_pattern, nt.logical_id_label
+            FROM node n
+            JOIN node_type nt ON nt.id = n.node_type_id
+            WHERE n.id = ?
+            """, nodeId);
 
-        if (nodeTypeId == null) return violations;
+        if (nodeInfo == null) return violations;
+
+        String nodeTypeId = nodeInfo.get("node_type_id", String.class);
+
+        // --- Identity validation: logical_id vs logical_id_pattern ---
+        String logicalId        = nodeInfo.get("logical_id",         String.class);
+        String logicalIdPattern = nodeInfo.get("logical_id_pattern", String.class);
+        String logicalIdLabel   = nodeInfo.get("logical_id_label",   String.class);
+        if (logicalIdLabel == null || logicalIdLabel.isBlank()) logicalIdLabel = "Identifier";
+
+        if (logicalIdPattern != null && !logicalIdPattern.isBlank()
+                && logicalId != null && !logicalId.isBlank()
+                && !logicalId.matches(logicalIdPattern)) {
+            violations.add("'" + logicalIdLabel + "' value '" + logicalId
+                           + "' does not match pattern: " + logicalIdPattern);
+        }
 
         List<Record> attrDefs = dsl.select()
             .from("attribute_definition ad")
@@ -188,6 +207,16 @@ public class ValidationService {
         }
 
         return violations;
+    }
+
+    /**
+     * Collecte les violations pour une version donnée — résout automatiquement l'état.
+     */
+    public List<String> collectVersionViolations(String nodeId, String versionId) {
+        String stateId = dsl.select().from("node_version")
+            .where("id = ?", versionId)
+            .fetchOne("lifecycle_state_id", String.class);
+        return collectVersionViolations(nodeId, versionId, stateId);
     }
 
     /**

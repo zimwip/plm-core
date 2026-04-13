@@ -25,12 +25,13 @@ import static org.assertj.core.api.Assertions.*;
 @Transactional
 class PlmRoleAndViewTest {
 
-    @Autowired DSLContext       dsl;
-    @Autowired NodeService      nodeService;
-    @Autowired PermissionService permissionService;
-    @Autowired LifecycleService lifecycleService;
-    @Autowired SignatureService  signatureService;
-    @Autowired VersionService   versionService;
+    @Autowired DSLContext            dsl;
+    @Autowired NodeService           nodeService;
+    @Autowired PermissionService     permissionService;
+    @Autowired LifecycleService      lifecycleService;
+    @Autowired SignatureService      signatureService;
+    @Autowired VersionService        versionService;
+    @Autowired PlmTransactionService txService;
 
     // IDs du seed V4
     static final String ROLE_ADMIN    = "role-admin";
@@ -46,15 +47,15 @@ class PlmRoleAndViewTest {
     static final String NT_DOCUMENT = "nt-document";
     static final String NT_PART     = "nt-part";
 
-    static final String ST_DRAFT    = "st-draft";
-    static final String ST_INREVIEW = "st-inreview";
+    // V9 lifecycle: In Work → Frozen → Released
+    static final String ST_INWORK  = "st-inwork";
+    static final String ST_FROZEN  = "st-frozen";
     static final String ST_RELEASED = "st-released";
 
-    static final String TR_SUBMIT  = "tr-submit";
-    static final String TR_APPROVE = "tr-approve";
-    static final String TR_REJECT  = "tr-reject";
+    static final String TR_FREEZE  = "tr-freeze";   // inwork→frozen  (DESIGNER+ADMIN)
+    static final String TR_RELEASE = "tr-release";  // frozen→released (REVIEWER+ADMIN)
+    static final String TR_REJECT  = "tr-reject";   // frozen→inwork   (REVIEWER+ADMIN)
 
-    static final String AD_DOC_NUMBER  = "ad-doc-number";
     static final String AD_DOC_TITLE   = "ad-doc-title";
     static final String AD_DOC_AUTHOR  = "ad-doc-author";
     static final String AD_DOC_CAT     = "ad-doc-cat";
@@ -73,14 +74,10 @@ class PlmRoleAndViewTest {
     @DisplayName("DESIGNER peut lire et écrire un Document")
     void testDesignerCanWrite() {
         asDesigner();
-        String nodeId = nodeService.createNode(NT_DOCUMENT, USER_ALICE, Map.of(
-            AD_DOC_NUMBER, "DOC-0001",
-            AD_DOC_TITLE,  "My Document",
-            AD_DOC_AUTHOR, "Alice",
-            AD_DOC_CAT,    "Design"
-        ));
+        String nodeId = createMinimalDocument();
 
-        assertThatCode(() -> nodeService.modifyNode(nodeId, USER_ALICE,
+        String txId = txService.openTransaction(USER_ALICE);
+        assertThatCode(() -> nodeService.modifyNode(nodeId, USER_ALICE, txId,
             Map.of(AD_DOC_TITLE, "Updated Title"), "Fix title"))
             .doesNotThrowAnyException();
     }
@@ -90,13 +87,11 @@ class PlmRoleAndViewTest {
     void testReviewerCannotWrite() {
         // Alice crée le noeud
         asDesigner();
-        String nodeId = nodeService.createNode(NT_DOCUMENT, USER_ALICE, Map.of(
-            AD_DOC_NUMBER, "DOC-0002", AD_DOC_TITLE, "Doc", AD_DOC_AUTHOR, "Alice", AD_DOC_CAT, "Test"
-        ));
+        String nodeId = createMinimalDocument();
 
-        // Bob (reviewer) essaie de modifier
+        // Bob (reviewer) essaie de modifier — permission denied before txId check
         asReviewer();
-        assertThatThrownBy(() -> nodeService.modifyNode(nodeId, USER_BOB,
+        assertThatThrownBy(() -> nodeService.modifyNode(nodeId, USER_BOB, null,
             Map.of(AD_DOC_TITLE, "Hacked"), "Hack"))
             .isInstanceOf(PermissionService.AccessDeniedException.class);
     }
@@ -105,17 +100,15 @@ class PlmRoleAndViewTest {
     @DisplayName("READER peut lire mais pas écrire")
     void testReaderCanOnlyRead() {
         asDesigner();
-        String nodeId = nodeService.createNode(NT_DOCUMENT, USER_ALICE, Map.of(
-            AD_DOC_NUMBER, "DOC-0003", AD_DOC_TITLE, "Doc", AD_DOC_AUTHOR, "Alice", AD_DOC_CAT, "Test"
-        ));
+        String nodeId = createMinimalDocument();
 
         asReader();
         // Lecture OK
         assertThatCode(() -> nodeService.buildObjectDescription(nodeId, USER_CHARLIE, ROLE_READER))
             .doesNotThrowAnyException();
 
-        // Écriture KO
-        assertThatThrownBy(() -> nodeService.modifyNode(nodeId, USER_CHARLIE, Map.of(), ""))
+        // Écriture KO — permission denied before txId check
+        assertThatThrownBy(() -> nodeService.modifyNode(nodeId, USER_CHARLIE, null, Map.of(), ""))
             .isInstanceOf(PermissionService.AccessDeniedException.class);
     }
 
@@ -124,37 +117,41 @@ class PlmRoleAndViewTest {
     // ================================================================
 
     @Test
-    @DisplayName("DESIGNER peut soumettre (tr-submit), pas REVIEWER")
-    void testTransitionPermissionSubmit() {
+    @DisplayName("DESIGNER peut freezer (tr-freeze), pas REVIEWER")
+    void testTransitionPermissionFreeze() {
         asDesigner();
-        String nodeId = createMinimalDocument("DOC-0010");
+        String nodeId = createMinimalDocument();
 
-        // Alice (designer) peut soumettre
-        assertThatCode(() -> lifecycleService.applyTransition(nodeId, TR_SUBMIT, USER_ALICE))
+        // Alice (designer) peut freezer
+        String txId = txService.openTransaction(USER_ALICE);
+        assertThatCode(() -> lifecycleService.applyTransition(nodeId, TR_FREEZE, USER_ALICE, txId))
             .doesNotThrowAnyException();
 
-        // Remettre en Draft et tester avec reviewer
-        // (simulation : on teste directement la permission)
+        // Tester directement la permission reviewer
         asReviewer();
-        assertThatThrownBy(() -> permissionService.assertCanTransition(TR_SUBMIT))
+        assertThatThrownBy(() -> permissionService.assertCanTransition(TR_FREEZE))
             .isInstanceOf(PermissionService.AccessDeniedException.class);
     }
 
     @Test
-    @DisplayName("REVIEWER peut approuver (tr-approve), pas DESIGNER")
-    void testTransitionPermissionApprove() {
+    @DisplayName("REVIEWER peut releaser (tr-release), pas DESIGNER")
+    void testTransitionPermissionRelease() {
         asDesigner();
-        String nodeId = createMinimalDocument("DOC-0011");
-        lifecycleService.applyTransition(nodeId, TR_SUBMIT, USER_ALICE);
+        String nodeId = createMinimalDocument();
 
-        // Alice (designer) ne peut pas approuver
+        // Designer freeze d'abord
+        String txId = txService.openTransaction(USER_ALICE);
+        lifecycleService.applyTransition(nodeId, TR_FREEZE, USER_ALICE, txId);
+        txService.commitTransaction(txId, USER_ALICE, "Frozen");
+
+        // Alice (designer) ne peut pas releaser
         asDesigner();
-        assertThatThrownBy(() -> permissionService.assertCanTransition(TR_APPROVE))
+        assertThatThrownBy(() -> permissionService.assertCanTransition(TR_RELEASE))
             .isInstanceOf(PermissionService.AccessDeniedException.class);
 
-        // Bob (reviewer) peut approuver
+        // Bob (reviewer) peut releaser
         asReviewer();
-        assertThatCode(() -> permissionService.assertCanTransition(TR_APPROVE))
+        assertThatCode(() -> permissionService.assertCanTransition(TR_RELEASE))
             .doesNotThrowAnyException();
     }
 
@@ -166,16 +163,17 @@ class PlmRoleAndViewTest {
     @DisplayName("REVIEWER peut signer, READER ne peut pas")
     void testSignaturePermissions() {
         asDesigner();
-        String nodeId = createMinimalDocument("DOC-0020");
+        String nodeId = createMinimalDocument();
 
         // Bob (reviewer) peut signer
         asReviewer();
-        assertThatCode(() -> signatureService.sign(nodeId, USER_BOB, "Reviewed", null))
+        String bobTx = txService.openTransaction(USER_BOB);
+        assertThatCode(() -> signatureService.sign(nodeId, USER_BOB, bobTx, "Reviewed", null))
             .doesNotThrowAnyException();
 
-        // Charlie (reader) ne peut pas signer
+        // Charlie (reader) ne peut pas signer — permission denied before txId check
         asReader();
-        assertThatThrownBy(() -> signatureService.sign(nodeId, USER_CHARLIE, "Reviewed", null))
+        assertThatThrownBy(() -> signatureService.sign(nodeId, USER_CHARLIE, null, "Reviewed", null))
             .isInstanceOf(PermissionService.AccessDeniedException.class);
     }
 
@@ -184,13 +182,16 @@ class PlmRoleAndViewTest {
     // ================================================================
 
     @Test
-    @DisplayName("Vue REVIEWER en InReview : reviewNote apparaît en premier")
-    void testReviewerViewInReview() {
+    @DisplayName("Vue REVIEWER en Frozen : reviewNote apparaît en premier (editable=false car can_write=false)")
+    void testReviewerViewFrozen() {
         asDesigner();
-        String nodeId = createMinimalDocument("DOC-0030");
-        lifecycleService.applyTransition(nodeId, TR_SUBMIT, USER_ALICE);
+        String nodeId = createMinimalDocument();
 
-        // Bob (reviewer) consulte en InReview → vue 'view-reviewer-inreview' active
+        String txId = txService.openTransaction(USER_ALICE);
+        lifecycleService.applyTransition(nodeId, TR_FREEZE, USER_ALICE, txId);
+        txService.commitTransaction(txId, USER_ALICE, "Frozen");
+
+        // Bob (reviewer) consulte en Frozen → vue 'view-reviewer-frozen' active
         asReviewer();
         var desc = nodeService.buildObjectDescription(nodeId, USER_BOB, ROLE_REVIEWER);
 
@@ -201,19 +202,19 @@ class PlmRoleAndViewTest {
         var reviewNote = attributes.stream()
             .filter(a -> "reviewNote".equals(a.get("name")))
             .findFirst();
+        // Presence in the list means visible=true (invisible attributes are filtered out)
         assertThat(reviewNote).isPresent();
-        assertThat(reviewNote.get().get("visible")).isEqualTo(true);
         assertThat(reviewNote.get().get("displayOrder")).isEqualTo(1);
 
-        // reviewNote éditable pour reviewer en InReview
-        assertThat(reviewNote.get().get("editable")).isEqualTo(true);
+        // reviewer a can_write=false → editable=false même si la vue dit editable=true
+        assertThat(reviewNote.get().get("editable")).isEqualTo(false);
     }
 
     @Test
     @DisplayName("Vue READER : reviewNote masquée quel que soit l'état")
     void testReaderViewHidesReviewNote() {
         asDesigner();
-        String nodeId = createMinimalDocument("DOC-0031");
+        String nodeId = createMinimalDocument();
 
         asReader();
         var desc = nodeService.buildObjectDescription(nodeId, USER_CHARLIE, ROLE_READER);
@@ -228,10 +229,10 @@ class PlmRoleAndViewTest {
     }
 
     @Test
-    @DisplayName("Vue DESIGNER en Draft : reviewNote invisible (règle état)")
-    void testDesignerViewDraftHidesReviewNote() {
+    @DisplayName("Vue DESIGNER en In Work : reviewNote invisible (règle état asr-iw-01)")
+    void testDesignerViewInWorkHidesReviewNote() {
         asDesigner();
-        String nodeId = createMinimalDocument("DOC-0032");
+        String nodeId = createMinimalDocument();
 
         var desc = nodeService.buildObjectDescription(nodeId, USER_ALICE, ROLE_DESIGNER);
 
@@ -248,8 +249,11 @@ class PlmRoleAndViewTest {
     @DisplayName("Payload canWrite = false pour REVIEWER → tous attributs readonly")
     void testPayloadReviewerAllReadonly() {
         asDesigner();
-        String nodeId = createMinimalDocument("DOC-0033");
-        lifecycleService.applyTransition(nodeId, TR_SUBMIT, USER_ALICE);
+        String nodeId = createMinimalDocument();
+
+        String txId = txService.openTransaction(USER_ALICE);
+        lifecycleService.applyTransition(nodeId, TR_FREEZE, USER_ALICE, txId);
+        txService.commitTransaction(txId, USER_ALICE, "Frozen");
 
         asReviewer();
         var desc = nodeService.buildObjectDescription(nodeId, USER_BOB, ROLE_REVIEWER);
@@ -272,13 +276,14 @@ class PlmRoleAndViewTest {
     @DisplayName("Actions disponibles filtrées par rôle dans le payload")
     void testActionsFilteredByRole() {
         asDesigner();
-        String nodeId = createMinimalDocument("DOC-0040");
+        String nodeId = createMinimalDocument();
 
-        // Designer en Draft : doit voir tr-submit
+        // Designer en In Work : doit voir tr-freeze
         var descDesigner = nodeService.buildObjectDescription(nodeId, USER_ALICE, ROLE_DESIGNER);
         @SuppressWarnings("unchecked")
         var actionsDesigner = (List<Map<String, Object>>) descDesigner.get("actions");
-        assertThat(actionsDesigner).anyMatch(a -> TR_SUBMIT.equals(a.get("id")));
+        // The action ID is now the node_type_action id; the transition is referenced via transitionId
+        assertThat(actionsDesigner).anyMatch(a -> TR_FREEZE.equals(a.get("transitionId")));
 
         // Reader en Draft : aucune action (can_transition=false)
         asReader();
@@ -296,15 +301,16 @@ class PlmRoleAndViewTest {
     @DisplayName("ADMIN peut tout faire sans restriction")
     void testAdminBypassesAllPermissions() {
         asAdmin();
-        String nodeId = createMinimalDocument("DOC-0050");
+        String nodeId = createMinimalDocument();
 
         // Admin peut modifier
-        assertThatCode(() -> nodeService.modifyNode(nodeId, USER_ADMIN,
+        String txId = txService.openTransaction(USER_ADMIN);
+        assertThatCode(() -> nodeService.modifyNode(nodeId, USER_ADMIN, txId,
             Map.of(AD_DOC_TITLE, "Admin edit"), "Admin edit"))
             .doesNotThrowAnyException();
 
         // Admin peut déclencher n'importe quelle transition
-        assertThatCode(() -> permissionService.assertCanTransition(TR_APPROVE))
+        assertThatCode(() -> permissionService.assertCanTransition(TR_RELEASE))
             .doesNotThrowAnyException();
     }
 
@@ -312,9 +318,8 @@ class PlmRoleAndViewTest {
     // Helpers
     // ================================================================
 
-    private String createMinimalDocument(String number) {
-        return nodeService.createNode(NT_DOCUMENT, USER_ALICE, Map.of(
-            AD_DOC_NUMBER, number,
+    private String createMinimalDocument() {
+        return nodeService.createNode("ps-default", NT_DOCUMENT, USER_ALICE, Map.of(
             AD_DOC_TITLE,  "Test Document",
             AD_DOC_AUTHOR, "Alice",
             AD_DOC_CAT,    "Design"

@@ -69,6 +69,88 @@ public class PlmEventPublisher {
         ));
     }
 
+    public void nodeCreated(String nodeId, String byUser) {
+        messaging.convertAndSend("/topic/global", Map.of(
+            "event",  "NODE_CREATED",
+            "nodeId", nodeId,
+            "byUser", byUser,
+            "at",     LocalDateTime.now().toString()
+        ));
+        log.debug("Event published: NODE_CREATED → node={}", nodeId);
+    }
+
+    public void nodeUpdated(String nodeId, String byUser) {
+        publish(nodeId, "NODE_UPDATED", Map.of(
+            "nodeId", nodeId,
+            "byUser", byUser,
+            "at",     LocalDateTime.now().toString()
+        ));
+    }
+
+    public void signed(String nodeId, String signedBy, String meaning) {
+        publish(nodeId, "SIGNED", Map.of(
+            "nodeId",   nodeId,
+            "signedBy", signedBy,
+            "meaning",  meaning,
+            "at",       LocalDateTime.now().toString()
+        ));
+    }
+
+    public void transactionCommitted(String txId, java.util.List<String> nodeIds, String byUser) {
+        messaging.convertAndSend("/topic/transactions", Map.of(
+            "event",   "TX_COMMITTED",
+            "txId",    txId,
+            "byUser",  byUser,
+            "nodeIds", nodeIds,
+            "at",      LocalDateTime.now().toString()
+        ));
+        for (String nodeId : nodeIds) {
+            publish(nodeId, "LOCK_RELEASED", Map.of(
+                "nodeId",     nodeId,
+                "releasedBy", byUser,
+                "txId",       txId,
+                "at",         LocalDateTime.now().toString()
+            ));
+        }
+        log.debug("Event published: TX_COMMITTED → tx={} nodes={}", txId, nodeIds.size());
+    }
+
+    public void transactionRolledBack(String txId, java.util.List<String> nodeIds, String byUser) {
+        messaging.convertAndSend("/topic/transactions", Map.of(
+            "event",   "TX_ROLLED_BACK",
+            "txId",    txId,
+            "byUser",  byUser,
+            "nodeIds", nodeIds,
+            "at",      LocalDateTime.now().toString()
+        ));
+        for (String nodeId : nodeIds) {
+            publish(nodeId, "LOCK_RELEASED", Map.of(
+                "nodeId",     nodeId,
+                "releasedBy", byUser,
+                "txId",       txId,
+                "at",         LocalDateTime.now().toString()
+            ));
+        }
+        log.debug("Event published: TX_ROLLED_BACK → tx={} nodes={}", txId, nodeIds.size());
+    }
+
+    public void nodesReleased(java.util.List<String> nodeIds, String byUser) {
+        for (String nodeId : nodeIds) {
+            publish(nodeId, "LOCK_RELEASED", Map.of(
+                "nodeId",     nodeId,
+                "releasedBy", byUser,
+                "at",         LocalDateTime.now().toString()
+            ));
+        }
+        messaging.convertAndSend("/topic/transactions", Map.of(
+            "event",   "NODES_RELEASED",
+            "byUser",  byUser,
+            "nodeIds", nodeIds,
+            "at",      LocalDateTime.now().toString()
+        ));
+        log.debug("Event published: NODES_RELEASED → count={}", nodeIds.size());
+    }
+
     // -------------------------------------------------------
 
     private void publish(String nodeId, String eventType, Map<String, Object> payload) {

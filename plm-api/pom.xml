@@ -53,6 +53,19 @@
             <version>${flyway.version}</version>
         </dependency>
 
+        <!-- OpenAPI / Swagger -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.4.0</version>
+        </dependency>
+
+        <!-- Caffeine cache — for PnoApiClient user-context cache -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
         <!-- Lombok -->
         <dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId><optional>true</optional></dependency>
 
@@ -92,8 +105,8 @@
                             <locations>
                                 <location>filesystem:${project.basedir}/src/main/resources/db/migration</location>
                             </locations>
-                            <!-- V4 contient des données seed : exclure du codegen -->
-                            <target>4</target>
+                            <!-- V2 contient les données seed : exclure du codegen -->
+                            <target>1</target>
                         </configuration>
                     </execution>
                 </executions>

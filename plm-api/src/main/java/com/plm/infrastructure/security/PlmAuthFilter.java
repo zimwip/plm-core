@@ -5,24 +5,22 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jooq.DSLContext;
-import org.jooq.impl.DSL;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 
 /**
  * Filtre HTTP qui résout le contexte utilisateur à chaque requête.
  *
- * En mode DEV : lit le header X-PLM-User (userId) et charge les rôles depuis la DB.
- * En mode PROD : à remplacer par une validation JWT/OAuth2.
+ * Résolution : appel HTTP vers pno-api (GET /api/pno/users/{userId}/context?projectSpaceId=...)
+ * avec cache Caffeine (30 s TTL) pour éviter la latence par requête.
  *
- * Après résolution, le contexte est disponible via PlmSecurityContext.get()
- * dans tous les services pour la durée de la requête.
+ * Le project space (X-PLM-ProjectSpace header) est lu avant l'appel à pno-api
+ * afin que les rôles retournés soient filtrés pour cet espace.
+ *
+ * En mode DEV : pno-api doit tourner sur http://localhost:8081.
+ * En Docker  : l'env var PNO_API_URL pointe vers http://pno-api:8081.
  */
 @Slf4j
 @Component
@@ -30,7 +28,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class PlmAuthFilter implements Filter {
 
-    private final DSLContext dsl;
+    private final PnoApiClient pnoApiClient;
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
@@ -39,8 +37,9 @@ public class PlmAuthFilter implements Filter {
         HttpServletRequest  req  = (HttpServletRequest) request;
         HttpServletResponse resp = (HttpServletResponse) response;
 
-        // Bypass auth for actuator endpoints (health checks)
-        if (req.getRequestURI().startsWith("/actuator")) {
+        String uri = req.getRequestURI();
+        if (uri.startsWith("/actuator") || uri.startsWith("/v3/api-docs")
+                || uri.startsWith("/swagger-ui") || uri.startsWith("/ws")) {
             chain.doFilter(request, response);
             return;
         }
@@ -54,7 +53,9 @@ public class PlmAuthFilter implements Filter {
                 return;
             }
 
-            PlmUserContext ctx = resolveUser(userId);
+            String projectSpaceId = req.getHeader("X-PLM-ProjectSpace");
+
+            PlmUserContext ctx = pnoApiClient.getUserContext(userId, projectSpaceId);
             if (ctx == null) {
                 resp.setStatus(401);
                 resp.getWriter().write("{\"error\":\"Unknown user: " + userId + "\"}");
@@ -62,47 +63,17 @@ public class PlmAuthFilter implements Filter {
             }
 
             PlmSecurityContext.set(ctx);
-            log.debug("Auth: {}", ctx);
+
+            if (projectSpaceId != null && !projectSpaceId.isBlank()) {
+                PlmProjectSpaceContext.set(projectSpaceId);
+            }
+
+            log.debug("Auth: {} projectSpace: {}", ctx, projectSpaceId);
             chain.doFilter(request, response);
 
         } finally {
             PlmSecurityContext.clear();
+            PlmProjectSpaceContext.clear();
         }
-    }
-
-    /**
-     * Résout l'utilisateur et ses rôles depuis la base.
-     * Retourne null si l'utilisateur n'existe pas ou est inactif.
-     */
-    private PlmUserContext resolveUser(String userId) {
-        var user = dsl.select()
-            .from("plm_user")
-            .where("id = ?", userId)
-            .and("active = 1")
-            .fetchOne();
-
-        if (user == null) return null;
-
-        String  username    = user.get("username", String.class);
-        boolean isAdmin     = false;
-        Set<String> roleIds = new HashSet<>();
-
-        // Charger les rôles
-        var roles = dsl.select(
-                DSL.field("r.id").as("role_id"),
-                DSL.field("r.is_admin").as("is_admin"))
-            .from("user_role ur")
-            .join("plm_role r").on("ur.role_id = r.id")
-            .where("ur.user_id = ?", userId)
-            .fetch();
-
-        for (var role : roles) {
-            roleIds.add(role.get("role_id", String.class));
-            if (role.get("is_admin", Integer.class) == 1) {
-                isAdmin = true;
-            }
-        }
-
-        return new PlmUserContext(userId, username, roleIds, isAdmin);
     }
 }

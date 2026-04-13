@@ -3,10 +3,13 @@ package com.plm.api.controller;
 import com.plm.domain.service.LockService;
 import com.plm.domain.service.PermissionService;
 import com.plm.domain.service.PlmTransactionService;
+import com.plm.infrastructure.security.PlmSecurityContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -23,7 +26,7 @@ import java.util.Map;
  *               POST /api/transactions/{id}/rollback → annule tout
  */
 @RestController
-@RequestMapping("/api/transactions")
+@RequestMapping("/api/psm/transactions")
 @RequiredArgsConstructor
 public class TransactionController {
 
@@ -36,8 +39,7 @@ public class TransactionController {
         @RequestBody Map<String, String> body
     ) {
         String userId = body.get("userId");
-        String title  = body.getOrDefault("title", "");
-        String txId   = txService.openTransaction(userId, title);
+        String txId   = txService.openTransaction(userId);
         return ResponseEntity.ok(Map.of("txId", txId));
     }
 
@@ -62,17 +64,30 @@ public class TransactionController {
         return ResponseEntity.ok(txService.getTransactionVersions(txId));
     }
 
+    // ── Noeuds modifiés dans la transaction (1 entrée par noeud) ─────
+
+    @GetMapping("/{txId}/nodes")
+    public ResponseEntity<?> getTransactionNodes(@PathVariable String txId) {
+        return ResponseEntity.ok(txService.getTransactionNodes(txId));
+    }
+
     // ── Commit ────────────────────────────────────────────────────────
 
+    @SuppressWarnings("unchecked")
     @PostMapping("/{txId}/commit")
     public ResponseEntity<Map<String, String>> commit(
         @PathVariable String txId,
-        @RequestBody  Map<String, String> body
+        @RequestBody  Map<String, Object> body
     ) {
-        String userId  = body.get("userId");
-        String comment = body.get("comment");
-        txService.commitTransaction(txId, userId, comment);
-        return ResponseEntity.ok(Map.of("status", "COMMITTED", "txId", txId));
+        String userId  = (String) body.get("userId");
+        String comment = (String) body.get("comment");
+        List<String> nodeIds = (List<String>) body.get("nodeIds");
+        String continuationTxId = txService.commitTransaction(txId, userId, comment, nodeIds);
+        Map<String, String> response = new HashMap<>();
+        response.put("status", "COMMITTED");
+        response.put("txId", txId);
+        if (continuationTxId != null) response.put("continuationTxId", continuationTxId);
+        return ResponseEntity.ok(response);
     }
 
     // ── Rollback ──────────────────────────────────────────────────────
@@ -87,13 +102,30 @@ public class TransactionController {
         return ResponseEntity.ok(Map.of("status", "ROLLEDBACK", "txId", txId));
     }
 
+    // ── Release specific nodes from an open transaction ───────────────
+
+    @PostMapping("/{txId}/release")
+    public ResponseEntity<Map<String, String>> releaseNodes(
+        @PathVariable String txId,
+        @RequestBody  Map<String, Object> body
+    ) {
+        String userId = (String) body.get("userId");
+        @SuppressWarnings("unchecked")
+        List<String> nodeIds = (List<String>) body.get("nodeIds");
+        txService.releaseNodes(txId, userId, nodeIds);
+        return ResponseEntity.ok(Map.of("status", "RELEASED", "txId", txId));
+    }
+
     // ── Statut de la transaction courante de l'utilisateur ───────────
+    // Résolu depuis le header X-PLM-User (via PlmSecurityContext).
+    // Retourne 204 No Content si aucune transaction OPEN n'existe pour cet utilisateur.
 
     @GetMapping("/current")
-    public ResponseEntity<?> getCurrentTransaction(@RequestParam String userId) {
-        String txId = txService.findOpenTransaction(userId);
+    public ResponseEntity<?> getCurrentTransaction() {
+        String userId = PlmSecurityContext.get().getUserId();
+        String txId   = txService.findOpenTransaction(userId);
         if (txId == null) {
-            return ResponseEntity.ok(Map.of("status", "NONE"));
+            return ResponseEntity.noContent().build();
         }
         return ResponseEntity.ok(txService.getTransaction(txId));
     }

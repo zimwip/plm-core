@@ -1,6 +1,9 @@
 package com.plm.domain.service;
 
 import com.plm.domain.model.Enums.ChangeType;
+import com.plm.domain.model.Enums.VersionStrategy;
+import com.plm.domain.model.numbering.NumberingResult;
+import com.plm.domain.model.numbering.NumberingStrategyFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -22,11 +25,12 @@ import java.util.UUID;
  *   - La version créée est taguée OPEN jusqu'au commit de la transaction
  *   - Le lock doit déjà avoir été acquis via LockService.checkin(nodeId, userId, txId)
  *
- * Règles de numérotation métier :
- *   CONTENT   → incrémente l'itération (A.1 → A.2)
- *   LIFECYCLE → même révision.itération (traçabilité pure)
- *   SIGNATURE → même révision.itération (traçabilité pure)
- *   Released  → nouvelle révision, itération reset à 1 (A → B.1)
+ * Règles de numérotation métier — pilotées par VersionStrategy :
+ *   NONE    → même révision.itération (traçabilité pure)
+ *   ITERATE → itération + 1  (A.1 → A.2)   — défaut pour ChangeType.CONTENT
+ *   REVISE  → nouvelle révision, itération reset à 1  (A.x → B.1)
+ *
+ * ChangeType (CONTENT|LIFECYCLE|SIGNATURE) reste pour l'audit trail uniquement.
  */
 @Slf4j
 @Service
@@ -47,7 +51,8 @@ public class VersionService {
      * @param nodeId      noeud à versionner (doit être locké dans cette tx)
      * @param userId      auteur de la modification
      * @param txId        transaction PLM ouverte — OBLIGATOIRE
-     * @param changeType  CONTENT | LIFECYCLE | SIGNATURE
+     * @param changeType  CONTENT | LIFECYCLE | SIGNATURE  (audit trail uniquement)
+     * @param strategy    NONE | ITERATE | REVISE — pilote la numérotation métier
      * @param newStateId  nouvel état lifecycle (null si pas de changement d'état)
      * @param attributes  nouvelles valeurs d'attributs (vide si aucun changement)
      * @param description description du changement
@@ -59,15 +64,15 @@ public class VersionService {
         String userId,
         String txId,
         ChangeType changeType,
+        VersionStrategy strategy,
         String newStateId,
         Map<String, String> attributes,
         String description
     ) {
-        // 1. Vérifier que le noeud est bien locké dans cette transaction
-        if (!lockService.isLockedByTx(nodeId, txId)) {
-            throw new IllegalStateException(
-                "Node " + nodeId + " is not locked in transaction " + txId +
-                ". Call checkin first.");
+        // 1. Vérifier que la transaction est OPEN (le checkout a déjà validé les conflits)
+        Record tx = dsl.select().from("plm_transaction").where("id = ?", txId).fetchOne();
+        if (tx == null || !"OPEN".equals(tx.get("status", String.class))) {
+            throw new IllegalStateException("Transaction " + txId + " is not OPEN");
         }
 
         // 2. Récupérer la version courante (dernière committée ou OPEN de cette tx)
@@ -81,39 +86,52 @@ public class VersionService {
         // 4. Calculer la nouvelle identité métier
         int    currentVersionNumber = current != null ? current.get("version_number", Integer.class) : 0;
         String currentRevision      = current != null ? current.get("revision",       String.class)  : "A";
-        int    currentIteration     = current != null ? current.get("iteration",      Integer.class) : 0;
+        int    currentIteration     = current != null ? current.get("iteration",      Integer.class) : 1;
         String currentStateId       = current != null ? current.get("lifecycle_state_id", String.class) : null;
 
-        boolean isReleased = newStateId != null && isReleasedState(newStateId);
-        String  newRevision  = currentRevision;
-        int     newIteration = currentIteration;
-
-        if (isReleased) {
-            newRevision  = nextRevision(currentRevision);
-            newIteration = 1;
-        } else if (changeType == ChangeType.CONTENT) {
-            newIteration = currentIteration + 1;
+        // Resolve effective strategy: caller may pass null to use the ChangeType default
+        VersionStrategy effective = strategy;
+        if (effective == null) {
+            effective = (changeType == ChangeType.CONTENT) ? VersionStrategy.ITERATE : VersionStrategy.NONE;
         }
-        // LIFECYCLE ou SIGNATURE → même révision.itération
+
+        // Resolve numbering scheme from node_type and delegate computation
+        Record schemeRow = dsl.fetchOne("""
+            SELECT nt.numbering_scheme
+            FROM node n
+            JOIN node_type nt ON nt.id = n.node_type_id
+            WHERE n.id = ?
+            """, nodeId);
+        String schemeRaw = schemeRow != null ? schemeRow.get("numbering_scheme", String.class) : null;
+
+        NumberingResult nr = NumberingStrategyFactory.forSchemeString(schemeRaw)
+            .compute(effective, currentRevision, currentIteration);
+        String newRevision  = nr.revision();
+        int    newIteration = nr.iteration();
 
         // 5. Copier + merger les attributs
         Map<String, String> resolvedAttributes = copyAndMergeAttributes(nodeId, current, attributes);
 
-        // 6. Créer la version avec tx_status = OPEN, en chaînant vers la version précédente
+        // 6. Créer la version, en chaînant vers la version précédente
         String prevVersionId = current != null ? current.get("id", String.class) : null;
         String versionId = UUID.randomUUID().toString();
+        LocalDateTime now = LocalDateTime.now();
+        // locked_by / locked_at are intentionally NULL here — LockService.lock() writes
+        // them after this INSERT, and LockService.unlock() clears them at commit.
         dsl.execute("""
             INSERT INTO node_version
               (ID, NODE_ID, VERSION_NUMBER, REVISION, ITERATION,
                LIFECYCLE_STATE_ID, CHANGE_TYPE, CHANGE_DESCRIPTION,
-               TX_ID, TX_STATUS, CREATED_AT, CREATED_BY, PREVIOUS_VERSION_ID)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
+               TX_ID, PREVIOUS_VERSION_ID, VERSION_REASON,
+               CREATED_AT, CREATED_BY)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'REVISE', ?, ?)
             """,
             versionId, nodeId, currentVersionNumber + 1,
             newRevision, newIteration,
             newStateId != null ? newStateId : currentStateId,
             changeType.name(), description,
-            txId, LocalDateTime.now(), userId, prevVersionId
+            txId, prevVersionId,
+            now, userId
         );
 
         // 7. Sauvegarder les attributs
@@ -145,7 +163,8 @@ public class VersionService {
      * @return versionId (inchangé)
      */
     @Transactional
-    public String updateVersionAttributes(String versionId, Map<String, String> newAttrs, String description) {
+    public String updateVersionAttributes(String versionId, Map<String, String> newAttrs,
+                                          String description) {
         // Lire les attributs actuels de la version OPEN
         Map<String, String> merged = new java.util.HashMap<>();
         dsl.select().from("node_version_attribute")
@@ -185,10 +204,10 @@ public class VersionService {
      */
     public Record getCurrentVersionForTx(String nodeId, String txId) {
         if (txId != null) {
+            // All versions of an OPEN transaction are by definition "in progress"
             Record open = dsl.select().from("node_version")
                 .where("node_id = ?", nodeId)
                 .and("tx_id = ?", txId)
-                .and("tx_status = 'OPEN'")
                 .orderBy(DSL.field("version_number").desc())
                 .limit(1).fetchOne();
             if (open != null) return open;
@@ -210,28 +229,13 @@ public class VersionService {
     // ================================================================
 
     private Record getLastCommittedVersion(String nodeId) {
-        return dsl.select().from("node_version")
-            .where("node_id = ?", nodeId).and("tx_status = 'COMMITTED'")
-            .orderBy(DSL.field("version_number").desc())
-            .limit(1).fetchOne();
-    }
-
-    private boolean isReleasedState(String stateId) {
-        Integer v = dsl.select().from("lifecycle_state").where("id = ?", stateId)
-            .fetchOne("is_released", Integer.class);
-        return v != null && v == 1;
-    }
-
-    private String nextRevision(String current) {
-        char[] chars = current.toCharArray();
-        int i = chars.length - 1;
-        while (i >= 0) {
-            if (chars[i] < 'Z') { chars[i]++; return new String(chars); }
-            chars[i] = 'A'; i--;
-        }
-        char[] next = new char[chars.length + 1];
-        java.util.Arrays.fill(next, 'A');
-        return new String(next);
+        return dsl.fetch("""
+            SELECT nv.* FROM node_version nv
+            JOIN plm_transaction pt ON pt.id = nv.tx_id
+            WHERE nv.node_id = ? AND pt.status = 'COMMITTED'
+            ORDER BY nv.version_number DESC
+            LIMIT 1
+            """, nodeId).stream().findFirst().orElse(null);
     }
 
     private Map<String, String> copyAndMergeAttributes(String nodeId, Record prev, Map<String, String> newAttrs) {

@@ -8,6 +8,7 @@
 # Access:
 #   Frontend : http://localhost:3000
 #   API      : http://localhost:8080/api
+#   PNO API  : http://localhost:8081/api/pno
 # ============================================================
 
 services:
@@ -36,6 +37,44 @@ services:
       - plm-net
 
   # ============================================================
+  # PNO API — People & Organisation microservice
+  # Owns: pno_user, pno_role, user_role, project_space (pno schema)
+  # ============================================================
+  pno-api:
+    build:
+      context: ./pno-api
+      dockerfile: Dockerfile
+      target: runtime
+    image: pno-api:dev
+    container_name: pno-api
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
+      SPRING_DATASOURCE_USERNAME:          plm
+      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:-changeme}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     pno
+      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
+      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        pno
+      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_PNO:               DEBUG
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  # ============================================================
   # Backend — Spring Boot
   # ============================================================
   plm-backend:
@@ -54,10 +93,16 @@ services:
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_JOOQ_SQL_DIALECT:             POSTGRES
       SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        psm
+      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     psm
+      PNO_API_URL:                         http://pno-api:8081
       LOGGING_LEVEL_ROOT:                  INFO
       LOGGING_LEVEL_COM_PLM:               DEBUG
     depends_on:
       postgres:
+        condition: service_healthy
+      pno-api:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
