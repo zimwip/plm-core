@@ -107,7 +107,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 }
 .search-sug-item:hover,.search-sug-item.hi{background:var(--hover)}
 .sug-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.sug-lid{font-family:var(--mono);font-size:12px;color:var(--text);font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sug-lid{font-family:var(--mono);font-size:12px;color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}
+.sug-dname{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .sug-meta{font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap;flex-shrink:0}
 
 .user-select-wrap{position:relative;display:flex;align-items:center;gap:8px}
@@ -215,6 +216,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .ni-no-id{color:var(--muted2)}
+.ni-dname{font-size:10px;color:var(--muted);margin-left:4px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Rev.iter */
 .ni-reviter{
   font-family:var(--mono);font-size:10px;color:var(--muted);
@@ -398,6 +400,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 }
 .node-title-group{display:flex;flex-direction:column;gap:6px}
 .node-identity{font-family:var(--sans);font-weight:700;font-size:18px;color:var(--text);line-height:1}
+.node-display-name{font-size:15px;color:var(--muted);font-weight:400;margin-left:2px}
 .node-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .node-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex-shrink:0}
 

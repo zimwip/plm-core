@@ -43,8 +43,9 @@ export default function Header({
     }
     const matches = (nodes || [])
       .filter(n => {
-        const lid = (n.logical_id || n.LOGICAL_ID || '').toLowerCase();
-        return lid && lid.includes(q);
+        const lid  = (n.logical_id   || n.LOGICAL_ID   || '').toLowerCase();
+        const dnam = (n.display_name || n.DISPLAY_NAME || '').toLowerCase();
+        return (lid && lid.includes(q)) || (dnam && dnam.includes(q));
       })
       .slice(0, 8);
     setSuggestions(matches);
@@ -148,6 +149,9 @@ export default function Header({
                   >
                     <span className="sug-dot" style={{ background: color }} />
                     <span className="sug-lid">{lid}</span>
+                    {(n.display_name || n.DISPLAY_NAME) && (
+                      <span className="sug-dname">{n.display_name || n.DISPLAY_NAME}</span>
+                    )}
                     <span className="sug-meta">{type} · {rev}.{iter}</span>
                   </div>
                 );

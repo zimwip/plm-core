@@ -431,6 +431,9 @@ export default function NodeEditor({
         <div className="node-title-group">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="node-identity">{desc.logicalId || desc.identity}</span>
+            {desc.displayName && (
+              <span className="node-display-name">{desc.displayName}</span>
+            )}
             <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--muted)', fontWeight: 600, background: 'rgba(100,116,139,.1)', padding: '2px 7px', borderRadius: 4, letterSpacing: '.01em' }}>
               {desc.revision}.{desc.iteration}
             </span>

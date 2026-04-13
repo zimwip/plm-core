@@ -217,11 +217,16 @@ public class NodeService {
                    n.logical_id, n.external_id,
                    n.created_at, n.created_by,
                    n.locked_by,
-                   pt.status AS tx_status
+                   pt.status AS tx_status,
+                   nva_name.value AS display_name
             FROM node n
             JOIN node_type nt ON nt.id = n.node_type_id
             JOIN node_version nv ON nv.node_id = n.id
             JOIN plm_transaction pt ON pt.id = nv.tx_id
+            LEFT JOIN attribute_definition ad_name
+                   ON ad_name.node_type_id = n.node_type_id AND ad_name.as_name = 1
+            LEFT JOIN node_version_attribute nva_name
+                   ON nva_name.node_version_id = nv.id AND nva_name.attribute_def_id = ad_name.id
             WHERE n.project_space_id = ?
               AND (pt.status = 'COMMITTED' OR (pt.status = 'OPEN' AND pt.owner_id = ?))
               AND nv.version_number = (
@@ -925,6 +930,18 @@ public class NodeService {
                 )
             );
 
+        // Resolve the as_name attribute value for display
+        String asNameAttrId = dsl
+            .select(DSL.field("id"))
+            .from("attribute_definition")
+            .where("node_type_id = ?", nodeTypeId)
+            .and("as_name = 1")
+            .limit(1)
+            .fetchOne(DSL.field("id"), String.class);
+        String displayName = asNameAttrId != null
+            ? currentValues.getOrDefault(asNameAttrId, "")
+            : "";
+
         // Attributs résolus avec règle d'état + override de vue
         var attributes = dsl
             .select()
@@ -1017,6 +1034,7 @@ public class NodeService {
                 ? logicalId
                 : revision + "." + iteration
         );
+        result.put("displayName", displayName);
         result.put("revision", revision);
         result.put("iteration", iteration);
         result.put("state", currentStateId != null ? currentStateId : "");

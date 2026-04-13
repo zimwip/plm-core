@@ -295,6 +295,9 @@ export default function LeftPanel({
                         <span className="ni-dot" style={{ background: STATE_COLORS[state] || '#6b7280' }} />
                         <span className="ni-logical" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {logicalId || <span className="ni-no-id">—</span>}
+                          {(n.display_name || n.DISPLAY_NAME) && (
+                            <span className="ni-dname">{n.display_name || n.DISPLAY_NAME}</span>
+                          )}
                         </span>
                         <span className="ni-reviter" style={isPending ? { color: 'var(--warn)' } : undefined}>
                           {rev}.{iter}

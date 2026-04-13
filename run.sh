@@ -8,6 +8,8 @@
 #   ./run.sh reset     # down --volumes, rebuild, start + watch
 #   ./run.sh down      # stop and remove containers
 #   ./run.sh local     # run all services natively (java + node must be in PATH)
+#   ./run.sh package   # build JARs + frontend → dist/ (compiler-free deploy)
+#   ./run.sh package -y  # same, skip confirmation if dist/ exists
 #
 # File change → debounce 2s → rebuild/restart relevant service
 # ============================================================
@@ -479,10 +481,282 @@ run_local() {
     fi
 }
 
+# ── Package ─────────────────────────────────────────────────
+# Produces a dist/ directory containing pre-built JARs + static assets
+# and a docker-compose.yml that starts everything without any compilation.
+run_package() {
+    local DIST="dist"
+    local SKIP_CONFIRM=false
+    [[ "${2:-}" == "-y" || "${2:-}" == "--yes" ]] && SKIP_CONFIRM=true
+
+    if [[ -d "$DIST" ]]; then
+        if ! $SKIP_CONFIRM; then
+            warn "Directory '$DIST/' already exists and will be overwritten."
+            read -rp "  Continue? [y/N] " confirm
+            [[ "${confirm,,}" != "y" ]] && { log "Aborted."; exit 0; }
+        fi
+        rm -rf "$DIST"
+    fi
+    mkdir -p "$DIST/psm-api" "$DIST/pno-api" "$DIST/frontend/html"
+
+    log "=== PLM Core — package ==="
+    log "Building pre-compiled distribution in ./$DIST/"
+    echo ""
+
+    # ── Helper: build builder stage, extract a path, clean up ──
+    extract_from_builder() {
+        local service=$1       # human name
+        local ctx=$2           # build context dir
+        local tag=$3           # temporary image tag
+        local src_path=$4      # path inside container to copy
+        local dest=$5          # local destination
+
+        log "[$service] Building builder stage…"
+        docker build --target builder -t "$tag" "$ctx"
+
+        log "[$service] Extracting artifacts…"
+        local cid
+        cid=$(docker create "$tag")
+        docker cp "$cid:$src_path" "$dest"
+        docker rm  "$cid" >/dev/null
+        docker rmi "$tag" >/dev/null
+        ok "[$service] Done."
+    }
+
+    # ── PSM API ────────────────────────────────────────────────
+    extract_from_builder "psm-api" "psm-api" "plm-psm-pkg-builder" \
+        "/build/target" "$DIST/psm-api/_target"
+    local psm_jar
+    psm_jar=$(ls "$DIST/psm-api/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1)
+    if [[ -z "$psm_jar" ]]; then
+        err "No JAR found in psm-api/target — build may have failed"; exit 1
+    fi
+    cp "$psm_jar" "$DIST/psm-api/app.jar"
+    rm -rf "$DIST/psm-api/_target"
+    echo ""
+
+    # ── PNO API ────────────────────────────────────────────────
+    extract_from_builder "pno-api" "pno-api" "plm-pno-pkg-builder" \
+        "/build/target" "$DIST/pno-api/_target"
+    local pno_jar
+    pno_jar=$(ls "$DIST/pno-api/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1)
+    if [[ -z "$pno_jar" ]]; then
+        err "No JAR found in pno-api/target — build may have failed"; exit 1
+    fi
+    cp "$pno_jar" "$DIST/pno-api/app.jar"
+    rm -rf "$DIST/pno-api/_target"
+    echo ""
+
+    # ── Frontend ───────────────────────────────────────────────
+    extract_from_builder "frontend" "frontend" "plm-fe-pkg-builder" \
+        "/app/dist/." "$DIST/frontend/html"
+    cp frontend/nginx.conf "$DIST/frontend/nginx.conf"
+    echo ""
+
+    # ── Thin Dockerfiles ───────────────────────────────────────
+    log "Writing thin runtime Dockerfiles…"
+
+    cat > "$DIST/psm-api/Dockerfile" << 'EOF'
+FROM eclipse-temurin:21-jre-alpine
+RUN addgroup -S plm && adduser -S plm -G plm
+USER plm
+WORKDIR /app
+COPY app.jar .
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+ENTRYPOINT ["java", \
+    "-XX:+UseContainerSupport", \
+    "-XX:MaxRAMPercentage=75.0", \
+    "-Djava.security.egd=file:/dev/./urandom", \
+    "-jar", "app.jar"]
+EOF
+
+    cat > "$DIST/pno-api/Dockerfile" << 'EOF'
+FROM eclipse-temurin:21-jre-alpine
+RUN addgroup -S plm && adduser -S plm -G plm
+USER plm
+WORKDIR /app
+COPY app.jar .
+EXPOSE 8081
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget -qO- http://localhost:8081/actuator/health || exit 1
+ENTRYPOINT ["java", \
+    "-XX:+UseContainerSupport", \
+    "-XX:MaxRAMPercentage=75.0", \
+    "-Djava.security.egd=file:/dev/./urandom", \
+    "-jar", "app.jar"]
+EOF
+
+    cat > "$DIST/frontend/Dockerfile" << 'EOF'
+FROM nginx:alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY html /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+EOF
+
+    # ── docker-compose.yml ─────────────────────────────────────
+    log "Writing dist/docker-compose.yml…"
+
+    cat > "$DIST/docker-compose.yml" << 'EOF'
+# ============================================================
+# PLM Core — pre-built distribution
+# No compilation required: images are built from local JARs.
+#
+# Usage:
+#   cd dist/
+#   docker compose up --build   # first run (builds thin images)
+#   docker compose up           # subsequent runs
+#   docker compose down -v      # stop + wipe database
+#
+# Set PG_PASSWORD in a .env file or export it before running.
+# ============================================================
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: plm-postgres
+    environment:
+      POSTGRES_DB:       plmdb
+      POSTGRES_USER:     plm
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    volumes:
+      - plm-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plm -d plmdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  pno-api:
+    build: ./pno-api
+    image: pno-api:dist
+    container_name: pno-api
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
+      SPRING_DATASOURCE_USERNAME:          plm
+      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:-changeme}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     pno
+      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
+      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        pno
+      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_PNO:               INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  psm-api:
+    build: ./psm-api
+    image: psm-api:dist
+    container_name: psm-api
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
+      SPRING_DATASOURCE_USERNAME:          plm
+      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:-changeme}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
+      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        psm
+      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     psm
+      PNO_API_URL:                         http://pno-api:8081
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_PLM:               INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pno-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  plm-frontend:
+    build: ./frontend
+    image: plm-frontend:dist
+    container_name: plm-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      psm-api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+networks:
+  plm-net:
+    driver: bridge
+
+volumes:
+  plm-pgdata:
+    driver: local
+EOF
+
+    # ── .env.example ───────────────────────────────────────────
+    cat > "$DIST/.env.example" << 'EOF'
+# Copy to .env and set a strong password before first launch.
+PG_PASSWORD=changeme
+EOF
+
+    echo ""
+    echo "  ┌──────────────────────────────────────────────────────┐"
+    echo "  │  Distribution ready in ./$DIST/                      │"
+    echo "  │                                                        │"
+    echo "  │  Contents:                                             │"
+    echo "  │    dist/psm-api/app.jar   + Dockerfile (no compiler)  │"
+    echo "  │    dist/pno-api/app.jar   + Dockerfile (no compiler)  │"
+    echo "  │    dist/frontend/html/    + Dockerfile (nginx)        │"
+    echo "  │    dist/docker-compose.yml                             │"
+    echo "  │                                                        │"
+    echo "  │  To deploy:                                            │"
+    echo "  │    cd dist/                                            │"
+    echo "  │    cp .env.example .env && vi .env                     │"
+    echo "  │    docker compose up --build                           │"
+    echo "  └──────────────────────────────────────────────────────┘"
+    echo ""
+    ok "Package complete."
+}
+
 # ── Main ─────────────────────────────────────────────────────
 trap cleanup INT TERM
 
 CMD="${1:-}"
+
+# Handle package (pre-build JARs + frontend, write dist/ for compiler-free deploy)
+if [[ "$CMD" == "package" || "$CMD" == "--package" ]]; then
+    run_package "$@"
+    exit 0
+fi
 
 # Handle down
 if [[ "$CMD" == "down" || "$CMD" == "--down" ]]; then

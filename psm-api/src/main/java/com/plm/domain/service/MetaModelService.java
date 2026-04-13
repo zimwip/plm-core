@@ -289,12 +289,24 @@ public class MetaModelService {
     @PlmAction("MANAGE_METAMODEL")
     @Transactional
     public String createAttributeDefinition(String nodeTypeId, Map<String, Object> params) {
+        boolean asName = Boolean.TRUE.equals(params.get("asName"));
+        if (asName) {
+            int existing = dsl.fetchCount(
+                dsl.selectOne().from("attribute_definition")
+                   .where("node_type_id = ?", nodeTypeId)
+                   .and("as_name = 1")
+            );
+            if (existing > 0) {
+                throw new IllegalArgumentException(
+                    "A 'as_name' attribute already exists for this node type. Only one is allowed.");
+            }
+        }
         String id = UUID.randomUUID().toString();
         dsl.execute("""
             INSERT INTO attribute_definition
               (ID, NODE_TYPE_ID, NAME, LABEL, DATA_TYPE, REQUIRED, DEFAULT_VALUE,
-               NAMING_REGEX, ALLOWED_VALUES, WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP, CREATED_AT)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               NAMING_REGEX, ALLOWED_VALUES, WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP, AS_NAME, CREATED_AT)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             id,
             nodeTypeId,
@@ -309,6 +321,7 @@ public class MetaModelService {
             params.getOrDefault("displayOrder", 0),
             params.get("displaySection"),
             params.get("tooltip"),
+            asName ? 1 : 0,
             LocalDateTime.now()
         );
         log.info("AttributeDefinition '{}' created on nodeType {}", params.get("name"), nodeTypeId);
@@ -450,11 +463,31 @@ public class MetaModelService {
     @PlmAction("MANAGE_METAMODEL")
     @Transactional
     public void updateAttributeDefinition(String attrId, Map<String, Object> params) {
+        boolean asName = Boolean.TRUE.equals(params.get("asName"));
+        if (asName) {
+            // Look up the node_type_id for this attribute
+            String nodeTypeId = dsl.select(DSL.field("node_type_id"))
+                .from("attribute_definition")
+                .where("id = ?", attrId)
+                .fetchOne(DSL.field("node_type_id"), String.class);
+            if (nodeTypeId != null) {
+                int existing = dsl.fetchCount(
+                    dsl.selectOne().from("attribute_definition")
+                       .where("node_type_id = ?", nodeTypeId)
+                       .and("as_name = 1")
+                       .and("id <> ?", attrId)
+                );
+                if (existing > 0) {
+                    throw new IllegalArgumentException(
+                        "A 'as_name' attribute already exists for this node type. Only one is allowed.");
+                }
+            }
+        }
         dsl.execute("""
             UPDATE attribute_definition SET
               LABEL = ?, DATA_TYPE = ?, REQUIRED = ?, DEFAULT_VALUE = ?,
               NAMING_REGEX = ?, ALLOWED_VALUES = ?, WIDGET_TYPE = ?,
-              DISPLAY_ORDER = ?, DISPLAY_SECTION = ?, TOOLTIP = ?
+              DISPLAY_ORDER = ?, DISPLAY_SECTION = ?, TOOLTIP = ?, AS_NAME = ?
             WHERE ID = ?
             """,
             params.get("label"),
@@ -467,6 +500,7 @@ public class MetaModelService {
             params.getOrDefault("displayOrder", 0),
             params.get("displaySection"),
             params.get("tooltip"),
+            asName ? 1 : 0,
             attrId
         );
         log.info("AttributeDefinition {} updated", attrId);
@@ -800,14 +834,17 @@ public class MetaModelService {
                 na.id                AS action_id,
                 na.action_code,
                 na.action_kind,
+                na.scope,
                 na.display_name,
                 na.display_category,
                 na.requires_tx,
                 na.handler_ref,
-                lt.name              AS transition_name
+                lt.name              AS transition_name,
+                ls.name              AS from_state_name
             FROM node_type_action nta
             JOIN action na ON na.id = nta.action_id
             LEFT JOIN lifecycle_transition lt ON lt.id = nta.transition_id
+            LEFT JOIN lifecycle_state ls      ON ls.id = lt.from_state_id
             WHERE nta.node_type_id = ?
             ORDER BY nta.display_order, na.display_category
             """, nodeTypeId).intoMaps();

@@ -191,10 +191,16 @@ function AttrFields({ form, setForm, autoFocusName = true }) {
           <input className="field-input" type="number" min="0" value={form.displayOrder ?? ''} onChange={e => setForm(f => ({ ...f, displayOrder: e.target.value }))} placeholder="0" />
         </Field>
       </div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-        <input type="checkbox" checked={!!form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} />
-        Required field
-      </label>
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <input type="checkbox" checked={!!form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} />
+          Required field
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <input type="checkbox" checked={!!form.asName} onChange={e => setForm(f => ({ ...f, asName: e.target.checked }))} />
+          Use as display name <span style={{ color: 'var(--accent)', marginLeft: 2 }}>★</span>
+        </label>
+      </div>
     </>
   );
 }
@@ -639,6 +645,7 @@ function NodeTypesSection({ userId, canWrite, toast }) {
           dataType:       form.dataType || 'STRING',
           widgetType:     form.widgetType || 'TEXT',
           required:       !!form.required,
+          asName:         !!form.asName,
           displaySection: form.displaySection?.trim() || null,
           displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
         });
@@ -651,6 +658,7 @@ function NodeTypesSection({ userId, canWrite, toast }) {
           dataType:       form.dataType || 'STRING',
           widgetType:     form.widgetType || 'TEXT',
           required:       !!form.required,
+          asName:         !!form.asName,
           displaySection: form.displaySection?.trim() || null,
           displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
         });
@@ -865,10 +873,16 @@ function NodeTypesSection({ userId, canWrite, toast }) {
                 <input className="field-input" type="number" min="0" value={form.displayOrder ?? ''} onChange={e => setForm(f => ({ ...f, displayOrder: e.target.value }))} />
               </Field>
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-              <input type="checkbox" checked={!!form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} />
-              Required field
-            </label>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <input type="checkbox" checked={!!form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} />
+                Required field
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <input type="checkbox" checked={!!form.asName} onChange={e => setForm(f => ({ ...f, asName: e.target.checked }))} />
+                Use as display name <span style={{ color: 'var(--accent)', marginLeft: 2 }}>★</span>
+              </label>
+            </div>
           </>}
 
           {/* ── Create link type ── */}
@@ -1112,7 +1126,7 @@ function NodeTypesSection({ userId, canWrite, toast }) {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 }}>
                   <span className="settings-sub-label" style={{ margin: 0 }}>Attributes</span>
                   {canWrite && (
-                    <button className="panel-icon-btn" title="Add attribute" onClick={() => openModal('create-attr', { nodeTypeId: id }, { dataType: 'STRING', widgetType: 'TEXT', required: false })}>
+                    <button className="panel-icon-btn" title="Add attribute" onClick={() => openModal('create-attr', { nodeTypeId: id }, { dataType: 'STRING', widgetType: 'TEXT', required: false, asName: false })}>
                       <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
                     </button>
                   )}
@@ -1122,24 +1136,26 @@ function NodeTypesSection({ userId, canWrite, toast }) {
                 ) : (
                   <table className="settings-table">
                     <thead>
-                      <tr><th>Name</th><th>Label</th><th>Type</th><th>Req</th><th>Section</th><th></th></tr>
+                      <tr><th>Name</th><th>Label</th><th>Type</th><th>Req</th><th>As Name</th><th>Section</th><th></th></tr>
                     </thead>
                     <tbody>
                       {[...ntAttrs]
                         .sort((a, b) => (a.display_order || a.DISPLAY_ORDER || 0) - (b.display_order || b.DISPLAY_ORDER || 0))
                         .map(a => {
-                          const aid   = a.id          || a.ID;
-                          const aname = a.name        || a.NAME;
-                          const albl  = a.label       || a.LABEL       || aname;
-                          const atype = a.widget_type || a.WIDGET_TYPE || 'TEXT';
-                          const areq  = !!(a.required || a.REQUIRED);
-                          const asec  = a.display_section || a.DISPLAY_SECTION || '—';
+                          const aid    = a.id          || a.ID;
+                          const aname  = a.name        || a.NAME;
+                          const albl   = a.label       || a.LABEL       || aname;
+                          const atype  = a.widget_type || a.WIDGET_TYPE || 'TEXT';
+                          const areq   = !!(a.required || a.REQUIRED);
+                          const aAsNm  = !!(a.as_name  || a.AS_NAME);
+                          const asec   = a.display_section || a.DISPLAY_SECTION || '—';
                           return (
                             <tr key={aid}>
                               <td className="settings-td-mono">{aname}</td>
                               <td>{albl}</td>
                               <td><span className="settings-badge">{atype}</span></td>
                               <td style={{ color: areq ? 'var(--success)' : 'var(--muted)' }}>{areq ? '✓' : '—'}</td>
+                              <td style={{ color: aAsNm ? 'var(--accent)' : 'var(--muted)', fontWeight: aAsNm ? 600 : 400 }}>{aAsNm ? '★' : '—'}</td>
                               <td style={{ color: 'var(--muted)' }}>{asec}</td>
                               <td>
                                 <div style={{ display: 'flex', gap: 4 }}>
@@ -1149,6 +1165,7 @@ function NodeTypesSection({ userId, canWrite, toast }) {
                                       dataType:       a.data_type      || a.DATA_TYPE      || 'STRING',
                                       widgetType:     a.widget_type    || a.WIDGET_TYPE    || 'TEXT',
                                       required:       areq,
+                                      asName:         aAsNm,
                                       displaySection: a.display_section || a.DISPLAY_SECTION || '',
                                       displayOrder:   a.display_order  ?? a.DISPLAY_ORDER  ?? '',
                                     })}>
@@ -1701,182 +1718,278 @@ function LifecyclesSection({ userId, canWrite, toast }) {
 }
 
 /* ── Action permissions for one project space ────────────────────── */
-function ProjectSpacePermissions({ userId, projectSpaceId, canWrite, toast }) {
-  const [roles,    setRoles]    = useState([]);
-  const [types,    setTypes]    = useState([]);
-  const [selRole,  setSelRole]  = useState(null);   // { id, name }
-  const [expanded, setExpanded] = useState(null);   // nodeTypeId
-  const [actions,  setActions]  = useState({});     // ntId → action[]
-  const [perms,    setPerms]    = useState({});     // ntaId → roleId[]
-  const [loading,  setLoading]  = useState(true);
+/**
+ * Node types × actions permission matrix for a fixed role + project space.
+ * Rows = node types, columns = action codes (union across all node types).
+ * Horizontally scrollable when the table exceeds the container width.
+ */
+function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast }) {
+  const [types,   setTypes]   = useState([]);
+  const [actions, setActions] = useState({});  // ntId → nta[]
+  const [perms,   setPerms]   = useState({});  // ntaId → roleId[]
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.getRoles(userId).then(d => {
-        const list = Array.isArray(d) ? d : [];
-        setRoles(list);
-        if (list.length > 0) setSelRole(list[0]);
-      }),
-      api.getNodeTypes(userId).then(d => setTypes(Array.isArray(d) ? d : [])),
-    ]).finally(() => setLoading(false));
-  }, [userId, projectSpaceId]);
+    api.getNodeTypes(userId).then(async ntList => {
+      const types = Array.isArray(ntList) ? ntList : [];
+      setTypes(types);
 
-  function selectRole(role) {
-    setSelRole(role);
-    setExpanded(null);
-    setPerms({});
-  }
+      const actionMap = {};
+      const permMap   = {};
 
-  async function expandNt(nt) {
-    const id = nt.id || nt.ID;
-    if (expanded === id) { setExpanded(null); return; }
-    setExpanded(id);
-    let list = actions[id];
-    if (!list) {
-      const raw = await api.getActionsForNodeType(userId, id).catch(() => []);
-      list = Array.isArray(raw) ? raw : [];
-      setActions(s => ({ ...s, [id]: list }));
-    }
-    if (selRole) await loadPerms(id, list);
-  }
+      await Promise.all(types.map(async nt => {
+        const ntId = nt.id || nt.ID;
+        const raw  = await api.getActionsForNodeType(userId, ntId).catch(() => []);
+        // Keep ALL actions — including READ (no STRUCTURAL filter)
+        actionMap[ntId] = Array.isArray(raw) ? raw : [];
 
-  async function loadPerms(nodeTypeId, actionList) {
-    await Promise.all(actionList.map(async nta => {
-      const ntaId = nta.nta_id || nta.NTA_ID;
-      if (perms[ntaId] !== undefined) return;
-      const p = await api.getActionPermissionsForSpace(userId, projectSpaceId, nodeTypeId, ntaId).catch(() => []);
-      const allowed = (Array.isArray(p) ? p : []).map(r => r.role_id || r.ROLE_ID);
-      setPerms(s => ({ ...s, [ntaId]: allowed }));
-    }));
-  }
+        await Promise.all(actionMap[ntId].map(async nta => {
+          const ntaId = nta.nta_id || nta.NTA_ID;
+          const p = await api.getActionPermissionsForSpace(userId, projectSpaceId, ntId, ntaId).catch(() => []);
+          permMap[ntaId] = (Array.isArray(p) ? p : []).map(r => r.role_id || r.ROLE_ID);
+        }));
+      }));
+
+      setActions(actionMap);
+      setPerms(permMap);
+    }).finally(() => setLoading(false));
+  }, [userId, projectSpaceId, roleId]);
 
   async function togglePerm(nodeTypeId, nta) {
-    if (!selRole) return;
-    const ntaId = nta.nta_id || nta.NTA_ID;
-    const current = perms[ntaId] || [];
-    const isGranted = current.includes(selRole.id);
+    const ntaId     = nta.nta_id || nta.NTA_ID;
+    const current   = perms[ntaId] || [];
+    const isGranted = current.includes(roleId);
     try {
       if (isGranted) {
-        await api.removeActionPermissionForSpace(userId, projectSpaceId, nodeTypeId, ntaId, selRole.id, null);
-        setPerms(s => ({ ...s, [ntaId]: (s[ntaId] || []).filter(r => r !== selRole.id) }));
+        await api.removeActionPermissionForSpace(userId, projectSpaceId, nodeTypeId, ntaId, roleId, null);
+        setPerms(s => ({ ...s, [ntaId]: (s[ntaId] || []).filter(r => r !== roleId) }));
       } else {
-        await api.addActionPermissionForSpace(userId, projectSpaceId, nodeTypeId, ntaId, selRole.id, null);
-        setPerms(s => ({ ...s, [ntaId]: [...(s[ntaId] || []), selRole.id] }));
+        await api.addActionPermissionForSpace(userId, projectSpaceId, nodeTypeId, ntaId, roleId, null);
+        setPerms(s => ({ ...s, [ntaId]: [...(s[ntaId] || []), roleId] }));
       }
     } catch (err) { toast(err, 'error'); }
   }
 
-  if (loading) return <div style={{ padding: '12px 0', color: 'var(--muted)', fontSize: 12 }}>Loading…</div>;
+  if (loading) return <div style={{ padding: '4px 0', color: 'var(--muted)', fontSize: 11 }}>Loading…</div>;
+  if (types.length === 0) return <div className="settings-empty-row">No node types defined.</div>;
+
+  // ── Derive column sets from backend data ──────────────────────────
+  // NODE scope columns: unique action codes where scope === 'NODE' (or no transition_id)
+  const nodeColMap = new Map(); // actionCode → { actionCode, displayName, order }
+  // LIFECYCLE scope columns: unique transitions where scope === 'LIFECYCLE'
+  const lcColMap   = new Map(); // transitionId → { transitionId, label, order }
+
+  Object.values(actions).flat().forEach(nta => {
+    const scope   = nta.scope       || nta.SCOPE       || '';
+    const tranId  = nta.transition_id || nta.TRANSITION_ID;
+    const code    = nta.action_code  || nta.ACTION_CODE;
+    const name    = nta.display_name_override || nta.DISPLAY_NAME_OVERRIDE
+                 || nta.display_name          || nta.DISPLAY_NAME || code;
+    const order   = nta.display_order || nta.DISPLAY_ORDER || 0;
+
+    if (scope === 'LIFECYCLE' || tranId) {
+      if (tranId && !lcColMap.has(tranId)) {
+        const fromState  = nta.from_state_name || nta.FROM_STATE_NAME || '';
+        const tranName   = nta.transition_name  || nta.TRANSITION_NAME  || tranId;
+        const label      = fromState ? `${fromState} → ${tranName}` : tranName;
+        lcColMap.set(tranId, { transitionId: tranId, label, order });
+      }
+    } else {
+      if (code && !nodeColMap.has(code)) {
+        nodeColMap.set(code, { actionCode: code, displayName: name, order });
+      }
+    }
+  });
+
+  const nodeColumns = [...nodeColMap.values()].sort((a, b) => a.order - b.order);
+  const lcColumns   = [...lcColMap.values()].sort((a, b) => a.order - b.order);
+
+  const thStyle = {
+    padding: '4px 8px',
+    textAlign: 'center',
+    borderBottom: '1px solid var(--border)',
+    borderRight: '1px solid var(--border)',
+    background: 'var(--bg2, var(--bg))',
+    whiteSpace: 'nowrap',
+    verticalAlign: 'bottom',
+  };
+  const tdStyle = {
+    padding: '3px 6px',
+    textAlign: 'center',
+    borderBottom: '1px solid var(--border)',
+    borderRight: '1px solid var(--border)',
+  };
+
+  function PermCell({ nodeTypeId, nta }) {
+    if (!nta) return (
+      <td style={tdStyle}>
+        <span style={{ color: 'var(--border)', fontSize: 11, userSelect: 'none' }}>—</span>
+      </td>
+    );
+    const ntaId     = nta.nta_id || nta.NTA_ID;
+    const ntaPerms  = perms[ntaId];
+    const isPending = ntaPerms === undefined;
+    const isGranted = !isPending && ntaPerms.includes(roleId);
+    return (
+      <td style={tdStyle}>
+        <button
+          className="panel-icon-btn"
+          disabled={isPending || !canWrite}
+          title={!canWrite ? 'Requires MANAGE_ROLES' : isGranted ? 'Revoke' : 'Grant'}
+          onClick={() => togglePerm(nodeTypeId, nta)}
+          style={{ margin: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                   width: 22, height: 22, cursor: canWrite && !isPending ? 'pointer' : 'default' }}
+        >
+          {isPending
+            ? <span style={{ color: 'var(--muted)', fontSize: 9 }}>…</span>
+            : isGranted
+              ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
+              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--border)"   strokeWidth="2"  ><circle cx="12" cy="12" r="9"/></svg>
+          }
+        </button>
+      </td>
+    );
+  }
+
+  function StickyNtCell({ ntId, ntName }) {
+    return (
+      <td style={{ ...tdStyle, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--bg)', zIndex: 1, minWidth: 120 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)' }}>{ntName}</div>
+        <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--muted)' }}>{ntId}</div>
+      </td>
+    );
+  }
+
+  const hint = (
+    <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6 }}>
+      Zero grants = action open to all roles.
+    </div>
+  );
 
   return (
-    <div style={{ paddingTop: 12 }}>
-      {/* Header row: label + role selector */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <span className="settings-sub-label" style={{ margin: 0 }}>Action Permissions</span>
-        {roles.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Role:</span>
-            <select
-              className="field-input"
-              style={{ height: 24, fontSize: 11, padding: '0 6px', minWidth: 110 }}
-              value={selRole?.id || ''}
-              onChange={e => { const r = roles.find(r => r.id === e.target.value); if (r) selectRole(r); }}
-            >
-              {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
+    <div>
+      {/* ── NODE scope table ── */}
+      {nodeColumns.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+            Node Actions
           </div>
-        )}
-      </div>
-
-      {roles.length === 0 && (
-        <div className="settings-empty-row">No non-admin roles defined. Create roles first.</div>
-      )}
-
-      {selRole && (
-        <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 8 }}>
-          Expand a node type to grant or revoke actions for <strong>{selRole.name}</strong>.
-          Zero grants = action is open to all roles.
+          {hint}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thStyle, textAlign: 'left', minWidth: 120, position: 'sticky', left: 0, zIndex: 1 }}>
+                    Node Type
+                  </th>
+                  {nodeColumns.map(col => (
+                    <th key={col.actionCode} style={{ ...thStyle, minWidth: 72 }}>
+                      <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--accent)', marginBottom: 1 }}>
+                        {col.actionCode}
+                      </div>
+                      <div style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400 }}>
+                        {col.displayName}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {types.map(nt => {
+                  const ntId   = nt.id   || nt.ID;
+                  const ntName = nt.name || nt.NAME || ntId;
+                  const ntaByCode = {};
+                  (actions[ntId] || [])
+                    .filter(a => {
+                      const s = a.scope || a.SCOPE || '';
+                      const t = a.transition_id || a.TRANSITION_ID;
+                      return s !== 'LIFECYCLE' && !t;
+                    })
+                    .forEach(nta => { ntaByCode[nta.action_code || nta.ACTION_CODE] = nta; });
+                  return (
+                    <tr key={ntId}>
+                      <StickyNtCell ntId={ntId} ntName={ntName} />
+                      {nodeColumns.map(col => (
+                        <PermCell key={col.actionCode} nodeTypeId={ntId} nta={ntaByCode[col.actionCode]} />
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {selRole && types.map(nt => {
-        const id       = nt.id   || nt.ID;
-        const name     = nt.name || nt.NAME || id;
-        const isExp    = expanded === id;
-        const ntActions = actions[id] || [];
-
-        return (
-          <div key={id} style={{ marginBottom: 4, border: '1px solid var(--border)', borderRadius: 5, overflow: 'hidden' }}>
-            <div
-              onClick={() => expandNt(nt)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', cursor: 'pointer',
-                       background: isExp ? 'rgba(99,102,241,.06)' : 'transparent' }}
-            >
-              {isExp
-                ? <ChevronDownIcon  size={11} strokeWidth={2} color="var(--muted)" />
-                : <ChevronRightIcon size={11} strokeWidth={2} color="var(--muted)" />
-              }
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{name}</span>
-              <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>{id}</span>
-            </div>
-
-            {isExp && (
-              <div style={{ background: 'rgba(0,0,0,.03)', padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {ntActions.length === 0 ? (
-                  <div className="settings-empty-row">No actions registered</div>
-                ) : (
-                  [...ntActions]
-                    .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                    .map(nta => {
-                      const ntaId    = nta.nta_id      || nta.NTA_ID;
-                      const code     = nta.action_code || nta.ACTION_CODE || ntaId;
-                      const dispName = nta.display_name_override || nta.DISPLAY_NAME_OVERRIDE
-                                    || nta.display_name          || nta.DISPLAY_NAME || code;
-                      const category = nta.display_category || nta.DISPLAY_CATEGORY || '—';
-                      const ntaPerms = perms[ntaId];
-                      const isPending = ntaPerms === undefined;
-                      const isGranted = !isPending && ntaPerms.includes(selRole.id);
-
-                      return (
-                        <div key={ntaId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--border)' }}>
-                          <button
-                            className="panel-icon-btn"
-                            disabled={isPending || !canWrite}
-                            title={!canWrite ? 'Requires MANAGE_ROLES' : isGranted ? `Revoke ${selRole.name}` : `Grant ${selRole.name}`}
-                            onClick={() => togglePerm(id, nta)}
-                            style={{ flexShrink: 0, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          >
-                            {isPending
-                              ? <span style={{ color: 'var(--muted)', fontSize: 10 }}>…</span>
-                              : isGranted
-                                ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
-                                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="2"><circle cx="12" cy="12" r="9"/></svg>
-                            }
-                          </button>
-                          <code style={{ fontSize: 11, color: 'var(--muted)', minWidth: 130 }}>{code}</code>
-                          <span style={{ fontSize: 11, color: 'var(--text)', flex: 1 }}>{dispName}</span>
-                          <span className="settings-badge">{category}</span>
-                        </div>
-                      );
-                    })
-                )}
-              </div>
-            )}
+      {/* ── LIFECYCLE scope table ── */}
+      {lcColumns.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+            Lifecycle Transitions
           </div>
-        );
-      })}
+          {hint}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thStyle, textAlign: 'left', minWidth: 120, position: 'sticky', left: 0, zIndex: 1 }}>
+                    Node Type
+                  </th>
+                  {lcColumns.map(col => (
+                    <th key={col.transitionId} style={{ ...thStyle, minWidth: 100 }}>
+                      <div style={{ fontSize: 9, color: 'var(--text)', fontWeight: 500 }}>
+                        {col.label}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {types.map(nt => {
+                  const ntId   = nt.id   || nt.ID;
+                  const ntName = nt.name || nt.NAME || ntId;
+                  const ntaByTran = {};
+                  (actions[ntId] || [])
+                    .filter(a => {
+                      const s = a.scope || a.SCOPE || '';
+                      const t = a.transition_id || a.TRANSITION_ID;
+                      return s === 'LIFECYCLE' || !!t;
+                    })
+                    .forEach(nta => {
+                      const t = nta.transition_id || nta.TRANSITION_ID;
+                      if (t) ntaByTran[t] = nta;
+                    });
+                  // Skip rows where this node type has no lifecycle actions at all
+                  if (Object.keys(ntaByTran).length === 0) return null;
+                  return (
+                    <tr key={ntId}>
+                      <StickyNtCell ntId={ntId} ntName={ntName} />
+                      {lcColumns.map(col => (
+                        <PermCell key={col.transitionId} nodeTypeId={ntId} nta={ntaByTran[col.transitionId]} />
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {nodeColumns.length === 0 && lcColumns.length === 0 && (
+        <div className="settings-empty-row">No actions registered on any node type.</div>
+      )}
     </div>
   );
 }
 
 /* ── Project Spaces section ──────────────────────────────────────── */
 function ProjectSpacesSection({ userId, canWrite, toast }) {
-  const [spaces,   setSpaces]   = useState([]);
-  const [expanded, setExpanded] = useState(null);
-  const [loading,  setLoading]  = useState(true);
-  const [modal,    setModal]    = useState(false);
-  const [form,     setForm]     = useState({ name: '', description: '' });
-  const [saving,   setSaving]   = useState(false);
+  const [spaces,  setSpaces]  = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal,   setModal]   = useState(false);
+  const [form,    setForm]    = useState({ name: '', description: '' });
+  const [saving,  setSaving]  = useState(false);
 
   function load() {
     return api.listProjectSpaces(userId).then(d => setSpaces(Array.isArray(d) ? d : []));
@@ -1918,32 +2031,21 @@ function ProjectSpacesSection({ userId, canWrite, toast }) {
           </button>
         )}
       </div>
+      {spaces.length === 0 && <div className="settings-empty-row">No project spaces yet.</div>}
       {spaces.map(ps => {
-        const id    = ps.id   || ps.ID;
-        const name  = ps.name || ps.NAME || id;
-        const desc  = ps.description || ps.DESCRIPTION || '';
+        const id     = ps.id          || ps.ID;
+        const name   = ps.name        || ps.NAME || id;
+        const desc   = ps.description || ps.DESCRIPTION || '';
         const active = ps.active !== false && ps.ACTIVE !== false;
-        const isExp = expanded === id;
         return (
-          <div key={id} className="settings-card">
-            <div className="settings-card-hd" onClick={() => setExpanded(isExp ? null : id)} style={{ display: 'flex', alignItems: 'center' }}>
-              <span className="settings-card-chevron">
-                {isExp
-                  ? <ChevronDownIcon  size={13} strokeWidth={2} color="var(--muted)" />
-                  : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />
-                }
-              </span>
+          <div key={id} className="settings-card" style={{ padding: '10px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <HexIcon size={13} color={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth={1.5} />
               <span className="settings-card-name" style={{ marginLeft: 4 }}>{name}</span>
               <span className="settings-card-id">{id}</span>
-              {desc && <span style={{ flex: 1, fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 8 }}>{desc}</span>}
               {!active && <span className="settings-badge settings-badge--warn">Inactive</span>}
             </div>
-            {isExp && (
-              <div className="settings-card-body">
-                <ProjectSpacePermissions userId={userId} projectSpaceId={id} canWrite={canWrite} toast={toast} />
-              </div>
-            )}
+            {desc && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, paddingLeft: 19 }}>{desc}</div>}
           </div>
         );
       })}
@@ -2278,27 +2380,203 @@ function UsersRolesSection({ userId, canWrite, toast }) {
   );
 }
 
+/* ── Access Rights section ──────────────────────────────────────────── */
+function AccessRightsSection({ userId, canWrite, toast }) {
+  const [roles,         setRoles]         = useState(null);
+  const [globalActions, setGlobalActions] = useState([]);
+  const [spaces,        setSpaces]        = useState([]);
+  const [expandedRole,  setExpandedRole]  = useState(null);
+  const [expandedSpace, setExpandedSpace] = useState(null); // spaceId within the expanded role
+  // globalPerms: roleId → Set<actionId>
+  const [globalPerms, setGlobalPerms] = useState({});
+
+  useEffect(() => {
+    Promise.all([
+      api.getRoles(userId),
+      api.listGlobalActions(userId),
+      api.listProjectSpaces(userId),
+    ]).then(([roleList, actionList, spaceList]) => {
+      setRoles(Array.isArray(roleList)   ? roleList   : []);
+      setGlobalActions(Array.isArray(actionList) ? actionList : []);
+      setSpaces(Array.isArray(spaceList) ? spaceList  : []);
+    }).catch(() => { setRoles([]); setGlobalActions([]); setSpaces([]); });
+  }, [userId]);
+
+  async function toggleRole(roleId) {
+    if (expandedRole === roleId) { setExpandedRole(null); setExpandedSpace(null); return; }
+    setExpandedRole(roleId);
+    setExpandedSpace(null);
+    if (globalPerms[roleId] === undefined) {
+      const rows = await api.getRoleGlobalPermissions(userId, roleId).catch(() => []);
+      const granted = new Set((Array.isArray(rows) ? rows : []).map(r => r.actionId || r.action_id));
+      setGlobalPerms(s => ({ ...s, [roleId]: granted }));
+    }
+  }
+
+  async function toggleGlobalPerm(roleId, actionId) {
+    if (!canWrite) return;
+    const isGranted = (globalPerms[roleId] || new Set()).has(actionId);
+    setGlobalPerms(s => { const n = new Set(s[roleId] || []); isGranted ? n.delete(actionId) : n.add(actionId); return { ...s, [roleId]: n }; });
+    try {
+      if (isGranted) await api.removeRoleGlobalPermission(userId, roleId, actionId);
+      else           await api.addRoleGlobalPermission(userId, roleId, actionId);
+    } catch (e) {
+      setGlobalPerms(s => { const n = new Set(s[roleId] || []); isGranted ? n.add(actionId) : n.delete(actionId); return { ...s, [roleId]: n }; });
+      toast(e, 'error');
+    }
+  }
+
+  if (roles === null) return <div className="settings-loading">Loading…</div>;
+  if (roles.length === 0) return <div className="settings-empty-row">No roles defined. Create roles first in Users &amp; Roles.</div>;
+
+  return (
+    <div className="settings-list">
+      {!canWrite && (
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+          Read-only — requires <code>MANAGE_ROLES</code>
+        </div>
+      )}
+      {roles.map(role => {
+        const isExp        = expandedRole === role.id;
+        const roleGlobPerms = globalPerms[role.id];
+
+        return (
+          <div key={role.id} className="settings-card">
+            <div
+              className="settings-card-hd"
+              onClick={() => toggleRole(role.id)}
+              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+            >
+              <span className="settings-card-chevron">
+                {isExp
+                  ? <ChevronDownIcon  size={13} strokeWidth={2} color="var(--muted)" />
+                  : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />
+                }
+              </span>
+              <ShieldIcon size={13} color="var(--accent)" strokeWidth={1.5} />
+              <span className="settings-card-name" style={{ marginLeft: 4 }}>{role.name}</span>
+              <span className="settings-card-id">{role.id}</span>
+              {role.description && (
+                <span style={{ flex: 1, fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 8 }}>
+                  {role.description}
+                </span>
+              )}
+            </div>
+
+            {isExp && (
+              <div className="settings-card-body">
+
+                {/* ── Global permissions ─────────────────────────── */}
+                {globalActions.length > 0 && (
+                  <div style={{ marginBottom: 14 }}>
+                    <div className="settings-sub-label">Global Permissions</div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6 }}>
+                      Zero grants = action open to all roles.
+                    </div>
+                    {globalActions.map(a => {
+                      const actionId  = a.id || a.ID;
+                      const isPending = roleGlobPerms === undefined;
+                      const isGranted = !isPending && roleGlobPerms.has(actionId);
+                      return (
+                        <div key={actionId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+                          <button
+                            className="panel-icon-btn"
+                            disabled={isPending || !canWrite}
+                            title={!canWrite ? 'Requires MANAGE_ROLES' : isGranted ? `Revoke from ${role.name}` : `Grant to ${role.name}`}
+                            onClick={() => toggleGlobalPerm(role.id, actionId)}
+                            style={{ flexShrink: 0, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          >
+                            {isPending
+                              ? <span style={{ color: 'var(--muted)', fontSize: 10 }}>…</span>
+                              : isGranted
+                                ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
+                                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="2"><circle cx="12" cy="12" r="9"/></svg>
+                            }
+                          </button>
+                          <code style={{ fontSize: 11, color: 'var(--accent)', minWidth: 168 }}>{a.actionCode || a.action_code}</code>
+                          <span style={{ fontSize: 11, color: 'var(--text)', flex: 1 }}>{a.displayName || a.display_name}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* ── Action permissions by project space ────────── */}
+                {spaces.length > 0 && (
+                  <div>
+                    <div className="settings-sub-label">Action Permissions by Project Space</div>
+                    {spaces.map(ps => {
+                      const psId    = ps.id   || ps.ID;
+                      const psName  = ps.name || ps.NAME || psId;
+                      const isExpSp = expandedSpace === psId;
+                      return (
+                        <div key={psId} style={{ marginBottom: 4, border: '1px solid var(--border)', borderRadius: 5, overflow: 'hidden' }}>
+                          <div
+                            onClick={() => setExpandedSpace(isExpSp ? null : psId)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', cursor: 'pointer',
+                                     background: isExpSp ? 'rgba(99,102,241,.06)' : 'transparent' }}
+                          >
+                            {isExpSp
+                              ? <ChevronDownIcon  size={11} strokeWidth={2} color="var(--muted)" />
+                              : <ChevronRightIcon size={11} strokeWidth={2} color="var(--muted)" />
+                            }
+                            <HexIcon size={11} color="var(--accent)" strokeWidth={1.5} />
+                            <span style={{ fontSize: 12, fontWeight: 600 }}>{psName}</span>
+                            <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>{psId}</span>
+                          </div>
+                          {isExpSp && (
+                            <div style={{ padding: '6px 10px', background: 'rgba(0,0,0,.02)' }}>
+                              <NodeTypeActionsPanel
+                                userId={userId}
+                                projectSpaceId={psId}
+                                roleId={role.id}
+                                canWrite={canWrite}
+                                toast={toast}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ── Main SettingsPage ───────────────────────────────────────────── */
 export default function SettingsPage({ userId, projectSpaceId, onClose, toast }) {
   const [activeSection, setActiveSection] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(null); // null = loading
+  const [globalPerms,   setGlobalPerms]   = useState(null); // null = loading; Set<string> once loaded
 
   useEffect(() => {
-    api.getUserContext(userId, projectSpaceId)
-      .then(ctx => {
-        const admin = !!ctx?.isAdmin;
-        setIsAdmin(admin);
-        // Default to first visible section
-        const first = SECTIONS.find(s => !s.adminOnly || admin);
+    api.getMyGlobalPermissions(userId)
+      .then(codes => {
+        const perms = new Set(Array.isArray(codes) ? codes : []);
+        setGlobalPerms(perms);
+        const first = SECTIONS.find(s => true); // all sections visible
         setActiveSection(first?.key ?? null);
       })
       .catch(() => {
-        setIsAdmin(false);
+        setGlobalPerms(new Set());
         setActiveSection('api-playground');
       });
   }, [userId, projectSpaceId]);
 
-  const visibleSections = isAdmin === null ? [] : SECTIONS.filter(s => !s.adminOnly || isAdmin);
+  // canWrite(permission) = true if user has the given permission (or permission is null = open)
+  function canWrite(permission) {
+    if (globalPerms === null) return false;
+    if (permission === null) return true;
+    return globalPerms.has(permission);
+  }
+
+  const activeSection_obj = SECTIONS.find(s => s.key === activeSection);
 
   return (
     <div className="settings-page">
@@ -2308,17 +2586,20 @@ export default function SettingsPage({ userId, projectSpaceId, onClose, toast })
           Settings &amp; Metadata
         </div>
         <div className="settings-sidenav-items">
-          {visibleSections.map(({ key, label, Icon }) => (
+          {SECTIONS.map(({ key, label, Icon, requiredPermission }) => (
             <div key={key} className={`settings-nav-item ${activeSection === key ? 'active' : ''}`} onClick={() => setActiveSection(key)}>
               <Icon size={13} strokeWidth={1.8} color={activeSection === key ? 'var(--accent)' : 'var(--muted)'} />
               {label}
+              {requiredPermission && globalPerms !== null && !globalPerms.has(requiredPermission) && (
+                <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--muted)', opacity: 0.6, fontFamily: 'monospace' }}>ro</span>
+              )}
             </div>
           ))}
         </div>
       </div>
       <div className="settings-content">
         <div className="settings-content-hd">
-          <span className="settings-content-title">{visibleSections.find(s => s.key === activeSection)?.label}</span>
+          <span className="settings-content-title">{activeSection_obj?.label}</span>
           <button className="btn btn-sm" onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <CloseIcon size={12} strokeWidth={2.5} />
             Close
@@ -2330,10 +2611,11 @@ export default function SettingsPage({ userId, projectSpaceId, onClose, toast })
           <ApiPlayground userId={userId} projectSpaceId={projectSpaceId} />
         ) : (
           <div className="settings-content-body">
-            {activeSection === 'node-types'   && <NodeTypesSection     userId={userId} toast={toast} />}
-            {activeSection === 'lifecycles'   && <LifecyclesSection    userId={userId} toast={toast} />}
-            {activeSection === 'proj-spaces'  && <ProjectSpacesSection userId={userId} toast={toast} />}
-            {activeSection === 'users-roles'  && <UsersRolesSection    userId={userId} toast={toast} />}
+            {activeSection === 'node-types'    && <NodeTypesSection    userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
+            {activeSection === 'lifecycles'    && <LifecyclesSection   userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
+            {activeSection === 'proj-spaces'   && <ProjectSpacesSection userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
+            {activeSection === 'users-roles'   && <UsersRolesSection   userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
+            {activeSection === 'access-rights' && <AccessRightsSection userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
           </div>
         )}
       </div>
