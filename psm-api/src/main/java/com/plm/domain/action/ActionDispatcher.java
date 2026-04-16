@@ -4,14 +4,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record;
-import org.jooq.impl.DSL;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-import jakarta.annotation.PostConstruct;
 
 /**
  * Central action executor.
@@ -20,7 +16,7 @@ import jakarta.annotation.PostConstruct;
  *  1. Resolve the node_type_action and action rows.
  *  2. Enforce action-level permissions via ActionPermissionService.
  *  3. Validate parameters via ActionParameterValidator.
- *  4. Route to the correct ActionHandler bean.
+ *  4. Route to the correct ActionHandler via ActionHandlerRegistry.
  */
 @Slf4j
 @Service
@@ -30,18 +26,7 @@ public class ActionDispatcher {
     private final DSLContext               dsl;
     private final ApplicationContext       appContext;
     private final ActionParameterValidator paramValidator;
-
-    /** Handler map keyed by action_code, populated at startup. */
-    private final Map<String, ActionHandler> handlersByCode = new ConcurrentHashMap<>();
-
-    @PostConstruct
-    void init() {
-        appContext.getBeansOfType(ActionHandler.class).values()
-            .forEach(h -> {
-                handlersByCode.put(h.actionCode(), h);
-                log.info("Registered action handler: {}", h.actionCode());
-            });
-    }
+    private final ActionHandlerRegistry    handlerRegistry;
 
     /**
      * Dispatches an action by its node_type_action.id.
@@ -80,12 +65,14 @@ public class ActionDispatcher {
         // 2. Parameter validation
         Map<String, String> params = paramValidator.validate(actionId, nodeTypeActionId, rawParams);
 
-        // 3. Handler resolution
-        ActionHandler handler = handlersByCode.get(actionCode);
-        if (handler == null && "CUSTOM".equals(actionKind)) {
+        // 3. Handler resolution via registry; fall back to Spring bean lookup for CUSTOM actions
+        ActionHandler handler;
+        if (handlerRegistry.hasHandler(actionCode)) {
+            handler = handlerRegistry.getHandler(actionCode);
+        } else if ("CUSTOM".equals(actionKind) && handlerRef != null && !handlerRef.isBlank()) {
+            // CUSTOM action with a Spring-bean-name handler_ref not registered by code
             handler = appContext.getBean(handlerRef, ActionHandler.class);
-        }
-        if (handler == null) {
+        } else {
             throw new IllegalStateException("No handler registered for action code: " + actionCode);
         }
 

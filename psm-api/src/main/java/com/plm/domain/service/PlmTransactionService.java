@@ -214,20 +214,41 @@ public class PlmTransactionService {
         String continuationTxId = null;
         if (!deferredNodeIds.isEmpty()) {
             continuationTxId = createTransactionInternal(userId);
-            for (String nodeId : deferredNodeIds) {
-                dsl.execute(
-                    "UPDATE node_version SET tx_id = ? WHERE tx_id = ? AND node_id = ?",
-                    continuationTxId,
-                    txId,
-                    nodeId
+            try {
+                for (String nodeId : deferredNodeIds) {
+                    dsl.execute(
+                        "UPDATE node_version SET tx_id = ? WHERE tx_id = ? AND node_id = ?",
+                        continuationTxId,
+                        txId,
+                        nodeId
+                    );
+                    // Lock follows the version — no separate lock table to update
+                }
+                log.info(
+                    "Partial commit: {} nodes deferred to new tx {}",
+                    deferredNodeIds.size(),
+                    continuationTxId
                 );
-                // Lock follows the version — no separate lock table to update
+            } catch (Exception e) {
+                // Compensation: clean up the continuation tx so no orphan is left
+                log.error("Partial-commit deferral failed; rolling back continuation tx {}: {}",
+                    continuationTxId, e.getMessage());
+                try {
+                    // Collect any node_versions already moved, unlock, and delete them
+                    List<String> movedNodeIds = dsl.fetch(
+                        "SELECT DISTINCT node_id FROM node_version WHERE tx_id = ?", continuationTxId
+                    ).stream().map(r -> r.get("node_id", String.class)).collect(Collectors.toList());
+                    for (String nid : movedNodeIds) {
+                        lockService.unlock(nid);
+                    }
+                    dsl.execute("DELETE FROM node_version WHERE tx_id = ?", continuationTxId);
+                    dsl.execute("DELETE FROM plm_transaction WHERE id = ?", continuationTxId);
+                } catch (Exception ce) {
+                    log.error("Compensation cleanup of continuation tx {} also failed: {}",
+                        continuationTxId, ce.getMessage(), ce);
+                }
+                throw e; // re-throw to abort the outer transaction
             }
-            log.info(
-                "Partial commit: {} nodes deferred to new tx {}",
-                deferredNodeIds.size(),
-                continuationTxId
-            );
         }
 
         // ── Load remaining (selected) versions ───────────────────────────
@@ -242,7 +263,7 @@ public class PlmTransactionService {
         }
 
         // ── Fingerprint check — detect no-op versions ─────────────────────
-        Map<String, String> computedFingerPrints = new HashMap<>();
+        // Fingerprints are stored at version creation time; read from DB instead of recomputing.
         List<String> noOpLabels = new java.util.ArrayList<>();
 
         for (Record version : openVersions) {
@@ -254,9 +275,7 @@ public class PlmTransactionService {
             );
             String revision = version.get("revision", String.class);
             int iteration = version.get("iteration", Integer.class);
-
-            String fp = fingerPrintService.compute(nodeId, versionId);
-            computedFingerPrints.put(versionId, fp);
+            String fp = getOrComputeFingerPrint(nodeId, versionId);
 
             if (prevVersionId != null) {
                 String parentFp = getOrComputeFingerPrint(
@@ -330,18 +349,6 @@ public class PlmTransactionService {
         // ── [AT-COMMIT] Run at-commit hooks — any exception aborts ────────
         for (AtCommitHook hook : atCommitHooks.values()) {
             hook.onCommit(commitCtx);
-        }
-
-        // ── Store computed fingerprints ───────────────────────────────────
-        for (Map.Entry<
-            String,
-            String
-        > entry : computedFingerPrints.entrySet()) {
-            dsl.execute(
-                "UPDATE node_version SET fingerprint = ? WHERE id = ?",
-                entry.getValue(),
-                entry.getKey()
-            );
         }
 
         // ── Commit ────────────────────────────────────────────────────────

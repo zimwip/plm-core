@@ -126,12 +126,23 @@ public class BaselineService {
     }
 
     /**
-     * Liste toutes les baselines avec leur métadonnée.
+     * Liste toutes les baselines avec leur métadonnée (backward compat — page 0, size 50).
      */
-    public List<Record> listBaselines() {
-        return dsl.select().from("baseline")
+    public NodeService.PagedResult<Record> listBaselines() {
+        return listBaselines(0, 50);
+    }
+
+    /**
+     * Liste les baselines avec pagination.
+     */
+    public NodeService.PagedResult<Record> listBaselines(int page, int size) {
+        int total = dsl.fetchCount(dsl.selectOne().from("baseline"));
+        List<Record> items = dsl.select().from("baseline")
                   .orderBy(DSL.field("created_at").desc())
+                  .limit(size)
+                  .offset(page * size)
                   .fetch();
+        return new NodeService.PagedResult<>(items, page, size, total);
     }
 
     // ================================================================

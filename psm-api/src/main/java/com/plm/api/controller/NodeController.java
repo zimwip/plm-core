@@ -4,6 +4,7 @@ import com.plm.domain.action.ActionDispatcher;
 import com.plm.domain.action.ActionResult;
 import com.plm.domain.service.*;
 import com.plm.infrastructure.security.PlmProjectSpaceContext;
+import com.plm.infrastructure.security.PlmSecurityContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -43,7 +44,8 @@ public class NodeController {
     ) {
         String projectSpaceId = PlmProjectSpaceContext.require();
         String nodeTypeId = (String) body.get("nodeTypeId");
-        String userId     = (String) body.get("userId");
+        // userId always taken from security context — never from client payload
+        String userId     = PlmSecurityContext.get().getUserId();
         String logicalId  = (String) body.get("logicalId");
         String externalId = (String) body.get("externalId");
         @SuppressWarnings("unchecked")
@@ -57,8 +59,11 @@ public class NodeController {
     // ── Liste ─────────────────────────────────────────────────────────
 
     @GetMapping
-    public ResponseEntity<?> listNodes() {
-        return ResponseEntity.ok(nodeService.listNodes(PlmProjectSpaceContext.require()));
+    public ResponseEntity<?> listNodes(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "50") int size
+    ) {
+        return ResponseEntity.ok(nodeService.listNodes(PlmProjectSpaceContext.require(), page, size));
     }
 
     // ── Lecture (Server-Driven UI) ────────────────────────────────────
@@ -70,10 +75,12 @@ public class NodeController {
     @GetMapping("/{nodeId}/description")
     public ResponseEntity<Map<String, Object>> getDescription(
         @PathVariable String nodeId,
-        @RequestParam  String userId,
-        @RequestParam(required = false) String txId
+        @RequestParam(required = false) String txId,
+        @RequestParam(required = false) Integer versionNumber
     ) {
-        return ResponseEntity.ok(nodeService.buildObjectDescription(nodeId, userId, txId));
+        // userId always resolved from security context — never from query param
+        String userId = PlmSecurityContext.get().getUserId();
+        return ResponseEntity.ok(nodeService.buildObjectDescription(nodeId, userId, txId, versionNumber));
     }
 
     // ── Liens — lecture ───────────────────────────────────────────────
@@ -135,7 +142,8 @@ public class NodeController {
         @RequestHeader(value = "X-PLM-Tx", required = false) String txId,
         @RequestBody   Map<String, Object> body
     ) {
-        String userId = (String) body.get("userId");
+        // userId always resolved from security context — never accepted from client
+        String userId = PlmSecurityContext.get().getUserId();
         @SuppressWarnings("unchecked")
         Map<String, String> params = (Map<String, String>) body.getOrDefault("parameters", Map.of());
 

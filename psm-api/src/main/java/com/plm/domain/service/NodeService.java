@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -54,6 +55,8 @@ public class NodeService {
     private final com.plm.domain.action.ActionService actionService;
     private final PlmEventPublisher eventPublisher;
     private final MetaModelCache metaModelCache;
+    private final LinkService linkService;
+    private final GraphValidationService graphValidationService;
 
     // ================================================================
     // CRÉATION (pas de txId — version initiale directement COMMITTED)
@@ -184,11 +187,26 @@ public class NodeService {
     }
 
     // ================================================================
+    // PAGED RESULT — wrapper for paginated list responses
+    // ================================================================
+
+    public record PagedResult<T>(List<T> items, int page, int size, int total) {}
+
+    // ================================================================
     // LISTE — dernière version COMMITTED par noeud
     // ================================================================
 
-    public List<Record> listNodes(String projectSpaceId) {
+    /**
+     * Legacy overload for backward compatibility — returns page 0, size 50.
+     */
+    public PagedResult<Record> listNodes(String projectSpaceId) {
+        return listNodes(projectSpaceId, 0, 50);
+    }
+
+    public PagedResult<Record> listNodes(String projectSpaceId, int page, int size) {
         String currentUserId = PlmSecurityContext.get().getUserId();
+
+        // Full query (no LIMIT yet — permission filter may reduce count)
         List<Record> rows = dsl.fetch(
             """
             SELECT n.id, n.node_type_id, nt.name AS node_type_name,
@@ -222,19 +240,28 @@ public class NodeService {
             currentUserId
         );
 
-        // Filter by act-read permission per node type (few node types → no N+1 concern)
-        java.util.Map<String, Boolean> readableCache =
-            new java.util.HashMap<>();
-        return rows
-            .stream()
+        // Batch permission check: load all readable node type IDs in a single call
+        Set<String> allNodeTypeIds = rows.stream()
+            .map(r -> r.get("node_type_id", String.class))
+            .filter(Objects::nonNull)
+            .collect(java.util.stream.Collectors.toSet());
+        Map<String, Boolean> readableByNodeType = permissionService.canReadNodeTypes(allNodeTypeIds);
+
+        List<Record> filtered = rows.stream()
             .filter(r -> {
                 String ntId = r.get("node_type_id", String.class);
-                return readableCache.computeIfAbsent(
-                    ntId,
-                    permissionService::canReadNodeType
-                );
+                return Boolean.TRUE.equals(readableByNodeType.get(ntId));
             })
             .toList();
+
+        int total = filtered.size();
+        int offset = page * size;
+        List<Record> pageItems = filtered.stream()
+            .skip(offset)
+            .limit(size)
+            .toList();
+
+        return new PagedResult<>(pageItems, page, size, total);
     }
 
     // ================================================================
@@ -635,17 +662,13 @@ public class NodeService {
     }
 
     // ================================================================
-    // LIENS — txId OBLIGATOIRE
+    // LIENS — txId OBLIGATOIRE (delegates to LinkService)
     // ================================================================
 
     /**
      * Crée un lien entre deux noeuds dans une transaction.
-     * Le noeud source doit être locké dans la transaction.
-     *
-     * @param txId  transaction PLM ouverte — OBLIGATOIRE
+     * Delegates to {@link LinkService#createLink}.
      */
-    @PlmAction(value = "CREATE_LINK", nodeIdExpr = "#sourceNodeId")
-    @Transactional
     public String createLink(
         String linkTypeId,
         String sourceNodeId,
@@ -655,138 +678,9 @@ public class NodeService {
         String txId,
         String linkLogicalId
     ) {
-        Record linkType = dsl
-            .select()
-            .from("link_type")
-            .where("id = ?", linkTypeId)
-            .fetchOne();
-        if (linkType == null) throw new IllegalArgumentException(
-            "LinkType not found: " + linkTypeId
+        return linkService.createLink(
+            linkTypeId, sourceNodeId, targetNodeId, pinnedVersionId, userId, txId, linkLogicalId
         );
-
-        String expectedSource = linkType.get(
-            "source_node_type_id",
-            String.class
-        );
-        String expectedTarget = linkType.get(
-            "target_node_type_id",
-            String.class
-        );
-        if (expectedSource != null) validateNodeType(
-            sourceNodeId,
-            expectedSource
-        );
-        if (expectedTarget != null) validateNodeType(
-            targetNodeId,
-            expectedTarget
-        );
-
-        assertNoCycle(sourceNodeId, targetNodeId);
-
-        // Validate link_logical_id — mandatory
-        String pattern = linkType.get("link_logical_id_pattern", String.class);
-        String label = linkType.get("link_logical_id_label", String.class);
-        if (label == null || label.isBlank()) label = "Link ID";
-        if (linkLogicalId == null || linkLogicalId.isBlank()) {
-            throw new IllegalArgumentException("'" + label + "' is required");
-        }
-        if (
-            pattern != null &&
-            !pattern.isBlank() &&
-            !linkLogicalId.matches(pattern)
-        ) {
-            throw new IllegalArgumentException(
-                "'" +
-                    label +
-                    "' value '" +
-                    linkLogicalId +
-                    "' does not match pattern: " +
-                    pattern
-            );
-        }
-
-        Integer maxCard = linkType.get("max_cardinality", Integer.class);
-        if (maxCard != null) {
-            int existing = dsl.fetchCount(
-                dsl
-                    .selectOne()
-                    .from("node_version_link nl")
-                    .join("node_version nv_src")
-                    .on("nv_src.id = nl.source_node_version_id")
-                    .where("nl.link_type_id = ?", linkTypeId)
-                    .and("nv_src.node_id = ?", sourceNodeId)
-            );
-            if (existing >= maxCard) throw new IllegalStateException(
-                "Max cardinality " + maxCard + " reached"
-            );
-        }
-
-        // Ensure the source node has an OPEN version in this tx (creating a link is a content change).
-        // If already modified in this tx, reuse the existing OPEN version.
-        String sourceVersionId = findOpenVersionInTx(sourceNodeId, txId);
-        if (sourceVersionId == null) {
-            sourceVersionId = versionService.createVersion(
-                sourceNodeId,
-                userId,
-                txId,
-                ChangeType.CONTENT,
-                VersionStrategy.ITERATE,
-                null,
-                Map.of(),
-                "Link creation"
-            );
-        }
-
-        // Lock the source node: validates conflict and writes locked_by / locked_at.
-        lockService.tryLock(sourceNodeId, userId);
-
-        // Uniqueness: link_logical_id must be unique per source_node_version_id
-        if (linkLogicalId != null && !linkLogicalId.isBlank()) {
-            int dup = dsl.fetchCount(
-                dsl
-                    .selectOne()
-                    .from("node_version_link")
-                    .where("source_node_version_id = ?", sourceVersionId)
-                    .and("link_logical_id = ?", linkLogicalId)
-            );
-            if (dup > 0) throw new IllegalArgumentException(
-                "'" +
-                    label +
-                    "' value '" +
-                    linkLogicalId +
-                    "' is already used by another link on this version"
-            );
-        }
-
-        String linkId = UUID.randomUUID().toString();
-        dsl.execute(
-            """
-            INSERT INTO node_version_link
-              (ID, LINK_TYPE_ID, SOURCE_NODE_VERSION_ID, TARGET_NODE_ID, PINNED_VERSION_ID,
-               LINK_LOGICAL_ID, CREATED_AT, CREATED_BY)
-            VALUES (?,?,?,?,?,?,?,?)
-            """,
-            linkId,
-            linkTypeId,
-            sourceVersionId,
-            targetNodeId,
-            pinnedVersionId,
-            (linkLogicalId != null && !linkLogicalId.isBlank())
-                ? linkLogicalId
-                : null,
-            LocalDateTime.now(),
-            userId
-        );
-
-        log.info(
-            "Link created: {}→{} type={} policy={} logicalId={}",
-            sourceNodeId,
-            targetNodeId,
-            linkTypeId,
-            pinnedVersionId == null ? "V2M" : "V2V",
-            linkLogicalId
-        );
-        return linkId;
     }
 
     // ================================================================
@@ -801,17 +695,49 @@ public class NodeService {
      *
      * Pipeline : règle d'état → override de vue → can_write → filtrage des actions par rôle.
      */
+    /** Backward-compatible overload — no historical version pinning. */
     public Map<String, Object> buildObjectDescription(
         String nodeId,
         String userId,
         String txId
     ) {
+        return buildObjectDescription(nodeId, userId, txId, null);
+    }
+
+    /**
+     * Builds the full UI payload for a node.
+     *
+     * @param versionNumber when non-null, pins the view to that specific historical version
+     *                      (all attributes are forced read-only, actions list is empty).
+     */
+    public Map<String, Object> buildObjectDescription(
+        String nodeId,
+        String userId,
+        String txId,
+        Integer versionNumber
+    ) {
         permissionService.assertCanRead(nodeId);
 
-        Record current =
-            txId != null
-                ? versionService.getCurrentVersionForTx(nodeId, txId)
-                : txService.getCurrentVisibleVersion(nodeId);
+        boolean historicalView = versionNumber != null;
+
+        Record current;
+        if (historicalView) {
+            current = dsl.fetchOne(
+                "SELECT nv.* FROM node_version nv " +
+                "JOIN plm_transaction pt ON pt.id = nv.tx_id " +
+                "WHERE nv.node_id = ? AND nv.version_number = ? " +
+                "AND (pt.status = 'COMMITTED' OR (pt.status = 'OPEN' AND pt.owner_id = ?))",
+                nodeId, versionNumber, userId
+            );
+            if (current == null) throw new IllegalArgumentException(
+                "Version " + versionNumber + " not found or not visible for node: " + nodeId
+            );
+        } else {
+            current =
+                txId != null
+                    ? versionService.getCurrentVersionForTx(nodeId, txId)
+                    : txService.getCurrentVisibleVersion(nodeId);
+        }
 
         if (current == null) throw new IllegalStateException(
             "Node has no visible version: " + nodeId
@@ -864,18 +790,19 @@ public class NodeService {
         String externalId = nodeRecord.get("external_id", String.class);
 
         // Actions disponibles — server-driven via le registre d'actions.
-        // Each action carries its own action_permission rows; no coarse canWrite gate needed.
-        // globalCanWrite is derived from whether UPDATE_NODE passed its own permission check.
+        // Historical views are always read-only: no actions, no editable fields.
         boolean isLockedByCurrentUser = lockInfo.locked()
             && userId.equals(lockInfo.lockedBy());
-        List<Map<String, Object>> actions = actionService.resolveActionsForNode(
-            nodeId,
-            nodeTypeId,
-            currentStateId,
-            lockInfo.locked(),
-            isLockedByCurrentUser
-        );
-        boolean globalCanWrite = actions
+        List<Map<String, Object>> actions = historicalView
+            ? List.of()
+            : actionService.resolveActionsForNode(
+                nodeId,
+                nodeTypeId,
+                currentStateId,
+                lockInfo.locked(),
+                isLockedByCurrentUser
+              );
+        boolean globalCanWrite = !historicalView && actions
             .stream()
             .anyMatch(a -> "UPDATE_NODE".equals(a.get("actionCode")));
 
@@ -1024,6 +951,8 @@ public class NodeService {
         result.put("currentVersionId", versionId);
         result.put("attributes", attributes);
         result.put("actions", actions);
+        result.put("historicalView", historicalView);
+        if (historicalView) result.put("versionNumber", versionNumber);
 
         // fingerprintChanged: true when the OPEN version has different content than its parent.
         // Only meaningful when txStatus == OPEN; always null otherwise.
@@ -1061,219 +990,36 @@ public class NodeService {
     }
 
     // ================================================================
-    // LIENS — lecture (pas de txId requis)
+    // LIENS — lecture (delegates to LinkService)
     // ================================================================
 
     /**
      * Retourne les liens sortants du noeud (BOM / enfants).
-     * Pour chaque lien, résout la version courante COMMITTED du noeud cible.
      */
     public List<Map<String, Object>> getChildLinks(String nodeId) {
         permissionService.assertCanRead(nodeId);
-        var ctx = PlmSecurityContext.get();
-        String currentUserId = ctx != null ? ctx.getUserId() : "";
-        boolean isAdmin = ctx != null && ctx.isAdmin();
-        String isAdminStr = String.valueOf(isAdmin);
-        return dsl
-            .fetch(
-                """
-                SELECT nl.id AS link_id, lt.name AS link_type_name, lt.link_policy, lt.color AS link_type_color, lt.icon AS link_type_icon,
-                       nl.link_logical_id, lt.link_logical_id_label,
-                       n.id AS target_node_id, nt.name AS target_node_type,
-                       n.logical_id AS target_logical_id,
-                       nv.revision, nv.iteration, nv.lifecycle_state_id,
-                       (SELECT COUNT(*) FROM node_version_link nvl_c
-                        WHERE nvl_c.source_node_version_id = nv.id) AS target_children_count
-                FROM node_version_link nl
-                JOIN link_type lt        ON lt.id     = nl.link_type_id
-                JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
-                JOIN plm_transaction pt_src ON pt_src.id = nv_src.tx_id
-                JOIN node n              ON n.id      = nl.target_node_id
-                JOIN node_type nt        ON nt.id     = n.node_type_id
-                JOIN node_version nv     ON nv.node_id = n.id
-                JOIN plm_transaction pt  ON pt.id     = nv.tx_id
-                WHERE nv_src.node_id = ?
-                  AND (pt_src.status = 'COMMITTED'
-                       OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
-                  AND (pt.status = 'COMMITTED'
-                       OR (pt.status = 'OPEN' AND (pt.owner_id = ? OR ? = 'true')))
-                  AND nv.version_number = (
-                    SELECT MAX(nv2.version_number) FROM node_version nv2
-                    JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id
-                    WHERE nv2.node_id = n.id
-                      AND (pt2.status = 'COMMITTED'
-                           OR (pt2.status = 'OPEN' AND (pt2.owner_id = ? OR ? = 'true'))))
-                ORDER BY lt.name, n.logical_id
-                """,
-                nodeId,
-                currentUserId, isAdminStr,   // source version visibility
-                currentUserId, isAdminStr,   // target version filter
-                currentUserId, isAdminStr    // target version MAX subquery
-            )
-            .stream()
-            .map(r -> {
-                Map<String, Object> m = new java.util.LinkedHashMap<>();
-                m.put("linkId", r.get("link_id", String.class));
-                m.put("linkTypeName", r.get("link_type_name", String.class));
-                m.put("linkPolicy", r.get("link_policy", String.class));
-                m.put("linkTypeColor", r.get("link_type_color", String.class));
-                m.put("linkTypeIcon", r.get("link_type_icon", String.class));
-                m.put(
-                    "linkLogicalId",
-                    Objects.toString(r.get("link_logical_id", String.class), "")
-                );
-                m.put(
-                    "linkLogicalIdLabel",
-                    Objects.toString(
-                        r.get("link_logical_id_label", String.class),
-                        "Link ID"
-                    )
-                );
-                m.put("targetNodeId", r.get("target_node_id", String.class));
-                m.put(
-                    "targetNodeType",
-                    r.get("target_node_type", String.class)
-                );
-                m.put(
-                    "targetLogicalId",
-                    Objects.toString(
-                        r.get("target_logical_id", String.class),
-                        ""
-                    )
-                );
-                m.put(
-                    "targetRevision",
-                    Objects.toString(r.get("revision", String.class), "")
-                );
-                m.put(
-                    "targetIteration",
-                    Objects.toString(r.get("iteration", Integer.class), "")
-                );
-                m.put(
-                    "targetState",
-                    Objects.toString(
-                        r.get("lifecycle_state_id", String.class),
-                        ""
-                    )
-                );
-                m.put("targetChildrenCount", r.get("target_children_count", Integer.class));
-                return m;
-            })
-            .toList();
+        return linkService.getChildLinks(nodeId);
     }
 
     /**
      * Retourne les liens entrants vers ce noeud (Where Used / parents).
-     * Pour chaque lien, résout la version courante visible du noeud source
-     * (OPEN si le user en est le owner, sinon dernière COMMITTED).
      */
     public List<Map<String, Object>> getParentLinks(String nodeId) {
         permissionService.assertCanRead(nodeId);
-        var ctx = PlmSecurityContext.get();
-        String currentUserId = ctx != null ? ctx.getUserId() : "";
-        boolean isAdmin = ctx != null && ctx.isAdmin();
-        String isAdminStr = String.valueOf(isAdmin);
-        return dsl
-            .fetch(
-                """
-                SELECT nl.id AS link_id, lt.name AS link_type_name, lt.link_policy,
-                       nl.link_logical_id, lt.link_logical_id_label,
-                       n.id AS source_node_id, nt.name AS source_node_type,
-                       n.logical_id AS source_logical_id,
-                       nv.revision, nv.iteration, nv.lifecycle_state_id
-                FROM node_version_link nl
-                JOIN link_type lt        ON lt.id     = nl.link_type_id
-                JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
-                JOIN plm_transaction pt_src ON pt_src.id = nv_src.tx_id
-                JOIN node n              ON n.id      = nv_src.node_id
-                JOIN node_type nt        ON nt.id     = n.node_type_id
-                JOIN node_version nv     ON nv.node_id = n.id
-                JOIN plm_transaction pt  ON pt.id     = nv.tx_id
-                WHERE nl.target_node_id = ?
-                  AND (pt_src.status = 'COMMITTED'
-                       OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
-                  AND (pt.status = 'COMMITTED'
-                       OR (pt.status = 'OPEN' AND (pt.owner_id = ? OR ? = 'true')))
-                  AND nv.version_number = (
-                    SELECT MAX(nv2.version_number) FROM node_version nv2
-                    JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id
-                    WHERE nv2.node_id = n.id
-                      AND (pt2.status = 'COMMITTED'
-                           OR (pt2.status = 'OPEN' AND (pt2.owner_id = ? OR ? = 'true'))))
-                ORDER BY lt.name, n.logical_id
-                """,
-                nodeId,
-                currentUserId, isAdminStr,   // source version visibility (pt_src)
-                currentUserId, isAdminStr,   // source display version filter (pt)
-                currentUserId, isAdminStr    // source display version MAX subquery (pt2)
-            )
-            .stream()
-            .map(r -> {
-                Map<String, Object> m = new java.util.LinkedHashMap<>();
-                m.put("linkId", r.get("link_id", String.class));
-                m.put("linkTypeName", r.get("link_type_name", String.class));
-                m.put("linkPolicy", r.get("link_policy", String.class));
-                m.put(
-                    "linkLogicalId",
-                    Objects.toString(r.get("link_logical_id", String.class), "")
-                );
-                m.put(
-                    "linkLogicalIdLabel",
-                    Objects.toString(
-                        r.get("link_logical_id_label", String.class),
-                        "Link ID"
-                    )
-                );
-                m.put("sourceNodeId", r.get("source_node_id", String.class));
-                m.put(
-                    "sourceNodeType",
-                    r.get("source_node_type", String.class)
-                );
-                m.put(
-                    "sourceLogicalId",
-                    Objects.toString(
-                        r.get("source_logical_id", String.class),
-                        ""
-                    )
-                );
-                m.put(
-                    "sourceRevision",
-                    Objects.toString(r.get("revision", String.class), "")
-                );
-                m.put(
-                    "sourceIteration",
-                    Objects.toString(r.get("iteration", Integer.class), "")
-                );
-                m.put(
-                    "sourceState",
-                    Objects.toString(
-                        r.get("lifecycle_state_id", String.class),
-                        ""
-                    )
-                );
-                return m;
-            })
-            .toList();
+        return linkService.getParentLinks(nodeId);
     }
 
     /**
-     * Deletes a link by ID. The source node must be checked-out in the given transaction.
+     * Deletes a link by ID. Delegates to {@link LinkService#deleteLink}.
      */
-    @PlmAction(value = "DELETE_LINK", linkIdExpr = "#linkId")
-    @Transactional
     public void deleteLink(String linkId, String userId, String txId) {
-        String sourceNodeId = resolveLinkSourceNodeId(linkId);
-        lockService.tryLock(sourceNodeId, userId);
-        dsl.execute("DELETE FROM node_version_link WHERE id = ?", linkId);
-        log.info("Link {} deleted by {}", linkId, userId);
+        linkService.deleteLink(linkId, userId, txId);
     }
 
     /**
      * Updates target and/or link_logical_id of an existing link.
-     * link_logical_id must be unique per source_node_version_id.
+     * Delegates to {@link LinkService#updateLink}.
      */
-    @PlmAction(value = "UPDATE_LINK", linkIdExpr = "#linkId")
-    @Transactional
     public void updateLink(
         String linkId,
         String newTargetNodeId,
@@ -1281,118 +1027,7 @@ public class NodeService {
         String userId,
         String txId
     ) {
-        Record link = dsl
-            .select()
-            .from("node_version_link")
-            .where("id = ?", linkId)
-            .fetchOne();
-        if (link == null) throw new IllegalArgumentException(
-            "Link not found: " + linkId
-        );
-
-        String sourceVersionId = link.get(
-            "source_node_version_id",
-            String.class
-        );
-        String sourceNodeId = dsl
-            .select()
-            .from("node_version")
-            .where("id = ?", sourceVersionId)
-            .fetchOne("node_id", String.class);
-        if (sourceNodeId == null) throw new IllegalArgumentException(
-            "Source node not found for link: " + linkId
-        );
-
-        lockService.tryLock(sourceNodeId, userId);
-
-        if (newTargetNodeId != null && !newTargetNodeId.isBlank()) {
-            assertNoCycle(sourceNodeId, newTargetNodeId);
-
-            String linkTypeId = link.get("link_type_id", String.class);
-            String policy = dsl
-                .select()
-                .from("link_type")
-                .where("id = ?", linkTypeId)
-                .fetchOne("link_policy", String.class);
-            String pinnedVersionId = null;
-            if ("VERSION_TO_VERSION".equals(policy)) {
-                pinnedVersionId = dsl
-                    .select()
-                    .from("node_version")
-                    .where("node_id = ?", newTargetNodeId)
-                    .and(
-                        DSL.exists(
-                            dsl
-                                .selectOne()
-                                .from("plm_transaction")
-                                .where("id = node_version.tx_id")
-                                .and("status = 'COMMITTED'")
-                        )
-                    )
-                    .orderBy(DSL.field("version_number").desc())
-                    .limit(1)
-                    .fetchOne("id", String.class);
-            }
-            dsl.execute(
-                "UPDATE node_version_link SET target_node_id = ?, pinned_version_id = ? WHERE id = ?",
-                newTargetNodeId,
-                pinnedVersionId,
-                linkId
-            );
-        }
-
-        if (newLogicalId != null && !newLogicalId.isBlank()) {
-            int dup = dsl.fetchCount(
-                dsl
-                    .selectOne()
-                    .from("node_version_link")
-                    .where("source_node_version_id = ?", sourceVersionId)
-                    .and("link_logical_id = ?", newLogicalId)
-                    .and("id != ?", linkId)
-            );
-            if (dup > 0) throw new IllegalArgumentException(
-                "Link ID '" +
-                    newLogicalId +
-                    "' is already used by another link on this version"
-            );
-            dsl.execute(
-                "UPDATE node_version_link SET link_logical_id = ? WHERE id = ?",
-                newLogicalId,
-                linkId
-            );
-        }
-
-        log.info(
-            "Link {} updated (target={} logicalId={}) by {}",
-            linkId,
-            newTargetNodeId,
-            newLogicalId,
-            userId
-        );
-    }
-
-    private String resolveLinkSourceNodeId(String linkId) {
-        Record link = dsl
-            .select()
-            .from("node_version_link")
-            .where("id = ?", linkId)
-            .fetchOne();
-        if (link == null) throw new IllegalArgumentException(
-            "Link not found: " + linkId
-        );
-        String sourceVersionId = link.get(
-            "source_node_version_id",
-            String.class
-        );
-        String sourceNodeId = dsl
-            .select()
-            .from("node_version")
-            .where("id = ?", sourceVersionId)
-            .fetchOne("node_id", String.class);
-        if (sourceNodeId == null) throw new IllegalArgumentException(
-            "Source node not found for link: " + linkId
-        );
-        return sourceNodeId;
+        linkService.updateLink(linkId, newTargetNodeId, newLogicalId, userId, txId);
     }
 
     // ================================================================
@@ -1443,47 +1078,10 @@ public class NodeService {
     }
 
     /**
-     * BFS from targetNodeId through the existing link graph.
-     * If sourceNodeId is reachable from targetNodeId, adding source→target would create a cycle.
-     *
-     * Queries ALL link rows across all versions (OPEN + COMMITTED) to be conservative:
-     * even a link that lives on an uncommitted version participates in the structure.
+     * Delegates cycle detection to {@link GraphValidationService}.
      */
     private void assertNoCycle(String sourceNodeId, String targetNodeId) {
-        if (sourceNodeId.equals(targetNodeId)) {
-            throw new CircularReferenceException(sourceNodeId, targetNodeId);
-        }
-        Set<String> visited = new java.util.HashSet<>();
-        java.util.Queue<String> queue = new java.util.ArrayDeque<>();
-        queue.add(targetNodeId);
-        visited.add(targetNodeId);
-
-        while (!queue.isEmpty()) {
-            String current = queue.poll();
-            dsl
-                .fetch(
-                    """
-                    SELECT DISTINCT nl.target_node_id
-                    FROM node_version_link nl
-                    JOIN node_version nv ON nv.id = nl.source_node_version_id
-                    WHERE nv.node_id = ?
-                    """,
-                    current
-                )
-                .forEach(r -> {
-                    String child = r.get("target_node_id", String.class);
-                    if (child == null) return;
-                    if (child.equals(sourceNodeId)) {
-                        throw new CircularReferenceException(
-                            sourceNodeId,
-                            targetNodeId
-                        );
-                    }
-                    if (visited.add(child)) {
-                        queue.add(child);
-                    }
-                });
-        }
+        graphValidationService.assertNoCycle(sourceNodeId, targetNodeId);
     }
 
     /**

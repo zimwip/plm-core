@@ -3,12 +3,14 @@ package com.plm.infrastructure.security;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Filtre HTTP qui résout le contexte utilisateur à chaque requête.
@@ -25,10 +27,23 @@ import java.io.IOException;
 @Slf4j
 @Component
 @Order(1)
-@RequiredArgsConstructor
 public class PlmAuthFilter implements Filter {
 
     private final PnoApiClient pnoApiClient;
+
+    /** Comma-separated URI prefixes that bypass authentication. */
+    private final List<String> publicPaths;
+
+    public PlmAuthFilter(
+        PnoApiClient pnoApiClient,
+        @Value("${plm.auth.public-paths:/actuator,/v3/api-docs,/swagger-ui,/ws}") String publicPathsConfig
+    ) {
+        this.pnoApiClient = pnoApiClient;
+        this.publicPaths = Arrays.stream(publicPathsConfig.split(","))
+            .map(String::trim)
+            .filter(s -> !s.isBlank())
+            .toList();
+    }
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
@@ -38,8 +53,7 @@ public class PlmAuthFilter implements Filter {
         HttpServletResponse resp = (HttpServletResponse) response;
 
         String uri = req.getRequestURI();
-        if (uri.startsWith("/actuator") || uri.startsWith("/v3/api-docs")
-                || uri.startsWith("/swagger-ui") || uri.startsWith("/ws")) {
+        if (publicPaths.stream().anyMatch(uri::startsWith)) {
             chain.doFilter(request, response);
             return;
         }

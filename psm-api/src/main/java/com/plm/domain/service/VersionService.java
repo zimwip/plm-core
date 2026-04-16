@@ -37,9 +37,10 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class VersionService {
 
-    private final DSLContext        dsl;
-    private final LockService       lockService;
-    private final ValidationService validationService;
+    private final DSLContext         dsl;
+    private final LockService        lockService;
+    private final ValidationService  validationService;
+    private final FingerPrintService fingerPrintService;
 
     // ================================================================
     // CRÉATION DE VERSION — txId OBLIGATOIRE
@@ -142,6 +143,10 @@ public class VersionService {
             );
         }
 
+        // 8. Compute and store fingerprint immediately — avoids re-computation at commit time
+        String fp = fingerPrintService.compute(nodeId, versionId);
+        dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, versionId);
+
         log.info("Version created: node={} v={} {}.{} type={} tx={} user={}",
             nodeId, currentVersionNumber + 1, newRevision, newIteration, changeType, txId, userId);
 
@@ -187,6 +192,14 @@ public class VersionService {
         // Mettre à jour la description si fournie
         if (description != null && !description.isBlank()) {
             dsl.execute("UPDATE node_version SET change_description = ? WHERE id = ?", description, versionId);
+        }
+
+        // Recompute fingerprint after in-place attribute update
+        String nodeId = dsl.select().from("node_version").where("id = ?", versionId)
+            .fetchOne("node_id", String.class);
+        if (nodeId != null) {
+            String fp = fingerPrintService.compute(nodeId, versionId);
+            dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, versionId);
         }
 
         log.info("Version updated in-place: id={}", versionId);

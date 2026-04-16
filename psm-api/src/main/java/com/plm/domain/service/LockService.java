@@ -4,14 +4,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record;
-import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -154,18 +152,34 @@ public class LockService {
     // Helpers
     // ================================================================
 
+    /**
+     * Resolves all VERSION_TO_MASTER descendants of a node using a single recursive CTE query.
+     * Returns the flat list of all descendant nodeIds (excluding the root itself).
+     */
     private List<String> resolveV2MDescendants(String nodeId) {
-        List<String> children = dsl.select(
-                DSL.field("nl.target_node_id").as("target_node_id"))
-            .from("node_version_link nl")
-            .join("link_type lt").on("nl.link_type_id = lt.id")
-            .join("node_version nv_src").on("nv_src.id = nl.source_node_version_id")
-            .where("nv_src.node_id = ?", nodeId)
-            .and("lt.link_policy = 'VERSION_TO_MASTER'").and("nl.pinned_version_id IS NULL")
-            .fetch("target_node_id", String.class);
-        List<String> all = new ArrayList<>(children);
-        for (String c : children) all.addAll(resolveV2MDescendants(c));
-        return all;
+        return dsl.fetch(
+            """
+            WITH RECURSIVE descendants AS (
+              SELECT nl.target_node_id AS node_id
+              FROM node_version_link nl
+              JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
+              JOIN link_type lt ON lt.id = nl.link_type_id
+              WHERE nv_src.node_id = ?
+                AND lt.link_policy = 'VERSION_TO_MASTER'
+                AND nl.pinned_version_id IS NULL
+              UNION ALL
+              SELECT nl2.target_node_id
+              FROM node_version_link nl2
+              JOIN node_version nv_src2 ON nv_src2.id = nl2.source_node_version_id
+              JOIN link_type lt2 ON lt2.id = nl2.link_type_id
+              JOIN descendants d ON nv_src2.node_id = d.node_id
+              WHERE lt2.link_policy = 'VERSION_TO_MASTER'
+                AND nl2.pinned_version_id IS NULL
+            )
+            SELECT DISTINCT node_id FROM descendants
+            """,
+            nodeId
+        ).getValues("node_id", String.class);
     }
 
     // ================================================================

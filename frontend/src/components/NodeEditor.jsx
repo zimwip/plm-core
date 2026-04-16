@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { api, txApi, authoringApi } from '../services/api';
 import { getDraggedNode, clearDraggedNode } from '../services/dragState';
@@ -63,7 +63,10 @@ export default function NodeEditor({
   const [deletingLinkId,   setDeletingLinkId]   = useState(null);
   const [linkActLoading,   setLinkActLoading]   = useState(false);
 
-  const [isDragOver,  setIsDragOver]  = useState(false);
+  const [isDragOver,     setIsDragOver]     = useState(false);
+  const [viewVersionNum, setViewVersionNum] = useState(null);
+  const [historicalDesc, setHistoricalDesc] = useState(null);
+  const [histLoading,    setHistLoading]    = useState(false);
 
   const saveTimer     = useRef(null);
   const savedTimer    = useRef(null);
@@ -112,8 +115,11 @@ export default function NodeEditor({
 
   useEffect(() => { load(); }, [load]);
 
-  // Reset PBS cache when node changes
-  useEffect(() => { setPbsLoaded(false); setChildren([]); setParents([]); }, [nodeId]);
+  // Reset PBS cache and historical view when node changes
+  useEffect(() => {
+    setPbsLoaded(false); setChildren([]); setParents([]);
+    setViewVersionNum(null); setHistoricalDesc(null);
+  }, [nodeId]);
 
   const loadPds = useCallback(async () => {
     if (pbsLoaded) return;
@@ -185,7 +191,7 @@ export default function NodeEditor({
     try {
       const [lts, nodes] = await Promise.all([
         api.getNodeTypeLinkTypes(userId, desc.nodeTypeId).catch(() => []),
-        api.listNodes(userId).catch(() => []),
+        api.listNodes(userId).catch(() => ({})),
       ]);
 
       let filteredLts = Array.isArray(lts) ? lts : [];
@@ -204,7 +210,8 @@ export default function NodeEditor({
       }
 
       setLinkTypes(filteredLts);
-      setAllNodes((Array.isArray(nodes) ? nodes : []).filter(n => (n.id || n.ID) !== nodeId));
+      const nodeItems = Array.isArray(nodes) ? nodes : (nodes?.items ?? []);
+      setAllNodes(nodeItems.filter(n => (n.id || n.ID) !== nodeId));
       setLinkPanel(true);
     } catch (e) { toast(e, 'error'); }
   }
@@ -394,6 +401,26 @@ export default function NodeEditor({
     } finally { setLoading(false); }
   }
 
+  // Fetch historical version description when user clicks eye icon in history table
+  useEffect(() => {
+    if (!viewVersionNum || !nodeId || !userId) return;
+    setHistLoading(true);
+    api.getNodeDescription(userId, nodeId, null, viewVersionNum)
+      .then(data => setHistoricalDesc(data))
+      .catch(e => toast(e, 'error'))
+      .finally(() => setHistLoading(false));
+  }, [viewVersionNum, nodeId, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When in historical view, use historicalDesc for rendering; otherwise use store desc
+  const activeDesc = (viewVersionNum && historicalDesc) ? historicalDesc : desc;
+
+  const bySection = useMemo(() => (activeDesc?.attributes || []).reduce((acc, a) => {
+    const s = a.section || 'General';
+    if (!acc[s]) acc[s] = [];
+    acc[s].push(a);
+    return acc;
+  }, {}), [activeDesc?.attributes]);
+
   if (!desc) return (
     <div className="empty" style={{ padding: '60px 24px' }}>
       <div className="empty-icon">◎</div>
@@ -401,34 +428,32 @@ export default function NodeEditor({
     </div>
   );
 
-  const bySection = (desc.attributes || []).reduce((acc, a) => {
-    const s = a.section || 'General';
-    if (!acc[s]) acc[s] = [];
-    acc[s].push(a);
-    return acc;
-  }, {});
-
-  const isOpenVersion = desc.txStatus === 'OPEN';
-  const checkoutAction    = desc.actions?.find(a => a.actionCode === 'CHECKOUT');
-  const checkinAction     = desc.actions?.find(a => a.actionCode === 'CHECKIN');
+  const isOpenVersion = activeDesc?.txStatus === 'OPEN';
+  const checkoutAction    = activeDesc?.actions?.find(a => a.actionCode === 'CHECKOUT');
+  const checkinAction     = activeDesc?.actions?.find(a => a.actionCode === 'CHECKIN');
   // fingerprintChanged is null for committed versions; false means OPEN but no content change
-  const fingerprintChanged = desc.fingerprintChanged;
-  const signAction        = desc.actions?.find(a => a.actionCode === 'SIGN');
-  const updateNodeAction  = desc.actions?.find(a => a.actionCode === 'UPDATE_NODE');
-  const transitions       = desc.actions?.filter(a => a.actionCode === 'TRANSITION') || [];
-  const canUpdateLink     = desc.actions?.some(a => a.actionCode === 'UPDATE_LINK');
-  const canDeleteLink     = desc.actions?.some(a => a.actionCode === 'DELETE_LINK');
+  const fingerprintChanged = activeDesc?.fingerprintChanged;
+  const signAction        = activeDesc?.actions?.find(a => a.actionCode === 'SIGN');
+  const updateNodeAction  = activeDesc?.actions?.find(a => a.actionCode === 'UPDATE_NODE');
+  const transitions       = activeDesc?.actions?.filter(a => a.actionCode === 'TRANSITION') || [];
+  const canUpdateLink     = activeDesc?.actions?.some(a => a.actionCode === 'UPDATE_LINK');
+  const canDeleteLink     = activeDesc?.actions?.some(a => a.actionCode === 'DELETE_LINK');
   const hasLinkActions    = canUpdateLink || canDeleteLink;
 
   // Lifecycle ID for diagram — resolved from node type
-  const lifecycleId = desc.lifecycleId || null;
+  const lifecycleId = activeDesc?.lifecycleId || null;
 
   // Node type appearance
-  const nt          = desc.nodeTypeId ? (nodeTypes || []).find(t => (t.id || t.ID) === desc.nodeTypeId) : null;
+  const nt          = activeDesc?.nodeTypeId ? (nodeTypes || []).find(t => (t.id || t.ID) === activeDesc.nodeTypeId) : null;
   const ntColor     = nt?.color || nt?.COLOR || null;
   const ntIconName  = nt?.icon  || nt?.ICON  || null;
   const NtIcon      = ntIconName ? NODE_ICONS[ntIconName] : null;
   const ntName      = nt?.name  || nt?.NAME  || null;
+
+  // Current version number from store desc (for highlighting in history table)
+  const currentVersionNum = history.find(
+    v => (v.id || v.ID) === desc?.currentVersionId
+  )?.version_number ?? null;
 
   function actionColor(name) {
     if (/approv|releas/i.test(name)) return 'btn-success';
@@ -460,15 +485,22 @@ export default function NodeEditor({
                 {ntName}
               </span>
             )}
-            <span className="node-identity">{desc.logicalId || desc.identity}</span>
-            {desc.displayName && (
-              <span className="node-display-name">{desc.displayName}</span>
+            <span className="node-identity">{activeDesc.logicalId || activeDesc.identity}</span>
+            {activeDesc.displayName && (
+              <span className="node-display-name">{activeDesc.displayName}</span>
             )}
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--muted)', fontWeight: 600, background: 'rgba(100,116,139,.1)', padding: '2px 7px', borderRadius: 4, letterSpacing: '.01em' }}>
-              {desc.iteration === 0 ? desc.revision : `${desc.revision}.${desc.iteration}`}
+            <span style={{
+              fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 600,
+              padding: '2px 7px', borderRadius: 4, letterSpacing: '.01em',
+              color: viewVersionNum ? '#92400e' : 'var(--muted)',
+              background: viewVersionNum ? 'rgba(251,191,36,.25)' : 'rgba(100,116,139,.1)',
+              border: viewVersionNum ? '1px solid rgba(251,191,36,.5)' : 'none',
+            }}>
+              {viewVersionNum && '🕐 '}
+              {activeDesc.iteration === 0 ? activeDesc.revision : `${activeDesc.revision}.${activeDesc.iteration}`}
             </span>
-            <StatePill stateId={desc.state} stateName={desc.stateName} stateColorMap={stateColorMap} />
-            {desc.lock?.locked && (
+            <StatePill stateId={activeDesc.state} stateName={activeDesc.stateName} stateColorMap={stateColorMap} />
+            {!viewVersionNum && desc.lock?.locked && (
               <span className="pill" style={{ color: 'var(--muted)', background: 'rgba(100,116,139,.1)', border: '1px solid rgba(100,116,139,.2)' }}>
                 🔒 {desc.lock.lockedBy}
               </span>
@@ -675,6 +707,25 @@ export default function NodeEditor({
         ))}
       </div>
 
+      {/* ── Historical view banner ────────────────────── */}
+      {viewVersionNum && (
+        <div style={{
+          background: 'rgba(251,191,36,.1)', border: '1px solid rgba(251,191,36,.4)',
+          borderRadius: 4, padding: '7px 12px', margin: '8px 0',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12,
+        }}>
+          <span style={{ color: '#92400e' }}>
+            🕐 Historical view — Version {viewVersionNum}
+            {historicalDesc && ` (${historicalDesc.iteration === 0 ? historicalDesc.revision : `${historicalDesc.revision}.${historicalDesc.iteration}`})`}
+            {histLoading && ' — loading…'}
+            {' · read-only'}
+          </span>
+          <button className="btn btn-sm" onClick={() => { setViewVersionNum(null); setHistoricalDesc(null); }}>
+            ← Back to latest
+          </button>
+        </div>
+      )}
+
       {/* ── Attributes ───────────────────────────────── */}
       {activeSubTab === 'attributes' && (
         <div>
@@ -789,7 +840,7 @@ export default function NodeEditor({
           )}
 
           {/* Add link button */}
-          {desc.actions?.some(a => a.actionCode === 'CREATE_LINK') && (
+          {activeDesc.actions?.some(a => a.actionCode === 'CREATE_LINK') && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
               <button className="btn btn-sm" onClick={() => linkPanel ? setLinkPanel(false) : openLinkPanel()}>
                 {linkPanel ? '✕ Cancel' : '+ Add link'}
@@ -1019,8 +1070,9 @@ export default function NodeEditor({
                                     setEditLinkTargetId(c.targetNodeId || '');
                                     setDeletingLinkId(null);
                                     if (allNodes.length === 0) {
-                                      const nodes = await api.listNodes(userId).catch(() => []);
-                                      setAllNodes((Array.isArray(nodes) ? nodes : []).filter(n => (n.id || n.ID) !== nodeId));
+                                      const nodesResp = await api.listNodes(userId).catch(() => ({}));
+                                      const nodeItems = Array.isArray(nodesResp) ? nodesResp : (nodesResp?.items ?? []);
+                                      setAllNodes(nodeItems.filter(n => (n.id || n.ID) !== nodeId));
                                     }
                                   }}>
                                   ✎
@@ -1134,8 +1186,8 @@ export default function NodeEditor({
               Lifecycle
             </div>
             <LifecycleDiagram
-              lifecycleId={desc.lifecycleId}
-              currentStateId={desc.state}
+              lifecycleId={activeDesc.lifecycleId}
+              currentStateId={activeDesc.state}
               userId={userId}
               availableTransitionNames={new Set(transitions.map(a => a.name))}
               onTransition={lcTransition => {
@@ -1185,8 +1237,9 @@ export default function NodeEditor({
                   const vNum   = v.version_number || v.VERSION_NUMBER;
                   const isPending = (v.tx_status || v.TX_STATUS) === 'OPEN';
                   const isFirst   = i === arr.length - 1; // oldest in reversed list
+                  const isActiveHistorical = viewVersionNum === vNum;
                   return (
-                    <tr key={vNum} className={isPending ? 'pending-row' : undefined}>
+                    <tr key={vNum} className={[isPending ? 'pending-row' : '', isActiveHistorical ? 'historical-row' : ''].filter(Boolean).join(' ') || undefined}>
                       <td>
                         <span className="ver-num">{vNum}</span>
                         {isPending && <span className="pending-badge">pending</span>}
@@ -1247,7 +1300,7 @@ export default function NodeEditor({
                           </span>
                         ) : <span style={{ opacity: .3 }}>—</span>}
                       </td>
-                      <td>
+                      <td style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                         {!isFirst && (isPending || (v.change_type || v.CHANGE_TYPE) === 'CONTENT') && (
                           <button
                             className="btn-diff"
@@ -1256,6 +1309,24 @@ export default function NodeEditor({
                             onClick={() => openDiff(vNum)}
                           >
                             ⊕ diff
+                          </button>
+                        )}
+                        {!isPending && vNum !== currentVersionNum && (
+                          <button
+                            className="btn-diff"
+                            title={isActiveHistorical ? 'Exit historical view' : `View node at version ${vNum}`}
+                            style={{ opacity: isActiveHistorical ? 1 : 0.6, background: isActiveHistorical ? 'rgba(251,191,36,.2)' : undefined }}
+                            onClick={() => {
+                              if (isActiveHistorical) {
+                                setViewVersionNum(null);
+                                setHistoricalDesc(null);
+                              } else {
+                                setViewVersionNum(vNum);
+                                setHistoricalDesc(null);
+                              }
+                            }}
+                          >
+                            👁
                           </button>
                         )}
                       </td>

@@ -16,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +39,7 @@ public class MetaModelService {
     private final ActionPermissionService actionPermissionService;
     private final MetaModelCache metaModelCache;
     private final PlmEventPublisher eventPublisher;
+    private final ActionRegistrationService actionRegistrationService;
 
     // ================================================================
     // LIFECYCLE
@@ -1144,195 +1144,46 @@ public class MetaModelService {
     }
 
     // ================================================================
-    // ACTION REGISTRY
+    // ACTION REGISTRY — delegates to ActionRegistrationService
     // ================================================================
 
     public List<Record> getAllActions() {
-        return dsl.select().from("action").orderBy(DSL.field("action_code")).fetch();
+        return actionRegistrationService.getAllActions();
     }
 
     public List<Map<String, Object>> getActionsForNodeType(String nodeTypeId) {
-        return getEffectiveActions(nodeTypeId);
+        return actionRegistrationService.getActionsForNodeType(nodeTypeId);
     }
 
-    @PlmAction("MANAGE_METAMODEL")
-    @Transactional
     public String registerCustomAction(String nodeTypeId, String actionCode,
                                        String displayName, String handlerRef,
                                        String displayCategory, boolean requiresTx,
                                        String description) {
-        // Create the global action entry if it doesn't exist yet
-        String actionId = dsl.select(DSL.field("id")).from("action")
-            .where("action_code = ?", actionCode)
-            .fetchOne(DSL.field("id"), String.class);
-
-        if (actionId == null) {
-            actionId = UUID.randomUUID().toString();
-            dsl.execute("""
-                INSERT INTO action
-                  (ID, ACTION_CODE, ACTION_KIND, DISPLAY_NAME, DESCRIPTION,
-                   HANDLER_REF, DISPLAY_CATEGORY, REQUIRES_TX, IS_DEFAULT, CREATED_AT)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                actionId, actionCode, "CUSTOM", displayName, description,
-                handlerRef, displayCategory != null ? displayCategory : "PRIMARY",
-                requiresTx ? 1 : 0, 0, LocalDateTime.now());
-            log.info("Custom action registered: {} (handler={})", actionCode, handlerRef);
-        }
-
-        // Wire it to the node type
-        String ntaId = UUID.randomUUID().toString();
-        dsl.execute("""
-            INSERT INTO node_type_action (ID, NODE_TYPE_ID, ACTION_ID, STATUS, DISPLAY_ORDER)
-            VALUES (?,?,?,?,?)
-            """, ntaId, nodeTypeId, actionId, "ENABLED", 999);
-        log.info("Action {} enabled for nodeType {}", actionCode, nodeTypeId);
-        metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
-        return ntaId;
+        return actionRegistrationService.registerCustomAction(
+            nodeTypeId, actionCode, displayName, handlerRef, displayCategory, requiresTx, description);
     }
 
-    @PlmAction("MANAGE_METAMODEL")
-    @Transactional
     public void setNodeTypeActionStatus(String nodeTypeActionId, String status) {
-        if (!"ENABLED".equals(status) && !"DISABLED".equals(status))
-            throw new IllegalArgumentException("status must be ENABLED or DISABLED");
-        dsl.execute("UPDATE node_type_action SET STATUS = ? WHERE ID = ?", status, nodeTypeActionId);
-        metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        actionRegistrationService.setNodeTypeActionStatus(nodeTypeActionId, status);
     }
 
-    /**
-     * Adds a permission row granting {@code roleId} the right to execute the given
-     * node_type_action in this project space. For LIFECYCLE-scope actions (transitions),
-     * {@code transition_id} is taken from the NTA row — granting access to that specific
-     * transition. For NODE-scope actions, {@code transition_id} is NULL.
-     */
-    @PlmAction("MANAGE_ROLES")
-    @Transactional
     public void setNodeTypeActionPermission(String nodeTypeActionId, String roleId) {
-        String psId = com.plm.infrastructure.security.PlmProjectSpaceContext.require();
-
-        var derived = resolveNtaForPermission(nodeTypeActionId);
-        String nodeTypeId   = derived[0];
-        String actionId     = derived[1];
-        String transitionId = derived[2]; // null for NODE-scope, set for LIFECYCLE-scope
-
-        // Upsert: delete existing row for (nodeType, action, role, transition, ps), then insert
-        deleteActionPermissionRow(nodeTypeId, actionId, roleId, psId, transitionId);
-        dsl.execute(
-            "INSERT INTO action_permission (ID, ACTION_ID, PROJECT_SPACE_ID, ROLE_ID, NODE_TYPE_ID, TRANSITION_ID) VALUES (?,?,?,?,?,?)",
-            UUID.randomUUID().toString(), actionId, psId, roleId, nodeTypeId, transitionId);
-        log.info("ActionPermission set: nodeType={} action={} role={} transition={} ps={}",
-            nodeTypeId, actionId, roleId, transitionId, psId);
+        actionRegistrationService.setNodeTypeActionPermission(nodeTypeActionId, roleId);
     }
 
-    /**
-     * Removes the permission row for the given role on this node_type_action.
-     */
-    @PlmAction("MANAGE_ROLES")
-    @Transactional
     public void removeNodeTypeActionPermission(String nodeTypeActionId, String roleId) {
-        String psId = com.plm.infrastructure.security.PlmProjectSpaceContext.require();
-
-        var derived = resolveNtaForPermission(nodeTypeActionId);
-        String nodeTypeId   = derived[0];
-        String actionId     = derived[1];
-        String transitionId = derived[2];
-
-        deleteActionPermissionRow(nodeTypeId, actionId, roleId, psId, transitionId);
+        actionRegistrationService.removeNodeTypeActionPermission(nodeTypeActionId, roleId);
     }
 
     public List<Map<String, Object>> getNodeTypeActionPermissions(String nodeTypeActionId) {
-        String psId = com.plm.infrastructure.security.PlmProjectSpaceContext.require();
-
-        var derived = resolveNtaForPermission(nodeTypeActionId);
-        String nodeTypeId   = derived[0];
-        String actionId     = derived[1];
-        String transitionId = derived[2];
-
-        // role_id is a plain VARCHAR reference to pno-api's pno_role — no JOIN needed
-        if (transitionId != null) {
-            return dsl.fetch("""
-                SELECT id, role_id, transition_id
-                FROM action_permission
-                WHERE node_type_id = ? AND action_id = ? AND project_space_id = ? AND transition_id = ?
-                ORDER BY role_id
-                """, nodeTypeId, actionId, psId, transitionId).intoMaps();
-        }
-        return dsl.fetch("""
-            SELECT id, role_id, transition_id
-            FROM action_permission
-            WHERE node_type_id = ? AND action_id = ? AND project_space_id = ? AND transition_id IS NULL
-            ORDER BY role_id
-            """, nodeTypeId, actionId, psId).intoMaps();
+        return actionRegistrationService.getNodeTypeActionPermissions(nodeTypeActionId);
     }
 
-    /**
-     * Deletes a single action_permission row matching the given key fields.
-     * Branches on transitionId nullability because {@code ? IS NULL} is not valid SQL
-     * in H2 (and is rejected as bad grammar).
-     */
-    private void deleteActionPermissionRow(String nodeTypeId, String actionId,
-                                           String roleId, String psId, String transitionId) {
-        // SQL does not allow "col = NULL" — must use IS NULL for nullable key fields.
-        // Branch on each nullable dimension independently.
-        if (nodeTypeId != null && transitionId != null) {
-            // LIFECYCLE scope
-            dsl.execute(
-                "DELETE FROM action_permission WHERE action_id = ? AND role_id = ? " +
-                "AND project_space_id = ? AND node_type_id = ? AND transition_id = ?",
-                actionId, roleId, psId, nodeTypeId, transitionId);
-        } else if (nodeTypeId != null) {
-            // NODE scope
-            dsl.execute(
-                "DELETE FROM action_permission WHERE action_id = ? AND role_id = ? " +
-                "AND project_space_id = ? AND node_type_id = ? AND transition_id IS NULL",
-                actionId, roleId, psId, nodeTypeId);
-        } else {
-            // GLOBAL scope (node_type_id IS NULL, transition_id IS NULL)
-            dsl.execute(
-                "DELETE FROM action_permission WHERE action_id = ? AND role_id = ? " +
-                "AND project_space_id = ? AND node_type_id IS NULL AND transition_id IS NULL",
-                actionId, roleId, psId);
-        }
-    }
-
-    /**
-     * Resolves node_type_id, action_id, and transition_id from a node_type_action ID.
-     * Returns String[3] = { nodeTypeId, actionId, transitionId }.
-     * transitionId is null for NODE-scope actions.
-     */
-    private String[] resolveNtaForPermission(String nodeTypeActionId) {
-        var row = dsl.select(
-                DSL.field("nta.node_type_id").as("node_type_id"),
-                DSL.field("nta.action_id").as("action_id"),
-                DSL.field("nta.transition_id").as("transition_id"))
-            .from("node_type_action nta")
-            .where("nta.id = ?", nodeTypeActionId)
-            .fetchOne();
-        if (row == null) throw new IllegalArgumentException("Unknown node_type_action: " + nodeTypeActionId);
-        return new String[]{
-            row.get("node_type_id",  String.class),
-            row.get("action_id",     String.class),
-            row.get("transition_id", String.class)   // null for NODE-scope
-        };
-    }
-
-    @PlmAction("MANAGE_ROLES")
-    @Transactional
     public void setNodeActionParamOverride(String nodeTypeActionId, String parameterId,
                                             String defaultValue, String allowedValues,
                                             Integer required) {
-        dsl.execute(
-            "DELETE FROM action_param_override WHERE node_type_action_id = ? AND parameter_id = ?",
-            nodeTypeActionId, parameterId);
-        dsl.execute("""
-            INSERT INTO action_param_override
-              (ID, NODE_TYPE_ACTION_ID, PARAMETER_ID, DEFAULT_VALUE, ALLOWED_VALUES, REQUIRED)
-            VALUES (?,?,?,?,?,?)
-            """, UUID.randomUUID().toString(), nodeTypeActionId, parameterId,
-            defaultValue, allowedValues, required);
+        actionRegistrationService.setNodeActionParamOverride(
+            nodeTypeActionId, parameterId, defaultValue, allowedValues, required);
     }
 
     // ================================================================
@@ -1341,27 +1192,10 @@ public class MetaModelService {
 
     /**
      * Copies all node-scoped action_permission rows from parentNodeTypeId to childNodeTypeId.
-     * Called at child type creation so the child immediately has the same access rights.
-     * GLOBAL-scoped rows (node_type_id IS NULL) are not copied — they apply system-wide already.
+     * Delegates to ActionRegistrationService.
      */
     private void copyActionPermissionsFromParent(String childNodeTypeId, String parentNodeTypeId) {
-        List<Record> rows = dsl.select()
-            .from("action_permission")
-            .where("node_type_id = ?", parentNodeTypeId)
-            .fetch();
-        for (Record r : rows) {
-            String newId = UUID.randomUUID().toString();
-            dsl.execute(
-                "INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?)",
-                newId,
-                r.get("action_id",        String.class),
-                r.get("project_space_id", String.class),
-                r.get("role_id",          String.class),
-                childNodeTypeId,
-                r.get("transition_id",    String.class)
-            );
-        }
-        log.info("Copied {} action_permission rows from {} to {}", rows.size(), parentNodeTypeId, childNodeTypeId);
+        actionRegistrationService.copyActionPermissionsFromParent(childNodeTypeId, parentNodeTypeId);
     }
 
     /** Converts a flag value (Boolean true/false or Integer 1/0) to SMALLINT-safe int. */

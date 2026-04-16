@@ -72,7 +72,7 @@ public class DashboardService {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("txId",      txId);
-        result.put("title",     tx.get("title",      String.class));
+        result.put("title",     tx.get("commit_comment", String.class));
         result.put("createdAt", tx.get("created_at", Object.class));
         result.put("nodes",     nodeList);
         return result;

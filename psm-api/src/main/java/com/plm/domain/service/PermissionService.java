@@ -335,6 +335,54 @@ public class PermissionService {
         return actionPermissionService.canExecute(ntaId);
     }
 
+    /**
+     * Batch version of canReadNodeType — resolves read permissions for multiple node types
+     * in a single IN (...) query. Returns a map from nodeTypeId to readable flag.
+     */
+    public Map<String, Boolean> canReadNodeTypes(java.util.Collection<String> nodeTypeIds) {
+        Map<String, Boolean> result = new java.util.HashMap<>();
+        if (nodeTypeIds.isEmpty()) return result;
+
+        PlmUserContext ctx = PlmSecurityContext.get();
+        // Admin can read everything
+        if (ctx.isAdmin()) {
+            nodeTypeIds.forEach(id -> result.put(id, true));
+            return result;
+        }
+        // Users with no roles can read nothing
+        if (ctx.getRoleIds().isEmpty()) {
+            nodeTypeIds.forEach(id -> result.put(id, false));
+            return result;
+        }
+
+        // Build IN clause and fetch all NTA rows for act-read in one query
+        String placeholders = nodeTypeIds.stream().map(x -> "?").collect(java.util.stream.Collectors.joining(","));
+        List<Object> params = new java.util.ArrayList<>(nodeTypeIds);
+        List<org.jooq.Record> ntaRows = dsl.fetch(
+            "SELECT id, node_type_id FROM node_type_action " +
+            "WHERE node_type_id IN (" + placeholders + ") " +
+            "AND action_id = 'act-read' AND status = 'ENABLED'",
+            params.toArray()
+        );
+
+        // Map nodeTypeId → ntaId, then check permission per nta
+        Map<String, String> ntaByNodeType = new java.util.HashMap<>();
+        for (var row : ntaRows) {
+            ntaByNodeType.put(row.get("node_type_id", String.class), row.get("id", String.class));
+        }
+
+        for (String nodeTypeId : nodeTypeIds) {
+            String ntaId = ntaByNodeType.get(nodeTypeId);
+            if (ntaId == null) {
+                result.put(nodeTypeId, false);
+            } else {
+                result.put(nodeTypeId, actionPermissionService.canExecute(ntaId));
+            }
+        }
+
+        return result;
+    }
+
     private void assertCurrentUserIsAdmin() {
         if (!PlmSecurityContext.get().isAdmin()) {
             throw new AccessDeniedException("Only admins can perform this operation");

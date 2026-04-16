@@ -29,6 +29,7 @@ public class SignatureService {
     private final LockService       lockService;
     private final VersionService    versionService;
     private final PermissionService permissionService;
+    private final FingerPrintService fingerPrintService;
     private final PlmEventPublisher eventPublisher;
 
     /**
@@ -56,6 +57,10 @@ public class SignatureService {
         if (alreadySigned) throw new IllegalStateException(
             "User " + userId + " already signed " + nodeId + " at " + revision + "." + iteration);
 
+        // Capture fingerprint of the parent (committed) version — records what is being signed.
+        String currentVersionId = current.get("id", String.class);
+        String parentFingerprint = fingerPrintService.compute(nodeId, currentVersionId);
+
         // Créer la version SIGNATURE — NONE : pas de changement de numérotation
         String newVersionId = versionService.createVersion(
             nodeId, userId, txId,
@@ -70,9 +75,14 @@ public class SignatureService {
         // Enregistrer la signature
         String sigId = UUID.randomUUID().toString();
         dsl.execute("""
-            INSERT INTO node_signature (ID, NODE_ID, NODE_VERSION_ID, SIGNED_BY, SIGNED_AT, MEANING, COMMENT)
-            VALUES (?,?,?,?,?,?,?)
-            """, sigId, nodeId, newVersionId, userId, LocalDateTime.now(), meaning, comment);
+            INSERT INTO node_signature (ID, NODE_ID, NODE_VERSION_ID, SIGNED_BY, SIGNED_AT, MEANING, COMMENT, SIGNED_VERSION_FINGERPRINT)
+            VALUES (?,?,?,?,?,?,?,?)
+            """, sigId, nodeId, newVersionId, userId, LocalDateTime.now(), meaning, comment, parentFingerprint);
+
+        // Recompute and store fingerprint on the new version now that the signature row exists.
+        // The version was created before the signature insert, so its stored fingerprint was stale.
+        String updatedFp = fingerPrintService.compute(nodeId, newVersionId);
+        dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", updatedFp, newVersionId);
 
         eventPublisher.signed(nodeId, userId, meaning);
         log.info("Signature: node={} user={} meaning={} {}.{} tx={}", nodeId, userId, meaning, revision, iteration, txId);

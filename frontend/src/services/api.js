@@ -168,8 +168,11 @@ export const api = {
     request('POST', '/nodes', userId, { nodeTypeId, userId, attributes, logicalId, externalId }),
 
   // Description complète (Server-Driven UI) — txId optionnel pour voir les versions OPEN
-  getNodeDescription: (userId, nodeId, txId) => {
-    const params = `userId=${userId}${txId ? `&txId=${txId}` : ''}`;
+  // versionNumber optionnel pour voir une version historique (lecture seule)
+  getNodeDescription: (userId, nodeId, txId, versionNumber) => {
+    let params = `userId=${userId}`;
+    if (txId)          params += `&txId=${txId}`;
+    if (versionNumber) params += `&versionNumber=${versionNumber}`;
     return request('GET', `/nodes/${nodeId}/description?${params}`, userId);
   },
 

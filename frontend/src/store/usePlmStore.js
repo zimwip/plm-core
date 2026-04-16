@@ -25,7 +25,8 @@ export const usePlmStore = create((set, get) => ({
     if (!userId) return;
     try {
       const data = await api.listNodes(userId);
-      set({ nodes: Array.isArray(data) ? data : [] });
+      const items = Array.isArray(data) ? data : (data?.items ?? []);
+      set({ nodes: items });
     } catch (_) { /* callers handle toasts */ }
   },
 

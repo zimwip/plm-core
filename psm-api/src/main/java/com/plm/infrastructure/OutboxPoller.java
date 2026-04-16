@@ -1,11 +1,11 @@
 package com.plm.infrastructure;
 
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -21,11 +21,15 @@ import java.util.List;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class OutboxPoller {
 
     private final DSLContext dsl;
     private final SimpMessagingTemplate messaging;
+
+    public OutboxPoller(DSLContext dsl, SimpMessagingTemplate messaging) {
+        this.dsl = dsl;
+        this.messaging = messaging;
+    }
 
     // Derived DSL without execute listeners — avoids flooding logs with the
     // high-frequency outbox SELECT (5/s at 200 ms interval).
@@ -45,7 +49,7 @@ public class OutboxPoller {
         );
     }
 
-    @Scheduled(fixedDelay = 200)
+    @Scheduled(fixedDelayString = "${plm.outbox.poll-interval-ms:200}")
     @Transactional
     public void poll() {
         List<Record> pending = quietDsl.fetch(

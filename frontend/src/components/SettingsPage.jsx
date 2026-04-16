@@ -546,7 +546,7 @@ function LinkCascadeTable({ userId, linkTypeId, sourceLifecycleId, targetLifecyc
 }
 
 /* ── Node Types section ──────────────────────────────────────────── */
-function NodeTypesSection({ userId, canWrite, toast }) {
+export function NodeTypesSection({ userId, canWrite, toast }) {
   const [types,      setTypes]      = useState([]);
   const [expanded,   setExpanded]   = useState(null);
   const [attrs,      setAttrs]      = useState({});
@@ -1482,7 +1482,7 @@ function TransitionFormFields({ form, setForm, states }) {
   );
 }
 
-function LifecyclesSection({ userId, canWrite, toast }) {
+export function LifecyclesSection({ userId, canWrite, toast }) {
   const [lcs,         setLcs]         = useState([]);
   const [expanded,    setExpanded]    = useState(null);
   const [lcData,      setLcData]      = useState({});
@@ -2178,7 +2178,7 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
 }
 
 /* ── Project Spaces section ──────────────────────────────────────── */
-function ProjectSpacesSection({ userId, canWrite, toast }) {
+export function ProjectSpacesSection({ userId, canWrite, toast }) {
   const [spaces,  setSpaces]  = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal,   setModal]   = useState(false);
@@ -2548,7 +2548,7 @@ function UsersSubSection({ userId, canWrite, toast }) {
 }
 
 /* ── Users & Roles section (tab switcher) ────────────────────────── */
-function UsersRolesSection({ userId, canWrite, toast }) {
+export function UsersRolesSection({ userId, canWrite, toast }) {
   const [tab, setTab] = useState('roles');
   return (
     <div>
@@ -2575,7 +2575,7 @@ function UsersRolesSection({ userId, canWrite, toast }) {
 }
 
 /* ── Access Rights section ──────────────────────────────────────────── */
-function AccessRightsSection({ userId, canWrite, toast }) {
+export function AccessRightsSection({ userId, canWrite, toast }) {
   const [roles,         setRoles]         = useState(null);
   const [globalActions, setGlobalActions] = useState([]);
   const [spaces,        setSpaces]        = useState([]);

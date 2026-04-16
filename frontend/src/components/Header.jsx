@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { HexIcon } from './Icons';
 import { NODE_ICONS } from './Icons';
 
@@ -13,14 +13,14 @@ function userColor(userId) {
 }
 
 
-export default function Header({
+function Header({
   userId, onUserChange, users,
   nodeTypes, stateColorMap, nodes,
   searchQuery, searchType, onSearchChange, onSearchTypeChange,
   projectSpaces, projectSpaceId, onProjectSpaceChange,
   onNavigate,
 }) {
-  const currentUser = (users || []).find(u => u.id === userId);
+  const currentUser = useMemo(() => (users || []).find(u => u.id === userId), [users, userId]);
 
   const [suggestions, setSuggestions] = useState([]);
   const [showSug,     setShowSug]     = useState(false);
@@ -47,16 +47,16 @@ export default function Header({
     setHiIdx(-1);
   }, [searchQuery, nodes]);
 
-  function selectSuggestion(node) {
+  const selectSuggestion = useCallback((node) => {
     const id = node.id || node.ID;
     clearTimeout(blurTimer.current);
     onSearchChange('');
     setShowSug(false);
     setSuggestions([]);
     if (onNavigate) onNavigate(id);
-  }
+  }, [onSearchChange, onNavigate]);
 
-  function handleKeyDown(e) {
+  const handleKeyDown = useCallback((e) => {
     if (!showSug || suggestions.length === 0) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -70,16 +70,16 @@ export default function Header({
     } else if (e.key === 'Escape') {
       setShowSug(false);
     }
-  }
+  }, [showSug, suggestions, hiIdx, selectSuggestion]);
 
-  function handleBlur() {
+  const handleBlur = useCallback(() => {
     blurTimer.current = setTimeout(() => setShowSug(false), 150);
-  }
+  }, []);
 
-  function handleFocus() {
+  const handleFocus = useCallback(() => {
     clearTimeout(blurTimer.current);
     if (suggestions.length > 0) setShowSug(true);
-  }
+  }, [suggestions.length]);
 
   return (
     <header className="header">
@@ -242,3 +242,5 @@ export default function Header({
     </header>
   );
 }
+
+export default React.memo(Header);

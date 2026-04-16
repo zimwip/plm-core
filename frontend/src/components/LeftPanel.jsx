@@ -19,7 +19,7 @@ const CHANGE_BADGE = {
 // Max tree depth to prevent runaway rendering on circular structures
 const MAX_DEPTH = 8;
 
-export default function LeftPanel({
+function LeftPanel({
   nodes,
   nodeTypes,
   tx,
@@ -490,3 +490,5 @@ export default function LeftPanel({
     </aside>
   );
 }
+
+export default React.memo(LeftPanel);

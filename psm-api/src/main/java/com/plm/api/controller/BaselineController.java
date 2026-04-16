@@ -15,8 +15,11 @@ public class BaselineController {
     private final BaselineService baselineService;
 
     @GetMapping
-    public ResponseEntity<?> listBaselines() {
-        return ResponseEntity.ok(baselineService.listBaselines());
+    public ResponseEntity<?> listBaselines(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "50") int size
+    ) {
+        return ResponseEntity.ok(baselineService.listBaselines(page, size));
     }
 
     @PostMapping

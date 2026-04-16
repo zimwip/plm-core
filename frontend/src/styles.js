@@ -533,6 +533,8 @@ select.field-input{cursor:pointer;appearance:none;-webkit-appearance:none}
 .history-table tr:hover td{background:rgba(255,255,255,.02)}
 .history-table tr.pending-row td{background:rgba(232,169,71,.06);border-bottom:1px solid rgba(232,169,71,.18)}
 .history-table tr.pending-row:hover td{background:rgba(232,169,71,.1)}
+.history-table tr.historical-row td{background:rgba(251,191,36,.08);border-bottom:1px solid rgba(251,191,36,.25)}
+.history-table tr.historical-row:hover td{background:rgba(251,191,36,.14)}
 .pending-badge{
   display:inline-block;margin-left:6px;
   font-family:var(--sans);font-size:8px;font-weight:700;letter-spacing:.06em;
