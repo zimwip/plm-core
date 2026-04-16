@@ -1,20 +1,20 @@
 com/plm/domain/model/numbering/VersionNumberingStrategy.class
-com/plm/infrastructure/PlmEventPublisher.class
 com/plm/infrastructure/security/PlmAction.class
+com/plm/infrastructure/PlmEventPublisher.class
 com/plm/domain/service/LifecycleService.class
 com/plm/domain/model/numbering/AlphaNumericNumberingStrategy$1.class
 com/plm/domain/service/NodeService$CircularReferenceException.class
 com/plm/domain/model/numbering/NumberingResult.class
 com/plm/domain/service/LockService.class
 com/plm/domain/exception/UnauthenticatedException.class
-com/plm/PlmApplication.class
 com/plm/infrastructure/security/PlmActionAspect.class
+com/plm/PlmApplication.class
 com/plm/domain/service/BaselineService.class
 com/plm/domain/service/PlmTransactionService.class
 com/plm/domain/action/ActionParameterValidator$ValidationException.class
 com/plm/domain/model/numbering/NumberingStrategyFactory.class
-com/plm/domain/action/ActionHandler.class
 com/plm/domain/action/handler/DeleteLinkActionHandler.class
+com/plm/domain/action/ActionHandler.class
 com/plm/infrastructure/security/PlmActionValidator.class
 com/plm/domain/hook/CommitContext.class
 com/plm/domain/model/Enums$LinkPolicy.class
@@ -28,6 +28,7 @@ com/plm/domain/service/PermissionService.class
 com/plm/domain/hook/CommitResult.class
 com/plm/domain/model/Enums$VersionStrategy.class
 com/plm/domain/model/Enums$TransactionStatus.class
+com/plm/domain/model/ResolvedAttribute.class
 com/plm/domain/model/Enums$DataType.class
 com/plm/domain/action/handler/CreateLinkActionHandler.class
 com/plm/domain/hook/PostCommitHook.class
@@ -39,6 +40,7 @@ com/plm/api/GlobalExceptionHandler.class
 com/plm/domain/action/ActionResult.class
 com/plm/api/controller/BaselineController.class
 com/plm/api/controller/RoleController.class
+com/plm/domain/service/MetaModelCache.class
 com/plm/domain/action/handler/CheckoutActionHandler.class
 com/plm/domain/service/VersionService.class
 com/plm/domain/service/PermissionService$AccessDeniedException.class
@@ -54,6 +56,7 @@ com/plm/domain/service/NodeService$FrozenStateException.class
 com/plm/api/controller/TransactionController.class
 com/plm/domain/service/PlmTransactionService$1.class
 com/plm/domain/hook/CommitViolation.class
+com/plm/domain/model/ResolvedNodeType.class
 com/plm/domain/service/FingerPrintService.class
 com/plm/domain/action/handler/BaselineActionHandler.class
 com/plm/infrastructure/security/PlmSecurityContext.class

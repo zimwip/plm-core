@@ -138,6 +138,27 @@ public class MetaModelController {
         return ResponseEntity.noContent().build();
     }
 
+    // -- Signature Requirements
+
+    @PostMapping("/transitions/{transId}/signature-requirements")
+    public ResponseEntity<?> addSignatureRequirement(
+        @PathVariable String transId,
+        @RequestBody Map<String, Object> body
+    ) {
+        int order = body.get("displayOrder") instanceof Number n ? n.intValue() : 0;
+        String id = metaModelService.addSignatureRequirement(transId, (String) body.get("roleId"), order);
+        return ResponseEntity.ok(Map.of("id", id));
+    }
+
+    @DeleteMapping("/transitions/{transId}/signature-requirements/{reqId}")
+    public ResponseEntity<?> removeSignatureRequirement(
+        @PathVariable String transId,
+        @PathVariable String reqId
+    ) {
+        metaModelService.removeSignatureRequirement(reqId);
+        return ResponseEntity.noContent().build();
+    }
+
     // -- NodeType
     @GetMapping("/nodetypes")
     public ResponseEntity<?> getAllNodeTypes() {
@@ -150,13 +171,31 @@ public class MetaModelController {
     }
 
     @PostMapping("/nodetypes")
-    public ResponseEntity<Map<String, String>> createNodeType(@RequestBody Map<String, String> body) {
-        String id = metaModelService.createNodeType(
-            body.get("name"), body.get("description"), body.get("lifecycleId"),
-            body.get("numberingScheme"), body.get("versionPolicy"),
-            body.get("color"), body.get("icon")
-        );
-        return ResponseEntity.ok(Map.of("id", id));
+    public ResponseEntity<?> createNodeType(@RequestBody Map<String, String> body) {
+        try {
+            String id = metaModelService.createNodeType(
+                body.get("name"), body.get("description"), body.get("lifecycleId"),
+                body.get("numberingScheme"), body.get("versionPolicy"),
+                body.get("color"), body.get("icon"),
+                body.get("parentNodeTypeId")
+            );
+            return ResponseEntity.ok(Map.of("id", id));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PutMapping("/nodetypes/{nodeTypeId}/parent")
+    public ResponseEntity<?> updateNodeTypeParent(
+        @PathVariable String nodeTypeId,
+        @RequestBody Map<String, String> body
+    ) {
+        try {
+            metaModelService.updateNodeTypeParent(nodeTypeId, body.get("parentNodeTypeId"));
+            return ResponseEntity.ok(Map.of("id", nodeTypeId));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PutMapping("/nodetypes/{nodeTypeId}/appearance")
@@ -203,6 +242,16 @@ public class MetaModelController {
         }
     }
 
+    @PutMapping("/nodetypes/{nodeTypeId}/collapse-history")
+    public ResponseEntity<?> updateCollapseHistory(
+        @PathVariable String nodeTypeId,
+        @RequestBody Map<String, Object> body
+    ) {
+        boolean v = Boolean.TRUE.equals(body.get("collapseHistory"));
+        metaModelService.updateNodeTypeCollapseHistory(nodeTypeId, v);
+        return ResponseEntity.ok(Map.of("id", nodeTypeId));
+    }
+
     @DeleteMapping("/nodetypes/{nodeTypeId}")
     public ResponseEntity<?> deleteNodeType(@PathVariable String nodeTypeId) {
         try {
@@ -222,7 +271,7 @@ public class MetaModelController {
         return ResponseEntity.ok(Map.of("id", nodeTypeId));
     }
 
-    // -- Attributes
+    // -- Attributes (includes inherited attrs with inherited=true flag)
     @GetMapping("/nodetypes/{nodeTypeId}/attributes")
     public ResponseEntity<?> getAttributes(@PathVariable String nodeTypeId) {
         return ResponseEntity.ok(metaModelService.getAttributeDefinitions(nodeTypeId));
@@ -263,14 +312,18 @@ public class MetaModelController {
     }
 
     // -- AttributeStateRule
+    // nodeTypeId in body is optional; when provided it scopes the rule to that type
+    // (used by child types to override an inherited attribute's state rule).
+    // When absent, the rule is scoped to the attribute's own node type (default behaviour).
     @PutMapping("/attributes/{attrId}/states/{stateId}/rules")
     public ResponseEntity<Map<String, String>> setRule(
         @PathVariable String attrId,
         @PathVariable String stateId,
         @RequestBody Map<String, Object> body
     ) {
+        String nodeTypeId = (String) body.get("nodeTypeId");
         String id = metaModelService.setAttributeStateRule(
-            attrId, stateId,
+            nodeTypeId, attrId, stateId,
             Boolean.TRUE.equals(body.get("required")),
             !Boolean.FALSE.equals(body.get("editable")),
             !Boolean.FALSE.equals(body.get("visible"))
@@ -286,7 +339,7 @@ public class MetaModelController {
 
     @GetMapping("/nodetypes/{nodeTypeId}/linktypes")
     public ResponseEntity<?> getLinkTypesForNodeType(@PathVariable String nodeTypeId) {
-        return ResponseEntity.ok(metaModelService.getLinkTypesForSource(nodeTypeId));
+        return ResponseEntity.ok(metaModelService.getEffectiveLinkTypes(nodeTypeId));
     }
 
     @PutMapping("/linktypes/{id}")
@@ -387,7 +440,8 @@ public class MetaModelController {
             (Integer) body.get("maxCardinality"),
             (String) body.get("linkLogicalIdLabel"),
             (String) body.get("linkLogicalIdPattern"),
-            (String) body.get("color")
+            (String) body.get("color"),
+            (String) body.get("icon")
         );
         return ResponseEntity.ok(Map.of("id", id));
     }

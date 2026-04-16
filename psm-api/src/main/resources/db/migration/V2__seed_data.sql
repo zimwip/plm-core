@@ -12,11 +12,11 @@
 INSERT INTO lifecycle (id, name, description) VALUES
   ('lc-standard', 'Standard', 'Standard PLM lifecycle');
 
-INSERT INTO lifecycle_state (id, lifecycle_id, name, is_initial, is_frozen, is_released, display_order) VALUES
-  ('st-inwork',   'lc-standard', 'In Work',  1, 0, 0, 1),
-  ('st-frozen',   'lc-standard', 'Frozen',   0, 1, 0, 2),
-  ('st-released', 'lc-standard', 'Released', 0, 1, 1, 3),
-  ('st-obsolete', 'lc-standard', 'Obsolete', 0, 1, 0, 4);
+INSERT INTO lifecycle_state (id, lifecycle_id, name, is_initial, is_frozen, is_released, display_order, color) VALUES
+  ('st-inwork',   'lc-standard', 'In Work',  1, 0, 0, 1, '#5b9cf6'),
+  ('st-frozen',   'lc-standard', 'Frozen',   0, 1, 0, 2, '#a78bfa'),
+  ('st-released', 'lc-standard', 'Released', 0, 1, 1, 3, '#34d399'),
+  ('st-obsolete', 'lc-standard', 'Obsolete', 0, 1, 0, 4, '#94a3b8');
 
 INSERT INTO lifecycle_transition (id, lifecycle_id, name, from_state_id, to_state_id, guard_expr, action_type, version_strategy) VALUES
   ('tr-freeze',   'lc-standard', 'Freeze',        'st-inwork',   'st-frozen',   NULL,                  'CASCADE_FROZEN', 'NONE'),

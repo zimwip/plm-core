@@ -4,6 +4,7 @@ import static java.util.Map.entry;
 
 import com.plm.domain.model.Enums.ChangeType;
 import com.plm.domain.model.Enums.VersionStrategy;
+import com.plm.domain.model.ResolvedAttribute;
 import com.plm.infrastructure.PlmEventPublisher;
 import com.plm.infrastructure.security.PlmAction;
 import com.plm.infrastructure.security.PlmSecurityContext;
@@ -52,6 +53,7 @@ public class NodeService {
     private final FingerPrintService fingerPrintService;
     private final com.plm.domain.action.ActionService actionService;
     private final PlmEventPublisher eventPublisher;
+    private final MetaModelCache metaModelCache;
 
     // ================================================================
     // CRÉATION (pas de txId — version initiale directement COMMITTED)
@@ -195,7 +197,9 @@ public class NodeService {
                    n.created_at, n.created_by,
                    n.locked_by,
                    pt.status AS tx_status,
-                   nva_name.value AS display_name
+                   nva_name.value AS display_name,
+                   (SELECT COUNT(*) FROM node_version_link nvl
+                    WHERE nvl.source_node_version_id = nv.id) AS children_count
             FROM node n
             JOIN node_type nt ON nt.id = n.node_type_id
             JOIN node_version nv ON nv.node_id = n.id
@@ -862,11 +866,14 @@ public class NodeService {
         // Actions disponibles — server-driven via le registre d'actions.
         // Each action carries its own action_permission rows; no coarse canWrite gate needed.
         // globalCanWrite is derived from whether UPDATE_NODE passed its own permission check.
+        boolean isLockedByCurrentUser = lockInfo.locked()
+            && userId.equals(lockInfo.lockedBy());
         List<Map<String, Object>> actions = actionService.resolveActionsForNode(
             nodeId,
             nodeTypeId,
             currentStateId,
-            lockInfo.locked()
+            lockInfo.locked(),
+            isLockedByCurrentUser
         );
         boolean globalCanWrite = actions
             .stream()
@@ -886,37 +893,29 @@ public class NodeService {
                 )
             );
 
-        // Resolve the as_name attribute value for display
-        String asNameAttrId = dsl
-            .select(DSL.field("id"))
-            .from("attribute_definition")
-            .where("node_type_id = ?", nodeTypeId)
-            .and("as_name = 1")
-            .limit(1)
-            .fetchOne(DSL.field("id"), String.class);
+        // Resolve the as_name attribute value for display (uses cache — includes inherited)
+        var resolvedNodeType = metaModelCache.get(nodeTypeId);
+        String asNameAttrId = resolvedNodeType != null
+            ? resolvedNodeType.attributes().stream()
+                  .filter(ResolvedAttribute::asName)
+                  .map(ResolvedAttribute::id)
+                  .findFirst().orElse(null)
+            : null;
         String displayName = asNameAttrId != null
             ? currentValues.getOrDefault(asNameAttrId, "")
             : "";
 
-        // Attributs résolus avec règle d'état + override de vue
-        var attributes = dsl
-            .select()
-            .from("attribute_definition ad")
-            .where("ad.node_type_id = ?", nodeTypeId)
-            .orderBy(DSL.field("ad.display_order"))
-            .fetch()
-            .stream()
+        // Attributs résolus avec règle d'état + override de vue (inherited attrs included via cache)
+        var effectiveAttrs = resolvedNodeType != null
+            ? resolvedNodeType.attributes()
+            : List.<ResolvedAttribute>of();
+        var attributes = effectiveAttrs.stream()
             .map(attr -> {
-                String attrId = attr.get("id", String.class);
-                Record rule =
-                    currentStateId != null
-                        ? dsl
-                              .select()
-                              .from("attribute_state_rule")
-                              .where("attribute_definition_id = ?", attrId)
-                              .and("lifecycle_state_id = ?", currentStateId)
-                              .fetchOne()
-                        : null;
+                String attrId = attr.id();
+                // Use scoped state rule — child type's override first, then owner's rule
+                Record rule = currentStateId != null
+                    ? metaModelCache.getStateRule(nodeTypeId, attrId, currentStateId)
+                    : null;
 
                 boolean stateEditable =
                     rule == null || rule.get("editable", Integer.class) == 1;
@@ -929,27 +928,23 @@ public class NodeService {
                         attrId,
                         stateEditable,
                         stateVisible,
-                        attr.get("display_order", Integer.class),
-                        attr.get("display_section", String.class)
+                        attr.displayOrder(),
+                        attr.displaySection()
                     );
 
                 if (!ov.visible()) return null;
 
                 boolean requiredByState =
                     rule != null && rule.get("required", Integer.class) == 1;
-                boolean requiredGlobal =
-                    attr.get("required", Integer.class) == 1;
-                String namingRegex = attr.get("naming_regex", String.class);
-                String allowedValues = attr.get("allowed_values", String.class);
-                String tooltip = attr.get("tooltip", String.class);
+                boolean requiredGlobal = attr.required();
 
                 return Map.<String, Object>ofEntries(
                     entry("id", attrId),
-                    entry("name", attr.get("name", String.class)),
-                    entry("label", attr.get("label", String.class)),
+                    entry("name", attr.name()),
+                    entry("label", attr.label()),
                     entry("value", currentValues.getOrDefault(attrId, "")),
-                    entry("type", attr.get("data_type", String.class)),
-                    entry("widget", attr.get("widget_type", String.class)),
+                    entry("type", attr.dataType()),
+                    entry("widget", attr.widgetType()),
                     entry(
                         "section",
                         ov.displaySection() != null ? ov.displaySection() : ""
@@ -959,13 +954,13 @@ public class NodeService {
                     entry("required", requiredByState || requiredGlobal),
                     entry(
                         "namingRegex",
-                        namingRegex != null ? namingRegex : ""
+                        attr.namingRegex() != null ? attr.namingRegex() : ""
                     ),
                     entry(
                         "allowedValues",
-                        allowedValues != null ? allowedValues : ""
+                        attr.allowedValues() != null ? attr.allowedValues() : ""
                     ),
-                    entry("tooltip", tooltip != null ? tooltip : "")
+                    entry("tooltip", attr.tooltip() != null ? attr.tooltip() : "")
                 );
             })
             .filter(Objects::nonNull)
@@ -1029,6 +1024,28 @@ public class NodeService {
         result.put("currentVersionId", versionId);
         result.put("attributes", attributes);
         result.put("actions", actions);
+
+        // fingerprintChanged: true when the OPEN version has different content than its parent.
+        // Only meaningful when txStatus == OPEN; always null otherwise.
+        if ("OPEN".equals(txStatus)) {
+            String previousVersionId = dsl
+                .select(DSL.field("previous_version_id"))
+                .from("node_version")
+                .where("id = ?", versionId)
+                .fetchOne(DSL.field("previous_version_id"), String.class);
+            String parentFingerprint = previousVersionId != null
+                ? dsl
+                    .select(DSL.field("fingerprint"))
+                    .from("node_version")
+                    .where("id = ?", previousVersionId)
+                    .fetchOne(DSL.field("fingerprint"), String.class)
+                : null;
+            String currentFingerprint = fingerPrintService.compute(nodeId, versionId);
+            result.put("fingerprintChanged", !Objects.equals(currentFingerprint, parentFingerprint));
+        } else {
+            result.put("fingerprintChanged", null);
+        }
+
         return result;
     }
 
@@ -1056,14 +1073,17 @@ public class NodeService {
         var ctx = PlmSecurityContext.get();
         String currentUserId = ctx != null ? ctx.getUserId() : "";
         boolean isAdmin = ctx != null && ctx.isAdmin();
+        String isAdminStr = String.valueOf(isAdmin);
         return dsl
             .fetch(
                 """
-                SELECT nl.id AS link_id, lt.name AS link_type_name, lt.link_policy, lt.color AS link_type_color,
+                SELECT nl.id AS link_id, lt.name AS link_type_name, lt.link_policy, lt.color AS link_type_color, lt.icon AS link_type_icon,
                        nl.link_logical_id, lt.link_logical_id_label,
                        n.id AS target_node_id, nt.name AS target_node_type,
                        n.logical_id AS target_logical_id,
-                       nv.revision, nv.iteration, nv.lifecycle_state_id
+                       nv.revision, nv.iteration, nv.lifecycle_state_id,
+                       (SELECT COUNT(*) FROM node_version_link nvl_c
+                        WHERE nvl_c.source_node_version_id = nv.id) AS target_children_count
                 FROM node_version_link nl
                 JOIN link_type lt        ON lt.id     = nl.link_type_id
                 JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
@@ -1075,16 +1095,20 @@ public class NodeService {
                 WHERE nv_src.node_id = ?
                   AND (pt_src.status = 'COMMITTED'
                        OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
-                  AND pt.status = 'COMMITTED'
+                  AND (pt.status = 'COMMITTED'
+                       OR (pt.status = 'OPEN' AND (pt.owner_id = ? OR ? = 'true')))
                   AND nv.version_number = (
                     SELECT MAX(nv2.version_number) FROM node_version nv2
                     JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id
-                    WHERE nv2.node_id = n.id AND pt2.status = 'COMMITTED')
+                    WHERE nv2.node_id = n.id
+                      AND (pt2.status = 'COMMITTED'
+                           OR (pt2.status = 'OPEN' AND (pt2.owner_id = ? OR ? = 'true'))))
                 ORDER BY lt.name, n.logical_id
                 """,
                 nodeId,
-                currentUserId,
-                String.valueOf(isAdmin)
+                currentUserId, isAdminStr,   // source version visibility
+                currentUserId, isAdminStr,   // target version filter
+                currentUserId, isAdminStr    // target version MAX subquery
             )
             .stream()
             .map(r -> {
@@ -1093,6 +1117,7 @@ public class NodeService {
                 m.put("linkTypeName", r.get("link_type_name", String.class));
                 m.put("linkPolicy", r.get("link_policy", String.class));
                 m.put("linkTypeColor", r.get("link_type_color", String.class));
+                m.put("linkTypeIcon", r.get("link_type_icon", String.class));
                 m.put(
                     "linkLogicalId",
                     Objects.toString(r.get("link_logical_id", String.class), "")
@@ -1131,6 +1156,7 @@ public class NodeService {
                         ""
                     )
                 );
+                m.put("targetChildrenCount", r.get("target_children_count", Integer.class));
                 return m;
             })
             .toList();
@@ -1138,13 +1164,15 @@ public class NodeService {
 
     /**
      * Retourne les liens entrants vers ce noeud (Where Used / parents).
-     * Pour chaque lien, résout la version courante COMMITTED du noeud source.
+     * Pour chaque lien, résout la version courante visible du noeud source
+     * (OPEN si le user en est le owner, sinon dernière COMMITTED).
      */
     public List<Map<String, Object>> getParentLinks(String nodeId) {
         permissionService.assertCanRead(nodeId);
         var ctx = PlmSecurityContext.get();
         String currentUserId = ctx != null ? ctx.getUserId() : "";
         boolean isAdmin = ctx != null && ctx.isAdmin();
+        String isAdminStr = String.valueOf(isAdmin);
         return dsl
             .fetch(
                 """
@@ -1164,16 +1192,20 @@ public class NodeService {
                 WHERE nl.target_node_id = ?
                   AND (pt_src.status = 'COMMITTED'
                        OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
-                  AND pt.status = 'COMMITTED'
+                  AND (pt.status = 'COMMITTED'
+                       OR (pt.status = 'OPEN' AND (pt.owner_id = ? OR ? = 'true')))
                   AND nv.version_number = (
                     SELECT MAX(nv2.version_number) FROM node_version nv2
                     JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id
-                    WHERE nv2.node_id = n.id AND pt2.status = 'COMMITTED')
+                    WHERE nv2.node_id = n.id
+                      AND (pt2.status = 'COMMITTED'
+                           OR (pt2.status = 'OPEN' AND (pt2.owner_id = ? OR ? = 'true'))))
                 ORDER BY lt.name, n.logical_id
                 """,
                 nodeId,
-                currentUserId,
-                String.valueOf(isAdmin)
+                currentUserId, isAdminStr,   // source version visibility (pt_src)
+                currentUserId, isAdminStr,   // source display version filter (pt)
+                currentUserId, isAdminStr    // source display version MAX subquery (pt2)
             )
             .stream()
             .map(r -> {
@@ -1388,9 +1420,26 @@ public class NodeService {
             .from("node")
             .where("id = ?", nodeId)
             .fetchOne("node_type_id", String.class);
-        if (!expectedTypeId.equals(actual)) throw new IllegalArgumentException(
+        if (!isTypeOrDescendant(actual, expectedTypeId)) throw new IllegalArgumentException(
             "Node " + nodeId + " wrong type, expected " + expectedTypeId
         );
+    }
+
+    /**
+     * Returns true if typeId equals expectedTypeId or has expectedTypeId as an ancestor
+     * (walking parent_node_type_id up the hierarchy).
+     */
+    private boolean isTypeOrDescendant(String typeId, String expectedTypeId) {
+        String current = typeId;
+        while (current != null) {
+            if (expectedTypeId.equals(current)) return true;
+            current = dsl
+                .select()
+                .from("node_type")
+                .where("id = ?", current)
+                .fetchOne("parent_node_type_id", String.class);
+        }
+        return false;
     }
 
     /**

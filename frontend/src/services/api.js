@@ -224,6 +224,12 @@ export const api = {
   deleteLifecycleTransition: (userId, lifecycleId, transId) =>
     request('DELETE', `/metamodel/lifecycles/${lifecycleId}/transitions/${transId}`, userId),
 
+  addTransitionSignatureRequirement: (userId, transId, roleId, displayOrder = 0) =>
+    request('POST', `/metamodel/transitions/${transId}/signature-requirements`, userId, { roleId, displayOrder }),
+
+  removeTransitionSignatureRequirement: (userId, transId, reqId) =>
+    request('DELETE', `/metamodel/transitions/${transId}/signature-requirements/${reqId}`, userId),
+
   deleteNodeType: (userId, nodeTypeId) =>
     request('DELETE', `/metamodel/nodetypes/${nodeTypeId}`, userId),
 
@@ -235,6 +241,9 @@ export const api = {
 
   updateNodeTypeVersionPolicy: (userId, nodeTypeId, versionPolicy) =>
     request('PUT', `/metamodel/nodetypes/${nodeTypeId}/version-policy`, userId, { versionPolicy }),
+
+  updateNodeTypeCollapseHistory: (userId, nodeTypeId, collapseHistory) =>
+    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/collapse-history`, userId, { collapseHistory }),
 
   updateNodeTypeLifecycle: (userId, nodeTypeId, lifecycleId) =>
     request('PUT', `/metamodel/nodetypes/${nodeTypeId}/lifecycle`, userId, { lifecycleId: lifecycleId || null }),
@@ -281,6 +290,9 @@ export const api = {
 
   createNodeType: (userId, body) =>
     request('POST', '/metamodel/nodetypes', userId, body),
+
+  updateNodeTypeParent: (userId, nodeTypeId, parentNodeTypeId) =>
+    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/parent`, userId, { parentNodeTypeId: parentNodeTypeId || null }),
 
   createAttribute: (userId, nodeTypeId, body) =>
     request('POST', `/metamodel/nodetypes/${nodeTypeId}/attributes`, userId, body),
@@ -377,6 +389,15 @@ export const api = {
   /** Returns { userId, username, isAdmin, roleIds } for the given user scoped to a project space. */
   getUserContext: (userId, projectSpaceId) =>
     pnoRequest('GET', `/users/${userId}/context${projectSpaceId ? `?projectSpaceId=${encodeURIComponent(projectSpaceId)}` : ''}`, null),
+
+  // ── Dashboard ────────────────────────────────────────────────────
+  /** Open TX summary for current user. Returns null (204) if no open tx. */
+  getDashboardTransaction: (userId) =>
+    request('GET', '/dashboard/transaction', userId),
+
+  /** Last N modified nodes with available actions, sorted by action count. */
+  getDashboardWorkItems: (userId) =>
+    request('GET', '/dashboard/workitems', userId),
 
   // ── Global action permissions (Access Rights section) ──────────────
 

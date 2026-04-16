@@ -1,16 +1,17 @@
 # CLAUDE.md — Contexte PLM Core
 
-Fichier contexte PLM Core — reprend conversation avec décisions de conception.
+Ce fichier permet de reprendre la conversation avec Claude en conservant
+tout le contexte de conception et les décisions prises.
 
 ---
 
 ## Ce qu'on a construit
 
-**PLM (Product Lifecycle Management) minimaliste et extensible**, architecture multi-service :
+Un **PLM (Product Lifecycle Management) minimaliste et extensible** en architecture multi-service :
 - **plm-api** (PSM — Product Structure Management) : noeuds, versions, lifecycle, signatures, baselines, méta-modèle, permissions
 - **pno-api** (PNO — People & Organisation) : utilisateurs, rôles, espaces projet
 
-Objectif : base solide avant ajout fonctionnalités métier.
+L'objectif est d'avoir une base solide et propre avant d'ajouter des fonctionnalités métier.
 
 ---
 
@@ -23,7 +24,7 @@ Objectif : base solide avant ajout fonctionnalités métier.
 | Persistence | JOOQ (SQL typé, plain SQL) | Modèle relationnel complexe, pas adapté à JPA |
 | DB dev | H2 in-memory (mode PostgreSQL) | Zéro config, tests rapides |
 | DB prod | PostgreSQL 16, deux schémas (`psm` + `pno`) | Robustesse, switch trivial |
-| Migrations | Flyway | Versioning schéma reproductible |
+| Migrations | Flyway | Versioning du schéma reproductible |
 | Frontend | React 18 + nginx | SPA simple, no framework lourd |
 | Temps réel | WebSocket STOMP | Notifications lock/état uniquement |
 | Packaging | Docker Compose | dev et prod en un seul fichier |
@@ -48,15 +49,15 @@ plm-api
 
 **Règle d'URL :** tout nouveau controller PSM → `@RequestMapping("/api/psm/...")`, PNO → `@RequestMapping("/api/pno/...")`.
 
-**Auth inter-services :** `PlmAuthFilter` n'accède plus à la base. Appelle `pno-api` via HTTP (cache Caffeine 30 s, 500 entrées). Endpoint `/api/pno/users/{id}/context` exempt d'auth dans `PnoAuthFilter` (appelé avant établissement du contexte utilisateur).
+**Auth inter-services :** `PlmAuthFilter` ne touche plus la base de données. Il appelle `pno-api` via HTTP (cache Caffeine 30 s, 500 entrées). Le endpoint `/api/pno/users/{id}/context` est exempt d'authentification dans `PnoAuthFilter` (appelé avant que le contexte utilisateur soit établi).
 
 ---
 
 ## Concepts clés (ne pas perdre de vue)
 
 ### 1. Mécanisme transactionnel central
-- **Checkin** = lock pessimiste exclusif → fail-fast si conflit
-- **Checkout** = libère lock, crée nouvelle version
+- **Checkin** = acquérir un lock pessimiste exclusif → fail-fast si conflit
+- **Checkout** = libérer le lock en créant une nouvelle version
 - TOUT passe par ce mécanisme : modifications contenu, lifecycle, signatures, cascades
 
 ### 2. Double identité des versions
@@ -69,14 +70,14 @@ Règles de numérotation :
 - Passage `Released` → nouvelle révision + itération reset (A → B.1)
 
 ### 3. Liens typés
-- `VERSION_TO_MASTER` → pointe toujours version courante → lock récursif requis
-- `VERSION_TO_VERSION` → pointe version figée → aucun lock (déjà immuable)
-- Politique sur **lien**, pas sur noeud → reuse naturel possible
+- `VERSION_TO_MASTER` → pointe toujours la version courante → lock récursif requis
+- `VERSION_TO_VERSION` → pointe une version figée → aucun lock (déjà immuable)
+- La politique est sur le **lien**, pas sur le noeud → reuse naturel possible
 
 ### 4. Baseline
-- Prérequis : état **Frozen** sur grappe (élimine race condition)
-- Résolution **eager** liens V2M au tag → fiabilité long terme
-- Liens V2V sans entrée baseline (déjà figés)
+- Prérequis : état **Frozen** sur la grappe (élimine la race condition)
+- Résolution **eager** des liens V2M au moment du tag → fiabilité à long terme
+- Les liens V2V ne nécessitent pas d'entrée baseline (déjà figés)
 
 ### 5. Pipeline Server-Driven UI (ordre de priorité)
 ```
@@ -87,7 +88,8 @@ Règles de numérotation :
 ```
 
 ### 6. Règle fondamentale des vues
-Vue peut **restreindre** mais **jamais élargir** droits définis par état. Règle la plus importante.
+Une vue peut **restreindre** mais **jamais élargir** les droits définis par l'état.
+C'est la règle la plus importante à ne pas casser.
 
 ### 7. Modèle de transaction PLM
 
@@ -98,12 +100,12 @@ OPEN ──────► COMMITTED   (commit avec commentaire obligatoire)
 ```
 
 **Règles clés :**
-- Un utilisateur = **une seule transaction OPEN** à la fois
+- Un utilisateur ne peut avoir qu'**une seule transaction OPEN** à la fois
 - Création **automatique** au premier checkin OU **explicite** (bouton "Ouvrir une transaction")
-- Commit **libère tous les locks** en une seule opération
-- Commentaire de commit **obligatoire** (comme message Git)
-- Rollback **supprime physiquement** versions OPEN + transaction
-- Nettoyage auto tx OPEN > 24h (auto-rollback)
+- Le commit **libère tous les locks** de la transaction en une seule opération
+- Le commentaire de commit est **obligatoire** (comme un message Git)
+- Le rollback **supprime physiquement** les versions OPEN et la transaction elle-même
+- Nettoyage automatique des tx OPEN > 24h (auto-rollback)
 - **Dépendance circulaire** LockService ↔ PlmTransactionService résolue avec `@Lazy`
 
 **Visibilité des node_version :**
@@ -232,7 +234,7 @@ plm-core/
 
 **Espaces projet :** `ps-default` (espace standard)
 
-Header HTTP : `X-PLM-User: user-alice` + `X-PLM-ProjectSpace: ps-default`
+Header HTTP à utiliser : `X-PLM-User: user-alice` + `X-PLM-ProjectSpace: ps-default`
 
 ---
 
@@ -322,56 +324,66 @@ docker exec pno-api mvn test -f /app/pom.xml
 ## Ce qui reste à faire (backlog)
 
 ### Priorité haute
-- [ ] **Pagination** sur listes de noeuds (`GET /api/psm/nodes?page=&size=&type=`)
+- [ ] **Pagination** sur les listes de noeuds (`GET /api/psm/nodes?page=&size=&type=`)
 - [ ] **Recherche** par attribut (`GET /api/psm/nodes/search?q=...`)
-- [ ] **Audit trail endpoint** (`GET /api/psm/nodes/{id}/versions` — toutes versions techniques)
-- [ ] **Tests PlmRoleAndViewTest** : certains tests supposent SecurityContext actif dans services — vérifier `PlmSecurityContext.get()` fonctionne en contexte test sans filtre HTTP
+- [ ] **Audit trail endpoint** (`GET /api/psm/nodes/{id}/versions` — toutes les versions techniques)
+- [ ] **Tests PlmRoleAndViewTest** : certains tests supposent que le SecurityContext est actif dans les services — vérifier que `PlmSecurityContext.get()` fonctionne bien en contexte de test sans filtre HTTP
 
 ### Priorité moyenne
-- [ ] **Gestion des liens dans frontend** : créer lien entre deux noeuds existants
-- [ ] **Vue admin méta-modèle** : interface pour créer NodeType / Lifecycle / AttributeDefinition sans API
-- [ ] **Comparaison de baselines** dans frontend
+- [ ] **Gestion des liens dans le frontend** : créer un lien entre deux noeuds existants
+- [ ] **Vue admin méta-modèle** : interface pour créer NodeType / Lifecycle / AttributeDefinition sans passer par l'API
+- [ ] **Comparaison de baselines** dans le frontend
 - [ ] **Export baseline** en JSON ou CSV
-- [ ] **Expiration de lock avec notification** : `LockService` nettoie locks expirés mais n'envoie pas encore notification WebSocket `LOCK_EXPIRING`
+- [ ] **Expiration de lock avec notification** : le `LockService` nettoie les locks expirés mais n'envoie pas encore de notification WebSocket `LOCK_EXPIRING`
 
 ### Priorité basse
 - [ ] **Remplacer PlmAuthFilter par JWT/OAuth2** (Spring Security + Keycloak)
-- [ ] **Plugin system pour guards** : SPI Java pour guards custom sans modifier `LifecycleService`
+- [ ] **Plugin system pour les guards** : SPI Java pour ajouter des guards custom sans modifier `LifecycleService`
 - [ ] **Multi-tenant** : isolation par organisation
-- [ ] **JOOQ code generation** : générer classes JOOQ depuis schéma Flyway pour SQL encore plus typé
+- [ ] **JOOQ code generation** : générer les classes JOOQ depuis le schéma Flyway pour du SQL encore plus typé
 
 ---
 
 ## Points d'attention techniques
 
 ### Podman vs Docker
-Projet tourne sous **Podman**, pas Docker. `127.0.0.11` (DNS embarqué Docker) n'existe pas.
-nginx utilise `proxy_pass` simple sans directive `resolver`. Ordre démarrage garanti par `depends_on: condition: service_healthy` dans docker-compose.
+Le projet tourne sous **Podman**, pas Docker. `127.0.0.11` (DNS embarqué Docker) n'existe pas.
+nginx utilise du `proxy_pass` simple sans directive `resolver`. L'ordre de démarrage est
+garanti par `depends_on: condition: service_healthy` dans docker-compose.
 
 ### H2 vs PostgreSQL
-H2 mode PostgreSQL pour tests et dev local. Noms de contraintes FK suivent `{table}_{col}_fkey` (compatible H2 2.x + PostgreSQL). `DROP CONSTRAINT IF EXISTS` sécurisés sur les deux bases.
+H2 en mode PostgreSQL est utilisé pour les tests et le dev local. Les noms de contraintes FK
+suivent la convention `{table}_{col}_fkey` (compatible H2 2.x + PostgreSQL). Les `DROP CONSTRAINT IF EXISTS`
+sont sécurisés sur les deux bases.
 
 ### JOOQ sans code generation
-JOOQ en mode "plain SQL" (sans génération de classes). Intentionnel pour démarrer vite. Prochaine étape : activer génération code JOOQ depuis schéma Flyway.
+Le projet utilise JOOQ en mode "plain SQL" (sans génération de classes).
+C'est intentionnel pour démarrer rapidement. L'étape suivante serait d'activer
+la génération de code JOOQ depuis le schéma Flyway.
 
 ### PlmSecurityContext en test
-Tests injectent contexte manuellement via `PlmSecurityContext.set(...)`. En production, `PlmAuthFilter` (via `PnoApiClient`) le fait. Dualité à documenter pour futurs développeurs.
+Les tests injectent manuellement le contexte via `PlmSecurityContext.set(...)`.
+En production, c'est `PlmAuthFilter` (via `PnoApiClient`) qui le fait. Cette dualité doit être
+documentée pour les futurs développeurs.
 
 ### Frontend : pas de state management global
-Frontend intentionnellement simple (pas Redux/Zustand). État local à chaque composant + rechargement depuis API. Acceptable pour POC, à revoir si volume données augmente.
+Le frontend est intentionnellement simple (pas de Redux/Zustand).
+L'état est local à chaque composant + rechargement depuis l'API.
+Acceptable pour un POC, à revoir si le volume de données augmente.
 
 ### Séparation des responsabilités PSM / PNO
-- **plm-api** ne gère plus utilisateurs, rôles ni espaces projet. Conserve uniquement `id` (VARCHAR) comme références non-contraintes.
-- **pno-api** = source de vérité pour identité et organisation.
-- `RoleController` dans plm-api gère uniquement permissions PSM (node_type_permission, transition_permission, attribute_view) — pas les rôles eux-mêmes.
+- **plm-api** ne gère plus les utilisateurs, rôles ni espaces projet. Il en conserve uniquement les `id` (VARCHAR) comme références non-contraintes.
+- **pno-api** est la source de vérité pour tout ce qui touche à l'identité et à l'organisation.
+- `RoleController` dans plm-api gère uniquement les permissions PSM (node_type_permission, transition_permission, attribute_view) — pas les rôles eux-mêmes.
 
 ---
 
 ## Comment reprendre avec Claude
 
-Colle ce fichier en début de conversation :
+Colle ce fichier au début de ta conversation et dis par exemple :
 
 > "Je reprends le projet PLM Core. Voici le CLAUDE.md de contexte.
 >  Je voudrais maintenant implémenter [la fonctionnalité X]."
 
-Claude reprend sans ré-explication d'architecture.
+Claude pourra reprendre immédiatement sans avoir besoin de ré-expliquer
+l'architecture depuis le début.

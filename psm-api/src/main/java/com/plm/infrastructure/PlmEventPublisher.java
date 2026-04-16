@@ -21,6 +21,7 @@ import java.util.UUID;
  *  /topic/global          → événements globaux (création de noeud)
  *  /topic/baselines       → événements de baseline
  *  /topic/transactions    → événements de transaction
+ *  /topic/metamodel       → événements de changement méta-modèle
  */
 @Slf4j
 @Component
@@ -109,12 +110,19 @@ public class PlmEventPublisher {
             "nodeIds", nodeIds,
             "at",      LocalDateTime.now().toString()
         ));
+        String at = LocalDateTime.now().toString();
         for (String nodeId : nodeIds) {
             publish(nodeId, "LOCK_RELEASED", Map.of(
                 "nodeId",     nodeId,
                 "releasedBy", byUser,
                 "txId",       txId,
-                "at",         LocalDateTime.now().toString()
+                "at",         at
+            ));
+            enqueue("/topic/global", Map.of(
+                "event",  "NODE_UPDATED",
+                "nodeId", nodeId,
+                "byUser", byUser,
+                "at",     at
             ));
         }
         log.debug("Event published: TX_COMMITTED → tx={} nodes={}", txId, nodeIds.size());
@@ -154,6 +162,15 @@ public class PlmEventPublisher {
             "at",      LocalDateTime.now().toString()
         ));
         log.debug("Event published: NODES_RELEASED → count={}", nodeIds.size());
+    }
+
+    public void metamodelChanged(String byUser) {
+        enqueue("/topic/metamodel", Map.of(
+            "event",  "METAMODEL_CHANGED",
+            "byUser", byUser != null ? byUser : "unknown",
+            "at",     LocalDateTime.now().toString()
+        ));
+        log.debug("Event published: METAMODEL_CHANGED by={}", byUser);
     }
 
     // -------------------------------------------------------

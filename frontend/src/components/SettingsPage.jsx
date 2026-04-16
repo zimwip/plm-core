@@ -1,20 +1,24 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../services/api';
+import { useWebSocket } from '../hooks/useWebSocket';
 import {
-  GearIcon, LayersIcon, LifecycleIcon, CloseIcon,
+  LayersIcon, LifecycleIcon, CloseIcon,
   ChevronRightIcon, ChevronDownIcon, HexIcon, TerminalIcon, PlusIcon,
-  EditIcon, TrashIcon, UsersIcon, UserIcon, ShieldIcon,
+  EditIcon, TrashIcon, UsersIcon, UserIcon, ShieldIcon, BookIcon,
 } from './Icons';
 import { NODE_ICONS, NODE_ICON_NAMES } from './Icons';
 import ApiPlayground from './ApiPlayground';
+import UserManual from './UserManual';
+import LifecycleDiagram from './LifecycleDiagram';
 
-const SECTIONS = [
+export const SECTIONS = [
   { key: 'node-types',      label: 'Node Types',     Icon: LayersIcon,    requiredPermission: 'MANAGE_METAMODEL' },
   { key: 'lifecycles',      label: 'Lifecycles',     Icon: LifecycleIcon, requiredPermission: 'MANAGE_METAMODEL' },
   { key: 'proj-spaces',     label: 'Project Spaces', Icon: HexIcon,       requiredPermission: 'MANAGE_ROLES'     },
   { key: 'users-roles',     label: 'Users & Roles',  Icon: UsersIcon,     requiredPermission: 'MANAGE_ROLES'     },
   { key: 'access-rights',   label: 'Access Rights',  Icon: ShieldIcon,    requiredPermission: 'MANAGE_ROLES'     },
   { key: 'api-playground',  label: 'API Playground', Icon: TerminalIcon,  requiredPermission: null               },
+  { key: 'user-manual',     label: 'User Manual',    Icon: BookIcon,      requiredPermission: null               },
 ];
 
 const LINK_POLICIES      = ['VERSION_TO_MASTER', 'VERSION_TO_VERSION'];
@@ -562,6 +566,12 @@ function NodeTypesSection({ userId, canWrite, toast }) {
     api.getLifecycles(userId).then(d => setLifecycles(Array.isArray(d) ? d : []));
   }, [userId]);
 
+  useWebSocket(
+    '/topic/metamodel',
+    (evt) => { if (evt.event === 'METAMODEL_CHANGED') loadTypes(); },
+    userId,
+  );
+
   const typeNameMap = useMemo(() => {
     const m = {};
     types.forEach(nt => { m[nt.id || nt.ID] = nt.name || nt.NAME; });
@@ -602,13 +612,14 @@ function NodeTypesSection({ userId, canWrite, toast }) {
       const { type, ctx } = modal;
       if (type === 'create-nodetype') {
         await api.createNodeType(userId, {
-          name:            form.name?.trim(),
-          description:     form.description?.trim() || null,
-          lifecycleId:     form.lifecycleId || null,
-          numberingScheme: form.numberingScheme || 'ALPHA_NUMERIC',
-          versionPolicy:   form.versionPolicy   || 'ITERATE',
-          color:           form.color  || null,
-          icon:            form.icon   || null,
+          name:             form.name?.trim(),
+          description:      form.description?.trim() || null,
+          lifecycleId:      form.lifecycleId || null,
+          numberingScheme:  form.numberingScheme || 'ALPHA_NUMERIC',
+          versionPolicy:    form.versionPolicy   || 'ITERATE',
+          color:            form.color  || null,
+          icon:             form.icon   || null,
+          parentNodeTypeId: form.parentNodeTypeId || null,
         });
         await loadTypes();
 
@@ -634,6 +645,7 @@ function NodeTypesSection({ userId, canWrite, toast }) {
         await Promise.all([
           api.updateNodeTypeNumberingScheme(userId, ctx.nodeTypeId, form.numberingScheme || 'ALPHA_NUMERIC'),
           api.updateNodeTypeVersionPolicy(userId, ctx.nodeTypeId, form.versionPolicy || 'ITERATE'),
+          api.updateNodeTypeCollapseHistory(userId, ctx.nodeTypeId, !!form.collapseHistory),
         ]);
         await loadTypes();
         setExpanded(null);
@@ -689,6 +701,11 @@ function NodeTypesSection({ userId, canWrite, toast }) {
         });
         const updated = await api.getNodeTypeLinkTypes(userId, ctx.nodeTypeId);
         setLinks(s => ({ ...s, [ctx.nodeTypeId]: Array.isArray(updated) ? updated : [] }));
+
+      } else if (type === 'edit-parent') {
+        await api.updateNodeTypeParent(userId, ctx.nodeTypeId, form.parentNodeTypeId || null);
+        await loadTypes();
+        setExpanded(null);
       }
 
       closeModal();
@@ -748,6 +765,7 @@ function NodeTypesSection({ userId, canWrite, toast }) {
           title={
             modal.type === 'create-nodetype' ? 'New Node Type' :
             modal.type === 'edit-identity'   ? 'Edit Identifier' :
+            modal.type === 'edit-parent'     ? 'Change Parent' :
             modal.type === 'create-attr'     ? 'Add Attribute' :
             modal.type === 'edit-attr'       ? 'Edit Attribute' :
             modal.type === 'create-link'     ? 'Add Link Type' :
@@ -757,7 +775,7 @@ function NodeTypesSection({ userId, canWrite, toast }) {
           onClose={closeModal}
           onSave={handleSave}
           saving={saving}
-          saveLabel={['edit-identity','edit-attr','edit-link'].includes(modal.type) ? 'Update' : 'Create'}
+          saveLabel={['edit-identity','edit-attr','edit-link','edit-parent'].includes(modal.type) ? 'Update' : 'Create'}
         >
           {/* ── New node type ── */}
           {modal.type === 'create-nodetype' && <>
@@ -786,6 +804,15 @@ function NodeTypesSection({ userId, canWrite, toast }) {
                 {VERSION_POLICIES.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </Field>
+            <Field label="Parent node type (optional)">
+              <select className="field-input" value={form.parentNodeTypeId || ''} onChange={e => setForm(f => ({ ...f, parentNodeTypeId: e.target.value }))}>
+                <option value="">None</option>
+                {types.map(nt => {
+                  const tid = nt.id || nt.ID;
+                  return <option key={tid} value={tid}>{nt.name || nt.NAME || tid}</option>;
+                })}
+              </select>
+            </Field>
           </>}
 
           {/* ── Edit identifier ── */}
@@ -796,6 +823,29 @@ function NodeTypesSection({ userId, canWrite, toast }) {
             <Field label="Validation Pattern (regex)">
               <input className="field-input" value={form.logicalIdPattern || ''} onChange={e => setForm(f => ({ ...f, logicalIdPattern: e.target.value }))} placeholder="e.g. ^[A-Z]{2}-\d{4}$" />
             </Field>
+          </>}
+
+          {/* ── Edit parent node type ── */}
+          {modal.type === 'edit-parent' && <>
+            <Field label="Parent node type">
+              <select
+                className="field-input"
+                autoFocus
+                value={form.parentNodeTypeId || ''}
+                onChange={e => setForm(f => ({ ...f, parentNodeTypeId: e.target.value }))}
+              >
+                <option value="">None (root type)</option>
+                {types
+                  .filter(nt => (nt.id || nt.ID) !== modal.ctx.nodeTypeId)
+                  .map(nt => {
+                    const tid = nt.id || nt.ID;
+                    return <option key={tid} value={tid}>{nt.name || nt.NAME || tid}</option>;
+                  })}
+              </select>
+            </Field>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+              Attributes, actions, and link types defined on the parent type will be inherited. State rule overrides can be configured per attribute.
+            </div>
           </>}
 
           {/* ── Edit lifecycle ── */}
@@ -828,6 +878,18 @@ function NodeTypesSection({ userId, canWrite, toast }) {
               {form.versionPolicy === 'ITERATE' && 'Checkout increments the iteration: A.1 → A.2.'}
               {form.versionPolicy === 'RELEASE' && 'Checkout starts a new revision: A.3 → B.1.'}
             </div>
+            <Field label="Collapse history on release">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!!form.collapseHistory}
+                  onChange={e => setForm(f => ({ ...f, collapseHistory: e.target.checked }))}
+                />
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  On release, delete intermediate iterations (A.1, A.2 → A). History shows A, B, C only.
+                </span>
+              </label>
+            </Field>
           </>}
 
           {/* ── Edit appearance (node type color + icon) ── */}
@@ -989,13 +1051,16 @@ function NodeTypesSection({ userId, canWrite, toast }) {
         const ntLinks    = links[id] || [];
         const lidLabel    = nt.logical_id_label   || nt.LOGICAL_ID_LABEL   || 'Identifier';
         const lidPattern  = nt.logical_id_pattern || nt.LOGICAL_ID_PATTERN || '';
-        const numScheme   = nt.numbering_scheme   || nt.NUMBERING_SCHEME   || 'ALPHA_NUMERIC';
-        const verPolicy   = nt.version_policy     || nt.VERSION_POLICY     || 'ITERATE';
+        const numScheme      = nt.numbering_scheme   || nt.NUMBERING_SCHEME   || 'ALPHA_NUMERIC';
+        const verPolicy      = nt.version_policy     || nt.VERSION_POLICY     || 'ITERATE';
+        const collapseHist   = !!(nt.collapse_history || nt.COLLAPSE_HISTORY);
         const lcId        = nt.lifecycle_id       || nt.LIFECYCLE_ID       || null;
         const lcName      = lifecycles.find(lc => (lc.id || lc.ID) === lcId)?.name || lcId || '—';
         const ntColor     = nt.color || nt.COLOR || null;
         const ntIcon      = nt.icon  || nt.ICON  || null;
         const NtIcon      = ntIcon ? NODE_ICONS[ntIcon] : null;
+        const parentId    = nt.parent_node_type_id || nt.PARENT_NODE_TYPE_ID || null;
+        const parentName  = parentId ? (typeNameMap[parentId] || parentId) : null;
         return (
           <div key={id} className="settings-card">
             <div className="settings-card-hd" onClick={() => expand(nt)} style={{ display: 'flex', alignItems: 'center' }}>
@@ -1022,8 +1087,31 @@ function NodeTypesSection({ userId, canWrite, toast }) {
 
             {isExp && (
               <div className="settings-card-body">
-                {/* Identifier */}
+                {/* Inheritance */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <span className="settings-sub-label" style={{ margin: 0 }}>Inheritance</span>
+                  {canWrite && (
+                    <button className="panel-icon-btn" title="Change parent" onClick={() => openModal('edit-parent', { nodeTypeId: id }, { parentNodeTypeId: parentId || '' })}>
+                      <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
+                    </button>
+                  )}
+                </div>
+                <table className="settings-table">
+                  <tbody>
+                    <tr>
+                      <td style={{ color: 'var(--muted)', width: 110 }}>Inherits from</td>
+                      <td>
+                        {parentName
+                          ? <span className="settings-badge">{parentName}</span>
+                          : <span style={{ color: 'var(--muted2)' }}>—</span>
+                        }
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {/* Identifier */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 }}>
                   <span className="settings-sub-label" style={{ margin: 0 }}>Identifier</span>
                   {canWrite && (
                     <button className="panel-icon-btn" title="Edit identifier" onClick={() => openModal('edit-identity', { nodeTypeId: id }, { logicalIdLabel: lidLabel, logicalIdPattern: lidPattern })}>
@@ -1066,7 +1154,7 @@ function NodeTypesSection({ userId, canWrite, toast }) {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 }}>
                   <span className="settings-sub-label" style={{ margin: 0 }}>Versioning</span>
                   {canWrite && (
-                    <button className="panel-icon-btn" title="Edit versioning" onClick={() => openModal('edit-versioning', { nodeTypeId: id }, { numberingScheme: numScheme, versionPolicy: verPolicy })}>
+                    <button className="panel-icon-btn" title="Edit versioning" onClick={() => openModal('edit-versioning', { nodeTypeId: id }, { numberingScheme: numScheme, versionPolicy: verPolicy, collapseHistory: collapseHist })}>
                       <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
                     </button>
                   )}
@@ -1080,6 +1168,10 @@ function NodeTypesSection({ userId, canWrite, toast }) {
                     <tr>
                       <td style={{ color: 'var(--muted)' }}>Policy</td>
                       <td><span className="settings-badge">{verPolicy}</span></td>
+                    </tr>
+                    <tr>
+                      <td style={{ color: 'var(--muted)' }}>History</td>
+                      <td><span className="settings-badge">{collapseHist ? 'Collapse' : 'Keep all'}</span></td>
                     </tr>
                   </tbody>
                 </table>
@@ -1142,16 +1234,27 @@ function NodeTypesSection({ userId, canWrite, toast }) {
                       {[...ntAttrs]
                         .sort((a, b) => (a.display_order || a.DISPLAY_ORDER || 0) - (b.display_order || b.DISPLAY_ORDER || 0))
                         .map(a => {
-                          const aid    = a.id          || a.ID;
-                          const aname  = a.name        || a.NAME;
-                          const albl   = a.label       || a.LABEL       || aname;
-                          const atype  = a.widget_type || a.WIDGET_TYPE || 'TEXT';
-                          const areq   = !!(a.required || a.REQUIRED);
-                          const aAsNm  = !!(a.as_name  || a.AS_NAME);
-                          const asec   = a.display_section || a.DISPLAY_SECTION || '—';
+                          const aid      = a.id          || a.ID;
+                          const aname    = a.name        || a.NAME;
+                          const albl     = a.label       || a.LABEL       || aname;
+                          const atype    = a.widget_type || a.WIDGET_TYPE || 'TEXT';
+                          const areq     = !!(a.required || a.REQUIRED);
+                          const aAsNm    = !!(a.as_name  || a.AS_NAME);
+                          const asec     = a.display_section || a.DISPLAY_SECTION || '—';
+                          const aInherited   = !!(a.inherited || a.INHERITED);
+                          const aInheritedFrom = a.inherited_from || a.INHERITED_FROM || null;
                           return (
                             <tr key={aid}>
-                              <td className="settings-td-mono">{aname}</td>
+                              <td className="settings-td-mono">
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                  {aname}
+                                  {aInherited && (
+                                    <span style={{ fontSize: 9, background: 'var(--accent-dim,rgba(99,179,237,.15))', color: 'var(--accent)', borderRadius: 3, padding: '1px 4px', fontFamily: 'sans-serif', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>
+                                      from {aInheritedFrom || 'parent'}
+                                    </span>
+                                  )}
+                                </span>
+                              </td>
                               <td>{albl}</td>
                               <td><span className="settings-badge">{atype}</span></td>
                               <td style={{ color: areq ? 'var(--success)' : 'var(--muted)' }}>{areq ? '✓' : '—'}</td>
@@ -1159,7 +1262,7 @@ function NodeTypesSection({ userId, canWrite, toast }) {
                               <td style={{ color: 'var(--muted)' }}>{asec}</td>
                               <td>
                                 <div style={{ display: 'flex', gap: 4 }}>
-                                  {canWrite && (
+                                  {canWrite && !aInherited && (
                                     <button className="panel-icon-btn" title="Edit" onClick={() => openModal('edit-attr', { nodeTypeId: id, attrId: aid }, {
                                       label:          albl,
                                       dataType:       a.data_type      || a.DATA_TYPE      || 'STRING',
@@ -1172,7 +1275,7 @@ function NodeTypesSection({ userId, canWrite, toast }) {
                                       <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
                                     </button>
                                   )}
-                                  {canWrite && (
+                                  {canWrite && !aInherited && (
                                     <button className="panel-icon-btn" title="Delete" onClick={e => deleteAttr(e, id, a)}>
                                       <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
                                     </button>
@@ -1380,19 +1483,31 @@ function TransitionFormFields({ form, setForm, states }) {
 }
 
 function LifecyclesSection({ userId, canWrite, toast }) {
-  const [lcs,      setLcs]      = useState([]);
-  const [expanded, setExpanded] = useState(null);
-  const [lcData,   setLcData]   = useState({});
-  const [loading,  setLoading]  = useState(true);
-  const [modal,    setModal]    = useState(null);
-  const [form,     setForm]     = useState({});
-  const [saving,   setSaving]   = useState(false);
+  const [lcs,         setLcs]         = useState([]);
+  const [expanded,    setExpanded]    = useState(null);
+  const [lcData,      setLcData]      = useState({});
+  const [loading,     setLoading]     = useState(true);
+  const [modal,       setModal]       = useState(null);
+  const [form,        setForm]        = useState({});
+  const [saving,      setSaving]      = useState(false);
+  const [roles,       setRoles]       = useState([]);
+  const [sigReqRole,  setSigReqRole]  = useState('');
+  const [sigReqBusy,  setSigReqBusy]  = useState(false);
 
   function loadLcs() {
     return api.getLifecycles(userId).then(d => setLcs(Array.isArray(d) ? d : []));
   }
 
-  useEffect(() => { loadLcs().finally(() => setLoading(false)); }, [userId]);
+  useEffect(() => {
+    loadLcs().finally(() => setLoading(false));
+    api.getRoles(userId).then(d => setRoles(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [userId]);
+
+  useWebSocket(
+    '/topic/metamodel',
+    (evt) => { if (evt.event === 'METAMODEL_CHANGED') loadLcs(); },
+    userId,
+  );
 
   async function refreshLcData(id) {
     const [states, transitions] = await Promise.all([
@@ -1412,8 +1527,8 @@ function LifecyclesSection({ userId, canWrite, toast }) {
     if (!lcData[id]) await refreshLcData(id).catch(e => toast(e, 'error'));
   }
 
-  function openModal(type, ctx = {}, defaults = {}) { setForm(defaults); setModal({ type, ctx }); }
-  function closeModal() { setModal(null); setForm({}); }
+  function openModal(type, ctx = {}, defaults = {}) { setForm(defaults); setModal({ type, ctx }); setSigReqRole(''); }
+  function closeModal() { setModal(null); setForm({}); setSigReqRole(''); }
 
   async function handleSave() {
     setSaving(true);
@@ -1484,6 +1599,24 @@ function LifecyclesSection({ userId, canWrite, toast }) {
     } catch (e) { toast(e, 'error'); }
   }
 
+  async function addSigReq(transId, lcId) {
+    if (!sigReqRole) return;
+    setSigReqBusy(true);
+    try {
+      await api.addTransitionSignatureRequirement(userId, transId, sigReqRole);
+      setSigReqRole('');
+      await refreshLcData(lcId);
+    } catch (e) { toast(e, 'error'); } finally { setSigReqBusy(false); }
+  }
+
+  async function removeSigReq(transId, reqId, lcId) {
+    setSigReqBusy(true);
+    try {
+      await api.removeTransitionSignatureRequirement(userId, transId, reqId);
+      await refreshLcData(lcId);
+    } catch (e) { toast(e, 'error'); } finally { setSigReqBusy(false); }
+  }
+
   const saveDisabled = () => {
     if (!modal || saving) return true;
     const { type } = modal;
@@ -1514,7 +1647,7 @@ function LifecyclesSection({ userId, canWrite, toast }) {
           onSave={handleSave}
           saving={saving}
           saveLabel={isEdit ? 'Update' : 'Create'}
-          width={modal.type?.includes('state') ? 520 : 480}
+          width={modal.type?.includes('state') ? 520 : modal.type === 'edit-transition' ? 520 : 480}
         >
           {modal.type === 'create-lc' && <>
             <Field label="Name *">
@@ -1532,6 +1665,50 @@ function LifecyclesSection({ userId, canWrite, toast }) {
           {(modal.type === 'create-transition' || modal.type === 'edit-transition') && (
             <TransitionFormFields form={form} setForm={setForm} states={modal.ctx.states || []} />
           )}
+
+          {modal.type === 'edit-transition' && canWrite && (() => {
+            const lcId    = modal.ctx.lifecycleId;
+            const transId = modal.ctx.transId;
+            const trans   = lcData[lcId]?.transitions?.find(t => (t.id || t.ID) === transId);
+            const sigReqs = trans?.signatureRequirements || [];
+            const usedRoleIds = new Set(sigReqs.map(r => r.roleRequired));
+            return (
+              <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
+                  Signature Requirements
+                </div>
+                {sigReqs.length === 0 && (
+                  <div className="settings-empty-row" style={{ fontSize: 11 }}>No signatures required for this transition</div>
+                )}
+                {sigReqs.map(req => (
+                  <div key={req.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12 }}>
+                    <span style={{ flex: 1, color: 'var(--text)' }}>
+                      {roles.find(r => (r.id || r.ID) === req.roleRequired)?.name || req.roleRequired}
+                    </span>
+                    <button className="panel-icon-btn" disabled={sigReqBusy}
+                      onClick={() => removeSigReq(transId, req.id, lcId)}
+                      title="Remove requirement">
+                      <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                    </button>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <select className="field-input" style={{ flex: 1, fontSize: 12 }}
+                    value={sigReqRole} onChange={e => setSigReqRole(e.target.value)}>
+                    <option value="">Add required role…</option>
+                    {roles.map(r => {
+                      const rid = r.id || r.ID;
+                      return <option key={rid} value={rid} disabled={usedRoleIds.has(rid)}>{r.name || r.NAME || rid}</option>;
+                    })}
+                  </select>
+                  <button className="btn btn-sm" disabled={!sigReqRole || sigReqBusy}
+                    onClick={() => addSigReq(transId, lcId)}>
+                    Add
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </MetaModal>
       )}
 
@@ -1568,6 +1745,17 @@ function LifecyclesSection({ userId, canWrite, toast }) {
 
             {isExp && data && (
               <div className="settings-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+
+                {/* ── Diagram preview ─────────────────────── */}
+                {data.states?.length > 0 && (
+                  <div style={{ marginBottom: 16, overflowX: 'auto' }}>
+                    <LifecycleDiagram
+                      lifecycleId={id}
+                      userId={userId}
+                      previewMode
+                    />
+                  </div>
+                )}
 
                 {/* ── States ─────────────────────────────── */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -1685,6 +1873,12 @@ function LifecyclesSection({ userId, canWrite, toast }) {
                       <div style={{ display: 'flex', gap: 4 }}>
                         {guard && <span className="settings-badge" title="Guard">{guard}</span>}
                         {vstrat && vstrat !== 'NONE' && <span className="settings-badge">{vstrat}</span>}
+                        {t.signatureRequirements?.length > 0 && (
+                          <span className="settings-badge" title={`${t.signatureRequirements.length} signature(s) required`}
+                            style={{ background: 'rgba(139,92,246,.18)', color: '#a78bfa' }}>
+                            {t.signatureRequirements.length} sign. req.
+                          </span>
+                        )}
                       </div>
                       {/* Actions */}
                       {canWrite && (
@@ -2551,9 +2745,8 @@ function AccessRightsSection({ userId, canWrite, toast }) {
 }
 
 /* ── Main SettingsPage ───────────────────────────────────────────── */
-export default function SettingsPage({ userId, projectSpaceId, onClose, toast }) {
-  const [activeSection, setActiveSection] = useState(null);
-  const [globalPerms,   setGlobalPerms]   = useState(null); // null = loading; Set<string> once loaded
+export default function SettingsPage({ userId, projectSpaceId, activeSection, onSectionChange, toast }) {
+  const [globalPerms, setGlobalPerms] = useState(null); // null = loading; Set<string> once loaded
 
   useEffect(() => {
     api.getMyGlobalPermissions(userId)
@@ -2561,11 +2754,11 @@ export default function SettingsPage({ userId, projectSpaceId, onClose, toast })
         const perms = new Set(Array.isArray(codes) ? codes : []);
         setGlobalPerms(perms);
         const first = SECTIONS.find(s => true); // all sections visible
-        setActiveSection(first?.key ?? null);
+        onSectionChange(first?.key ?? null);
       })
       .catch(() => {
         setGlobalPerms(new Set());
-        setActiveSection('api-playground');
+        onSectionChange('api-playground');
       });
   }, [userId, projectSpaceId]);
 
@@ -2579,46 +2772,25 @@ export default function SettingsPage({ userId, projectSpaceId, onClose, toast })
   const activeSection_obj = SECTIONS.find(s => s.key === activeSection);
 
   return (
-    <div className="settings-page">
-      <div className="settings-sidenav">
-        <div className="settings-sidenav-title">
-          <GearIcon size={14} color="var(--accent)" strokeWidth={1.8} />
-          Settings &amp; Metadata
-        </div>
-        <div className="settings-sidenav-items">
-          {SECTIONS.map(({ key, label, Icon, requiredPermission }) => (
-            <div key={key} className={`settings-nav-item ${activeSection === key ? 'active' : ''}`} onClick={() => setActiveSection(key)}>
-              <Icon size={13} strokeWidth={1.8} color={activeSection === key ? 'var(--accent)' : 'var(--muted)'} />
-              {label}
-              {requiredPermission && globalPerms !== null && !globalPerms.has(requiredPermission) && (
-                <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--muted)', opacity: 0.6, fontFamily: 'monospace' }}>ro</span>
-              )}
-            </div>
-          ))}
-        </div>
+    <div className="settings-content">
+      <div className="settings-content-hd">
+        <span className="settings-content-title">{activeSection_obj?.label}</span>
       </div>
-      <div className="settings-content">
-        <div className="settings-content-hd">
-          <span className="settings-content-title">{activeSection_obj?.label}</span>
-          <button className="btn btn-sm" onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <CloseIcon size={12} strokeWidth={2.5} />
-            Close
-          </button>
+      {activeSection === null ? (
+        <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+      ) : activeSection === 'api-playground' ? (
+        <ApiPlayground userId={userId} projectSpaceId={projectSpaceId} />
+      ) : activeSection === 'user-manual' ? (
+        <UserManual />
+      ) : (
+        <div className="settings-content-body">
+          {activeSection === 'node-types'    && <NodeTypesSection    userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
+          {activeSection === 'lifecycles'    && <LifecyclesSection   userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
+          {activeSection === 'proj-spaces'   && <ProjectSpacesSection userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
+          {activeSection === 'users-roles'   && <UsersRolesSection   userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
+          {activeSection === 'access-rights' && <AccessRightsSection userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
         </div>
-        {activeSection === null ? (
-          <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
-        ) : activeSection === 'api-playground' ? (
-          <ApiPlayground userId={userId} projectSpaceId={projectSpaceId} />
-        ) : (
-          <div className="settings-content-body">
-            {activeSection === 'node-types'    && <NodeTypesSection    userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
-            {activeSection === 'lifecycles'    && <LifecyclesSection   userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
-            {activeSection === 'proj-spaces'   && <ProjectSpacesSection userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
-            {activeSection === 'users-roles'   && <UsersRolesSection   userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
-            {activeSection === 'access-rights' && <AccessRightsSection userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }

@@ -1,25 +1,21 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { api, txApi, authoringApi } from '../services/api';
+import { getDraggedNode, clearDraggedNode } from '../services/dragState';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { usePlmStore } from '../store/usePlmStore';
 import LifecycleDiagram from './LifecycleDiagram';
+import { NODE_ICONS } from './Icons';
 
-const STATE_COLORS = {
-  'st-draft':    '#5b9cf6',
-  'st-inreview': '#e8a947',
-  'st-released': '#56d18e',
-  'st-frozen':   '#a78bfa',
-  'st-obsolete': '#6b7280',
-};
 function stateLabel(s) {
   return { 'st-draft': 'Draft', 'st-inreview': 'In Review', 'st-released': 'Released', 'st-frozen': 'Frozen', 'st-obsolete': 'Obsolete' }[s] || s;
 }
-function StatePill({ stateId }) {
-  const c = STATE_COLORS[stateId] || '#6b7280';
+function StatePill({ stateId, stateName, stateColorMap }) {
+  const c = stateColorMap?.[stateId] || '#6b7280';
   return (
     <span className="pill" style={{ color: c, background: `${c}18`, border: `1px solid ${c}30` }}>
       <span className="pill-dot" style={{ background: c }} />
-      {stateLabel(stateId)}
+      {stateName || stateLabel(stateId)}
     </span>
   );
 }
@@ -28,6 +24,8 @@ export default function NodeEditor({
   nodeId,
   userId,
   tx,
+  nodeTypes,
+  stateColorMap,
   activeSubTab,
   onSubTabChange,
   toast,
@@ -41,8 +39,10 @@ export default function NodeEditor({
   const [saveViolations, setSaveViolations]= useState([]);
   const [loading,        setLoading]       = useState(false);
   const [saveStatus,     setSaveStatus]    = useState(null); // null | 'saving' | 'saved'
-  const [cancelConfirm,  setCancelConfirm] = useState(false);
-  const [signPanel,      setSignPanel]     = useState(false);
+  const [cancelConfirm,    setCancelConfirm]    = useState(false);
+  const [checkinModal,     setCheckinModal]     = useState(false);
+  const [checkinComment,   setCheckinComment]   = useState('');
+  const [signPanel,        setSignPanel]        = useState(false);
   const [sigMeaning,  setSigMeaning] = useState('Reviewed');
   const [sigComment,  setSigComment] = useState('');
   const [diff,        setDiff]       = useState(null);   // { data, v1Num, v2Num } | null
@@ -292,13 +292,16 @@ export default function NodeEditor({
     finally { setLoading(false); }
   }
 
-  async function handleCheckin() {
+  async function submitCheckin(comment) {
     if (!checkinAction || !txId) return;
+    setCheckinModal(false);
+    setCheckinComment('');
     setLoading(true);
     try {
-      const result = await authoringApi.executeAction(nodeId, checkinAction.id, userId, txId, {});
+      const result = await authoringApi.executeAction(nodeId, checkinAction.id, userId, txId,
+        { _description: comment });
       const cont = result?.continuationTxId;
-      await refreshAll();       // tx closes (or continuation opens); activeTx updated in store
+      await refreshAll();
       await load();
       if (cont) toast('Checked in — other nodes moved to a new transaction', 'info');
     } catch (e) { toast(e, 'error'); }
@@ -408,6 +411,8 @@ export default function NodeEditor({
   const isOpenVersion = desc.txStatus === 'OPEN';
   const checkoutAction    = desc.actions?.find(a => a.actionCode === 'CHECKOUT');
   const checkinAction     = desc.actions?.find(a => a.actionCode === 'CHECKIN');
+  // fingerprintChanged is null for committed versions; false means OPEN but no content change
+  const fingerprintChanged = desc.fingerprintChanged;
   const signAction        = desc.actions?.find(a => a.actionCode === 'SIGN');
   const updateNodeAction  = desc.actions?.find(a => a.actionCode === 'UPDATE_NODE');
   const transitions       = desc.actions?.filter(a => a.actionCode === 'TRANSITION') || [];
@@ -417,6 +422,13 @@ export default function NodeEditor({
 
   // Lifecycle ID for diagram — resolved from node type
   const lifecycleId = desc.lifecycleId || null;
+
+  // Node type appearance
+  const nt          = desc.nodeTypeId ? (nodeTypes || []).find(t => (t.id || t.ID) === desc.nodeTypeId) : null;
+  const ntColor     = nt?.color || nt?.COLOR || null;
+  const ntIconName  = nt?.icon  || nt?.ICON  || null;
+  const NtIcon      = ntIconName ? NODE_ICONS[ntIconName] : null;
+  const ntName      = nt?.name  || nt?.NAME  || null;
 
   function actionColor(name) {
     if (/approv|releas/i.test(name)) return 'btn-success';
@@ -430,13 +442,32 @@ export default function NodeEditor({
       <div className="node-header">
         <div className="node-title-group">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Node type badge */}
+            {(NtIcon || ntColor || ntName) && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                background: ntColor ? `${ntColor}18` : 'rgba(100,116,139,.1)',
+                border: `1px solid ${ntColor ? `${ntColor}30` : 'rgba(100,116,139,.2)'}`,
+                borderRadius: 4, padding: '2px 7px', fontSize: 11, color: ntColor || 'var(--muted)',
+                fontWeight: 600, letterSpacing: '.01em', flexShrink: 0,
+              }}>
+                {NtIcon
+                  ? <NtIcon size={11} color={ntColor || 'var(--muted)'} strokeWidth={2} />
+                  : ntColor
+                    ? <span style={{ width: 7, height: 7, borderRadius: 1, background: ntColor, display: 'inline-block' }} />
+                    : null
+                }
+                {ntName}
+              </span>
+            )}
             <span className="node-identity">{desc.logicalId || desc.identity}</span>
             {desc.displayName && (
               <span className="node-display-name">{desc.displayName}</span>
             )}
             <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--muted)', fontWeight: 600, background: 'rgba(100,116,139,.1)', padding: '2px 7px', borderRadius: 4, letterSpacing: '.01em' }}>
-              {desc.revision}.{desc.iteration}
+              {desc.iteration === 0 ? desc.revision : `${desc.revision}.${desc.iteration}`}
             </span>
+            <StatePill stateId={desc.state} stateName={desc.stateName} stateColorMap={stateColorMap} />
             {desc.lock?.locked && (
               <span className="pill" style={{ color: 'var(--muted)', background: 'rgba(100,116,139,.1)', border: '1px solid rgba(100,116,139,.2)' }}>
                 🔒 {desc.lock.lockedBy}
@@ -444,7 +475,6 @@ export default function NodeEditor({
             )}
           </div>
           <div className="node-meta">
-            <StatePill stateId={desc.state} />
             {isOpenVersion && (
               <span className="pill" style={{ color: 'var(--warn)', background: 'rgba(232,169,71,.1)', border: '1px solid rgba(232,169,71,.25)' }}>
                 ✎ editing
@@ -473,8 +503,13 @@ export default function NodeEditor({
               ✎ Checkout
             </button>
           )}
-          {checkinAction && (
-            <button className="btn btn-sm btn-success" onClick={handleCheckin} disabled={loading}>
+          {checkinAction && fingerprintChanged !== false && (
+            <button className="btn btn-sm btn-success" onClick={() => setCheckinModal(true)} disabled={loading}>
+              ✓ Check In
+            </button>
+          )}
+          {checkinAction && fingerprintChanged === false && (
+            <button className="btn btn-sm" disabled title="No changes to check in">
               ✓ Check In
             </button>
           )}
@@ -506,6 +541,52 @@ export default function NodeEditor({
           )}
         </div>
       </div>
+
+      {/* Check In modal — portaled to document.body to avoid stacking-context clipping */}
+      {checkinModal && ReactDOM.createPortal(
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 2000,
+          background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => { setCheckinModal(false); setCheckinComment(''); }}>
+          <div style={{
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: '28px 32px', maxWidth: 440, width: '90%',
+            boxShadow: '0 8px 32px rgba(0,0,0,.4)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Check In</div>
+            <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
+              Describe what changed in <strong>{desc.identity}</strong>.
+            </div>
+            <div className="field" style={{ marginBottom: 20 }}>
+              <label className="field-label" htmlFor="checkin-comment-input">
+                Comment <span className="field-req" aria-label="required">*</span>
+              </label>
+              <input
+                id="checkin-comment-input"
+                className="field-input"
+                placeholder="What did you change?"
+                value={checkinComment}
+                onChange={e => setCheckinComment(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && checkinComment.trim()) submitCheckin(checkinComment.trim()); }}
+                autoFocus
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-sm" onClick={() => { setCheckinModal(false); setCheckinComment(''); }}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-sm btn-success"
+                disabled={!checkinComment.trim()}
+                onClick={() => submitCheckin(checkinComment.trim())}
+              >
+                ✓ Check In
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Cancel confirmation modal */}
       {cancelConfirm && (
@@ -672,14 +753,13 @@ export default function NodeEditor({
         <div
           className={isDragOver ? 'pbs-drop-zone drag-over' : 'pbs-drop-zone'}
           onDragEnter={e => {
-            const types = Array.from(e.dataTransfer.types);
-            if (!types.includes('application/plm-node')) return;
+            if (!getDraggedNode()) return;
             e.preventDefault();
             dragCounter.current++;
             setIsDragOver(true);
           }}
           onDragOver={e => {
-            if (!Array.from(e.dataTransfer.types).includes('application/plm-node')) return;
+            if (!getDraggedNode()) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'link';
           }}
@@ -691,19 +771,15 @@ export default function NodeEditor({
             e.preventDefault();
             dragCounter.current = 0;
             setIsDragOver(false);
+            const data = getDraggedNode();
+            clearDraggedNode();
+            if (!data) return;
             if (!desc?.actions?.some(a => a.actionCode === 'CREATE_LINK')) {
               toast('You do not have write permission on this node', 'error');
               return;
             }
-            try {
-              const raw = e.dataTransfer.getData('application/plm-node');
-              if (!raw) return;
-              const data = JSON.parse(raw);
-              if (data.nodeId && data.nodeId !== nodeId) {
-                openLinkPanel(data);
-              }
-            } catch (err) {
-              console.warn('[PBS DnD] failed to parse payload:', err);
+            if (data.nodeId && data.nodeId !== nodeId) {
+              openLinkPanel(data);
             }
           }}
         >
@@ -767,10 +843,10 @@ export default function NodeEditor({
                         const lid  = n.logical_id  || n.LOGICAL_ID  || '';
                         const type = n.node_type_name || n.NODE_TYPE_NAME || '';
                         const rev  = n.revision  || n.REVISION  || '';
-                        const iter = n.iteration || n.ITERATION || '';
+                        const iter = n.iteration ?? n.ITERATION ?? '';
                         return (
                           <option key={nid} value={nid}>
-                            {lid || nid.slice(0, 8)} — {type} {rev}.{iter}
+                            {lid || nid.slice(0, 8)} — {type} {iter === 0 ? rev : `${rev}.${iter}`}
                           </option>
                         );
                       })}
@@ -902,7 +978,7 @@ export default function NodeEditor({
                           ? <span style={{ opacity: .35 }}>—</span>
                           : `${c.targetRevision}.${c.targetIteration}`}
                       </td>
-                      <td><StatePill stateId={c.targetState} /></td>
+                      <td><StatePill stateId={c.targetState} stateColorMap={stateColorMap} /></td>
                       <td>
                         <span className="hist-type-badge" data-type={c.linkPolicy} style={{ fontSize: 10 }}>
                           {c.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
@@ -1012,7 +1088,7 @@ export default function NodeEditor({
                         ? <span style={{ opacity: .35 }}>—</span>
                         : `${p.sourceRevision}.${p.sourceIteration}`}
                     </td>
-                    <td><StatePill stateId={p.sourceState} /></td>
+                    <td><StatePill stateId={p.sourceState} stateColorMap={stateColorMap} /></td>
                     <td>
                       <span className="hist-type-badge" data-type={p.linkPolicy} style={{ fontSize: 10 }}>
                         {p.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
@@ -1055,7 +1131,7 @@ export default function NodeEditor({
           {/* Lifecycle diagram on top */}
           <div className="history-lc-section">
             <div className="history-lc-label">
-              Lifecycle — current state: <StatePill stateId={desc.state} />
+              Lifecycle
             </div>
             <LifecycleDiagram
               lifecycleId={desc.lifecycleId}
@@ -1116,7 +1192,7 @@ export default function NodeEditor({
                         {isPending && <span className="pending-badge">pending</span>}
                       </td>
                       <td style={{ fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 12 }}>
-                        {v.revision || v.REVISION}.{v.iteration || v.ITERATION}
+                        {(v.iteration ?? v.ITERATION) === 0 ? (v.revision || v.REVISION) : `${v.revision || v.REVISION}.${v.iteration ?? v.ITERATION}`}
                       </td>
                       <td>
                         <span className="hist-state">
@@ -1232,8 +1308,8 @@ function DiffModal({ diff, v1Num, v2Num, onClose }) {
         <div className="diff-meta-row">
           <div className="diff-meta-cell diff-meta-old">
             <div className="diff-meta-label">Version {v1Num}</div>
-            <div className="diff-meta-rev">{v1.revision}.{v1.iteration}</div>
-            <StatePill stateId={v1.lifecycleStateId} />
+            <div className="diff-meta-rev">{v1.iteration === 0 ? v1.revision : `${v1.revision}.${v1.iteration}`}</div>
+            <StatePill stateId={v1.lifecycleStateId} stateColorMap={stateColorMap} />
             <span className="hist-type-badge" data-type={v1.changeType} style={{ marginLeft: 6 }}>{v1.changeType}</span>
             <div className="diff-meta-sub">{v1.createdBy} · {v1.txComment || '—'}</div>
           </div>
@@ -1243,8 +1319,8 @@ function DiffModal({ diff, v1Num, v2Num, onClose }) {
               Version {v2Num}
               {!v2.committedAt && <span className="pending-badge">pending</span>}
             </div>
-            <div className="diff-meta-rev">{v2.revision}.{v2.iteration}</div>
-            <StatePill stateId={v2.lifecycleStateId} />
+            <div className="diff-meta-rev">{v2.iteration === 0 ? v2.revision : `${v2.revision}.${v2.iteration}`}</div>
+            <StatePill stateId={v2.lifecycleStateId} stateColorMap={stateColorMap} />
             <span className="hist-type-badge" data-type={v2.changeType} style={{ marginLeft: 6 }}>{v2.changeType}</span>
             <div className="diff-meta-sub">{v2.createdBy} · {v2.txComment || <em style={{ opacity: .5 }}>uncommitted</em>}</div>
           </div>
@@ -1256,9 +1332,9 @@ function DiffModal({ diff, v1Num, v2Num, onClose }) {
           {stateChanged && (
             <div className="diff-state-change">
               <span style={{ opacity: .7 }}>State changed:</span>{' '}
-              <StatePill stateId={v1.lifecycleStateId} />
+              <StatePill stateId={v1.lifecycleStateId} stateColorMap={stateColorMap} />
               {' '}→{' '}
-              <StatePill stateId={v2.lifecycleStateId} />
+              <StatePill stateId={v2.lifecycleStateId} stateColorMap={stateColorMap} />
             </div>
           )}
 

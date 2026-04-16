@@ -73,7 +73,7 @@ export default function BottomConsole({
               {txVersions.map((v, i) => {
                 const nid     = v.node_id        || v.NODE_ID;
                 const rev     = v.revision       || v.REVISION    || 'A';
-                const iter    = v.iteration      || v.ITERATION   || 1;
+                const iter    = v.iteration      ?? v.ITERATION   ?? 1;
                 const ct      = v.change_type    || v.CHANGE_TYPE || '';
                 const state   = v.lifecycle_state_id || v.LIFECYCLE_STATE_ID || '';
                 const typeName = v.node_type_name || v.NODE_TYPE_NAME || '';
@@ -87,7 +87,7 @@ export default function BottomConsole({
                     onClick={() => onNavigate(nid)}
                   >
                     <span className="cvi-dot" style={{ background: stColor }} />
-                    <span className="cvi-rev">{rev}.{iter}</span>
+                    <span className="cvi-rev">{iter === 0 ? rev : `${rev}.${iter}`}</span>
                     <span className="cvi-type">{typeName}</span>
                     <span className="cvi-ct" style={{ color: ctColor }}>{ct}</span>
                   </div>

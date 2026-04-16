@@ -50,6 +50,9 @@ export {
   Users        as UsersIcon,
   User         as UserIcon,
   Shield       as ShieldIcon,
+
+  // Manual / Help
+  BookOpen     as BookIcon,
 } from 'lucide-react';
 
 /**

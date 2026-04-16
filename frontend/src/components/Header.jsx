@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HexIcon } from './Icons';
+import { NODE_ICONS } from './Icons';
 
 const USER_PALETTE = ['#5b9cf6', '#56d18e', '#e8c547', '#a78bfa', '#f87171', '#34d399', '#fb923c', '#60a5fa'];
 
@@ -11,17 +12,10 @@ function userColor(userId) {
   return USER_PALETTE[Math.abs(h) % USER_PALETTE.length];
 }
 
-const STATE_COLORS = {
-  'st-draft':    '#6aacff',
-  'st-inreview': '#f0b429',
-  'st-released': '#4dd4a0',
-  'st-frozen':   '#a78bfa',
-  'st-obsolete': '#6b7280',
-};
 
 export default function Header({
   userId, onUserChange, users,
-  nodeTypes, nodes,
+  nodeTypes, stateColorMap, nodes,
   searchQuery, searchType, onSearchChange, onSearchTypeChange,
   projectSpaces, projectSpaceId, onProjectSpaceChange,
   onNavigate,
@@ -92,8 +86,26 @@ export default function Header({
       {/* ── Left: brand ─────────────────────── */}
       <div className="header-left">
         <div className="brand">
-          <div className="brand-mark">P</div>
-          PLM<span style={{ color: 'var(--accent)', marginLeft: 1 }}>core</span>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+            <rect width="24" height="24" rx="5" fill="url(#psm-grad)" />
+            {/* Root node */}
+            <circle cx="12" cy="6" r="2.2" fill="white" fillOpacity="0.95" />
+            {/* Branch lines */}
+            <line x1="12" y1="8.2" x2="6.5" y2="14.8" stroke="white" strokeWidth="1.2" strokeOpacity="0.7" strokeLinecap="round" />
+            <line x1="12" y1="8.2" x2="17.5" y2="14.8" stroke="white" strokeWidth="1.2" strokeOpacity="0.7" strokeLinecap="round" />
+            <line x1="12" y1="8.2" x2="12" y2="14.8" stroke="white" strokeWidth="1.2" strokeOpacity="0.7" strokeLinecap="round" />
+            {/* Leaf nodes */}
+            <circle cx="6.5" cy="17" r="1.8" fill="white" fillOpacity="0.85" />
+            <circle cx="12" cy="17" r="1.8" fill="white" fillOpacity="0.85" />
+            <circle cx="17.5" cy="17" r="1.8" fill="white" fillOpacity="0.85" />
+            <defs>
+              <linearGradient id="psm-grad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="var(--accent)" />
+                <stop offset="100%" stopColor="#7c3aed" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <span>PSM</span>
         </div>
         <div className="brand-sep" />
       </div>
@@ -133,13 +145,18 @@ export default function Header({
           {showSug && suggestions.length > 0 && (
             <div className="search-suggestions">
               {suggestions.map((n, i) => {
-                const id      = n.id    || n.ID;
-                const lid     = n.logical_id || n.LOGICAL_ID || '';
-                const type    = n.node_type_name || n.NODE_TYPE_NAME || '';
-                const rev     = n.revision  || n.REVISION  || 'A';
-                const iter    = n.iteration || n.ITERATION || 1;
-                const state   = n.lifecycle_state_id || n.LIFECYCLE_STATE_ID || '';
-                const color   = STATE_COLORS[state] || '#6b7280';
+                const id        = n.id    || n.ID;
+                const lid       = n.logical_id || n.LOGICAL_ID || '';
+                const type      = n.node_type_name || n.NODE_TYPE_NAME || '';
+                const typeId    = n.node_type_id   || n.NODE_TYPE_ID   || '';
+                const rev       = n.revision  || n.REVISION  || 'A';
+                const iter      = n.iteration ?? n.ITERATION ?? 1;
+                const state     = n.lifecycle_state_id || n.LIFECYCLE_STATE_ID || '';
+                const stateClr  = stateColorMap?.[state] || '#6b7280';
+                const nt        = (nodeTypes || []).find(t => (t.id || t.ID) === typeId);
+                const typeColor = nt?.color || nt?.COLOR || null;
+                const typeIcon  = nt?.icon  || nt?.ICON  || null;
+                const NtIcon    = typeIcon ? NODE_ICONS[typeIcon] : null;
                 return (
                   <div
                     key={id}
@@ -147,12 +164,21 @@ export default function Header({
                     onMouseDown={() => selectSuggestion(n)}
                     onMouseEnter={() => setHiIdx(i)}
                   >
-                    <span className="sug-dot" style={{ background: color }} />
+                    {/* Node type badge */}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: 4, flexShrink: 0 }}>
+                      {NtIcon
+                        ? <NtIcon size={11} color={typeColor || 'var(--muted)'} strokeWidth={2} />
+                        : typeColor
+                          ? <span style={{ width: 7, height: 7, borderRadius: 1, background: typeColor, display: 'inline-block' }} />
+                          : null
+                      }
+                    </span>
+                    <span className="sug-dot" style={{ background: stateClr }} />
                     <span className="sug-lid">{lid}</span>
                     {(n.display_name || n.DISPLAY_NAME) && (
                       <span className="sug-dname">{n.display_name || n.DISPLAY_NAME}</span>
                     )}
-                    <span className="sug-meta">{type} · {rev}.{iter}</span>
+                    <span className="sug-meta">{type} · {iter === 0 ? rev : `${rev}.${iter}`}</span>
                   </div>
                 );
               })}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api, txApi, setProjectSpaceId, setApiErrorHandler } from './services/api';
 import { usePlmStore } from './store/usePlmStore';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -6,6 +6,7 @@ import Header       from './components/Header';
 import LeftPanel    from './components/LeftPanel';
 import EditorArea   from './components/EditorArea';
 import SettingsPage from './components/SettingsPage';
+import { NODE_ICONS } from './components/Icons';
 
 const DEFAULT_PROJECT_SPACE = 'ps-default';
 
@@ -75,20 +76,13 @@ function ErrorDetailModal({ detail, onClose }) {
   );
 }
 
-const COMMIT_STATE_COLORS = {
-  'st-draft':    '#6aacff',
-  'st-inreview': '#f0b429',
-  'st-released': '#4dd4a0',
-  'st-frozen':   '#a78bfa',
-  'st-obsolete': '#6b7280',
-};
 const COMMIT_CHANGE_BADGE = {
   CONTENT:   { label: 'edit',  bg: 'rgba(106,172,255,.15)', color: 'var(--accent)'  },
   LIFECYCLE: { label: 'state', bg: 'rgba(77,212,160,.15)',  color: 'var(--success)' },
   SIGNATURE: { label: 'sign',  bg: 'rgba(240,180,41,.15)',  color: 'var(--warn)'    },
 };
 
-function CommitModal({ userId, txId, txNodes, onCommitted, onClose, toast }) {
+function CommitModal({ userId, txId, txNodes, stateColorMap, onCommitted, onClose, toast }) {
   const [comment,  setComment]  = useState('');
   const [loading,  setLoading]  = useState(false);
   const allIds = (txNodes || []).map(n => n.node_id || n.NODE_ID);
@@ -163,7 +157,7 @@ function CommitModal({ userId, txId, txNodes, onCommitted, onClose, toast }) {
                   const lid   = n.logical_id || n.LOGICAL_ID || nid;
                   const type  = n.node_type_name || n.NODE_TYPE_NAME || '';
                   const rev   = n.revision  || n.REVISION  || 'A';
-                  const iter  = n.iteration || n.ITERATION || 1;
+                  const iter  = n.iteration ?? n.ITERATION ?? 1;
                   const ct    = (n.change_type || n.CHANGE_TYPE || 'CONTENT').toUpperCase();
                   const state = n.lifecycle_state_id || n.LIFECYCLE_STATE_ID || '';
                   const badge = COMMIT_CHANGE_BADGE[ct] || COMMIT_CHANGE_BADGE.CONTENT;
@@ -175,9 +169,9 @@ function CommitModal({ userId, txId, txNodes, onCommitted, onClose, toast }) {
                         onChange={() => toggleNode(nid)}
                       />
                       <span className="commit-node-dot"
-                        style={{ background: COMMIT_STATE_COLORS[state] || '#6b7280' }} />
+                        style={{ background: stateColorMap?.[state] || '#6b7280' }} />
                       <span className="commit-node-lid">{lid}</span>
-                      <span className="commit-node-rev">{rev}.{iter}</span>
+                      <span className="commit-node-rev">{iter === 0 ? rev : `${rev}.${iter}`}</span>
                       <span className="commit-node-type">{type}</span>
                       <span className="commit-node-badge"
                         style={{ background: badge.bg, color: badge.color }}>
@@ -218,6 +212,7 @@ function CreateNodeModal({ userId, nodeTypes, onCreated, onClose, toast }) {
     firstType?.logical_id_pattern || firstType?.LOGICAL_ID_PATTERN || ''
   );
   const [attrDefs,       setAttrDefs]      = useState([]);
+  // Global attrs cache — values persist across node type switches
   const [attrs,          setAttrs]         = useState({});
   const [errors,         setErrors]        = useState({});
   const [loading,        setLoading]       = useState(false);
@@ -225,14 +220,13 @@ function CreateNodeModal({ userId, nodeTypes, onCreated, onClose, toast }) {
   useEffect(() => {
     if (!nodeTypeId) return;
     api.getNodeTypeAttributes(userId, nodeTypeId)
-      .then(defs => { setAttrDefs(Array.isArray(defs) ? defs : []); setAttrs({}); setErrors({}); })
+      .then(defs => { setAttrDefs(Array.isArray(defs) ? defs : []); setErrors({}); })
       .catch(() => setAttrDefs([]));
     // Pull identity metadata directly from the nodeTypes prop — no extra request needed
     const nt = nodeTypes.find(t => (t.id || t.ID) === nodeTypeId);
     setLogicalLabel(nt?.logical_id_label || nt?.LOGICAL_ID_LABEL || 'Identifier');
     setLogicalPattern(nt?.logical_id_pattern || nt?.LOGICAL_ID_PATTERN || '');
-    setLogicalId('');
-    setExternalId('');
+    // Do NOT clear logicalId / externalId / attrs — values persist across type switches
   }, [nodeTypeId, userId, nodeTypes]);
 
   // Live logical_id pattern check — derived, no state needed
@@ -265,7 +259,12 @@ function CreateNodeModal({ userId, nodeTypes, onCreated, onClose, toast }) {
     if (!validate()) return;
     setLoading(true);
     try {
-      const data = await api.createNode(userId, nodeTypeId, attrs, logicalId.trim(), externalId.trim() || null);
+      // Only send attributes defined for the current node type
+      const currentAttrIds = new Set(attrDefs.map(d => d.id || d.ID));
+      const filteredAttrs  = Object.fromEntries(
+        Object.entries(attrs).filter(([k]) => currentAttrIds.has(k))
+      );
+      const data = await api.createNode(userId, nodeTypeId, filteredAttrs, logicalId.trim(), externalId.trim() || null);
       toast('Object created', 'success');
       onCreated(data.nodeId);
       onClose();
@@ -283,11 +282,17 @@ function CreateNodeModal({ userId, nodeTypes, onCreated, onClose, toast }) {
         <div className="modal-scroll">
           <div className="field">
             <label className="field-label" htmlFor="node-type-select">Object type</label>
-            <select id="node-type-select" className="field-input" value={nodeTypeId}
-              onChange={e => setNodeTypeId(e.target.value)}>
-              {nodeTypes.map(nt => (
-                <option key={nt.id || nt.ID} value={nt.id || nt.ID}>{nt.name || nt.NAME}</option>
-              ))}
+            <select
+              id="node-type-select"
+              className="field-input"
+              value={nodeTypeId}
+              onChange={e => setNodeTypeId(e.target.value)}
+            >
+              {nodeTypes.map(nt => {
+                const ntId   = nt.id   || nt.ID;
+                const ntName = nt.name || nt.NAME;
+                return <option key={ntId} value={ntId}>{ntName}</option>;
+              })}
             </select>
           </div>
 
@@ -419,32 +424,36 @@ export default function App() {
   // Data — nodes, tx, txNodes live in the global store
   const [nodeTypes,          setNodeTypes]          = useState([]);
   const [creatableNodeTypes, setCreatableNodeTypes] = useState([]);
+  const [stateColorMap,      setStateColorMap]      = useState({});
 
   // Store
   const storeSetUserId     = usePlmStore(s => s.setUserId);
   const nodes              = usePlmStore(s => s.nodes);
   const tx                 = usePlmStore(s => s.activeTx);
   const txNodes            = usePlmStore(s => s.txNodes);
-  const refreshNodes       = usePlmStore(s => s.refreshNodes);
-  const refreshTx          = usePlmStore(s => s.refreshTx);
-  const refreshAll         = usePlmStore(s => s.refreshAll);
-  const clearTx            = usePlmStore(s => s.clearTx);
+  const refreshNodes        = usePlmStore(s => s.refreshNodes);
+  const refreshTx           = usePlmStore(s => s.refreshTx);
+  const refreshAll          = usePlmStore(s => s.refreshAll);
+  const clearTx             = usePlmStore(s => s.clearTx);
   const refreshAllNodeDescs = usePlmStore(s => s.refreshAllNodeDescs);
+  const refreshNodeDesc     = usePlmStore(s => s.refreshNodeDesc);
 
-  // ── Global WebSocket — transaction & node-creation events ─────
+  // ── Global WebSocket — transaction, node-creation & metamodel events ─────
   useWebSocket(
-    ['/topic/transactions', '/topic/global'],
-    (evt) => {
+    ['/topic/transactions', '/topic/global', '/topic/metamodel'],
+    async (evt) => {
       if (evt.event === 'TX_COMMITTED') {
-        refreshTx();
-        refreshNodes();
-        refreshAllNodeDescs(); // open editors show committed state
+        // NODE_UPDATED events (one per committed node) handle descriptions + node list.
+        // Only tx state needs refreshing here.
+        await refreshTx();
         if (evt.byUser && evt.byUser !== userId)
           toast(`${evt.byUser} committed a transaction`, 'info');
       } else if (evt.event === 'TX_ROLLED_BACK') {
-        refreshTx();
-        refreshNodes();
-        refreshAllNodeDescs(); // open editors revert to last committed state
+        // Rolled-back nodes are physically deleted — no per-node events emitted.
+        // refreshTx must complete before refreshAllNodeDescs so descriptions
+        // are fetched without the now-deleted tx context.
+        await refreshTx();
+        await Promise.all([refreshNodes(), refreshAllNodeDescs()]);
         if (evt.byUser && evt.byUser !== userId)
           toast(`${evt.byUser} rolled back a transaction`, 'warn');
       } else if (evt.event === 'NODES_RELEASED') {
@@ -452,6 +461,15 @@ export default function App() {
       } else if (evt.event === 'NODE_CREATED') {
         refreshNodes();
         refreshTx();
+      } else if (evt.event === 'NODE_UPDATED') {
+        // Broadcast from commit — refresh this node's description and the tree
+        if (evt.nodeId) refreshNodeDesc(evt.nodeId);
+        refreshNodes();
+      } else if (evt.event === 'METAMODEL_CHANGED') {
+        refreshNodeTypes();
+        refreshStateColorMap();
+        if (evt.byUser && evt.byUser !== userId)
+          toast(`${evt.byUser} updated the metamodel`, 'info');
       }
     },
     userId,
@@ -461,9 +479,10 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchType,  setSearchType]  = useState('');
 
-  // Editor tabs
-  const [tabs,        setTabs]        = useState([]);
-  const [activeTabId, setActiveTabId] = useState(null);
+  // Editor tabs — dashboard tab is always present at index 0
+  const DASHBOARD_TAB = { id: 'dashboard', nodeId: null, label: 'Dashboard', pinned: true };
+  const [tabs,        setTabs]        = useState([DASHBOARD_TAB]);
+  const [activeTabId, setActiveTabId] = useState('dashboard');
 
   // Currently displayed node description (for properties)
   const [selectedDesc, setSelectedDesc] = useState(null);
@@ -471,7 +490,20 @@ export default function App() {
   // Modals / views
   const [showCommit,     setShowCommit]     = useState(false);
   const [showCreateNode, setShowCreateNode] = useState(false);
-  const [showSettings,   setShowSettings]   = useState(false);
+  const [showSettings,         setShowSettings]         = useState(false);
+  const [activeSettingsSection, setActiveSettingsSection] = useState(null);
+  const [panelWidth,            setPanelWidth]            = useState(268);
+
+  // ── Panel resize ──────────────────────────────────────────────
+  function startResize(e) {
+    const startX = e.clientX, startW = panelWidth;
+    function onMove(ev) { setPanelWidth(Math.max(160, Math.min(600, startW + ev.clientX - startX))); }
+    function onUp() { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  function handleToggleSettings() { setShowSettings(s => !s); }
 
   // ── Init: set project space + global API error handler ────────
   useEffect(() => {
@@ -491,6 +523,25 @@ export default function App() {
     } catch {}
   }, [userId]);
 
+  const refreshStateColorMap = useCallback(async () => {
+    try {
+      const lcs = await api.getLifecycles(userId);
+      if (!Array.isArray(lcs)) return;
+      const stateLists = await Promise.all(
+        lcs.map(lc => api.getLifecycleStates(userId, lc.id || lc.ID).catch(() => []))
+      );
+      const map = {};
+      stateLists.forEach(states => {
+        states.forEach(s => {
+          const id    = s.id    || s.ID;
+          const color = s.color || s.COLOR;
+          if (id && color) map[id] = color;
+        });
+      });
+      setStateColorMap(map);
+    } catch {}
+  }, [userId]);
+
   const refreshProjectSpaces = useCallback(async () => {
     try { const d = await api.listProjectSpaces(userId); setProjectSpaces(Array.isArray(d) ? d : []); }
     catch {}
@@ -506,6 +557,7 @@ export default function App() {
     storeSetUserId(userId);
     refreshAll();
     refreshNodeTypes();
+    refreshStateColorMap();
     refreshProjectSpaces();
     refreshUsers();
   }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -513,8 +565,8 @@ export default function App() {
   // ── User switch ────────────────────────────────────────────────
   function handleUserChange(newUserId) {
     setUserId(newUserId);   // triggers the useEffect above which syncs store + refreshes
-    setTabs([]);
-    setActiveTabId(null);
+    setTabs([DASHBOARD_TAB]);
+    setActiveTabId('dashboard');
     setSelectedDesc(null);
     setSearchQuery('');
   }
@@ -523,8 +575,8 @@ export default function App() {
   function handleProjectSpaceChange(psId) {
     setProjectSpaceIdState(psId);
     setProjectSpaceId(psId);      // update api module immediately
-    setTabs([]);
-    setActiveTabId(null);
+    setTabs([DASHBOARD_TAB]);
+    setActiveTabId('dashboard');
     setSelectedDesc(null);
     // refreshAll picks up new project space since api module is updated synchronously
     refreshAll();
@@ -532,13 +584,18 @@ export default function App() {
 
   // ── Tab management ─────────────────────────────────────────────
 
+  function openDashboard() {
+    setActiveTabId('dashboard');
+  }
+
   function navigate(nodeId, label) {
     const existing = tabs.find(t => t.nodeId === nodeId);
     if (existing) {
       setActiveTabId(existing.id);
       return;
     }
-    const unpinned = tabs.find(t => !t.pinned);
+    // Replace first unpinned non-dashboard tab
+    const unpinned = tabs.find(t => !t.pinned && t.id !== 'dashboard');
     if (unpinned) {
       setTabs(ts => ts.map(t =>
         t.id === unpinned.id
@@ -612,11 +669,16 @@ export default function App() {
     }
   }
 
-  const activeTab    = tabs.find(t => t.id === activeTabId);
-  const activeNodeId = activeTab?.nodeId;
+  const activeTab        = tabs.find(t => t.id === activeTabId);
+  const activeNodeId     = activeTab?.nodeId;
+  const isDashboardOpen  = activeTabId === 'dashboard';
 
   const onDescriptionLoaded = useCallback((desc) => {
     if (desc?.nodeId === activeNodeId) setSelectedDesc(desc);
+    // Enrich the matching tab with nodeTypeId for color/icon display
+    if (desc?.nodeId && desc.nodeTypeId) {
+      setTabs(ts => ts.map(t => t.nodeId === desc.nodeId ? { ...t, nodeTypeId: desc.nodeTypeId } : t));
+    }
   }, [activeNodeId]);
 
   return (
@@ -626,6 +688,7 @@ export default function App() {
         onUserChange={handleUserChange}
         users={users}
         nodeTypes={nodeTypes}
+        stateColorMap={stateColorMap}
         searchQuery={searchQuery}
         searchType={searchType}
         onSearchChange={setSearchQuery}
@@ -638,43 +701,57 @@ export default function App() {
       />
 
       <div className="body">
-        {showSettings ? (
-          <SettingsPage userId={userId} projectSpaceId={projectSpaceId} onClose={() => setShowSettings(false)} toast={toast} />
-        ) : (
-          <>
-            <LeftPanel
-              nodes={nodes}
-              nodeTypes={nodeTypes}
-              tx={tx}
-              txNodes={txNodes}
+        <LeftPanel
+          nodes={nodes}
+          nodeTypes={nodeTypes}
+          tx={tx}
+          txNodes={txNodes}
+          userId={userId}
+          activeNodeId={activeNodeId}
+          stateColorMap={stateColorMap}
+          onNavigate={navigate}
+          canCreateNode={creatableNodeTypes.length > 0}
+          onCreateNode={() => setShowCreateNode(true)}
+          onCommit={() => setShowCommit(true)}
+          onRollback={handleRollback}
+          onReleaseNode={handleReleaseNode}
+          showSettings={showSettings}
+          onToggleSettings={handleToggleSettings}
+          activeSettingsSection={activeSettingsSection}
+          onSettingsSectionChange={setActiveSettingsSection}
+          isDashboardOpen={isDashboardOpen}
+          onOpenDashboard={openDashboard}
+          style={{ width: panelWidth }}
+        />
+        <div className="resize-handle" onMouseDown={startResize} />
+        <div className="editor-column">
+          {showSettings ? (
+            <SettingsPage
               userId={userId}
-              activeNodeId={activeNodeId}
-              onNavigate={navigate}
-              canCreateNode={creatableNodeTypes.length > 0}
-              onCreateNode={() => setShowCreateNode(true)}
-              onCommit={() => setShowCommit(true)}
-              onRollback={handleRollback}
-              onReleaseNode={handleReleaseNode}
-              onOpenSettings={() => setShowSettings(true)}
+              projectSpaceId={projectSpaceId}
+              activeSection={activeSettingsSection}
+              onSectionChange={setActiveSettingsSection}
+              toast={toast}
             />
-            <div className="editor-column">
-              <EditorArea
-                tabs={tabs}
-                activeTabId={activeTabId}
-                userId={userId}
-                tx={tx}
-                toast={toast}
-                onTabActivate={id => setActiveTabId(id)}
-                onTabClose={handleTabClose}
-                onTabPin={tabId => setTabs(ts => ts.map(t => t.id === tabId ? { ...t, pinned: !t.pinned } : t))}
-                onSubTabChange={handleSubTabChange}
-                onNavigate={navigate}
-                onAutoOpenTx={autoOpenTx}
-                onDescriptionLoaded={onDescriptionLoaded}
-              />
-            </div>
-          </>
-        )}
+          ) : (
+            <EditorArea
+              tabs={tabs}
+              activeTabId={activeTabId}
+              userId={userId}
+              tx={tx}
+              toast={toast}
+              nodeTypes={nodeTypes}
+              stateColorMap={stateColorMap}
+              onTabActivate={id => setActiveTabId(id)}
+              onTabClose={handleTabClose}
+              onTabPin={tabId => setTabs(ts => ts.map(t => t.id === tabId ? { ...t, pinned: !t.pinned } : t))}
+              onSubTabChange={handleSubTabChange}
+              onNavigate={navigate}
+              onAutoOpenTx={autoOpenTx}
+              onDescriptionLoaded={onDescriptionLoaded}
+            />
+          )}
+        </div>
       </div>
 
       {/* ── Modals ─────────────────────────────────────────────── */}
@@ -683,6 +760,7 @@ export default function App() {
           userId={userId}
           txId={tx.ID || tx.id}
           txNodes={txNodes}
+          stateColorMap={stateColorMap}
           onCommitted={handleCommitted}
           onClose={() => setShowCommit(false)}
           toast={toast}

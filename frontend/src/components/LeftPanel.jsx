@@ -1,19 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { api } from '../services/api';
+import { setDraggedNode, clearDraggedNode } from '../services/dragState';
 import { NODE_ICONS } from './Icons';
 import {
   ChevronRightIcon, ChevronDownIcon,
   LayersIcon, CommitIcon, RollbackIcon, GearIcon, PlusIcon, LockIcon,
   EditIcon, XCircleIcon,
 } from './Icons';
+import { SECTIONS } from './SettingsPage';
 
-const STATE_COLORS = {
-  'st-draft':    '#6aacff',
-  'st-inreview': '#f0b429',
-  'st-released': '#4dd4a0',
-  'st-frozen':   '#a78bfa',
-  'st-obsolete': '#6b7280',
-};
 
 const CHANGE_BADGE = {
   CONTENT:   { label: 'edit',  bg: 'rgba(106,172,255,.15)', color: 'var(--accent)'  },
@@ -31,13 +26,20 @@ export default function LeftPanel({
   txNodes,
   userId,
   activeNodeId,
+  stateColorMap,
   onNavigate,
   canCreateNode,
   onCreateNode,
   onCommit,
   onRollback,
   onReleaseNode,
-  onOpenSettings,
+  showSettings,
+  onToggleSettings,
+  activeSettingsSection,
+  onSettingsSectionChange,
+  isDashboardOpen,
+  onOpenDashboard,
+  style,
 }) {
   const [expandedTypes,    setExpandedTypes]    = useState(new Set());
   // Path-based expand state: pathKey = nodeId for top-level, parentPath/linkId for children
@@ -137,23 +139,27 @@ export default function LeftPanel({
 
       // Indentation: each depth level adds 14px
       const paddingLeft = 10 + depth * 14;
-      // Link type color as left accent border
-      const borderLeft  = link.linkTypeColor
-        ? `3px solid ${link.linkTypeColor}`
-        : '3px solid transparent';
+      const ltColor     = link.linkTypeColor || null;
+      const LtIcon      = link.linkTypeIcon ? NODE_ICONS[link.linkTypeIcon] : null;
+      // Hide chevron: use targetChildrenCount from API if available, else fall back to cache
+      const hasChildrenFromApi  = link.targetChildrenCount != null
+        ? link.targetChildrenCount > 0
+        : !Array.isArray(cached) || cached.length > 0;
+      const showChevron = !isCycle && hasChildrenFromApi;
 
       return (
         <React.Fragment key={childPath}>
           {/* ── Link row ── */}
           <div
             className={`ni-link-row${tgtId === activeNodeId ? ' active' : ''}`}
-            style={{ paddingLeft, borderLeft }}
+            style={{ paddingLeft }}
             onClick={() => onNavigate(tgtId)}
             title={`${link.linkLogicalId || link.linkId} → ${link.targetLogicalId || tgtId} ${link.targetRevision}.${link.targetIteration}`}
           >
             {/* Expand toggle */}
             <span
               className="ni-expand"
+              style={{ visibility: (showChevron || loading) ? 'visible' : 'hidden' }}
               onClick={e => { if (!isCycle) toggleNode(childPath, tgtId, e); else e.stopPropagation(); }}
             >
               {isCycle
@@ -166,15 +172,23 @@ export default function LeftPanel({
               }
             </span>
 
-            {/* Link logical ID */}
-            <span className="ni-link-id">{link.linkLogicalId || <span className="ni-no-id">—</span>}</span>
+            {/* Link type icon / color dot */}
+            {LtIcon
+              ? <LtIcon size={10} color={ltColor || 'var(--muted2)'} strokeWidth={2} style={{ flexShrink: 0 }} />
+              : ltColor
+                ? <span style={{ width: 6, height: 6, borderRadius: 1, background: ltColor, flexShrink: 0, display: 'inline-block' }} />
+                : null
+            }
 
             {/* State dot */}
-            <span className="ni-dot" style={{ background: STATE_COLORS[link.targetState] || '#6b7280' }} />
+            <span className="ni-dot" style={{ background: stateColorMap?.[link.targetState] || '#6b7280' }} />
 
-            {/* Target identity */}
-            <span className="ni-logical" style={{ flex: 1, minWidth: 0 }}>
-              {link.targetLogicalId || <span className="ni-no-id">—</span>}
+            {/* Target logical ID [link logical ID] — link type color */}
+            <span className="ni-logical" style={{ flex: 1, minWidth: 0, color: ltColor || undefined }}>
+              {link.targetLogicalId || <span className="ni-no-id" style={{ color: 'var(--muted2)' }}>—</span>}
+              {link.linkLogicalId && (
+                <span style={{ opacity: 0.65, marginLeft: 3 }}>[{link.linkLogicalId}]</span>
+              )}
             </span>
 
             {/* Rev.iter */}
@@ -190,11 +204,6 @@ export default function LeftPanel({
           {isExp && Array.isArray(cached) && renderLinkRows(
             cached, depth + 1, childPath, new Set([...ancestorIds, tgtId])
           )}
-          {isExp && Array.isArray(cached) && cached.length === 0 && (
-            <div className="ni-child-empty" style={{ paddingLeft: paddingLeft + 20 }}>
-              No children
-            </div>
-          )}
         </React.Fragment>
       );
     });
@@ -203,7 +212,30 @@ export default function LeftPanel({
   const txNodeList = txNodes || [];
 
   return (
-    <aside className="left-panel">
+    <aside className="left-panel" style={style}>
+
+      {showSettings ? (
+        <div className="settings-section-nav">
+          {SECTIONS.map(({ key, label, Icon }) => (
+            <div
+              key={key}
+              className={`settings-nav-item${activeSettingsSection === key ? ' active' : ''}`}
+              onClick={() => onSettingsSectionChange(key)}
+            >
+              <Icon size={13} strokeWidth={1.8} color={activeSettingsSection === key ? 'var(--accent)' : 'var(--muted)'} />
+              {label}
+            </div>
+          ))}
+        </div>
+      ) : (<>
+
+      {/* ── Dashboard shortcut (only when not on dashboard) ── */}
+      {!isDashboardOpen && (
+        <button className="panel-dash-btn" onClick={onOpenDashboard} title="Open dashboard">
+          <span style={{ opacity: .7, lineHeight: 1 }}>⬡</span>
+          Dashboard
+        </button>
+      )}
 
       {/* ── Objects ─────────────────────────────────── */}
       <div className="panel-section" style={{ flex: 1, minHeight: 0 }}>
@@ -249,7 +281,7 @@ export default function LeftPanel({
                 {expandedTypes.has(typeId) && typeNodes.map(n => {
                   const id          = n.id       || n.ID;
                   const rev         = n.revision  || n.REVISION  || 'A';
-                  const iter        = n.iteration || n.ITERATION || 1;
+                  const iter        = n.iteration ?? n.ITERATION ?? 1;
                   const state       = n.lifecycle_state_id || n.LIFECYCLE_STATE_ID;
                   const logicalId   = n.logical_id || n.LOGICAL_ID || '';
                   const lockedBy    = n.locked_by  || n.LOCKED_BY  || null;
@@ -257,12 +289,17 @@ export default function LeftPanel({
                   const isPending   = txStatus === 'OPEN';
                   const lockedByOther = lockedBy && lockedBy !== userId;
                   const lockedByMe    = lockedBy && lockedBy === userId;
+                  const childrenCount = n.children_count ?? n.CHILDREN_COUNT ?? null;
 
                   // Path key for this top-level node row
                   const nodePathKey = id;
                   const isNodeExp   = expandedPaths.has(nodePathKey);
                   const cached      = childCacheRef.current[id];
                   const loading     = cached === 'loading';
+                  // Hide chevron when: known 0 children from list data, or confirmed empty after fetch
+                  const hasChildren = childrenCount !== null
+                    ? childrenCount > 0
+                    : !Array.isArray(cached) || cached.length > 0;
 
                   return (
                     <React.Fragment key={id}>
@@ -272,13 +309,22 @@ export default function LeftPanel({
                         draggable
                         onDragStart={e => {
                           e.dataTransfer.effectAllowed = 'link';
-                          e.dataTransfer.setData('application/plm-node', JSON.stringify({ nodeId: id, nodeTypeId: typeId, logicalId, typeName: name }));
+                          const payload = { nodeId: id, nodeTypeId: typeId, logicalId, typeName: name };
+                          // Keep dataTransfer for cross-window compatibility, but also store in
+                          // module variable as primary source (reliable on Linux/Wayland).
+                          e.dataTransfer.setData('text/plain', 'plm-node');
+                          setDraggedNode(payload);
                         }}
+                        onDragEnd={() => clearDraggedNode()}
                         onClick={() => onNavigate(id)}
-                        title={lockedByOther ? `Locked by ${lockedBy}` : (isPending ? `${rev}.${iter} — pending changes` : (logicalId || id))}
+                        title={lockedByOther ? `Locked by ${lockedBy}` : (isPending ? `${iter === 0 ? rev : rev + '.' + iter} — pending changes` : (logicalId || id))}
                       >
-                        {/* Expand toggle */}
-                        <span className="ni-expand" onClick={e => toggleNode(nodePathKey, id, e)}>
+                        {/* Expand toggle — hidden when node is known to have no children */}
+                        <span
+                          className="ni-expand"
+                          style={{ visibility: (loading || hasChildren) ? 'visible' : 'hidden' }}
+                          onClick={e => toggleNode(nodePathKey, id, e)}
+                        >
                           {loading
                             ? <span style={{ fontSize: 9, color: 'var(--muted)', lineHeight: 1 }}>…</span>
                             : isNodeExp
@@ -295,7 +341,7 @@ export default function LeftPanel({
                             : null
                         }
 
-                        <span className="ni-dot" style={{ background: STATE_COLORS[state] || '#6b7280' }} />
+                        <span className="ni-dot" style={{ background: stateColorMap?.[state] || '#6b7280' }} />
                         <span className="ni-logical" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {logicalId || <span className="ni-no-id">—</span>}
                           {(n.display_name || n.DISPLAY_NAME) && (
@@ -303,7 +349,7 @@ export default function LeftPanel({
                           )}
                         </span>
                         <span className="ni-reviter" style={isPending ? { color: 'var(--warn)' } : undefined}>
-                          {rev}.{iter}
+                          {iter === 0 ? rev : `${rev}.${iter}`}
                         </span>
                         {lockedByOther && (
                           <LockIcon size={10} strokeWidth={2.5} color="var(--muted)" style={{ flexShrink: 0 }} />
@@ -319,9 +365,6 @@ export default function LeftPanel({
                         1,
                         nodePathKey,
                         new Set([id])
-                      )}
-                      {isNodeExp && Array.isArray(cached) && cached.length === 0 && (
-                        <div className="ni-child-empty" style={{ paddingLeft: 34 }}>No children</div>
                       )}
                     </React.Fragment>
                   );
@@ -366,16 +409,22 @@ export default function LeftPanel({
             const nid       = n.node_id        || n.NODE_ID;
             const logicalId = n.logical_id     || n.LOGICAL_ID  || '';
             const typeName  = n.node_type_name || n.NODE_TYPE_NAME || '';
+            const typeId    = n.node_type_id   || n.NODE_TYPE_ID   || '';
             const rev       = n.revision       || n.REVISION    || 'A';
-            const iter      = n.iteration      || n.ITERATION   || 1;
+            const iter      = n.iteration      ?? n.ITERATION   ?? 1;
             const ct        = (n.change_type   || n.CHANGE_TYPE || 'CONTENT').toUpperCase();
             const state     = n.lifecycle_state_id || n.LIFECYCLE_STATE_ID || '';
             const badge     = CHANGE_BADGE[ct] || CHANGE_BADGE.CONTENT;
             const isActive  = nid === activeNodeId;
             const confirming = releaseConfirmId === nid;
+            // Type appearance — look up from nodesByType map
+            const txNtData  = nodesByType.get(typeId) || (typeName ? [...nodesByType.values()].find(g => g.name === typeName) : null);
+            const txColor   = txNtData?.color || null;
+            const txIconName= txNtData?.icon  || null;
+            const TxIcon    = txIconName ? NODE_ICONS[txIconName] : null;
             return confirming ? (
               <div key={i} className="tx-item tx-item-confirm" onClick={e => e.stopPropagation()}>
-                <span className="tx-dot" style={{ background: STATE_COLORS[state] || '#6b7280' }} />
+                <span className="tx-dot" style={{ background: stateColorMap?.[state] || '#6b7280' }} />
                 <span className="tx-confirm-msg">Release {logicalId || nid}?</span>
                 <button className="btn btn-danger btn-xs"
                   onClick={() => { onReleaseNode && onReleaseNode(nid); setReleaseConfirmId(null); }}>
@@ -385,14 +434,22 @@ export default function LeftPanel({
               </div>
             ) : (
               <div key={i} className={`tx-item${isActive ? ' active' : ''}`} onClick={() => onNavigate(nid)}>
-                <span className="tx-dot" style={{ background: STATE_COLORS[state] || '#6b7280' }} />
+                <span className="tx-dot" style={{ background: stateColorMap?.[state] || '#6b7280' }} />
                 <div className="tx-item-body">
                   <div className="tx-item-main">
                     <span className="tx-logical">{logicalId || nid}</span>
-                    <span className="tx-reviter">{rev}.{iter}</span>
+                    <span className="tx-reviter">{iter === 0 ? rev : `${rev}.${iter}`}</span>
                   </div>
                   <div className="tx-item-sub">
-                    <span className="tx-typename">{typeName}</span>
+                    <span className="tx-typename" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      {TxIcon
+                        ? <TxIcon size={10} color={txColor || 'var(--muted2)'} strokeWidth={2} />
+                        : txColor
+                          ? <span style={{ width: 6, height: 6, borderRadius: 1, background: txColor, display: 'inline-block', flexShrink: 0 }} />
+                          : null
+                      }
+                      {typeName}
+                    </span>
                     <span className="tx-ct-badge" style={{ background: badge.bg, color: badge.color }}>
                       {badge.label}
                     </span>
@@ -421,10 +478,12 @@ export default function LeftPanel({
         )}
       </div>
 
+      </>)}
+
       {/* ── Footer ──────────────────────────────────── */}
       <div className="panel-footer">
-        <button className="settings-btn" onClick={onOpenSettings}>
-          <GearIcon size={13} color="var(--muted)" strokeWidth={1.8} />
+        <button className={`settings-btn${showSettings ? ' active' : ''}`} onClick={onToggleSettings}>
+          <GearIcon size={13} color={showSettings ? 'var(--accent)' : 'var(--muted)'} strokeWidth={1.8} />
           <span>Settings &amp; Metadata</span>
         </button>
       </div>

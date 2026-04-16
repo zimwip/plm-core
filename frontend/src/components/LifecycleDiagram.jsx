@@ -1,13 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 
-const STATE_COLORS = {
-  'st-draft':    '#5b9cf6',
-  'st-inreview': '#e8a947',
-  'st-released': '#56d18e',
-  'st-frozen':   '#a78bfa',
-  'st-obsolete': '#6b7280',
-};
+const STATE_COLOR_FALLBACK = '#5b9cf6';
+function stateColor(s) { return s?.color || s?.COLOR || STATE_COLOR_FALLBACK; }
 
 const BOX_W      = 110;
 const BOX_H      = 36;
@@ -21,13 +16,16 @@ const R          = 10;
 // Transition button pill
 const BTN_H      = 16;
 const BTN_RX     = 8;
+// Gap between rail end and chip edge
+const CHIP_GAP   = 4;
 
 export default function LifecycleDiagram({
   lifecycleId,
   currentStateId,
   userId,
-  onTransition,           // optional: (transition) => void
+  onTransition,             // optional: (transition) => void
   availableTransitionNames, // optional: Set<string> — names actually executable by current user
+  previewMode,              // show all states colored, no interaction
 }) {
   const [states, setStates]           = useState([]);
   const [transitions, setTransitions] = useState([]);
@@ -179,48 +177,73 @@ export default function LifecycleDiagram({
     // midX: centre of the horizontal rail (for the label pill)
     const midX = (x1 + x2) / 2;
 
-    // Square path with rounded corners
-    // Forward (x1 < x2, arc above boxes):
-    //   up → round corner right → horizontal → round corner down → down
-    // Backward (x1 > x2, arc below boxes):
-    //   down → round corner left → horizontal → round corner up → up
-    let d;
+    // Compute displayName early — needed for path splitting (chip width)
+    const fromCurrentEarly = !previewMode && fromId === currentStateId;
+    const blockedEarly     = fromCurrentEarly && availableTransitionNames != null && !availableTransitionNames.has(name);
+    const displayName      = blockedEarly ? `✕ ${name}` : name;
+
+    // Half-width of the chip — used to split the rail path around it
+    const hw = displayName ? Math.max(44, displayName.length * 6 + 18) / 2 : 0;
+
+    // Square path split around the chip:
+    //   d1 = from-state side (no arrowhead)
+    //   d2 = to-state side   (has arrowhead)
+    // Forward (arc above boxes, left→right):
+    //   d1: up → corner → horizontal stopping before chip
+    //   d2: horizontal starting after chip → corner → down
+    // Backward (arc below boxes, right→left):
+    //   d1: down → corner → horizontal stopping before chip
+    //   d2: horizontal starting after chip → corner → up
+    let d1, d2;
     if (forward) {
-      d = [
+      d1 = [
         `M ${x1},${connY}`,
         `V ${midY + R}`,
         `Q ${x1},${midY} ${x1 + R},${midY}`,
+        `H ${midX - hw - CHIP_GAP}`,
+      ].join(' ');
+      d2 = [
+        `M ${midX + hw + CHIP_GAP},${midY}`,
         `H ${x2 - R}`,
         `Q ${x2},${midY} ${x2},${midY + R}`,
         `V ${connY}`,
       ].join(' ');
     } else {
-      d = [
+      d1 = [
         `M ${x1},${connY}`,
         `V ${midY - R}`,
         `Q ${x1},${midY} ${x1 - R},${midY}`,
+        `H ${midX + hw + CHIP_GAP}`,
+      ].join(' ');
+      d2 = [
+        `M ${midX - hw - CHIP_GAP},${midY}`,
         `H ${x2 + R}`,
         `Q ${x2},${midY} ${x2},${midY - R}`,
         `V ${connY}`,
       ].join(' ');
     }
 
-    const fromCurrent = fromId === currentStateId;
-    // "blocked" = leaves current state but not permitted for this user
-    const blocked  = fromCurrent && availableTransitionNames != null && !availableTransitionNames.has(name);
+    const fromCurrent = fromCurrentEarly;
+    const blocked     = blockedEarly;
     const enabled  = fromCurrent && !blocked;
     const hovered  = enabled && hoveredIdx === i;
-    const canClick = enabled && !!onTransition;
+    const canClick = enabled && !!onTransition && !previewMode;
+
+    // In preview mode treat every transition as "enabled"
+    const activeTransition = previewMode || fromCurrent;
+
+    // Target state color drives the transition visual
+    const toState     = sorted.find(s => (s.id || s.ID) === t.toId);
+    const targetColor = blocked ? '#dc2626' : (stateColor(toState) || (forward ? '#5b9cf6' : '#e8a947'));
 
     // Visual style
-    const railColor   = blocked ? '#dc2626' : (forward ? '#5b9cf6' : '#e8a947');
-    const railOpacity = fromCurrent ? 0.70 : 0.42;
-    const railWidth   = fromCurrent ? 1.5 : 1;
+    const railColor   = targetColor;
+    const railOpacity = activeTransition ? 0.70 : 0.30;
+    const railWidth   = activeTransition ? 1.5 : 1;
 
-    // Button pill metrics — blocked pill needs room for the ✕ prefix
-    const displayName = blocked ? `✕ ${name}` : name;
-    const textW = displayName ? Math.max(44, displayName.length * 6 + 18) : 0;
-    const bx    = midX - textW / 2;
+    // Pill geometry (hw already computed above for path splitting)
+    const textW = hw * 2;
+    const bx    = midX - hw;
     const by    = midY - BTN_H / 2;
 
     // Button colors
@@ -229,15 +252,15 @@ export default function LifecycleDiagram({
       btnFill   = '#1c0808';
       btnStroke = '#7f1d1d';
       btnText   = '#f87171';
-    } else if (enabled) {
+    } else if (enabled || previewMode) {
       if (hovered) {
-        btnFill   = forward ? '#2563eb' : '#92400e';
-        btnStroke = forward ? '#5b9cf6' : '#e8a947';
+        btnFill   = targetColor;
+        btnStroke = targetColor;
         btnText   = '#ffffff';
       } else {
-        btnFill   = forward ? '#172554' : '#1c1a10';
-        btnStroke = forward ? '#3b5a8a' : '#7a6020';
-        btnText   = forward ? '#93c5fd' : '#f0b429';
+        btnFill   = `${targetColor}18`;
+        btnStroke = `${targetColor}70`;
+        btnText   = targetColor;
       }
     } else {
       btnFill   = '#141820';
@@ -247,15 +270,23 @@ export default function LifecycleDiagram({
 
     return (
       <g key={`t-${i}`}>
-        {/* Rail */}
+        {/* Rail — split into two segments so the chip sits inside the gap */}
         <path
-          d={d}
+          d={d1}
           fill="none"
-          stroke={fromCurrent ? railColor : '#3a4f62'}
+          stroke={activeTransition ? railColor : '#3a4f62'}
           strokeWidth={railWidth}
           strokeDasharray={forward ? 'none' : '4,3'}
           opacity={railOpacity}
-          markerEnd={`url(#${forward ? 'arr-fwd' : 'arr-bwd'})`}
+        />
+        <path
+          d={d2}
+          fill="none"
+          stroke={activeTransition ? railColor : '#3a4f62'}
+          strokeWidth={railWidth}
+          strokeDasharray={forward ? 'none' : '4,3'}
+          opacity={railOpacity}
+          markerEnd="url(#arr)"
         />
 
         {/* Transition button pill */}
@@ -307,12 +338,9 @@ export default function LifecycleDiagram({
         style={{ fontFamily: 'var(--mono)', overflow: 'visible' }}
       >
         <defs>
-          {/* Arrow that auto-orients — points right by default, SVG rotates to match path end tangent */}
-          <marker id="arr-fwd" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
-            <path d="M0,0.5 L0,6.5 L6,3.5 z" fill="#5b9cf6" opacity="0.6" />
-          </marker>
-          <marker id="arr-bwd" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
-            <path d="M0,0.5 L0,6.5 L6,3.5 z" fill="#e8a947" opacity="0.55" />
+          {/* Arrow inherits stroke color from the referencing path via context-stroke */}
+          <marker id="arr" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+            <path d="M0,0.5 L0,6.5 L6,3.5 z" fill="context-stroke" opacity="0.7" />
           </marker>
           <filter id="glow">
             <feGaussianBlur stdDeviation="2.5" result="blur" />
@@ -328,7 +356,6 @@ export default function LifecycleDiagram({
         {sorted.map(s => {
           const id      = s.id      || s.ID;
           const name    = s.name    || s.NAME || id;
-          const isActive = id === currentStateId;
           const isFrozen = s.is_frozen   === 1 || s.IS_FROZEN   === 1;
           const isRel    = s.is_released === 1 || s.IS_RELEASED === 1;
           const isInit   = s.is_initial  === 1 || s.IS_INITIAL  === 1;
@@ -342,9 +369,10 @@ export default function LifecycleDiagram({
           const x  = cx - BOX_W / 2;
           const y  = ROW_Y - BOX_H / 2;
 
+          const isActive = previewMode || id === currentStateId;
           let fill, stroke, textColor;
           if (isActive) {
-            const sc = STATE_COLORS[id] || '#5b9cf6';
+            const sc  = stateColor(s);
             fill      = `${sc}22`;
             stroke    = sc;
             textColor = sc;

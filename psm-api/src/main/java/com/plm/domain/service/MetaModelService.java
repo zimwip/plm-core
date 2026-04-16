@@ -1,7 +1,10 @@
 package com.plm.domain.service;
 
 import com.plm.domain.action.ActionPermissionService;
+import com.plm.domain.model.ResolvedAttribute;
+import com.plm.infrastructure.PlmEventPublisher;
 import com.plm.infrastructure.security.PlmAction;
+import com.plm.infrastructure.security.PlmSecurityContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.plm.domain.model.Enums.NumberingScheme;
@@ -13,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,6 +38,8 @@ public class MetaModelService {
 
     private final DSLContext dsl;
     private final ActionPermissionService actionPermissionService;
+    private final MetaModelCache metaModelCache;
+    private final PlmEventPublisher eventPublisher;
 
     // ================================================================
     // LIFECYCLE
@@ -47,6 +54,8 @@ public class MetaModelService {
             id, name, description, LocalDateTime.now()
         );
         log.info("Lifecycle created: {}", name);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
         return id;
     }
 
@@ -77,6 +86,8 @@ public class MetaModelService {
             color
         );
         log.info("State '{}' added to lifecycle {}", name, lifecycleId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
         return id;
     }
 
@@ -97,6 +108,8 @@ public class MetaModelService {
             versionStrategy != null ? versionStrategy : "NONE"
         );
         log.info("Transition '{}' added: {} → {}", name, fromStateId, toStateId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
         return id;
     }
 
@@ -138,6 +151,8 @@ public class MetaModelService {
             stateId
         );
         log.info("LifecycleState {} updated: name={}", stateId, name);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -151,6 +166,8 @@ public class MetaModelService {
             transitionId
         );
         log.info("LifecycleTransition {} updated: name={}", transitionId, name);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     public List<Record> getStates(String lifecycleId) {
@@ -160,10 +177,60 @@ public class MetaModelService {
                   .fetch();
     }
 
-    public List<Record> getTransitions(String lifecycleId) {
-        return dsl.select().from("lifecycle_transition")
-                  .where("lifecycle_id = ?", lifecycleId)
-                  .fetch();
+    public List<Map<String, Object>> getTransitions(String lifecycleId) {
+        List<Record> transitions = dsl.select().from("lifecycle_transition")
+            .where("lifecycle_id = ?", lifecycleId)
+            .fetch();
+
+        // Fetch all signature requirements for this lifecycle's transitions in one query
+        List<Record> sigReqs = dsl.select()
+            .from("signature_requirement sr")
+            .join("lifecycle_transition lt").on("lt.id = sr.lifecycle_transition_id")
+            .where("lt.lifecycle_id = ?", lifecycleId)
+            .orderBy(DSL.field("sr.display_order"))
+            .fetch();
+
+        // Group by transition id
+        Map<String, List<Map<String, Object>>> reqsByTransition = sigReqs.stream()
+            .collect(Collectors.groupingBy(
+                r -> r.get("lifecycle_transition_id", String.class),
+                Collectors.mapping(r -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id",          r.get("id",           String.class));
+                    m.put("roleRequired", r.get("role_required", String.class));
+                    m.put("displayOrder", r.get("display_order", Integer.class));
+                    return m;
+                }, Collectors.toList())
+            ));
+
+        return transitions.stream().map(t -> {
+            Map<String, Object> m = new LinkedHashMap<>(t.intoMap());
+            m.put("signatureRequirements",
+                reqsByTransition.getOrDefault(t.get("id", String.class), List.of()));
+            return m;
+        }).collect(Collectors.toList());
+    }
+
+    @PlmAction("MANAGE_METAMODEL")
+    @Transactional
+    public String addSignatureRequirement(String transitionId, String roleId, int displayOrder) {
+        String id = UUID.randomUUID().toString();
+        dsl.execute(
+            "INSERT INTO signature_requirement (ID, LIFECYCLE_TRANSITION_ID, ROLE_REQUIRED, DISPLAY_ORDER) VALUES (?,?,?,?)",
+            id, transitionId, roleId, displayOrder);
+        log.info("SignatureRequirement added: transition={} role={}", transitionId, roleId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        return id;
+    }
+
+    @PlmAction("MANAGE_METAMODEL")
+    @Transactional
+    public void removeSignatureRequirement(String reqId) {
+        dsl.execute("DELETE FROM signature_requirement WHERE id = ?", reqId);
+        log.info("SignatureRequirement {} deleted", reqId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     // ================================================================
@@ -194,24 +261,39 @@ public class MetaModelService {
     public String createNodeType(String name, String description, String lifecycleId,
                                  String numberingScheme, String versionPolicy,
                                  String color, String icon) {
+        return createNodeType(name, description, lifecycleId, numberingScheme, versionPolicy, color, icon, null);
+    }
+
+    @Transactional
+    public String createNodeType(String name, String description, String lifecycleId,
+                                 String numberingScheme, String versionPolicy,
+                                 String color, String icon, String parentNodeTypeId) {
         String scheme = (numberingScheme != null && !numberingScheme.isBlank())
             ? numberingScheme
             : NumberingScheme.ALPHA_NUMERIC.name();
         String policy = (versionPolicy != null && !versionPolicy.isBlank())
             ? versionPolicy
             : VersionPolicy.ITERATE.name();
+
+        // Validate parent exists and no cycle would be created
+        if (parentNodeTypeId != null && !parentNodeTypeId.isBlank()) {
+            assertNoCycle(null, parentNodeTypeId);
+        }
+
         String id = UUID.randomUUID().toString();
         dsl.execute(
-            "INSERT INTO node_type (ID, NAME, DESCRIPTION, LIFECYCLE_ID, NUMBERING_SCHEME, VERSION_POLICY, COLOR, ICON, CREATED_AT) VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO node_type (ID, NAME, DESCRIPTION, LIFECYCLE_ID, NUMBERING_SCHEME, VERSION_POLICY, COLOR, ICON, PARENT_NODE_TYPE_ID, CREATED_AT) VALUES (?,?,?,?,?,?,?,?,?,?)",
             id, name, description, lifecycleId, scheme, policy,
             (color != null && !color.isBlank()) ? color : null,
             (icon  != null && !icon.isBlank())  ? icon  : null,
+            (parentNodeTypeId != null && !parentNodeTypeId.isBlank()) ? parentNodeTypeId : null,
             LocalDateTime.now()
         );
 
         // Auto-register default-on built-in actions for the new node type
         List<Record> defaultActions = dsl.fetch(
             "SELECT id, display_category FROM action WHERE is_default = 1");
+        java.util.Set<String> registeredActionIds = new java.util.HashSet<>();
         int displayOrder = 100;
         for (Record action : defaultActions) {
             String actionId = action.get("id", String.class);
@@ -219,6 +301,7 @@ public class MetaModelService {
             dsl.execute(
                 "INSERT INTO node_type_action (id, node_type_id, action_id, status, display_order) VALUES (?,?,?,?,?)",
                 ntaId, id, actionId, "ENABLED", displayOrder);
+            registeredActionIds.add(actionId);
             displayOrder += 100;
         }
 
@@ -232,9 +315,82 @@ public class MetaModelService {
                 "INSERT INTO node_type_action (id, node_type_id, action_id, status, transition_id, display_order) VALUES (?,?,?,?,?,?)",
                 ntaId, id, "act-transition", "ENABLED", trId, 0);
         }
+        registeredActionIds.add("act-transition");
 
-        log.info("NodeType created: {} scheme={}", name, scheme);
+        // If inheriting, also create NTA rows for any parent actions not yet registered
+        // (e.g. act-read which has is_default=0 but must be independently manageable).
+        // Then copy the parent's action_permission rows so the child starts with the same rights.
+        if (parentNodeTypeId != null && !parentNodeTypeId.isBlank()) {
+            List<Record> parentNtas = dsl.fetch(
+                "SELECT action_id, status, display_order FROM node_type_action " +
+                "WHERE node_type_id = ? AND transition_id IS NULL",
+                parentNodeTypeId);
+            for (Record pnta : parentNtas) {
+                String actionId = pnta.get("action_id", String.class);
+                if (!registeredActionIds.contains(actionId)) {
+                    String ntaId = "nta-" + actionId.replaceFirst("^act-", "") + "-" + id;
+                    dsl.execute(
+                        "INSERT INTO node_type_action (id, node_type_id, action_id, status, display_order) VALUES (?,?,?,?,?)",
+                        ntaId, id, actionId,
+                        pnta.get("status", String.class),
+                        pnta.get("display_order", Integer.class));
+                    registeredActionIds.add(actionId);
+                }
+            }
+            copyActionPermissionsFromParent(id, parentNodeTypeId);
+        }
+
+        log.info("NodeType created: {} scheme={} parent={}", name, scheme, parentNodeTypeId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
         return id;
+    }
+
+    /**
+     * Updates the parent node type. Pass null to clear inheritance.
+     * Validates that no cycle would be created.
+     */
+    @PlmAction("MANAGE_METAMODEL")
+    @Transactional
+    public void updateNodeTypeParent(String nodeTypeId, String parentNodeTypeId) {
+        if (parentNodeTypeId != null && !parentNodeTypeId.isBlank()) {
+            if (parentNodeTypeId.equals(nodeTypeId)) {
+                throw new IllegalArgumentException("A node type cannot inherit from itself");
+            }
+            // Verify parent exists
+            int exists = dsl.fetchCount(dsl.selectOne().from("node_type").where("id = ?", parentNodeTypeId));
+            if (exists == 0) throw new IllegalArgumentException("Parent node type not found: " + parentNodeTypeId);
+            // Cycle check: walk up from parentNodeTypeId; must not reach nodeTypeId
+            assertNoCycle(nodeTypeId, parentNodeTypeId);
+            dsl.execute("UPDATE node_type SET parent_node_type_id = ? WHERE id = ?", parentNodeTypeId, nodeTypeId);
+        } else {
+            dsl.execute("UPDATE node_type SET parent_node_type_id = NULL WHERE id = ?", nodeTypeId);
+        }
+        log.info("NodeType {} parent updated to {}", nodeTypeId, parentNodeTypeId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+    }
+
+    /**
+     * Asserts that setting parentNodeTypeId as the parent of nodeTypeId (or of a new type)
+     * would not create a cycle. Walks up from parentNodeTypeId; throws if it reaches nodeTypeId.
+     *
+     * @param nodeTypeId     the type being re-parented (null for a new type being created)
+     * @param parentNodeTypeId the proposed new parent
+     */
+    private void assertNoCycle(String nodeTypeId, String parentNodeTypeId) {
+        String current = parentNodeTypeId;
+        int depth = 0;
+        while (current != null && depth < 50) {
+            if (current.equals(nodeTypeId)) {
+                throw new IllegalArgumentException(
+                    "Setting this parent would create a circular inheritance chain");
+            }
+            current = dsl.select(DSL.field("parent_node_type_id"))
+                .from("node_type").where("id = ?", current)
+                .fetchOne(DSL.field("parent_node_type_id"), String.class);
+            depth++;
+        }
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -246,6 +402,8 @@ public class MetaModelService {
             numberingScheme, nodeTypeId
         );
         log.info("NodeType {} numbering_scheme updated to {}", nodeTypeId, numberingScheme);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -257,6 +415,20 @@ public class MetaModelService {
             versionPolicy, nodeTypeId
         );
         log.info("NodeType {} version_policy updated to {}", nodeTypeId, versionPolicy);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+    }
+
+    @PlmAction("MANAGE_METAMODEL")
+    @Transactional
+    public void updateNodeTypeCollapseHistory(String nodeTypeId, boolean collapseHistory) {
+        dsl.execute(
+            "UPDATE node_type SET collapse_history = ? WHERE id = ?",
+            collapseHistory, nodeTypeId
+        );
+        log.info("NodeType {} collapse_history updated to {}", nodeTypeId, collapseHistory);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -269,6 +441,8 @@ public class MetaModelService {
             nodeTypeId
         );
         log.info("NodeType {} appearance updated: color={} icon={}", nodeTypeId, color, icon);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     @Transactional
@@ -279,6 +453,8 @@ public class MetaModelService {
             nodeTypeId
         );
         log.info("NodeType {} lifecycle_id updated to {}", nodeTypeId, lifecycleId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     public List<Record> getAllNodeTypes() {
@@ -326,52 +502,97 @@ public class MetaModelService {
             params.get("name"),
             params.get("label"),
             params.getOrDefault("dataType", "STRING"),
-            params.getOrDefault("required", 0),
+            toIntFlag(params.get("required")),
             params.get("defaultValue"),
             params.get("namingRegex"),
             params.get("allowedValues"),
             params.getOrDefault("widgetType", "TEXT"),
-            params.getOrDefault("displayOrder", 0),
+            toInt(params.get("displayOrder"), 0),
             params.get("displaySection"),
             params.get("tooltip"),
             asName ? 1 : 0,
             LocalDateTime.now()
         );
         log.info("AttributeDefinition '{}' created on nodeType {}", params.get("name"), nodeTypeId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
         return id;
     }
 
-    public List<Record> getAttributeDefinitions(String nodeTypeId) {
-        return dsl.select().from("attribute_definition")
-                  .where("node_type_id = ?", nodeTypeId)
-                  .orderBy(DSL.field("display_order"))
-                  .fetch();
+    /**
+     * Returns the effective attribute definitions for a node type, including inherited ones.
+     * Each entry has extra fields {@code inherited} (Boolean) and {@code inherited_from} (String)
+     * so the frontend can display inheritance information.
+     */
+    public List<Map<String, Object>> getAttributeDefinitions(String nodeTypeId) {
+        var resolved = metaModelCache.get(nodeTypeId);
+        if (resolved == null) return List.of();
+        return resolved.attributes().stream().map(a -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id",              a.id());
+            m.put("node_type_id",    a.ownerNodeTypeId());
+            m.put("name",            a.name());
+            m.put("label",           a.label());
+            m.put("data_type",       a.dataType());
+            m.put("widget_type",     a.widgetType());
+            m.put("required",        a.required() ? 1 : 0);
+            m.put("default_value",   a.defaultValue());
+            m.put("naming_regex",    a.namingRegex());
+            m.put("allowed_values",  a.allowedValues());
+            m.put("display_order",   a.displayOrder());
+            m.put("display_section", a.displaySection());
+            m.put("tooltip",         a.tooltip());
+            m.put("as_name",         a.asName() ? 1 : 0);
+            m.put("inherited",       a.inherited());
+            m.put("inherited_from",  a.inheritedFrom());
+            return m;
+        }).collect(Collectors.toList());
     }
 
     // ================================================================
     // ATTRIBUTE STATE RULE
     // ================================================================
 
+    /**
+     * Sets a state rule for an attribute, scoped to the given nodeTypeId.
+     * A child type can call this with its own nodeTypeId to override the rule
+     * inherited from a parent type for the same attribute.
+     * If nodeTypeId is null, it is looked up from the attribute_definition.
+     */
     @PlmAction("MANAGE_METAMODEL")
     @Transactional
-    public String setAttributeStateRule(String attributeDefId, String stateId,
+    public String setAttributeStateRule(String nodeTypeId, String attributeDefId, String stateId,
                                         boolean required, boolean editable, boolean visible) {
-        // Upsert : supprime l'ancienne règle si elle existe
+        String effectiveNodeTypeId = nodeTypeId;
+        if (effectiveNodeTypeId == null || effectiveNodeTypeId.isBlank()) {
+            effectiveNodeTypeId = dsl.select(DSL.field("node_type_id"))
+                .from("attribute_definition").where("id = ?", attributeDefId)
+                .fetchOne(DSL.field("node_type_id"), String.class);
+        }
+        // Upsert: delete existing rule for (nodeTypeId, attrDefId, stateId) then insert
         dsl.execute(
-            "DELETE FROM attribute_state_rule WHERE attribute_definition_id = ? AND lifecycle_state_id = ?",
-            attributeDefId, stateId
+            "DELETE FROM attribute_state_rule WHERE node_type_id = ? AND attribute_definition_id = ? AND lifecycle_state_id = ?",
+            effectiveNodeTypeId, attributeDefId, stateId
         );
-
         String id = UUID.randomUUID().toString();
         dsl.execute(
-            "INSERT INTO attribute_state_rule (ID, ATTRIBUTE_DEFINITION_ID, LIFECYCLE_STATE_ID, REQUIRED, EDITABLE, VISIBLE) VALUES (?,?,?,?,?,?)",
-            id, attributeDefId, stateId,
+            "INSERT INTO attribute_state_rule (ID, NODE_TYPE_ID, ATTRIBUTE_DEFINITION_ID, LIFECYCLE_STATE_ID, REQUIRED, EDITABLE, VISIBLE) VALUES (?,?,?,?,?,?,?)",
+            id, effectiveNodeTypeId, attributeDefId, stateId,
             required ? 1 : 0,
             editable ? 1 : 0,
             visible  ? 1 : 0
         );
-        log.info("AttributeStateRule set: attr={} state={} required={} editable={}", attributeDefId, stateId, required, editable);
+        log.info("AttributeStateRule set: nodeType={} attr={} state={} required={} editable={}",
+            effectiveNodeTypeId, attributeDefId, stateId, required, editable);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
         return id;
+    }
+
+    /** Backward-compatible overload — resolves nodeTypeId from the attribute definition. */
+    public String setAttributeStateRule(String attributeDefId, String stateId,
+                                        boolean required, boolean editable, boolean visible) {
+        return setAttributeStateRule(null, attributeDefId, stateId, required, editable, visible);
     }
 
     /**
@@ -409,6 +630,16 @@ public class MetaModelService {
                                  int minCardinality, Integer maxCardinality,
                                  String linkLogicalIdLabel, String linkLogicalIdPattern,
                                  String color) {
+        return createLinkType(name, description, sourceNodeTypeId, targetNodeTypeId,
+            linkPolicy, minCardinality, maxCardinality, linkLogicalIdLabel, linkLogicalIdPattern, color, null);
+    }
+
+    public String createLinkType(String name, String description,
+                                 String sourceNodeTypeId, String targetNodeTypeId,
+                                 String linkPolicy,
+                                 int minCardinality, Integer maxCardinality,
+                                 String linkLogicalIdLabel, String linkLogicalIdPattern,
+                                 String color, String icon) {
         if (!linkPolicy.equals("VERSION_TO_MASTER") && !linkPolicy.equals("VERSION_TO_VERSION")) {
             throw new IllegalArgumentException("linkPolicy must be VERSION_TO_MASTER or VERSION_TO_VERSION");
         }
@@ -418,8 +649,8 @@ public class MetaModelService {
             INSERT INTO link_type
               (ID, NAME, DESCRIPTION, SOURCE_NODE_TYPE_ID, TARGET_NODE_TYPE_ID,
                LINK_POLICY, MIN_CARDINALITY, MAX_CARDINALITY,
-               LINK_LOGICAL_ID_LABEL, LINK_LOGICAL_ID_PATTERN, COLOR, CREATED_AT)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+               LINK_LOGICAL_ID_LABEL, LINK_LOGICAL_ID_PATTERN, COLOR, ICON, CREATED_AT)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             id, name, description,
             sourceNodeTypeId, targetNodeTypeId,
@@ -427,6 +658,7 @@ public class MetaModelService {
             (linkLogicalIdLabel != null && !linkLogicalIdLabel.isBlank()) ? linkLogicalIdLabel : "Link ID",
             (linkLogicalIdPattern != null && !linkLogicalIdPattern.isBlank()) ? linkLogicalIdPattern : null,
             (color != null && !color.isBlank()) ? color : null,
+            (icon != null && !icon.isBlank()) ? icon : null,
             LocalDateTime.now()
         );
         log.info("LinkType '{}' created: {} → {} policy={}", name, sourceNodeTypeId, targetNodeTypeId, linkPolicy);
@@ -457,6 +689,63 @@ public class MetaModelService {
                   .where("source_node_type_id = ?", sourceNodeTypeId)
                   .or("source_node_type_id IS NULL")
                   .fetch();
+    }
+
+    /**
+     * Returns link types available for a node type, including those defined on ancestor types.
+     * Each entry includes {@code inherited} and {@code inherited_from} metadata.
+     */
+    public List<Map<String, Object>> getEffectiveLinkTypes(String nodeTypeId) {
+        var resolved = metaModelCache.get(nodeTypeId);
+        List<String> chain = resolved != null ? resolved.ancestorChain() : List.of(nodeTypeId);
+
+        // Fetch link types whose source matches any ancestor
+        String inClause = chain.stream().map(x -> "?").collect(Collectors.joining(","));
+        List<Record> rows = dsl.fetch(
+            "SELECT lt.*, nt.name AS owner_type_name " +
+            "FROM link_type lt " +
+            "JOIN node_type nt ON nt.id = lt.source_node_type_id " +
+            "WHERE lt.source_node_type_id IN (" + inClause + ") " +
+            "ORDER BY lt.name",
+            chain.toArray());
+
+        return rows.stream().map(r -> {
+            Map<String, Object> m = new LinkedHashMap<>(r.intoMap());
+            String ownerTypeId = r.get("source_node_type_id", String.class);
+            boolean inherited = !nodeTypeId.equals(ownerTypeId);
+            m.put("inherited", inherited);
+            m.put("inherited_from", inherited ? r.get("owner_type_name", String.class) : null);
+            m.remove("owner_type_name");
+            return m;
+        }).collect(Collectors.toList());
+    }
+
+    /**
+     * Returns node_type_action rows for a node type.
+     * Each node type owns its own NTA rows — child types have their own copies
+     * seeded at creation time, so no ancestor-chain walking is needed here.
+     */
+    public List<Map<String, Object>> getEffectiveActions(String nodeTypeId) {
+        List<Record> rows = dsl.fetch(
+            "SELECT nta.id AS nta_id, nta.node_type_id AS nta_node_type_id, " +
+            "       nta.status, nta.display_name_override, nta.display_order, nta.transition_id, " +
+            "       na.id AS action_id, na.action_code, na.action_kind, na.scope, " +
+            "       na.display_name, na.display_category, na.requires_tx, na.handler_ref, " +
+            "       lt.name AS transition_name, ls.name AS from_state_name " +
+            "FROM node_type_action nta " +
+            "JOIN action na ON na.id = nta.action_id " +
+            "LEFT JOIN lifecycle_transition lt ON lt.id = nta.transition_id " +
+            "LEFT JOIN lifecycle_state ls ON ls.id = lt.from_state_id " +
+            "WHERE nta.node_type_id = ? " +
+            "ORDER BY nta.display_order, na.display_category",
+            nodeTypeId);
+
+        return rows.stream().map(row -> {
+            Map<String, Object> m = new LinkedHashMap<>(row.intoMap());
+            m.put("inherited", false);
+            m.put("inherited_from", null);
+            return m;
+        }).collect(Collectors.toList());
     }
 
     // ================================================================
@@ -495,18 +784,20 @@ public class MetaModelService {
             """,
             params.get("label"),
             params.getOrDefault("dataType", "STRING"),
-            Boolean.TRUE.equals(params.get("required")) ? 1 : 0,
+            toIntFlag(params.get("required")),
             params.get("defaultValue"),
             params.get("namingRegex"),
             params.get("allowedValues"),
             params.getOrDefault("widgetType", "TEXT"),
-            params.getOrDefault("displayOrder", 0),
+            toInt(params.get("displayOrder"), 0),
             params.get("displaySection"),
             params.get("tooltip"),
             asName ? 1 : 0,
             attrId
         );
         log.info("AttributeDefinition {} updated", attrId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     // ================================================================
@@ -523,10 +814,11 @@ public class MetaModelService {
         String label   = (String) params.get("linkLogicalIdLabel");
         String pattern = (String) params.get("linkLogicalIdPattern");
         String color = (String) params.get("color");
+        String icon  = (String) params.get("icon");
         dsl.execute("""
             UPDATE link_type SET
               NAME = ?, DESCRIPTION = ?, LINK_POLICY = ?, MIN_CARDINALITY = ?, MAX_CARDINALITY = ?,
-              LINK_LOGICAL_ID_LABEL = ?, LINK_LOGICAL_ID_PATTERN = ?, COLOR = ?
+              LINK_LOGICAL_ID_LABEL = ?, LINK_LOGICAL_ID_PATTERN = ?, COLOR = ?, ICON = ?
             WHERE ID = ?
             """,
             params.get("name"),
@@ -537,9 +829,12 @@ public class MetaModelService {
             (label != null && !label.isBlank()) ? label : "Link ID",
             (pattern != null && !pattern.isBlank()) ? pattern : null,
             (color != null && !color.isBlank()) ? color : null,
+            (icon  != null && !icon.isBlank())  ? icon  : null,
             linkTypeId
         );
         log.info("LinkType {} updated", linkTypeId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     // ================================================================
@@ -564,7 +859,7 @@ public class MetaModelService {
             params.get("name"),
             params.get("label"),
             params.getOrDefault("dataType", "STRING"),
-            Boolean.TRUE.equals(params.get("required")) ? 1 : 0,
+            toIntFlag(params.get("required")),
             params.get("defaultValue"),
             params.get("namingRegex"),
             params.get("allowedValues"),
@@ -575,6 +870,8 @@ public class MetaModelService {
             LocalDateTime.now()
         );
         log.info("LinkTypeAttribute '{}' created on linkType {}", params.get("name"), linkTypeId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
         return id;
     }
 
@@ -604,17 +901,19 @@ public class MetaModelService {
             """,
             params.get("label"),
             params.getOrDefault("dataType", "STRING"),
-            Boolean.TRUE.equals(params.get("required")) ? 1 : 0,
+            toIntFlag(params.get("required")),
             params.get("defaultValue"),
             params.get("namingRegex"),
             params.get("allowedValues"),
             params.getOrDefault("widgetType", "TEXT"),
-            params.getOrDefault("displayOrder", 0),
+            toInt(params.get("displayOrder"), 0),
             params.get("displaySection"),
             params.get("tooltip"),
             attrId
         );
         log.info("LinkTypeAttribute {} updated", attrId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -622,6 +921,8 @@ public class MetaModelService {
     public void deleteLinkTypeAttribute(String attrId) {
         dsl.execute("DELETE FROM link_type_attribute WHERE id = ?", attrId);
         log.info("LinkTypeAttribute {} deleted", attrId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     // ================================================================
@@ -689,6 +990,8 @@ public class MetaModelService {
             label, pattern, nodeTypeId
         );
         log.info("NodeType {} identity updated: label={} pattern={}", nodeTypeId, label, pattern);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     // ================================================================
@@ -721,10 +1024,14 @@ public class MetaModelService {
             "DELETE FROM node_type_action WHERE transition_id IN " +
             "(SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId
         );
+        dsl.execute("DELETE FROM signature_requirement WHERE lifecycle_transition_id IN " +
+            "(SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM lifecycle_transition WHERE lifecycle_id = ?", lifecycleId);
         dsl.execute("DELETE FROM lifecycle_state WHERE lifecycle_id = ?", lifecycleId);
         dsl.execute("DELETE FROM lifecycle WHERE id = ?", lifecycleId);
         log.info("Lifecycle {} deleted", lifecycleId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -746,6 +1053,8 @@ public class MetaModelService {
         dsl.execute("DELETE FROM attribute_state_rule WHERE lifecycle_state_id = ?", stateId);
         dsl.execute("DELETE FROM lifecycle_state WHERE id = ?", stateId);
         log.info("LifecycleState {} deleted", stateId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -761,8 +1070,11 @@ public class MetaModelService {
             transitionId
         );
         dsl.execute("DELETE FROM node_type_action WHERE transition_id = ?", transitionId);
+        dsl.execute("DELETE FROM signature_requirement WHERE lifecycle_transition_id = ?", transitionId);
         dsl.execute("DELETE FROM lifecycle_transition WHERE id = ?", transitionId);
         log.info("LifecycleTransition {} deleted", transitionId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -787,8 +1099,17 @@ public class MetaModelService {
         // Cascade action permissions then node_type_action rows
         dsl.execute("DELETE FROM action_permission WHERE node_type_id = ?", nodeTypeId);
         dsl.execute("DELETE FROM node_type_action WHERE node_type_id = ?", nodeTypeId);
+        // Block deletion if any child type references this as parent
+        int children = dsl.fetchCount(
+            dsl.selectOne().from("node_type").where("parent_node_type_id = ?", nodeTypeId)
+        );
+        if (children > 0) {
+            throw new IllegalStateException("Node type has " + children + " child type(s) — remove inheritance first");
+        }
         dsl.execute("DELETE FROM node_type WHERE id = ?", nodeTypeId);
         log.info("NodeType {} deleted", nodeTypeId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -803,6 +1124,8 @@ public class MetaModelService {
         dsl.execute("DELETE FROM attribute_state_rule WHERE attribute_definition_id = ?", attrId);
         dsl.execute("DELETE FROM attribute_definition WHERE id = ?", attrId);
         log.info("AttributeDefinition {} deleted", attrId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -816,6 +1139,8 @@ public class MetaModelService {
         }
         dsl.execute("DELETE FROM link_type WHERE id = ?", linkTypeId);
         log.info("LinkType {} deleted", linkTypeId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     // ================================================================
@@ -827,30 +1152,7 @@ public class MetaModelService {
     }
 
     public List<Map<String, Object>> getActionsForNodeType(String nodeTypeId) {
-        return dsl.fetch("""
-            SELECT
-                nta.id               AS nta_id,
-                nta.status,
-                nta.display_name_override,
-                nta.display_order,
-                nta.transition_id,
-                na.id                AS action_id,
-                na.action_code,
-                na.action_kind,
-                na.scope,
-                na.display_name,
-                na.display_category,
-                na.requires_tx,
-                na.handler_ref,
-                lt.name              AS transition_name,
-                ls.name              AS from_state_name
-            FROM node_type_action nta
-            JOIN action na ON na.id = nta.action_id
-            LEFT JOIN lifecycle_transition lt ON lt.id = nta.transition_id
-            LEFT JOIN lifecycle_state ls      ON ls.id = lt.from_state_id
-            WHERE nta.node_type_id = ?
-            ORDER BY nta.display_order, na.display_category
-            """, nodeTypeId).intoMaps();
+        return getEffectiveActions(nodeTypeId);
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -885,6 +1187,8 @@ public class MetaModelService {
             VALUES (?,?,?,?,?)
             """, ntaId, nodeTypeId, actionId, "ENABLED", 999);
         log.info("Action {} enabled for nodeType {}", actionCode, nodeTypeId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
         return ntaId;
     }
 
@@ -894,6 +1198,8 @@ public class MetaModelService {
         if (!"ENABLED".equals(status) && !"DISABLED".equals(status))
             throw new IllegalArgumentException("status must be ENABLED or DISABLED");
         dsl.execute("UPDATE node_type_action SET STATUS = ? WHERE ID = ?", status, nodeTypeActionId);
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
     }
 
     /**
@@ -913,10 +1219,7 @@ public class MetaModelService {
         String transitionId = derived[2]; // null for NODE-scope, set for LIFECYCLE-scope
 
         // Upsert: delete existing row for (nodeType, action, role, transition, ps), then insert
-        dsl.execute(
-            "DELETE FROM action_permission WHERE node_type_id = ? AND action_id = ? AND role_id = ? " +
-            "AND project_space_id = ? AND (transition_id = ? OR (transition_id IS NULL AND ? IS NULL))",
-            nodeTypeId, actionId, roleId, psId, transitionId, transitionId);
+        deleteActionPermissionRow(nodeTypeId, actionId, roleId, psId, transitionId);
         dsl.execute(
             "INSERT INTO action_permission (ID, ACTION_ID, PROJECT_SPACE_ID, ROLE_ID, NODE_TYPE_ID, TRANSITION_ID) VALUES (?,?,?,?,?,?)",
             UUID.randomUUID().toString(), actionId, psId, roleId, nodeTypeId, transitionId);
@@ -937,10 +1240,7 @@ public class MetaModelService {
         String actionId     = derived[1];
         String transitionId = derived[2];
 
-        dsl.execute(
-            "DELETE FROM action_permission WHERE node_type_id = ? AND action_id = ? AND role_id = ? " +
-            "AND project_space_id = ? AND (transition_id = ? OR (transition_id IS NULL AND ? IS NULL))",
-            nodeTypeId, actionId, roleId, psId, transitionId, transitionId);
+        deleteActionPermissionRow(nodeTypeId, actionId, roleId, psId, transitionId);
     }
 
     public List<Map<String, Object>> getNodeTypeActionPermissions(String nodeTypeActionId) {
@@ -966,6 +1266,36 @@ public class MetaModelService {
             WHERE node_type_id = ? AND action_id = ? AND project_space_id = ? AND transition_id IS NULL
             ORDER BY role_id
             """, nodeTypeId, actionId, psId).intoMaps();
+    }
+
+    /**
+     * Deletes a single action_permission row matching the given key fields.
+     * Branches on transitionId nullability because {@code ? IS NULL} is not valid SQL
+     * in H2 (and is rejected as bad grammar).
+     */
+    private void deleteActionPermissionRow(String nodeTypeId, String actionId,
+                                           String roleId, String psId, String transitionId) {
+        // SQL does not allow "col = NULL" — must use IS NULL for nullable key fields.
+        // Branch on each nullable dimension independently.
+        if (nodeTypeId != null && transitionId != null) {
+            // LIFECYCLE scope
+            dsl.execute(
+                "DELETE FROM action_permission WHERE action_id = ? AND role_id = ? " +
+                "AND project_space_id = ? AND node_type_id = ? AND transition_id = ?",
+                actionId, roleId, psId, nodeTypeId, transitionId);
+        } else if (nodeTypeId != null) {
+            // NODE scope
+            dsl.execute(
+                "DELETE FROM action_permission WHERE action_id = ? AND role_id = ? " +
+                "AND project_space_id = ? AND node_type_id = ? AND transition_id IS NULL",
+                actionId, roleId, psId, nodeTypeId);
+        } else {
+            // GLOBAL scope (node_type_id IS NULL, transition_id IS NULL)
+            dsl.execute(
+                "DELETE FROM action_permission WHERE action_id = ? AND role_id = ? " +
+                "AND project_space_id = ? AND node_type_id IS NULL AND transition_id IS NULL",
+                actionId, roleId, psId);
+        }
     }
 
     /**
@@ -1008,6 +1338,47 @@ public class MetaModelService {
     // ================================================================
     // Helpers
     // ================================================================
+
+    /**
+     * Copies all node-scoped action_permission rows from parentNodeTypeId to childNodeTypeId.
+     * Called at child type creation so the child immediately has the same access rights.
+     * GLOBAL-scoped rows (node_type_id IS NULL) are not copied — they apply system-wide already.
+     */
+    private void copyActionPermissionsFromParent(String childNodeTypeId, String parentNodeTypeId) {
+        List<Record> rows = dsl.select()
+            .from("action_permission")
+            .where("node_type_id = ?", parentNodeTypeId)
+            .fetch();
+        for (Record r : rows) {
+            String newId = UUID.randomUUID().toString();
+            dsl.execute(
+                "INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?)",
+                newId,
+                r.get("action_id",        String.class),
+                r.get("project_space_id", String.class),
+                r.get("role_id",          String.class),
+                childNodeTypeId,
+                r.get("transition_id",    String.class)
+            );
+        }
+        log.info("Copied {} action_permission rows from {} to {}", rows.size(), parentNodeTypeId, childNodeTypeId);
+    }
+
+    /** Converts a flag value (Boolean true/false or Integer 1/0) to SMALLINT-safe int. */
+    private static int toIntFlag(Object v) {
+        if (v instanceof Boolean b) return b ? 1 : 0;
+        if (v instanceof Number n)  return n.intValue() != 0 ? 1 : 0;
+        return 0;
+    }
+
+    /** Converts a nullable Number/String to int, falling back to def if null or non-numeric. */
+    private static int toInt(Object v, int def) {
+        if (v instanceof Number n) return n.intValue();
+        if (v instanceof String s && !s.isBlank()) {
+            try { return Integer.parseInt(s.trim()); } catch (NumberFormatException ignored) {}
+        }
+        return def;
+    }
 
     private void validateStateOwnership(String lifecycleId, String stateId, String label) {
         String owner = dsl.select().from("lifecycle_state")

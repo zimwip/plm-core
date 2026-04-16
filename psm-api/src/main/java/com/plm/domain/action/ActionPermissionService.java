@@ -153,7 +153,7 @@ public class ActionPermissionService {
             .fetchOne(DSL.field("id"), String.class);
         if (checkoutActionId == null) return true; // no CHECKOUT action → open to all
 
-        // If no node_type_action row exists for (node_type, CHECKOUT) → open to all
+        // No NTA row for this type → deny (no data = no access)
         String ntaId = dsl.select(DSL.field("id"))
             .from("node_type_action")
             .where("node_type_id = ?", nodeTypeId)
@@ -161,7 +161,7 @@ public class ActionPermissionService {
             .and("status = 'ENABLED'")
             .limit(1)
             .fetchOne(DSL.field("id"), String.class);
-        if (ntaId == null) return true;
+        if (ntaId == null) return false;
 
         return canExecuteCore(checkoutActionId, "NODE", nodeTypeId, null, ctx);
     }

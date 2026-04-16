@@ -2,6 +2,7 @@ package com.plm.domain.service;
 
 import com.plm.domain.model.Enums.ChangeType;
 import com.plm.domain.model.Enums.VersionStrategy;
+import com.plm.domain.model.ResolvedAttribute;
 import com.plm.infrastructure.PlmEventPublisher;
 import com.plm.infrastructure.security.PlmAction;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Application des transitions de lifecycle.
@@ -34,6 +37,7 @@ public class LifecycleService {
     private final VersionService    versionService;
     private final LockService       lockService;
     private final PlmEventPublisher eventPublisher;
+    private final MetaModelCache    metaModelCache;
 
     /**
      * Self-reference via Spring proxy for cascade calls.
@@ -76,9 +80,15 @@ public class LifecycleService {
         // Vérifier permission transition
         // (délégué à permissionService dans NodeController — ici on fait confiance à l'appelant)
 
-        // Évaluer la garde
+        // Évaluer la garde explicite (ex: all_required_filled)
         if (guardExpr != null && !evaluateGuard(guardExpr, nodeId, toStateId)) {
             throw new GuardException("Guard '" + guardExpr + "' failed for transition " + transitionId);
+        }
+
+        // Garde implicite signatures : si la transition a des signature_requirement,
+        // le nombre de signataires distincts engagés doit être >= au nombre d'exigences.
+        if (!checkAllSignaturesDone(nodeId, transitionId)) {
+            throw new GuardException("Not all required signatures collected for transition " + transitionId);
         }
 
         // Créer la version LIFECYCLE avec la stratégie de numérotation de la transition
@@ -88,6 +98,18 @@ public class LifecycleService {
             Collections.emptyMap(),
             "Lifecycle transition: " + fromStateId + " → " + toStateId
         );
+
+        // Collapse history when entering a Released state (if enabled on node-type):
+        // 1. ALL committed versions of the previous revision are deleted (no old version kept)
+        // 2. The new Released version gets iteration=0 (displayed as just the revision letter, e.g. "B")
+        Record toStateRec = dsl.fetchOne("SELECT is_released FROM lifecycle_state WHERE id = ?", toStateId);
+        boolean enteringReleased = toStateRec != null
+            && Integer.valueOf(1).equals(toStateRec.get("is_released", Integer.class));
+        if (enteringReleased && isCollapseEnabled(nodeId)) {
+            collapseRevisionHistory(nodeId, current.get("revision", String.class));
+            // Truncate the new Released version's iteration (e.g. B.1 → B)
+            dsl.execute("UPDATE node_version SET iteration = 0 WHERE id = ?", versionId);
+        }
 
         // Acquiert le lock (conflit → exception + rollback) et écrit locked_by / locked_at.
         lockService.tryLock(nodeId, userId);
@@ -119,7 +141,6 @@ public class LifecycleService {
     private boolean evaluateGuard(String guardExpr, String nodeId, String targetStateId) {
         return switch (guardExpr) {
             case "all_required_filled" -> checkAllRequiredFilled(nodeId, targetStateId);
-            case "all_signatures_done" -> checkAllSignaturesDone(nodeId);
             default -> { log.warn("Unknown guard: {}", guardExpr); yield true; }
         };
     }
@@ -130,19 +151,48 @@ public class LifecycleService {
         Record current = versionService.getCurrentVersion(nodeId);
         if (current == null) return false;
         String currentVersionId = current.get("id", String.class);
-        // Use explicit column to avoid duplicate "id" column in H2 derived-table wrapping
-        int missing = dsl.fetchCount(dsl.select(DSL.field("ad.id")).from("attribute_definition ad")
-            .join("attribute_state_rule asr").on("asr.attribute_definition_id = ad.id")
-            .where("ad.node_type_id = ?", nodeTypeId)
-            .and("asr.lifecycle_state_id = ?", targetStateId).and("asr.required = 1")
-            .andNotExists(dsl.selectOne().from("node_version_attribute nva")
-                .where("nva.node_version_id = ?", currentVersionId)
-                .and("nva.attribute_def_id = ad.id").and("nva.value IS NOT NULL")));
-        return missing == 0;
+
+        // Load current attribute values
+        Map<String, String> currentValues = new java.util.HashMap<>();
+        dsl.select().from("node_version_attribute")
+           .where("node_version_id = ?", currentVersionId)
+           .fetch()
+           .forEach(r -> currentValues.put(
+               r.get("attribute_def_id", String.class),
+               r.get("value",            String.class)));
+
+        // Check all effective attributes (own + inherited) against their state rules
+        var resolvedType = metaModelCache.get(nodeTypeId);
+        if (resolvedType == null) return true;
+        for (ResolvedAttribute attr : resolvedType.attributes()) {
+            org.jooq.Record rule = metaModelCache.getStateRule(nodeTypeId, attr.id(), targetStateId);
+            if (rule == null || rule.get("required", Integer.class) != 1) continue;
+            String value = currentValues.get(attr.id());
+            if (value == null || value.isBlank()) return false;
+        }
+        return true;
     }
 
-    private boolean checkAllSignaturesDone(String nodeId) {
-        return true; // TODO: implémenter avec SignatureRequirement
+    public boolean checkAllSignaturesDone(String nodeId, String transitionId) {
+        int required = dsl.fetchCount(dsl.selectOne()
+            .from("signature_requirement")
+            .where("lifecycle_transition_id = ?", transitionId));
+        if (required == 0) return true;
+
+        Record current = versionService.getCurrentVersion(nodeId);
+        if (current == null) return false;
+        String revision  = current.get("revision",  String.class);
+        int    iteration = current.get("iteration", Integer.class);
+
+        Record signedRow = dsl.fetchOne(
+            "SELECT COUNT(DISTINCT ns.signed_by) AS cnt FROM node_signature ns " +
+            "JOIN node_version nv ON ns.node_version_id = nv.id " +
+            "JOIN plm_transaction pt ON pt.id = nv.tx_id " +
+            "WHERE ns.node_id = ? AND nv.revision = ? AND nv.iteration = ? AND pt.status = 'COMMITTED'",
+            nodeId, revision, iteration);
+        long signed = signedRow != null ? signedRow.get("cnt", Long.class) : 0L;
+
+        return signed >= required;
     }
 
     // ================================================================
@@ -233,6 +283,57 @@ public class LifecycleService {
         if (!errors.isEmpty()) {
             throw new CascadeBlockedException(errors);
         }
+    }
+
+    private boolean isCollapseEnabled(String nodeId) {
+        Record ntRow = dsl.fetchOne(
+            "SELECT nt.collapse_history FROM node n JOIN node_type nt ON nt.id = n.node_type_id WHERE n.id = ?",
+            nodeId);
+        return Boolean.TRUE.equals(ntRow != null ? ntRow.get("collapse_history", Boolean.class) : null);
+    }
+
+    /**
+     * If node-type has collapse_history=true, deletes ALL committed versions of
+     * oldRevision. The new Released version (created just before this call) is
+     * the only survivor — its iteration will be set to 0 by the caller.
+     * Versions pinned by a baseline or VERSION_TO_VERSION link are skipped.
+     */
+    private void collapseRevisionHistory(String nodeId, String oldRevision) {
+
+        // All committed versions of the old revision
+        List<String> toDelete = dsl
+            .select(DSL.field("nv.id").as("nv_id"))
+            .from("node_version nv")
+            .join("plm_transaction tx").on("tx.id = nv.tx_id")
+            .where("nv.node_id = ?", nodeId)
+            .and("nv.revision = ?", oldRevision)
+            .and("tx.status = 'COMMITTED'")
+            .fetch()
+            .map(r -> r.get("nv_id", String.class))
+            .stream()
+            // Skip versions pinned by a baseline or VERSION_TO_VERSION link
+            .filter(id ->
+                dsl.fetchCount(dsl.selectOne().from("baseline_entry")
+                    .where("resolved_version_id = ?", id)) == 0
+                && dsl.fetchCount(dsl.selectOne().from("node_version_link")
+                    .where("pinned_version_id = ?", id)) == 0
+            )
+            .collect(Collectors.toList());
+
+        if (toDelete.isEmpty()) return;
+
+        String ph  = String.join(",", Collections.nCopies(toDelete.size(), "?"));
+        Object[] p = toDelete.toArray();
+
+        dsl.execute("DELETE FROM node_signature WHERE node_version_id IN (" + ph + ")", p);
+        dsl.execute("DELETE FROM node_version_link WHERE source_node_version_id IN (" + ph + ")", p);
+        dsl.execute("DELETE FROM node_version_attribute WHERE node_version_id IN (" + ph + ")", p);
+        // NULL out any previous_version_id chains pointing into deleted versions
+        // (this also clears the new Released version's previous_version_id if it pointed to a deleted one)
+        dsl.execute("UPDATE node_version SET previous_version_id = NULL WHERE previous_version_id IN (" + ph + ")", p);
+        dsl.execute("DELETE FROM node_version WHERE id IN (" + ph + ")", p);
+
+        log.info("Collapsed revision: node={} revision={} removed={}", nodeId, oldRevision, toDelete.size());
     }
 
     private String resolveLabel(String nodeId) {

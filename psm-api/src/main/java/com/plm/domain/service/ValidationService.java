@@ -1,6 +1,7 @@
 package com.plm.domain.service;
 
 import com.plm.domain.exception.PlmFunctionalException;
+import com.plm.domain.model.ResolvedAttribute;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -27,6 +28,7 @@ import java.util.Map;
 public class ValidationService {
 
     private final DSLContext dsl;
+    private final MetaModelCache metaModelCache;
 
     /**
      * Valide les attributs pour un état cible donné.
@@ -46,11 +48,11 @@ public class ValidationService {
             .where("id = ?", nodeId)
             .fetchOne("node_type_id", String.class);
 
-        // Récupère toutes les définitions d'attributs pour ce type
-        List<Record> attrDefs = dsl.select()
-            .from("attribute_definition ad")
-            .where("ad.node_type_id = ?", nodeTypeId)
-            .fetch();
+        // Resolved attributes (own + inherited) from cache
+        var resolvedType = metaModelCache.get(nodeTypeId);
+        List<ResolvedAttribute> attrDefs = resolvedType != null
+            ? resolvedType.attributes()
+            : List.of();
 
         // Récupère les valeurs actuelles de la version courante
         Map<String, String> currentValues = new java.util.HashMap<>();
@@ -70,16 +72,16 @@ public class ValidationService {
             ? currentVersion.get("lifecycle_state_id", String.class)
             : null;
 
-        for (Record attrDef : attrDefs) {
-            String attrId    = attrDef.get("id", String.class);
-            String attrName  = attrDef.get("name", String.class);
+        for (ResolvedAttribute attrDef : attrDefs) {
+            String attrId    = attrDef.id();
+            String attrName  = attrDef.name();
             String newValue  = newAttributes.get(attrId);
             String currValue = currentValues.get(attrId);
             String effectiveValue = newValue != null ? newValue : currValue;
 
             // -- Règle dans l'état courant : éditable ?
             if (currentStateId != null && newValue != null) {
-                Record currentRule = getStateRule(attrId, currentStateId);
+                Record currentRule = metaModelCache.getStateRule(nodeTypeId, attrId, currentStateId);
                 if (currentRule != null) {
                     int editable = currentRule.get("editable", Integer.class);
                     if (editable == 0) {
@@ -90,10 +92,10 @@ public class ValidationService {
             }
 
             // -- Règle dans l'état cible : required ?
-            Record targetRule = getStateRule(attrId, targetStateId);
+            Record targetRule = metaModelCache.getStateRule(nodeTypeId, attrId, targetStateId);
             boolean requiredByState = targetRule != null
                 && targetRule.get("required", Integer.class) == 1;
-            boolean requiredGlobal  = attrDef.get("required", Integer.class) == 1;
+            boolean requiredGlobal  = attrDef.required();
 
             if ((requiredByState || requiredGlobal)
                 && (effectiveValue == null || effectiveValue.isBlank())) {
@@ -101,7 +103,7 @@ public class ValidationService {
             }
 
             // -- Validation naming regex
-            String regex = attrDef.get("naming_regex", String.class);
+            String regex = attrDef.namingRegex();
             if (regex != null && effectiveValue != null && !effectiveValue.isBlank()) {
                 if (!effectiveValue.matches(regex)) {
                     errors.add("Attribute '" + attrName + "' does not match naming rule: " + regex);
@@ -109,8 +111,8 @@ public class ValidationService {
             }
 
             // -- Validation enum
-            String dataType = attrDef.get("data_type", String.class);
-            String allowedValuesJson = attrDef.get("allowed_values", String.class);
+            String dataType = attrDef.dataType();
+            String allowedValuesJson = attrDef.allowedValues();
             if ("ENUM".equals(dataType) && effectiveValue != null && allowedValuesJson != null) {
                 if (!allowedValuesJson.contains("\"" + effectiveValue + "\"")) {
                     errors.add("Attribute '" + attrName + "' value '" + effectiveValue + "' is not allowed");
@@ -165,16 +167,19 @@ public class ValidationService {
                            + "' does not match pattern: " + logicalIdPattern);
         }
 
-        List<Record> attrDefs = dsl.select()
-            .from("attribute_definition ad")
-            .where("ad.node_type_id = ?", nodeTypeId)
-            .fetch();
+        // Use cache for effective attributes (own + inherited)
+        var resolvedType = metaModelCache.get(nodeTypeId);
+        List<ResolvedAttribute> attrDefs = resolvedType != null
+            ? resolvedType.attributes()
+            : List.of();
 
-        for (Record attr : attrDefs) {
-            String attrId   = attr.get("id",   String.class);
-            String attrName = attr.get("name",  String.class);
+        for (ResolvedAttribute attr : attrDefs) {
+            String attrId   = attr.id();
+            String attrName = attr.name();
 
-            Record rule = (stateId != null) ? getStateRule(attrId, stateId) : null;
+            Record rule = (stateId != null)
+                ? metaModelCache.getStateRule(nodeTypeId, attrId, stateId)
+                : null;
 
             // Skip invisible attributes
             if (rule != null && rule.get("visible", Integer.class) == 0) continue;
@@ -182,14 +187,14 @@ public class ValidationService {
             String value = attrs != null ? attrs.get(attrId) : null;
 
             boolean requiredByState = rule != null && rule.get("required", Integer.class) == 1;
-            boolean requiredGlobal  = attr.get("required", Integer.class) == 1;
+            boolean requiredGlobal  = attr.required();
 
             if ((requiredByState || requiredGlobal) && (value == null || value.isBlank())) {
                 violations.add("Attribute '" + attrName + "' is required");
             }
 
             // naming_regex
-            String regex = attr.get("naming_regex", String.class);
+            String regex = attr.namingRegex();
             if (regex != null && value != null && !value.isBlank()) {
                 if (!value.matches(regex)) {
                     violations.add("Attribute '" + attrName + "' does not match naming rule: " + regex);
@@ -197,8 +202,8 @@ public class ValidationService {
             }
 
             // enum allowed_values
-            String dataType          = attr.get("data_type",      String.class);
-            String allowedValuesJson = attr.get("allowed_values", String.class);
+            String dataType          = attr.dataType();
+            String allowedValuesJson = attr.allowedValues();
             if ("ENUM".equals(dataType) && value != null && !value.isBlank() && allowedValuesJson != null) {
                 if (!allowedValuesJson.contains("\"" + value + "\"")) {
                     violations.add("Attribute '" + attrName + "' value '" + value + "' is not allowed");
@@ -233,14 +238,6 @@ public class ValidationService {
                r.get("value", String.class)
            ));
         return collectContentViolations(nodeId, stateId, attrs);
-    }
-
-    private Record getStateRule(String attrId, String stateId) {
-        return dsl.select()
-            .from("attribute_state_rule")
-            .where("attribute_definition_id = ?", attrId)
-            .and("lifecycle_state_id = ?", stateId)
-            .fetchOne();
     }
 
     // -------------------------------------------------------

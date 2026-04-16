@@ -1,5 +1,6 @@
 package com.plm.domain.action;
 
+import com.plm.domain.service.LifecycleService;
 import com.plm.infrastructure.security.PlmSecurityContext;
 import com.plm.infrastructure.security.PlmUserContext;
 import lombok.RequiredArgsConstructor;
@@ -29,21 +30,28 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ActionService {
 
-    private final DSLContext             dsl;
+    private final DSLContext              dsl;
     private final ActionPermissionService permissionService;
+    private final LifecycleService        lifecycleService;
+
+    /** All write actions — only visible to the user who owns the open transaction (lock owner). */
+    private static final java.util.Set<String> TX_OWNER_ACTIONS = java.util.Set.of(
+        "CHECKIN", "UPDATE_NODE", "CREATE_LINK", "UPDATE_LINK", "DELETE_LINK"
+    );
 
     /**
      * Resolves all actions available to the current user for a given node,
      * enriched with parameter schema (and per-node-type overrides).
      *
-     * @param nodeId         the node being described
-     * @param nodeTypeId     the node's type
-     * @param currentStateId the node's current lifecycle state
-     * @param isLocked       whether the node is currently locked
+     * @param nodeId              the node being described
+     * @param nodeTypeId          the node's type
+     * @param currentStateId      the node's current lifecycle state
+     * @param isLocked            whether the node is currently locked (by anyone)
+     * @param isLockedByCurrentUser whether the lock is owned by the requesting user
      */
     public List<Map<String, Object>> resolveActionsForNode(
         String nodeId, String nodeTypeId, String currentStateId,
-        boolean isLocked
+        boolean isLocked, boolean isLockedByCurrentUser
     ) {
         List<Map<String, Object>> result = new ArrayList<>();
 
@@ -52,30 +60,23 @@ public class ActionService {
                .where(DSL.field("id").eq(currentStateId))
                .fetchOne(r -> r.get("is_frozen", Integer.class) == 1));
 
-        // Load all ENABLED node_type_action rows for this node type,
-        // joining with action and (optionally) lifecycle_transition.
-        List<Record> ntaRows = dsl.fetch("""
-            SELECT
-                nta.id               AS nta_id,
-                nta.transition_id,
-                nta.display_name_override,
-                nta.display_order,
-                na.id                AS action_id,
-                na.action_code,
-                na.action_kind,
-                na.display_name      AS action_display_name,
-                na.display_category,
-                na.requires_tx,
-                na.handler_ref,
-                lt.name              AS transition_name,
-                lt.from_state_id
-            FROM node_type_action nta
-            JOIN action na ON na.id = nta.action_id
-            LEFT JOIN lifecycle_transition lt ON lt.id = nta.transition_id
-            WHERE nta.node_type_id = ?
-              AND nta.status = 'ENABLED'
-            ORDER BY nta.display_order, na.display_category
-            """, nodeTypeId);
+        // Load all ENABLED node_type_action rows for this node type.
+        // Each node type owns its own NTA rows — child types have their own copies
+        // seeded at creation time, so no ancestor-chain walking is needed here.
+        List<Record> ntaRows = dsl.fetch(
+            "SELECT nta.id AS nta_id, nta.node_type_id AS nta_owner_id, " +
+            "       nta.transition_id, nta.display_name_override, nta.display_order, " +
+            "       na.id AS action_id, na.action_code, na.action_kind, " +
+            "       na.display_name AS action_display_name, na.display_category, " +
+            "       na.requires_tx, na.handler_ref, " +
+            "       lt.name AS transition_name, lt.from_state_id " +
+            "FROM node_type_action nta " +
+            "JOIN action na ON na.id = nta.action_id " +
+            "LEFT JOIN lifecycle_transition lt ON lt.id = nta.transition_id " +
+            "WHERE nta.node_type_id = ? " +
+            "  AND nta.status = 'ENABLED' " +
+            "ORDER BY nta.display_order, na.display_category",
+            nodeTypeId);
 
         for (Record row : ntaRows) {
             String actionCode     = row.get("action_code",     String.class);
@@ -93,6 +94,7 @@ public class ActionService {
             if ("TRANSITION".equals(actionCode)) {
                 if (fromStateId == null || !fromStateId.equals(currentStateId)) continue;
                 if (isLocked) continue;
+                if (transitionId != null && !lifecycleService.checkAllSignaturesDone(nodeId, transitionId)) continue;
             }
 
             // CHECKOUT: only when not locked and state is not frozen
@@ -100,15 +102,43 @@ public class ActionService {
                 if (isLocked || isFrozen) continue;
             }
 
-            // CHECKIN: inverse of CHECKOUT — only when node is locked (checked out)
-            if ("CHECKIN".equals(actionCode)) {
-                if (!isLocked) continue;
+            // All write actions require the current user to own the open transaction.
+            // isLockedByCurrentUser == true  → this user checked out → they own the tx.
+            // isLockedByCurrentUser == false → either no lock (actions that need checkout
+            //   first will fail server-side) or locked by someone else (must be hidden).
+            if (TX_OWNER_ACTIONS.contains(actionCode)) {
+                if (!isLockedByCurrentUser) continue;
             }
 
-            // SIGN: mutually exclusive with authoring — not available while the node
-            // is locked (an OPEN version is in progress).
+            // SIGN: visible only when (a) current state has outgoing transitions with
+            // signature requirements, and (b) current user has not already signed
+            // current revision.iteration.
             if ("SIGN".equals(actionCode)) {
-                if (isLocked) continue;
+                // (a) At least one outgoing transition from currentStateId must have
+                //     signature_requirement rows. If currentStateId is null → COUNT=0 → hidden.
+                boolean hasSignatureRequirement = dsl.fetchCount(dsl.selectOne()
+                    .from("lifecycle_transition lt")
+                    .join("signature_requirement sr")
+                        .on("sr.lifecycle_transition_id = lt.id")
+                    .where("lt.from_state_id = ?", currentStateId)) > 0;
+                if (!hasSignatureRequirement) continue;
+
+                // (b) User must not have already signed the latest committed version
+                //     at its current revision.iteration.
+                String signerId = PlmSecurityContext.get().getUserId();
+                boolean alreadySigned = dsl.fetchCount(dsl.selectOne()
+                    .from("node_signature ns")
+                    .join("node_version nv").on("ns.node_version_id = nv.id")
+                    .join("plm_transaction pt").on("pt.id = nv.tx_id")
+                    .where("ns.node_id   = ?", nodeId)
+                    .and  ("ns.signed_by = ?", signerId)
+                    .and  ("pt.status    = 'COMMITTED'")
+                    .and  ("nv.version_number = (" +
+                           "SELECT MAX(nv2.version_number) FROM node_version nv2 " +
+                           "JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id " +
+                           "WHERE nv2.node_id = ? AND pt2.status = 'COMMITTED')", nodeId)
+                ) > 0;
+                if (alreadySigned) continue;
             }
 
             // Permission check

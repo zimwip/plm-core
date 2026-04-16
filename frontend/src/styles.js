@@ -140,12 +140,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 /* ── Body layout ─────────────────────────────────────────────────── */
 .body{display:flex;flex:1;overflow:hidden}
 .editor-column{display:flex;flex-direction:column;flex:1;overflow:hidden;min-width:0}
+.resize-handle{width:4px;flex-shrink:0;cursor:col-resize;background:transparent;transition:background .15s}
+.resize-handle:hover,.resize-handle:active{background:var(--border2)}
 
 /* ── Left Panel ──────────────────────────────────────────────────── */
 .left-panel{
   width:var(--panel-w);flex-shrink:0;display:flex;flex-direction:column;
   background:var(--surface);border-right:1px solid var(--border);overflow:hidden;
 }
+.settings-section-nav{display:flex;flex-direction:column;flex:1;overflow-y:auto;padding:8px 6px}
 .panel-section{display:flex;flex-direction:column;border-bottom:1px solid var(--border)}
 .panel-section-header{
   display:flex;align-items:center;justify-content:space-between;
@@ -329,6 +332,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 .settings-btn:hover{
   background:var(--surface2);border-color:var(--border2);color:var(--text);
 }
+.settings-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
 .settings-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* ── Editor Area ─────────────────────────────────────────────────── */
@@ -1110,6 +1114,131 @@ select.field-input{cursor:pointer;appearance:none;-webkit-appearance:none}
   padding:12px 14px;max-height:300px;overflow:auto;white-space:pre;
   background:#060810;
 }
+
+/* ── Dashboard ──────────────────────────────────────────────────────── */
+.dashboard{display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--bg)}
+
+.dash-hero{
+  display:flex;align-items:center;gap:14px;
+  padding:20px 28px 16px;flex-shrink:0;
+  border-bottom:1px solid var(--border);
+}
+.dash-hero-icon{font-size:24px;opacity:.35;line-height:1}
+.dash-hero-title{
+  font-family:var(--sans);font-size:16px;font-weight:700;
+  color:var(--text);
+}
+.dash-hero-sub{font-size:11px;color:var(--muted2);margin-top:2px}
+
+.dash-body{
+  flex:1;overflow-y:auto;padding:20px 28px;
+  display:flex;flex-direction:column;gap:24px;
+}
+
+/* ── Sections ── */
+.dash-section{display:flex;flex-direction:column;gap:10px}
+
+.dash-section-hd{
+  display:flex;align-items:center;gap:10px;
+}
+.dash-section-title{
+  font-family:var(--sans);font-size:11px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+}
+.dash-section-hint{
+  font-size:10px;color:var(--muted2);
+}
+.dash-refresh-btn{
+  margin-left:auto;background:none;border:none;cursor:pointer;
+  color:var(--muted2);font-size:13px;padding:2px 5px;border-radius:3px;
+  line-height:1;transition:color .15s,background .15s;
+}
+.dash-refresh-btn:hover:not(:disabled){color:var(--accent);background:var(--accent-dim)}
+.dash-refresh-btn:disabled{opacity:.4;cursor:default}
+
+.dash-loading{font-size:11px;color:var(--muted2);padding:12px 0}
+.dash-error{font-size:11px;color:var(--danger);padding:12px 0}
+.dash-empty{font-size:11px;color:var(--muted2);font-style:italic;padding:12px 0}
+
+/* ── TX card ── */
+.dash-tx-card{
+  border:1px solid var(--border2);border-radius:var(--r2);
+  overflow:hidden;
+}
+.dash-tx-header{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 14px;background:rgba(255,255,255,.02);
+  border-bottom:1px solid var(--border);
+}
+.dash-tx-id{
+  font-family:var(--mono);font-size:10px;color:var(--muted2);
+  background:rgba(255,255,255,.05);padding:1px 6px;border-radius:3px;flex-shrink:0;
+}
+.dash-tx-title{font-size:12px;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dash-tx-count{font-size:10px;color:var(--muted2);flex-shrink:0}
+
+.dash-tx-nodes{display:flex;flex-direction:column}
+
+.dash-tx-node{
+  display:flex;align-items:center;gap:8px;
+  padding:6px 14px;
+  background:none;border:none;border-bottom:1px solid var(--border);
+  text-align:left;cursor:pointer;
+  transition:background .1s;width:100%;
+}
+.dash-tx-node:last-child{border-bottom:none}
+.dash-tx-node:hover{background:rgba(255,255,255,.04)}
+
+/* ── Work items ── */
+.dash-work-list{display:flex;flex-direction:column;gap:6px}
+
+.dash-work-item{
+  display:flex;flex-direction:column;gap:6px;
+  padding:10px 14px;
+  background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);
+  text-align:left;cursor:pointer;
+  transition:background .1s,border-color .1s;width:100%;
+}
+.dash-work-item:hover{background:var(--surface2);border-color:var(--accent)}
+
+.dash-work-row{display:flex;align-items:center;gap:8px}
+
+.dash-action-chips{display:flex;flex-wrap:wrap;gap:4px}
+.dash-action-chip{
+  font-size:9px;padding:1px 6px;border-radius:3px;
+  font-family:var(--sans);font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  background:rgba(255,255,255,.06);
+}
+
+/* ── Shared atoms ── */
+.dash-state-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dash-rev{
+  font-family:var(--mono);font-size:10px;color:var(--muted2);
+  background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px;flex-shrink:0;
+}
+.dash-node-lid{
+  font-family:var(--mono);font-size:12px;color:var(--text);
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dash-type-chip{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:10px;color:var(--muted2);flex-shrink:0;
+}
+.dash-badge{
+  font-size:9px;padding:1px 5px;border-radius:3px;flex-shrink:0;
+  font-family:var(--sans);font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+}
+
+/* ── Dashboard button in left panel ── */
+.panel-dash-btn{
+  display:flex;align-items:center;gap:7px;
+  margin:8px 10px 4px;padding:6px 10px;
+  background:var(--accent-dim);border:1px solid rgba(106,172,255,.2);
+  border-radius:var(--r);cursor:pointer;
+  font-family:var(--sans);font-size:11px;font-weight:600;color:var(--accent);
+  transition:background .15s,border-color .15s;
+}
+.panel-dash-btn:hover{background:rgba(106,172,255,.18);border-color:rgba(106,172,255,.35)}
 `;
 
 export default css;

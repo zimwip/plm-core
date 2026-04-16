@@ -83,19 +83,27 @@ public class SignatureService {
         permissionService.assertCanRead(nodeId);
         Record current = versionService.getCurrentVersion(nodeId);
         if (current == null) return Collections.emptyList();
-        return dsl.select().from("node_signature ns")
-            .join("node_version nv").on("ns.node_version_id = nv.id")
-            .where("ns.node_id = ?", nodeId)
-            .and("nv.revision = ?", current.get("revision", String.class))
-            .and("nv.iteration = ?", current.get("iteration", Integer.class))
-            .orderBy(DSL.field("ns.signed_at")).fetch();
+        return dsl.fetch("""
+            SELECT ns.id, ns.node_id, ns.node_version_id, ns.signed_by, ns.signed_at,
+                   ns.meaning, ns.comment,
+                   nv.version_number, nv.revision, nv.iteration, nv.lifecycle_state_id
+            FROM node_signature ns
+            JOIN node_version nv ON ns.node_version_id = nv.id
+            WHERE ns.node_id = ? AND nv.revision = ? AND nv.iteration = ?
+            ORDER BY ns.signed_at
+            """, nodeId, current.get("revision", String.class), current.get("iteration", Integer.class));
     }
 
     public List<Record> getFullSignatureHistory(String nodeId) {
         permissionService.assertCanRead(nodeId);
-        return dsl.select().from("node_signature ns")
-            .join("node_version nv").on("ns.node_version_id = nv.id")
-            .where("ns.node_id = ?", nodeId)
-            .orderBy(DSL.field("ns.signed_at").desc()).fetch();
+        return dsl.fetch("""
+            SELECT ns.id, ns.node_id, ns.node_version_id, ns.signed_by, ns.signed_at,
+                   ns.meaning, ns.comment,
+                   nv.version_number, nv.revision, nv.iteration, nv.lifecycle_state_id
+            FROM node_signature ns
+            JOIN node_version nv ON ns.node_version_id = nv.id
+            WHERE ns.node_id = ?
+            ORDER BY ns.signed_at DESC
+            """, nodeId);
     }
 }

@@ -1,0 +1,29 @@
+package com.plm.domain.model;
+
+/**
+ * Fully resolved attribute definition, including inheritance metadata.
+ * Built by MetaModelCache from the attribute_definition table, walking the
+ * parent_node_type_id chain.
+ *
+ * @param inherited      true when this attribute is defined in an ancestor type
+ * @param inheritedFrom  display name of the ancestor type that defines it, or null if own
+ * @param ownerNodeTypeId the node_type_id of the type that actually defines this attribute_definition row
+ */
+public record ResolvedAttribute(
+    String id,
+    String name,
+    String label,
+    String dataType,
+    String widgetType,
+    boolean required,
+    String defaultValue,
+    String namingRegex,
+    String allowedValues,
+    int displayOrder,
+    String displaySection,
+    String tooltip,
+    boolean asName,
+    boolean inherited,
+    String inheritedFrom,
+    String ownerNodeTypeId
+) {}

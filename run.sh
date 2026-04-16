@@ -44,7 +44,7 @@ LOCAL_MODE=false
 cleanup() {
     rm -f "$NEED_BACKEND" "$NEED_FRONTEND" "$REBUILD_LOCK" /tmp/plm-need-pno-$$
     [[ -n "${WATCHER_PID:-}" ]] && kill "$WATCHER_PID" 2>/dev/null || true
-    [[ -n "${LOGS_PID:-}" ]]    && kill "$LOGS_PID"    2>/dev/null || true
+    [[ -n "${LOGS_PID:-}" ]]    && kill -- -"$LOGS_PID" 2>/dev/null || true
 
     if $LOCAL_MODE; then
         log "Stopping local services…"
@@ -467,8 +467,8 @@ run_local() {
         open http://localhost:5173 &>/dev/null &
     fi
 
-    # Tail all logs
-    tail -f /tmp/plm-pno-$$.log /tmp/plm-psm-$$.log /tmp/plm-fe-$$.log &
+    # Tail all logs in a new process group so cleanup can kill it cleanly
+    setsid tail -f /tmp/plm-pno-$$.log /tmp/plm-psm-$$.log /tmp/plm-fe-$$.log &
     LOGS_PID=$!
 
     # Watch and auto-restart on changes
@@ -1062,8 +1062,8 @@ elif command -v open &>/dev/null; then
     open http://localhost:3000 &>/dev/null &
 fi
 
-# Tail logs in background
-docker compose logs -f &
+# Tail logs in a new process group so cleanup can kill all child streams at once
+setsid docker compose logs -f &
 LOGS_PID=$!
 
 echo ""
