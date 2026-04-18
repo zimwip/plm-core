@@ -20,14 +20,31 @@ export const usePlmStore = create((set, get) => ({
 
   // Navigation tree
   nodes: [],
+  _nodePage: 0,
+  _nodeHasMore: false,
+
   refreshNodes: async () => {
     const { userId } = get();
     if (!userId) return;
     try {
-      const data = await api.listNodes(userId);
+      const data = await api.listNodes(userId, 0, 50);
       const items = Array.isArray(data) ? data : (data?.items ?? []);
-      set({ nodes: items });
+      const total = data?.total ?? items.length;
+      set({ nodes: items, _nodePage: 0, _nodeHasMore: items.length < total });
     } catch (_) { /* callers handle toasts */ }
+  },
+
+  loadMoreNodes: async () => {
+    const { userId, _nodePage, _nodeHasMore, nodes } = get();
+    if (!userId || !_nodeHasMore) return;
+    const nextPage = _nodePage + 1;
+    try {
+      const data = await api.listNodes(userId, nextPage, 50);
+      const items = Array.isArray(data) ? data : (data?.items ?? []);
+      const total = data?.total ?? items.length;
+      const merged = [...nodes, ...items];
+      set({ nodes: merged, _nodePage: nextPage, _nodeHasMore: merged.length < total });
+    } catch (_) {}
   },
 
   // Current open transaction

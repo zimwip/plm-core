@@ -1,4 +1,4 @@
-package com.plm.infrastructure.security;
+package com.plm.domain.action;
 
 import java.lang.annotation.*;
 
@@ -47,7 +47,7 @@ import java.lang.annotation.*;
  *   public void deleteLink(String linkId, String userId, String txId) { ... }
  * </pre>
  *
- * <p><b>Admin bypass:</b> {@link PlmUserContext#isAdmin()} always passes.
+ * <p><b>Admin bypass:</b> {@link com.plm.domain.security.PlmUserContext#isAdmin()} always passes.
  *
  * <p><b>Proxy rule:</b> fires only through the Spring proxy. Use
  * {@code @Lazy @Autowired} self-injection for recursive/cascade calls.
@@ -84,7 +84,7 @@ public @interface PlmAction {
      * Used in combination with {@link #nodeIdExpr()} to scope the permission check to a
      * specific lifecycle transition, disambiguating multiple transitions that leave the
      * same state. When set, the aspect calls the transition-aware overload of
-     * {@link com.plm.domain.action.ActionPermissionService#assertCanExecuteByCode}.
+     * {@link ActionPermissionService#assertCanExecuteByCode}.
      * <p>Example: {@code "#transitionId"}
      */
     String transitionIdExpr() default "";

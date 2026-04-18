@@ -3,10 +3,10 @@ package com.pno.infrastructure.security;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
@@ -27,10 +27,18 @@ import java.util.Set;
 @Slf4j
 @Component
 @Order(1)
-@RequiredArgsConstructor
 public class PnoAuthFilter implements Filter {
 
     private final DSLContext dsl;
+    private final String     serviceSecret;
+
+    public PnoAuthFilter(
+        DSLContext dsl,
+        @Value("${plm.service.secret:dev-secret-change-in-prod}") String serviceSecret
+    ) {
+        this.dsl           = dsl;
+        this.serviceSecret = serviceSecret;
+    }
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
@@ -41,12 +49,22 @@ public class PnoAuthFilter implements Filter {
 
         String uri = req.getRequestURI();
 
-        // Bypass auth for actuator and for the service-to-service context endpoint
-        // (called by plm-api before its own user context is established)
+        // Bypass auth for actuator
         if (uri.startsWith("/actuator")
                 || uri.startsWith("/v3/api-docs")
-                || uri.startsWith("/swagger-ui")
-                || uri.matches("/api/pno/users/[^/]+/context")) {
+                || uri.startsWith("/swagger-ui")) {
+            chain.doFilter(request, response);
+            return;
+        }
+
+        // Service-to-service context endpoint: requires X-Service-Secret
+        if (uri.matches("/api/pno/users/[^/]+/context")) {
+            String secret = req.getHeader("X-Service-Secret");
+            if (!serviceSecret.equals(secret)) {
+                resp.setStatus(403);
+                resp.getWriter().write("{\"error\":\"Forbidden\"}");
+                return;
+            }
             chain.doFilter(request, response);
             return;
         }
@@ -63,7 +81,7 @@ public class PnoAuthFilter implements Filter {
             PnoUserContext ctx = resolveUser(userId);
             if (ctx == null) {
                 resp.setStatus(401);
-                resp.getWriter().write("{\"error\":\"Unknown user: " + userId + "\"}");
+                resp.getWriter().write("{\"error\":\"Unauthorized\"}");
                 return;
             }
 

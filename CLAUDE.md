@@ -110,7 +110,7 @@ OPEN ──────► COMMITTED   (commit avec commentaire obligatoire)
 | tx_status   | Visible par |
 |-------------|------------|
 | `COMMITTED` | Tout le monde |
-| `OPEN`      | Owner de la tx + admins |
+| `OPEN`      | Tout le monde (actions d'écriture réservées au propriétaire de la tx) |
 
 ---
 

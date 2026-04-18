@@ -1,4 +1,4 @@
-package com.plm.infrastructure.security;
+package com.plm.domain.security;
 
 import lombok.Getter;
 
@@ -8,7 +8,7 @@ import java.util.Set;
 /**
  * Contexte utilisateur courant pour une requête PLM.
  *
- * Porté par un ThreadLocal via PlmSecurityContext.
+ * Porté par un ThreadLocal via l'infrastructure (ThreadLocalSecurityContext).
  * Contient l'identité de l'utilisateur et ses rôles résolus.
  *
  * En production, ce contexte serait alimenté depuis un JWT / OAuth2 token.

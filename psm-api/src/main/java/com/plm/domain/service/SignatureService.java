@@ -1,5 +1,6 @@
 package com.plm.domain.service;
 
+import com.plm.domain.action.PlmAction;
 import com.plm.domain.model.Enums.ChangeType;
 import com.plm.infrastructure.PlmEventPublisher;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +29,6 @@ public class SignatureService {
     private final DSLContext        dsl;
     private final LockService       lockService;
     private final VersionService    versionService;
-    private final PermissionService permissionService;
     private final FingerPrintService fingerPrintService;
     private final PlmEventPublisher eventPublisher;
 
@@ -37,9 +37,9 @@ public class SignatureService {
      *
      * @param txId  transaction PLM ouverte — OBLIGATOIRE
      */
+    @PlmAction(value = "SIGN", nodeIdExpr = "#nodeId")
     @Transactional
     public String sign(String nodeId, String userId, String txId, String meaning, String comment) {
-        permissionService.assertCanSign(nodeId);
 
         Record current = versionService.getCurrentVersion(nodeId);
         if (current == null) throw new IllegalStateException("Node has no version: " + nodeId);
@@ -89,8 +89,8 @@ public class SignatureService {
         return sigId;
     }
 
+    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
     public List<Record> getSignaturesForCurrentIteration(String nodeId) {
-        permissionService.assertCanRead(nodeId);
         Record current = versionService.getCurrentVersion(nodeId);
         if (current == null) return Collections.emptyList();
         return dsl.fetch("""
@@ -104,8 +104,8 @@ public class SignatureService {
             """, nodeId, current.get("revision", String.class), current.get("iteration", Integer.class));
     }
 
+    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
     public List<Record> getFullSignatureHistory(String nodeId) {
-        permissionService.assertCanRead(nodeId);
         return dsl.fetch("""
             SELECT ns.id, ns.node_id, ns.node_version_id, ns.signed_by, ns.signed_at,
                    ns.meaning, ns.comment,

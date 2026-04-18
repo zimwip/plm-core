@@ -1,7 +1,12 @@
 package com.plm.infrastructure.security;
 
 import com.plm.domain.action.ActionPermissionService;
+import com.plm.domain.action.PlmAction;
 import com.plm.domain.exception.UnauthenticatedException;
+import com.plm.domain.guard.GuardContext;
+import com.plm.domain.guard.GuardService;
+import com.plm.domain.security.PlmUserContext;
+import com.plm.domain.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -9,7 +14,6 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.jooq.DSLContext;
-import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
@@ -25,13 +29,13 @@ import org.springframework.stereotype.Component;
  *   <li>Admin users ({@link PlmUserContext#isAdmin()}) bypass all checks.</li>
  *   <li>Dispatch to the right enforcement path based on which SpEL attribute is set:
  *     <ul>
- *       <li>{@code nodeIdExpr} — resolves nodeId → nodeTypeId + currentStateId →
- *           {@link ActionPermissionService#assertCanExecuteByCode}</li>
+ *       <li>{@code nodeIdExpr} — resolves nodeId → nodeTypeId →
+ *           {@link ActionPermissionService#assertNodeType} or {@link ActionPermissionService#assertLifecycle}</li>
  *       <li>{@code nodeTypeIdExpr} — resolves nodeTypeId directly (createNode) →
- *           {@link ActionPermissionService#assertCanExecuteByCode} with null state</li>
- *       <li>{@code linkIdExpr} — resolves linkId → source nodeId → nodeTypeId + currentStateId →
- *           {@link ActionPermissionService#assertCanExecuteByCode}</li>
- *       <li>none of the above — GLOBAL-scope action, checked against {@code action_permission}</li>
+ *           {@link ActionPermissionService#assertNodeType}</li>
+ *       <li>{@code linkIdExpr} — resolves linkId → source nodeId → nodeTypeId →
+ *           {@link ActionPermissionService#assertNodeType}</li>
+ *       <li>none of the above — {@link ActionPermissionService#assertGlobal}</li>
  *     </ul>
  *   </li>
  * </ol>
@@ -51,7 +55,9 @@ import org.springframework.stereotype.Component;
 public class PlmActionAspect {
 
     private final ActionPermissionService actionPermissionService;
-    private final DSLContext dsl;
+    private final GuardService            guardService;
+    private final SecurityContextPort     secCtx;
+    private final DSLContext              dsl;
 
     private static final ExpressionParser SPEL = new SpelExpressionParser();
 
@@ -59,7 +65,7 @@ public class PlmActionAspect {
     public Object enforce(ProceedingJoinPoint pjp, PlmAction plmAction) throws Throwable {
 
         // 1. Resolve user — 401 if no context
-        PlmUserContext user = safeGetUser();
+        PlmUserContext user = secCtx.currentUserOrNull();
         if (user == null) {
             throw new UnauthenticatedException(
                 "Authentication required to execute action '" + plmAction.value() + "'");
@@ -108,14 +114,23 @@ public class PlmActionAspect {
             log.debug("PlmActionAspect: node {} not found or not accessible, skipping check", nodeId);
             return; // let the service produce the 404
         }
-        actionPermissionService.assertCanExecuteByCode(nodeTypeId, actionCode, transitionId);
+
+        // Access rights check
+        if (transitionId != null) {
+            actionPermissionService.assertLifecycle(actionCode, nodeTypeId, transitionId);
+        } else {
+            actionPermissionService.assertNodeType(actionCode, nodeTypeId);
+        }
+
+        // Guard evaluation — resolve node state + lock for context
+        evaluateGuards(actionCode, nodeId, nodeTypeId, transitionId, user);
     }
 
     // ── NodeType-scoped (createNode — no nodeId yet) ──────────────────────
 
     private void enforceByNodeType(String actionCode, String nodeTypeId, PlmUserContext user) {
-        // No transitionId for node creation
-        actionPermissionService.assertCanExecuteByCode(nodeTypeId, actionCode, null);
+        actionPermissionService.assertNodeType(actionCode, nodeTypeId);
+        // No guard evaluation for node creation — node doesn't exist yet
     }
 
     // ── Link-scoped (deleteLink, updateLink) ──────────────────────────────
@@ -140,7 +155,44 @@ public class PlmActionAspect {
 
     private void enforceGlobal(String actionCode, PlmUserContext user) {
         // Delegate to the unified action_permission check (nodeTypeId=null, transitionId=null)
-        actionPermissionService.assertCanExecuteByCode(null, actionCode, null);
+        actionPermissionService.assertGlobal(actionCode);
+    }
+
+    // ── Guard evaluation ────────────────────────────────────────────────
+
+    /**
+     * Evaluates guards for a node-scoped action at execution time.
+     * Resolves current state and lock info, then delegates to GuardService.
+     */
+    private void evaluateGuards(String actionCode, String nodeId,
+                                String nodeTypeId, String transitionId, PlmUserContext user) {
+        String actionId = resolveActionId(actionCode);
+        if (actionId == null) return;
+
+        var stateRow = dsl.fetchOne(
+            "SELECT nv.lifecycle_state_id FROM node_version nv " +
+            "JOIN plm_transaction pt ON pt.id = nv.tx_id " +
+            "WHERE nv.node_id = ? AND pt.status IN ('COMMITTED','OPEN') " +
+            "ORDER BY nv.version_number DESC LIMIT 1", nodeId);
+        String currentStateId = stateRow != null
+            ? stateRow.get("lifecycle_state_id", String.class) : null;
+
+        String lockedBy = dsl.select(DSL.field("locked_by")).from("node")
+            .where("id = ?", nodeId).fetchOne(DSL.field("locked_by"), String.class);
+        boolean isLocked = lockedBy != null;
+        boolean isLockedByCurrentUser = isLocked && user.getUserId().equals(lockedBy);
+
+        GuardContext gCtx = new GuardContext(nodeId, nodeTypeId, currentStateId,
+            actionCode, transitionId, isLocked, isLockedByCurrentUser,
+            user.getUserId(), java.util.Map.of());
+
+        guardService.assertGuards(actionId, nodeTypeId, transitionId, user.isAdmin(), gCtx);
+    }
+
+    private String resolveActionId(String actionCode) {
+        return dsl.select(DSL.field("id")).from("action")
+            .where("action_code = ?", actionCode)
+            .fetchOne(DSL.field("id"), String.class);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -173,11 +225,4 @@ public class PlmActionAspect {
         return SPEL.parseExpression(expr).getValue(ctx, String.class);
     }
 
-    private PlmUserContext safeGetUser() {
-        try {
-            return PlmSecurityContext.get();
-        } catch (IllegalStateException e) {
-            return null;
-        }
-    }
 }

@@ -29,11 +29,11 @@ public class ActionParameterValidator {
      * Validates params and returns the (possibly defaulted) map.
      * Throws {@link ValidationException} with all violations if anything is wrong.
      *
-     * @param actionId         the action.id
-     * @param nodeTypeActionId the node_type_action.id (for override resolution), may be null
-     * @param rawParams        user-supplied parameters (may be null)
+     * @param actionId    the {@code action.id}
+     * @param nodeTypeId  the target node's type (for override resolution), may be null
+     * @param rawParams   user-supplied parameters (may be null)
      */
-    public Map<String, String> validate(String actionId, String nodeTypeActionId,
+    public Map<String, String> validate(String actionId, String nodeTypeId,
                                         Map<String, String> rawParams) {
         Map<String, String> params = rawParams != null ? new java.util.HashMap<>(rawParams) : new java.util.HashMap<>();
 
@@ -41,6 +41,15 @@ public class ActionParameterValidator {
             .where("action_id = ?", actionId)
             .orderBy(org.jooq.impl.DSL.field("display_order"))
             .fetch();
+
+        Map<String, Record> overridesByParamId = new java.util.HashMap<>();
+        if (nodeTypeId != null) {
+            dsl.select().from("action_param_override")
+                .where("node_type_id = ?", nodeTypeId)
+                .and("action_id = ?", actionId)
+                .fetch()
+                .forEach(ov -> overridesByParamId.put(ov.get("parameter_id", String.class), ov));
+        }
 
         List<String> violations = new ArrayList<>();
 
@@ -52,22 +61,16 @@ public class ActionParameterValidator {
             String minV     = param.get("min_value",   String.class);
             String maxV     = param.get("max_value",   String.class);
 
-            // Resolve override
             String effectiveRequired      = null;
             String effectiveDefault       = param.get("default_value",  String.class);
             String effectiveAllowedValues = param.get("allowed_values", String.class);
             int    baseRequired           = param.get("required", Integer.class);
 
-            if (nodeTypeActionId != null) {
-                Record ov = dsl.select().from("action_param_override")
-                    .where("node_type_action_id = ?", nodeTypeActionId)
-                    .and("parameter_id = ?", param.get("id", String.class))
-                    .fetchOne();
-                if (ov != null) {
-                    if (ov.get("required",       Integer.class) != null) effectiveRequired      = String.valueOf(ov.get("required", Integer.class));
-                    if (ov.get("default_value",  String.class) != null)  effectiveDefault       = ov.get("default_value",  String.class);
-                    if (ov.get("allowed_values", String.class) != null)  effectiveAllowedValues = ov.get("allowed_values", String.class);
-                }
+            Record ov = overridesByParamId.get(param.get("id", String.class));
+            if (ov != null) {
+                if (ov.get("required",       Integer.class) != null) effectiveRequired      = String.valueOf(ov.get("required", Integer.class));
+                if (ov.get("default_value",  String.class) != null)  effectiveDefault       = ov.get("default_value",  String.class);
+                if (ov.get("allowed_values", String.class) != null)  effectiveAllowedValues = ov.get("allowed_values", String.class);
             }
 
             boolean required = effectiveRequired != null ? "1".equals(effectiveRequired) : baseRequired == 1;

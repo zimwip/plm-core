@@ -1,7 +1,7 @@
 package com.plm.api.controller;
 
 import com.plm.domain.action.ActionPermissionService;
-import com.plm.domain.service.PermissionService;
+import com.plm.domain.service.PermissionAdminService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -23,7 +23,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class RoleController {
 
-    private final PermissionService       permissionService;
+    private final PermissionAdminService   permissionAdminService;
     private final ActionPermissionService actionPermissionService;
 
     // ================================================================
@@ -61,7 +61,7 @@ public class RoleController {
     public ResponseEntity<List<Map<String, Object>>> getRoleGlobalPermissions(
         @PathVariable String roleId
     ) {
-        return ResponseEntity.ok(permissionService.getRoleGlobalPermissions(roleId));
+        return ResponseEntity.ok(permissionAdminService.getRoleGlobalPermissions(roleId));
     }
 
     /**
@@ -73,7 +73,7 @@ public class RoleController {
         @PathVariable String roleId,
         @RequestBody  Map<String, String> body
     ) {
-        permissionService.addRoleGlobalPermission(roleId, body.get("actionId"));
+        permissionAdminService.addRoleGlobalPermission(roleId, body.get("actionId"));
         return ResponseEntity.ok().build();
     }
 
@@ -85,7 +85,7 @@ public class RoleController {
         @PathVariable String roleId,
         @PathVariable String actionId
     ) {
-        permissionService.removeRoleGlobalPermission(roleId, actionId);
+        permissionAdminService.removeRoleGlobalPermission(roleId, actionId);
         return ResponseEntity.noContent().build();
     }
 
@@ -98,7 +98,7 @@ public class RoleController {
         @PathVariable String nodeTypeId,
         @RequestBody Map<String, Object> body
     ) {
-        String id = permissionService.createView(
+        String id = permissionAdminService.createView(
             nodeTypeId,
             (String)  body.get("name"),
             (String)  body.get("description"),
@@ -115,7 +115,7 @@ public class RoleController {
         @PathVariable String attrId,
         @RequestBody Map<String, Object> body
     ) {
-        permissionService.setViewOverride(
+        permissionAdminService.setViewOverride(
             viewId, attrId,
             (Boolean) body.get("visible"),
             (Boolean) body.get("editable"),

@@ -4,7 +4,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import {
   LayersIcon, LifecycleIcon, CloseIcon,
   ChevronRightIcon, ChevronDownIcon, HexIcon, TerminalIcon, PlusIcon,
-  EditIcon, TrashIcon, UsersIcon, UserIcon, ShieldIcon, BookIcon,
+  EditIcon, TrashIcon, UsersIcon, UserIcon, ShieldIcon, BookIcon, WorkflowIcon, CpuIcon,
 } from './Icons';
 import { NODE_ICONS, NODE_ICON_NAMES } from './Icons';
 import ApiPlayground from './ApiPlayground';
@@ -17,6 +17,8 @@ export const SECTIONS = [
   { key: 'proj-spaces',     label: 'Project Spaces', Icon: HexIcon,       requiredPermission: 'MANAGE_ROLES'     },
   { key: 'users-roles',     label: 'Users & Roles',  Icon: UsersIcon,     requiredPermission: 'MANAGE_ROLES'     },
   { key: 'access-rights',   label: 'Access Rights',  Icon: ShieldIcon,    requiredPermission: 'MANAGE_ROLES'     },
+  { key: 'algorithms',      label: 'Algorithms',     Icon: CpuIcon,       requiredPermission: 'MANAGE_METAMODEL' },
+  { key: 'guards',          label: 'Actions & Guards', Icon: WorkflowIcon, requiredPermission: 'MANAGE_METAMODEL' },
   { key: 'api-playground',  label: 'API Playground', Icon: TerminalIcon,  requiredPermission: null               },
   { key: 'user-manual',     label: 'User Manual',    Icon: BookIcon,      requiredPermission: null               },
 ];
@@ -1919,9 +1921,12 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
  */
 function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast }) {
   const [types,   setTypes]   = useState([]);
-  const [actions, setActions] = useState({});  // ntId → nta[]
-  const [perms,   setPerms]   = useState({});  // ntaId → roleId[]
+  const [actions, setActions] = useState({});  // ntId → action[]
+  const [perms,   setPerms]   = useState({});  // "ntId|actionCode|transitionId" → roleId[]
   const [loading, setLoading] = useState(true);
+
+  const permKey = (ntId, actionCode, transitionId) =>
+    `${ntId}|${actionCode}|${transitionId || ''}`;
 
   useEffect(() => {
     api.getNodeTypes(userId).then(async ntList => {
@@ -1934,13 +1939,15 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
       await Promise.all(types.map(async nt => {
         const ntId = nt.id || nt.ID;
         const raw  = await api.getActionsForNodeType(userId, ntId).catch(() => []);
-        // Keep ALL actions — including READ (no STRUCTURAL filter)
         actionMap[ntId] = Array.isArray(raw) ? raw : [];
 
-        await Promise.all(actionMap[ntId].map(async nta => {
-          const ntaId = nta.nta_id || nta.NTA_ID;
-          const p = await api.getActionPermissionsForSpace(userId, projectSpaceId, ntId, ntaId).catch(() => []);
-          permMap[ntaId] = (Array.isArray(p) ? p : []).map(r => r.role_id || r.ROLE_ID);
+        await Promise.all(actionMap[ntId].map(async a => {
+          const actionCode  = a.action_code  || a.ACTION_CODE;
+          const transitionId = a.transition_id || a.TRANSITION_ID || null;
+          const p = await api.getActionPermissionsForSpace(
+            userId, projectSpaceId, ntId, actionCode, transitionId).catch(() => []);
+          permMap[permKey(ntId, actionCode, transitionId)] =
+            (Array.isArray(p) ? p : []).map(r => r.role_id || r.ROLE_ID);
         }));
       }));
 
@@ -1949,17 +1956,21 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
     }).finally(() => setLoading(false));
   }, [userId, projectSpaceId, roleId]);
 
-  async function togglePerm(nodeTypeId, nta) {
-    const ntaId     = nta.nta_id || nta.NTA_ID;
-    const current   = perms[ntaId] || [];
+  async function togglePerm(nodeTypeId, action) {
+    const actionCode   = action.action_code   || action.ACTION_CODE;
+    const transitionId = action.transition_id || action.TRANSITION_ID || null;
+    const key = permKey(nodeTypeId, actionCode, transitionId);
+    const current   = perms[key] || [];
     const isGranted = current.includes(roleId);
     try {
       if (isGranted) {
-        await api.removeActionPermissionForSpace(userId, projectSpaceId, nodeTypeId, ntaId, roleId, null);
-        setPerms(s => ({ ...s, [ntaId]: (s[ntaId] || []).filter(r => r !== roleId) }));
+        await api.removeActionPermissionForSpace(
+          userId, projectSpaceId, nodeTypeId, actionCode, roleId, transitionId);
+        setPerms(s => ({ ...s, [key]: (s[key] || []).filter(r => r !== roleId) }));
       } else {
-        await api.addActionPermissionForSpace(userId, projectSpaceId, nodeTypeId, ntaId, roleId, null);
-        setPerms(s => ({ ...s, [ntaId]: [...(s[ntaId] || []), roleId] }));
+        await api.addActionPermissionForSpace(
+          userId, projectSpaceId, nodeTypeId, actionCode, roleId, transitionId);
+        setPerms(s => ({ ...s, [key]: [...(s[key] || []), roleId] }));
       }
     } catch (err) { toast(err, 'error'); }
   }
@@ -1973,18 +1984,17 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
   // LIFECYCLE scope columns: unique transitions where scope === 'LIFECYCLE'
   const lcColMap   = new Map(); // transitionId → { transitionId, label, order }
 
-  Object.values(actions).flat().forEach(nta => {
-    const scope   = nta.scope       || nta.SCOPE       || '';
-    const tranId  = nta.transition_id || nta.TRANSITION_ID;
-    const code    = nta.action_code  || nta.ACTION_CODE;
-    const name    = nta.display_name_override || nta.DISPLAY_NAME_OVERRIDE
-                 || nta.display_name          || nta.DISPLAY_NAME || code;
-    const order   = nta.display_order || nta.DISPLAY_ORDER || 0;
+  Object.values(actions).flat().forEach(a => {
+    const scope   = a.scope           || a.SCOPE           || '';
+    const tranId  = a.transition_id   || a.TRANSITION_ID;
+    const code    = a.action_code     || a.ACTION_CODE;
+    const name    = a.display_name    || a.DISPLAY_NAME    || code;
+    const order   = a.display_order   || a.DISPLAY_ORDER   || 0;
 
     if (scope === 'LIFECYCLE' || tranId) {
       if (tranId && !lcColMap.has(tranId)) {
-        const fromState  = nta.from_state_name || nta.FROM_STATE_NAME || '';
-        const tranName   = nta.transition_name  || nta.TRANSITION_NAME  || tranId;
+        const fromState  = a.from_state_name || a.FROM_STATE_NAME || '';
+        const tranName   = a.transition_name  || a.TRANSITION_NAME  || tranId;
         const label      = fromState ? `${fromState} → ${tranName}` : tranName;
         lcColMap.set(tranId, { transitionId: tranId, label, order });
       }
@@ -2014,23 +2024,25 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
     borderRight: '1px solid var(--border)',
   };
 
-  function PermCell({ nodeTypeId, nta }) {
-    if (!nta) return (
+  function PermCell({ nodeTypeId, action }) {
+    if (!action) return (
       <td style={tdStyle}>
         <span style={{ color: 'var(--border)', fontSize: 11, userSelect: 'none' }}>—</span>
       </td>
     );
-    const ntaId     = nta.nta_id || nta.NTA_ID;
-    const ntaPerms  = perms[ntaId];
-    const isPending = ntaPerms === undefined;
-    const isGranted = !isPending && ntaPerms.includes(roleId);
+    const actionCode   = action.action_code   || action.ACTION_CODE;
+    const transitionId = action.transition_id || action.TRANSITION_ID || null;
+    const key = permKey(nodeTypeId, actionCode, transitionId);
+    const rowPerms  = perms[key];
+    const isPending = rowPerms === undefined;
+    const isGranted = !isPending && rowPerms.includes(roleId);
     return (
       <td style={tdStyle}>
         <button
           className="panel-icon-btn"
           disabled={isPending || !canWrite}
           title={!canWrite ? 'Requires MANAGE_ROLES' : isGranted ? 'Revoke' : 'Grant'}
-          onClick={() => togglePerm(nodeTypeId, nta)}
+          onClick={() => togglePerm(nodeTypeId, action)}
           style={{ margin: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
                    width: 22, height: 22, cursor: canWrite && !isPending ? 'pointer' : 'default' }}
         >
@@ -2099,12 +2111,12 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
                       const t = a.transition_id || a.TRANSITION_ID;
                       return s !== 'LIFECYCLE' && !t;
                     })
-                    .forEach(nta => { ntaByCode[nta.action_code || nta.ACTION_CODE] = nta; });
+                    .forEach(a => { ntaByCode[a.action_code || a.ACTION_CODE] = a; });
                   return (
                     <tr key={ntId}>
                       <StickyNtCell ntId={ntId} ntName={ntName} />
                       {nodeColumns.map(col => (
-                        <PermCell key={col.actionCode} nodeTypeId={ntId} nta={ntaByCode[col.actionCode]} />
+                        <PermCell key={col.actionCode} nodeTypeId={ntId} action={ntaByCode[col.actionCode]} />
                       ))}
                     </tr>
                   );
@@ -2149,9 +2161,9 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
                       const t = a.transition_id || a.TRANSITION_ID;
                       return s === 'LIFECYCLE' || !!t;
                     })
-                    .forEach(nta => {
-                      const t = nta.transition_id || nta.TRANSITION_ID;
-                      if (t) ntaByTran[t] = nta;
+                    .forEach(a => {
+                      const t = a.transition_id || a.TRANSITION_ID;
+                      if (t) ntaByTran[t] = a;
                     });
                   // Skip rows where this node type has no lifecycle actions at all
                   if (Object.keys(ntaByTran).length === 0) return null;
@@ -2159,7 +2171,7 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
                     <tr key={ntId}>
                       <StickyNtCell ntId={ntId} ntName={ntName} />
                       {lcColumns.map(col => (
-                        <PermCell key={col.transitionId} nodeTypeId={ntId} nta={ntaByTran[col.transitionId]} />
+                        <PermCell key={col.transitionId} nodeTypeId={ntId} action={ntaByTran[col.transitionId]} />
                       ))}
                     </tr>
                   );
@@ -2744,6 +2756,500 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
   );
 }
 
+/* ── Algorithms Section (types + instances) ─────────────────────── */
+export function AlgorithmsSection({ userId, canWrite, toast }) {
+  const [tab, setTab]               = useState('catalog');
+  const [algorithms, setAlgorithms] = useState(null);
+  const [instances, setInstances]   = useState(null);
+  const [stats, setStats]           = useState(null);
+  const [expandedAlgo, setExpandedAlgo] = useState(null);
+
+  const reload = useCallback(() => {
+    Promise.all([
+      api.listAlgorithms(userId),
+      api.listAllInstances(userId),
+    ]).then(([algs, insts]) => {
+      setAlgorithms(Array.isArray(algs) ? algs : []);
+      setInstances(Array.isArray(insts)  ? insts  : []);
+    }).catch(() => {
+      setAlgorithms([]); setInstances([]);
+    });
+  }, [userId]);
+
+  const loadStats = useCallback(() => {
+    api.getAlgorithmStats(userId)
+      .then(s => setStats(Array.isArray(s) ? s : []))
+      .catch(() => setStats([]));
+  }, [userId]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  async function handleCreateInstance(algorithmId) {
+    try {
+      const algo = algorithms.find(a => a.id === algorithmId);
+      await api.createInstance(userId, algorithmId, algo?.name || 'New Instance');
+      reload();
+      toast('Instance created', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function handleDeleteInstance(instanceId) {
+    try {
+      await api.deleteInstance(userId, instanceId);
+      reload();
+      toast('Instance deleted', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  if (algorithms === null) return <div className="settings-loading">Loading…</div>;
+
+  // Group algorithms by type
+  const algosByType = {};
+  algorithms.forEach(a => {
+    const key = a.typeName || 'Unknown';
+    if (!algosByType[key]) algosByType[key] = [];
+    algosByType[key].push(a);
+  });
+
+  // Group instances by algorithm
+  const instancesByAlgo = {};
+  (instances || []).forEach(i => {
+    if (!instancesByAlgo[i.algorithmId]) instancesByAlgo[i.algorithmId] = [];
+    instancesByAlgo[i.algorithmId].push(i);
+  });
+
+  const tabStyle = (key) => ({
+    padding: '6px 14px', fontSize: 12, cursor: 'pointer', background: 'none', border: 'none',
+    color: tab === key ? 'var(--accent)' : 'var(--muted)',
+    borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
+  });
+
+  return (
+    <div>
+      {!canWrite && (
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+          Read-only — requires <code>MANAGE_METAMODEL</code>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: 12 }}>
+        {[['catalog', 'Catalog'], ['stats', 'Execution Stats']].map(([key, label]) => (
+          <button key={key} onClick={() => { setTab(key); if (key === 'stats' && !stats) loadStats(); }} style={tabStyle(key)}>{label}</button>
+        ))}
+      </div>
+
+      {/* ── Stats tab ── */}
+      {tab === 'stats' && (
+        <div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button className="btn btn-xs btn-primary" onClick={loadStats}>Refresh</button>
+            <button className="btn btn-xs btn-danger" onClick={async () => {
+              await api.resetAlgorithmStats(userId).catch(() => {});
+              setStats([]);
+              toast('Stats reset', 'success');
+            }}>Reset</button>
+          </div>
+          {stats === null && (
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading stats…</div>
+          )}
+          {stats && stats.length === 0 && (
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>No algorithm executions recorded yet</div>
+          )}
+          {stats && stats.length > 0 && (
+            <table className="settings-table" style={{ width: '100%' }}>
+              <thead>
+                <tr>
+                  <th>Algorithm</th>
+                  <th style={{ textAlign: 'right' }}>Calls</th>
+                  <th style={{ textAlign: 'right' }}>Min (ms)</th>
+                  <th style={{ textAlign: 'right' }}>Avg (ms)</th>
+                  <th style={{ textAlign: 'right' }}>Max (ms)</th>
+                  <th style={{ textAlign: 'right' }}>Total (ms)</th>
+                  <th style={{ textAlign: 'right' }}>Pending</th>
+                  <th>Last Flush</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.sort((a, b) => (b.callCount || 0) - (a.callCount || 0)).map(s => (
+                  <tr key={s.algorithmCode}>
+                    <td><code>{s.algorithmCode}</code></td>
+                    <td style={{ textAlign: 'right' }}>{s.callCount}</td>
+                    <td style={{ textAlign: 'right' }}>{typeof s.minMs === 'number' ? s.minMs.toFixed(3) : '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{typeof s.avgMs === 'number' ? s.avgMs.toFixed(3) : '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{typeof s.maxMs === 'number' ? s.maxMs.toFixed(3) : '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{typeof s.totalMs === 'number' ? s.totalMs.toFixed(1) : '—'}</td>
+                    <td style={{ textAlign: 'right', color: s.pendingFlush > 0 ? 'var(--warn)' : 'var(--muted)' }}>{s.pendingFlush || 0}</td>
+                    <td style={{ fontSize: 10, color: 'var(--muted)' }}>{s.lastFlushed || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ── Catalog tab ── */}
+      {tab === 'catalog' && <div className="settings-list">
+          {Object.entries(algosByType).map(([typeName, algos]) => (
+            <div key={typeName} style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
+                {typeName}
+              </div>
+              {algos.map(algo => {
+                const isExp = expandedAlgo === algo.id;
+                const algoInstances = instancesByAlgo[algo.id] || [];
+                return (
+                  <div key={algo.id} className="settings-card" style={{ marginBottom: 4 }}>
+                    <div className="settings-card-hd" onClick={() => setExpandedAlgo(isExp ? null : algo.id)}
+                      style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                      <span className="settings-card-chevron">
+                        {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
+                      </span>
+                      <WorkflowIcon size={13} color="var(--accent)" strokeWidth={1.5} />
+                      <span className="settings-card-name" style={{ marginLeft: 4 }}>{algo.name}</span>
+                      <span className="settings-card-id">{algo.code}</span>
+                      <span style={{ flex: 1, fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 8 }}>
+                        {algo.description || ''}
+                      </span>
+                      <span className="settings-badge" style={{ marginLeft: 8 }}>{algoInstances.length} instance{algoInstances.length !== 1 ? 's' : ''}</span>
+                    </div>
+
+                    {isExp && (
+                      <div className="settings-card-body" style={{ padding: '8px 12px 12px 28px' }}>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Handler: <code>{algo.handlerRef}</code></div>
+                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, marginTop: 8 }}>Instances</div>
+                        {algoInstances.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No instances</div>}
+                        {algoInstances.map(inst => (
+                          <div key={inst.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 12 }}>
+                            <span>{inst.name || inst.id}</span>
+                            <span style={{ fontSize: 10, color: 'var(--muted)' }}>{inst.id}</span>
+                            {canWrite && (
+                              <button className="btn btn-xs btn-danger" style={{ marginLeft: 'auto' }}
+                                onClick={() => handleDeleteInstance(inst.id)}>
+                                <TrashIcon size={10} /> Delete
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {canWrite && (
+                          <button className="btn btn-xs btn-primary" style={{ marginTop: 6 }}
+                            onClick={() => handleCreateInstance(algo.id)}>
+                            <PlusIcon size={10} /> New Instance
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>}
+    </div>
+  );
+}
+
+/* ── Guards Section (action guards + NTA guards) ────────────────── */
+export function GuardsSection({ userId, canWrite, toast }) {
+  const [tab, setTab]               = useState('action-guards');
+  const [actions, setActions]       = useState(null);
+  const [instances, setInstances]   = useState(null);
+  const [nodeTypes, setNodeTypes]   = useState(null);
+  const [expandedAction, setExpandedAction] = useState(null);
+  const [actionGuards, setActionGuards]     = useState({});
+
+  useEffect(() => {
+    Promise.all([
+      api.getAllActions(userId),
+      api.listAllInstances(userId),
+      api.getNodeTypes(userId),
+    ]).then(([acts, insts, nts]) => {
+      setActions(Array.isArray(acts)     ? acts   : []);
+      setInstances(Array.isArray(insts)  ? insts  : []);
+      setNodeTypes(Array.isArray(nts)    ? nts    : []);
+    }).catch(() => { setActions([]); setInstances([]); setNodeTypes([]); });
+  }, [userId]);
+
+  async function loadActionGuards(actionId) {
+    const guards = await api.listActionGuards(userId, actionId).catch(() => []);
+    setActionGuards(s => ({ ...s, [actionId]: Array.isArray(guards) ? guards : [] }));
+  }
+
+  function toggleAction(actionId) {
+    if (expandedAction === actionId) { setExpandedAction(null); return; }
+    setExpandedAction(actionId);
+    if (!actionGuards[actionId]) loadActionGuards(actionId);
+  }
+
+  async function handleAttachActionGuard(actionId, instanceId) {
+    try {
+      await api.attachActionGuard(userId, actionId, instanceId, 'HIDE', 0);
+      loadActionGuards(actionId);
+      toast('Guard attached', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function handleDetachActionGuard(actionId, guardId) {
+    try {
+      await api.detachActionGuard(userId, actionId, guardId);
+      loadActionGuards(actionId);
+      toast('Guard detached', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  if (actions === null) return <div className="settings-loading">Loading…</div>;
+
+  const tabStyle = (key) => ({
+    padding: '6px 14px', fontSize: 12, cursor: 'pointer', background: 'none', border: 'none',
+    color: tab === key ? 'var(--accent)' : 'var(--muted)',
+    borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
+  });
+
+  return (
+    <div>
+      {!canWrite && (
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+          Read-only — requires <code>MANAGE_METAMODEL</code>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: 12 }}>
+        {[['action-guards', 'Action Guards'], ['nta-guards', 'Per Node Type']].map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)} style={tabStyle(key)}>{label}</button>
+        ))}
+      </div>
+
+      {/* ── Action Guards tab ── */}
+      {tab === 'action-guards' && (
+        <div className="settings-list">
+          {actions.map(action => {
+            const isExp = expandedAction === action.id;
+            const guards = actionGuards[action.id] || [];
+            const aCode    = action.action_code    || action.actionCode;
+            const aName    = action.display_name   || action.displayName || aCode;
+            const aScope   = action.scope;
+            const aDesc    = action.description;
+            const aHandler = action.handler_ref    || action.handlerRef;
+            const aCat     = action.display_category || action.displayCategory;
+            const aKind    = action.action_kind    || action.actionKind;
+            const aTx      = action.requires_tx    ?? action.requiresTx;
+            return (
+              <div key={action.id} className="settings-card" style={{ marginBottom: 4 }}>
+                <div className="settings-card-hd" onClick={() => toggleAction(action.id)}
+                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                  <span className="settings-card-chevron">
+                    {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
+                  </span>
+                  <span className="settings-card-name">{aName}</span>
+                  <span className="settings-badge" style={{ marginLeft: 6 }}>{aScope}</span>
+                </div>
+
+                {isExp && (
+                  <div className="settings-card-body" style={{ padding: '8px 12px 12px 28px' }}>
+                    {/* Action details */}
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>
+                      <span>ID: <code>{action.id}</code></span>
+                      <span>Code: <code>{aCode}</code></span>
+                      <span>Handler: <code>{aHandler}</code></span>
+                      <span>Category: <span className="settings-badge">{aCat}</span></span>
+                      <span>Kind: <span className="settings-badge">{aKind}</span></span>
+                      {aTx === 1 && <span className="settings-badge">Requires TX</span>}
+                      {aDesc && <span style={{ flexBasis: '100%' }}>{aDesc}</span>}
+                    </div>
+
+                    {/* Guards list */}
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Guards</div>
+                    {guards.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No guards attached</div>}
+                    {guards.length > 0 && (
+                      <table className="settings-table" style={{ width: '100%', marginBottom: 8 }}>
+                        <thead>
+                          <tr><th>Guard</th><th>Effect</th><th>Type</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                          {guards.map(g => (
+                            <tr key={g.id}>
+                              <td>{g.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({g.algorithmCode})</span></td>
+                              <td><span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`}>{g.effect}</span></td>
+                              <td style={{ fontSize: 11, color: 'var(--muted)' }}>{g.typeName}</td>
+                              <td style={{ textAlign: 'right' }}>
+                                {canWrite && (
+                                  <button className="btn btn-xs btn-danger" onClick={() => handleDetachActionGuard(action.id, g.id)}>
+                                    <TrashIcon size={10} />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                    {canWrite && (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <select id={`add-guard-${action.id}`} className="field-input" style={{ fontSize: 11, flex: 1 }}>
+                          {(instances || []).map(i => (
+                            <option key={i.id} value={i.id}>{i.algorithmName} — {i.name || i.id}</option>
+                          ))}
+                        </select>
+                        <button className="btn btn-xs btn-primary" onClick={() => {
+                          const sel = document.getElementById(`add-guard-${action.id}`);
+                          if (sel?.value) handleAttachActionGuard(action.id, sel.value);
+                        }}>
+                          <PlusIcon size={10} /> Attach
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Per Node Type tab ── */}
+      {tab === 'nta-guards' && (
+        <NodeActionGuardsSubSection userId={userId} canWrite={canWrite} toast={toast}
+          nodeTypes={nodeTypes} instances={instances} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Per (node_type × action × transition?) guard attachments. Drills down from a
+ * selected node type to the list of actions wired for it, then to the guards
+ * attached per action (ADD or DISABLE).
+ */
+function NodeActionGuardsSubSection({ userId, canWrite, toast, nodeTypes, instances }) {
+  const [selectedNt, setSelectedNt] = useState(null);
+  const [actionRows, setActionRows] = useState([]);
+  const [expanded,   setExpanded]   = useState(null); // composite key
+  const [guards,     setGuards]     = useState({});   // key → guard[]
+
+  const rowKey = (actionCode, transitionId) => `${actionCode}|${transitionId || ''}`;
+
+  useEffect(() => {
+    if (!selectedNt) { setActionRows([]); return; }
+    api.getActionsForNodeType(userId, selectedNt)
+      .then(rows => setActionRows(Array.isArray(rows) ? rows : []))
+      .catch(() => setActionRows([]));
+  }, [userId, selectedNt]);
+
+  async function loadGuards(actionCode, transitionId) {
+    const k = rowKey(actionCode, transitionId);
+    const list = await api.listNodeActionGuards(userId, selectedNt, actionCode, transitionId).catch(() => []);
+    setGuards(s => ({ ...s, [k]: Array.isArray(list) ? list : [] }));
+  }
+
+  function toggle(actionCode, transitionId) {
+    const k = rowKey(actionCode, transitionId);
+    if (expanded === k) { setExpanded(null); return; }
+    setExpanded(k);
+    if (!guards[k]) loadGuards(actionCode, transitionId);
+  }
+
+  async function handleAttach(actionCode, transitionId, instanceId) {
+    try {
+      await api.attachNodeActionGuard(userId, selectedNt, actionCode, transitionId, instanceId, 'BLOCK', 'ADD', 0);
+      loadGuards(actionCode, transitionId);
+      toast('Guard attached', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function handleDetach(actionCode, transitionId, guardId) {
+    try {
+      await api.detachNodeActionGuard(userId, guardId);
+      loadGuards(actionCode, transitionId);
+      toast('Guard detached', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Node Type:</span>
+        <select className="field-input" style={{ fontSize: 12, flex: 1, maxWidth: 300 }}
+          value={selectedNt || ''} onChange={e => setSelectedNt(e.target.value || null)}>
+          <option value="">Select a node type…</option>
+          {(nodeTypes || []).map(nt => (
+            <option key={nt.id} value={nt.id}>{nt.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {selectedNt && actionRows.length === 0 && (
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>No actions configured for this node type</div>
+      )}
+
+      <div className="settings-list">
+        {actionRows.map(a => {
+          const code  = a.action_code    || a.ACTION_CODE;
+          const tran  = a.transition_id  || a.TRANSITION_ID || null;
+          const k     = rowKey(code, tran);
+          const isExp = expanded === k;
+          const rows  = guards[k] || [];
+          const label = a.display_name || a.DISPLAY_NAME || code;
+          return (
+            <div key={k} className="settings-card" style={{ marginBottom: 4 }}>
+              <div className="settings-card-hd" onClick={() => toggle(code, tran)}
+                style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                <span className="settings-card-chevron">
+                  {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
+                </span>
+                <span className="settings-card-name">{label}</span>
+                <span className="settings-badge" style={{ marginLeft: 6 }}>{a.status}</span>
+                {tran && <span className="settings-card-id">→ {tran}</span>}
+              </div>
+
+              {isExp && (
+                <div className="settings-card-body" style={{ padding: '8px 12px 12px 28px' }}>
+                  {rows.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No per-type guards (inherits action-level + transition-level guards)</div>}
+                  <table className="settings-table" style={{ width: '100%', marginBottom: 8 }}>
+                    <thead>
+                      <tr><th>Guard</th><th>Effect</th><th>Override</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(g => (
+                        <tr key={g.id}>
+                          <td>{g.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({g.algorithmCode})</span></td>
+                          <td><span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`}>{g.effect}</span></td>
+                          <td><span className={`settings-badge ${g.overrideAction === 'DISABLE' ? 'badge-danger' : ''}`}>{g.overrideAction}</span></td>
+                          <td style={{ textAlign: 'right' }}>
+                            {canWrite && (
+                              <button className="btn btn-xs btn-danger" onClick={() => handleDetach(code, tran, g.id)}>
+                                <TrashIcon size={10} />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {canWrite && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <select id={`add-nag-${k}`} className="field-input" style={{ fontSize: 11, flex: 1 }}>
+                        {(instances || []).map(i => (
+                          <option key={i.id} value={i.id}>{i.algorithmName} — {i.name || i.id}</option>
+                        ))}
+                      </select>
+                      <button className="btn btn-xs btn-primary" onClick={() => {
+                        const sel = document.getElementById(`add-nag-${k}`);
+                        if (sel?.value) handleAttach(code, tran, sel.value);
+                      }}>
+                        <PlusIcon size={10} /> Attach
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ── Main SettingsPage ───────────────────────────────────────────── */
 export default function SettingsPage({ userId, projectSpaceId, activeSection, onSectionChange, toast }) {
   const [globalPerms, setGlobalPerms] = useState(null); // null = loading; Set<string> once loaded
@@ -2789,6 +3295,8 @@ export default function SettingsPage({ userId, projectSpaceId, activeSection, on
           {activeSection === 'proj-spaces'   && <ProjectSpacesSection userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
           {activeSection === 'users-roles'   && <UsersRolesSection   userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
           {activeSection === 'access-rights' && <AccessRightsSection userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
+          {activeSection === 'algorithms'    && <AlgorithmsSection    userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
+          {activeSection === 'guards'        && <GuardsSection        userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
         </div>
       )}
     </div>

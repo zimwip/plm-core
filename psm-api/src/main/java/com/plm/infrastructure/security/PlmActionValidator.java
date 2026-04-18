@@ -1,5 +1,6 @@
 package com.plm.infrastructure.security;
 
+import com.plm.domain.action.PlmAction;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;

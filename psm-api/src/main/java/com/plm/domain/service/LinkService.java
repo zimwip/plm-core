@@ -2,8 +2,8 @@ package com.plm.domain.service;
 
 import com.plm.domain.model.Enums.ChangeType;
 import com.plm.domain.model.Enums.VersionStrategy;
-import com.plm.infrastructure.security.PlmAction;
-import com.plm.infrastructure.security.PlmSecurityContext;
+import com.plm.domain.action.PlmAction;
+import com.plm.domain.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -34,6 +34,8 @@ public class LinkService {
     private final LockService             lockService;
     private final VersionService          versionService;
     private final GraphValidationService  graphValidationService;
+    private final FingerPrintService      fingerPrintService;
+    private final SecurityContextPort     secCtx;
 
     // ================================================================
     // CREATE LINK
@@ -137,6 +139,10 @@ public class LinkService {
             LocalDateTime.now(), userId
         );
 
+        // Recompute fingerprint — link is now part of source version content
+        String fp = fingerPrintService.compute(sourceNodeId, sourceVersionId);
+        dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
+
         log.info("Link created: {}→{} type={} policy={} logicalId={}",
             sourceNodeId, targetNodeId, linkTypeId,
             pinnedVersionId == null ? "V2M" : "V2V", linkLogicalId);
@@ -151,8 +157,15 @@ public class LinkService {
     @Transactional
     public void deleteLink(String linkId, String userId, String txId) {
         String sourceNodeId = resolveLinkSourceNodeId(linkId);
+        String sourceVersionId = dsl.select(DSL.field("source_node_version_id"))
+            .from("node_version_link").where("id = ?", linkId)
+            .fetchOne(DSL.field("source_node_version_id"), String.class);
         lockService.tryLock(sourceNodeId, userId);
         dsl.execute("DELETE FROM node_version_link WHERE id = ?", linkId);
+        if (sourceVersionId != null) {
+            String fp = fingerPrintService.compute(sourceNodeId, sourceVersionId);
+            dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
+        }
         log.info("Link {} deleted by {}", linkId, userId);
     }
 
@@ -219,6 +232,9 @@ public class LinkService {
             dsl.execute("UPDATE node_version_link SET link_logical_id = ? WHERE id = ?", newLogicalId, linkId);
         }
 
+        String fp = fingerPrintService.compute(sourceNodeId, sourceVersionId);
+        dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
+
         log.info("Link {} updated (target={} logicalId={}) by {}", linkId, newTargetNodeId, newLogicalId, userId);
     }
 
@@ -230,9 +246,9 @@ public class LinkService {
      * Returns outgoing links from a node (BOM / children).
      */
     public List<Map<String, Object>> getChildLinks(String nodeId) {
-        var ctx = PlmSecurityContext.get();
-        String currentUserId = ctx != null ? ctx.getUserId() : "";
-        boolean isAdmin = ctx != null && ctx.isAdmin();
+        var ctx = secCtx.currentUser();
+        String currentUserId = ctx.getUserId();
+        boolean isAdmin = ctx.isAdmin();
         String isAdminStr = String.valueOf(isAdmin);
         return dsl.fetch(
             """
@@ -292,9 +308,9 @@ public class LinkService {
      * Returns incoming links to a node (Where Used / parents).
      */
     public List<Map<String, Object>> getParentLinks(String nodeId) {
-        var ctx = PlmSecurityContext.get();
-        String currentUserId = ctx != null ? ctx.getUserId() : "";
-        boolean isAdmin = ctx != null && ctx.isAdmin();
+        var ctx = secCtx.currentUser();
+        String currentUserId = ctx.getUserId();
+        boolean isAdmin = ctx.isAdmin();
         String isAdminStr = String.valueOf(isAdmin);
         return dsl.fetch(
             """

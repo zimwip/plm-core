@@ -1,5 +1,6 @@
 package com.plm.infrastructure.security;
 
+import com.plm.domain.security.PlmUserContext;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -72,7 +73,7 @@ public class PlmAuthFilter implements Filter {
             PlmUserContext ctx = pnoApiClient.getUserContext(userId, projectSpaceId);
             if (ctx == null) {
                 resp.setStatus(401);
-                resp.getWriter().write("{\"error\":\"Unknown user: " + userId + "\"}");
+                resp.getWriter().write("{\"error\":\"Unauthorized\"}");
                 return;
             }
 

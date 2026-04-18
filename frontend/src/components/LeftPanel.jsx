@@ -39,6 +39,8 @@ function LeftPanel({
   onSettingsSectionChange,
   isDashboardOpen,
   onOpenDashboard,
+  hasMore,
+  onLoadMore,
   style,
 }) {
   const [expandedTypes,    setExpandedTypes]    = useState(new Set());
@@ -251,7 +253,14 @@ function LeftPanel({
           )}
         </div>
 
-        <div className="node-list">
+        <div
+          className="node-list"
+          onScroll={e => {
+            if (!hasMore || !onLoadMore) return;
+            const el = e.currentTarget;
+            if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) onLoadMore();
+          }}
+        >
           {nodesByType.size === 0 ? (
             <div className="panel-empty">No objects</div>
           ) : [...nodesByType.entries()].map(([typeId, { name, color: typeColor, icon: typeIconName, nodes: typeNodes }]) => {
@@ -372,6 +381,11 @@ function LeftPanel({
               </div>
             );
           })}
+          {hasMore && (
+            <div className="panel-empty" style={{ fontSize: 10, color: 'var(--muted2)', padding: '4px 8px' }}>
+              Loading more…
+            </div>
+          )}
         </div>
       </div>
 

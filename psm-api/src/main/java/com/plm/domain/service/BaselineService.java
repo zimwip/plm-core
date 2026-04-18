@@ -1,7 +1,7 @@
 package com.plm.domain.service;
 
+import com.plm.domain.action.PlmAction;
 import com.plm.infrastructure.PlmEventPublisher;
-import com.plm.infrastructure.security.PlmAction;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;

@@ -22,7 +22,7 @@ services:
     environment:
       POSTGRES_DB:       plmdb
       POSTGRES_USER:     plm
-      POSTGRES_PASSWORD: ${PG_PASSWORD:-changeme}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?Set PG_PASSWORD in .env (see .env.example)}
     ports:
       - "5432:5432"
     volumes:
@@ -52,15 +52,16 @@ services:
     environment:
       SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
       SPRING_DATASOURCE_USERNAME:          plm
-      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:-changeme}
+      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:?Set PG_PASSWORD in .env (see .env.example)}
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_DATASOURCE_HIKARI_SCHEMA:     pno
       SPRING_JOOQ_SQL_DIALECT:             POSTGRES
       SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
       SPRING_FLYWAY_DEFAULT_SCHEMA:        pno
       SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      PLM_SERVICE_SECRET:                  ${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (see .env.example)}
       LOGGING_LEVEL_ROOT:                  INFO
-      LOGGING_LEVEL_COM_PNO:               DEBUG
+      LOGGING_LEVEL_COM_PNO:               INFO
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,7 +90,7 @@ services:
     environment:
       SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
       SPRING_DATASOURCE_USERNAME:          plm
-      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:-changeme}
+      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:?Set PG_PASSWORD in .env (see .env.example)}
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_JOOQ_SQL_DIALECT:             POSTGRES
       SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
@@ -97,8 +98,10 @@ services:
       SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
       SPRING_DATASOURCE_HIKARI_SCHEMA:     psm
       PNO_API_URL:                         http://pno-api:8081
+      PLM_SERVICE_SECRET:                  ${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (see .env.example)}
+      # Spring maps PLM_SERVICE_SECRET → plm.service.secret
       LOGGING_LEVEL_ROOT:                  INFO
-      LOGGING_LEVEL_COM_PLM:               DEBUG
+      LOGGING_LEVEL_COM_PLM:               INFO
     depends_on:
       postgres:
         condition: service_healthy

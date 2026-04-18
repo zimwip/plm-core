@@ -1,9 +1,10 @@
 package com.plm.domain.service;
 
+import com.plm.domain.exception.AccessDeniedException;
 import com.plm.domain.hook.*;
+import com.plm.domain.security.PlmUserContext;
+import com.plm.domain.security.SecurityContextPort;
 import com.plm.infrastructure.PlmEventPublisher;
-import com.plm.infrastructure.security.PlmSecurityContext;
-import com.plm.infrastructure.security.PlmUserContext;
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -47,11 +48,12 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class PlmTransactionService {
 
-    private final DSLContext        dsl;
-    private final LockService       lockService;
-    private final ValidationService validationService;
+    private final DSLContext         dsl;
+    private final LockService        lockService;
+    private final ValidationService  validationService;
     private final FingerPrintService fingerPrintService;
     private final PlmEventPublisher  eventPublisher;
+    private final SecurityContextPort secCtx;
 
     // ================================================================
     // HOOK REGISTRY
@@ -589,14 +591,14 @@ public class PlmTransactionService {
 
         String status = tx.get("status", String.class);
         String ownerId = tx.get("owner_id", String.class);
-        PlmUserContext ctx = PlmSecurityContext.get();
+        PlmUserContext ctx = secCtx.currentUser();
 
         if (
             "OPEN".equals(status) &&
             !ctx.isAdmin() &&
             !ctx.getUserId().equals(ownerId)
         ) {
-            throw new PermissionService.AccessDeniedException(
+            throw new AccessDeniedException(
                 "Transaction " + txId + " is OPEN and belongs to another user"
             );
         }
@@ -610,7 +612,7 @@ public class PlmTransactionService {
      *  - OPEN      → seulement les siennes (+ toutes si admin)
      */
     public List<Record> listTransactions(int limit) {
-        PlmUserContext ctx = PlmSecurityContext.get();
+        PlmUserContext ctx = secCtx.currentUser();
 
         if (ctx.isAdmin()) {
             // Admin voit tout
@@ -721,7 +723,7 @@ public class PlmTransactionService {
 
         if ("COMMITTED".equals(tx.get("status", String.class))) return true;
 
-        PlmUserContext ctx = PlmSecurityContext.get();
+        PlmUserContext ctx = secCtx.currentUser();
         if (ctx.isAdmin()) return true;
 
         // OPEN → uniquement le owner
@@ -729,47 +731,16 @@ public class PlmTransactionService {
     }
 
     /**
-     * Retourne la version courante visible d'un noeud pour l'utilisateur courant.
-     * Prend la dernière version COMMITTED ou la dernière OPEN si owner/admin.
+     * Retourne la version courante d'un noeud — la plus récente, COMMITTED ou OPEN.
+     * Toutes les versions sont désormais visibles par tous les utilisateurs.
      */
     public Record getCurrentVisibleVersion(String nodeId) {
-        PlmUserContext ctx = PlmSecurityContext.get();
-
-        if (ctx.isAdmin()) {
-            // Admin voit tout (COMMITTED + OPEN)
-            return dsl.select().from("node_version")
-                .where("node_id = ?", nodeId)
-                .and(DSL.exists(
-                    dsl.selectOne().from("plm_transaction")
-                       .where("id = node_version.tx_id")
-                       .and("status IN ('COMMITTED', 'OPEN')")
-                ))
-                .orderBy(DSL.field("version_number").desc())
-                .limit(1)
-                .fetchOne();
-        }
-
-        // Utilisateur : version OPEN de sa propre tx, sinon dernière COMMITTED
-        String openTxId = findOpenTransaction(ctx.getUserId());
-        if (openTxId != null) {
-            Record ownVersion = dsl
-                .select()
-                .from("node_version")
-                .where("node_id = ?", nodeId)
-                .and("tx_id = ?", openTxId)
-                .orderBy(DSL.field("version_number").desc())
-                .limit(1)
-                .fetchOne();
-            if (ownVersion != null) return ownVersion;
-        }
-
-        // Dernière version COMMITTED
         return dsl.select().from("node_version")
             .where("node_id = ?", nodeId)
             .and(DSL.exists(
                 dsl.selectOne().from("plm_transaction")
                    .where("id = node_version.tx_id")
-                   .and("status = 'COMMITTED'")
+                   .and("status IN ('COMMITTED', 'OPEN')")
             ))
             .orderBy(DSL.field("version_number").desc())
             .limit(1)
@@ -858,9 +829,9 @@ public class PlmTransactionService {
         String status = tx.get("status", String.class);
         String ownerId = tx.get("owner_id", String.class);
 
-        PlmUserContext ctx = PlmSecurityContext.get();
+        PlmUserContext ctx = secCtx.currentUser();
         if (!ctx.isAdmin() && !userId.equals(ownerId)) {
-            throw new PermissionService.AccessDeniedException(
+            throw new AccessDeniedException(
                 "User " + userId + " does not own transaction " + txId
             );
         }

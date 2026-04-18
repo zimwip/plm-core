@@ -1,8 +1,9 @@
 package com.plm;
 
+import com.plm.domain.exception.AccessDeniedException;
+import com.plm.domain.security.PlmUserContext;
 import com.plm.domain.service.*;
 import com.plm.infrastructure.security.PlmSecurityContext;
-import com.plm.infrastructure.security.PlmUserContext;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +28,7 @@ class PlmRoleAndViewTest {
 
     @Autowired DSLContext            dsl;
     @Autowired NodeService           nodeService;
-    @Autowired PermissionService     permissionService;
+    @Autowired com.plm.domain.action.ActionPermissionService actionPermissionService;
     @Autowired LifecycleService      lifecycleService;
     @Autowired SignatureService      signatureService;
     @Autowired VersionService        versionService;
@@ -93,7 +94,7 @@ class PlmRoleAndViewTest {
         asReviewer();
         assertThatThrownBy(() -> nodeService.modifyNode(nodeId, USER_BOB, null,
             Map.of(AD_DOC_TITLE, "Hacked"), "Hack"))
-            .isInstanceOf(PermissionService.AccessDeniedException.class);
+            .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
@@ -109,7 +110,7 @@ class PlmRoleAndViewTest {
 
         // Écriture KO — permission denied before txId check
         assertThatThrownBy(() -> nodeService.modifyNode(nodeId, USER_CHARLIE, null, Map.of(), ""))
-            .isInstanceOf(PermissionService.AccessDeniedException.class);
+            .isInstanceOf(AccessDeniedException.class);
     }
 
     // ================================================================
@@ -129,8 +130,8 @@ class PlmRoleAndViewTest {
 
         // Tester directement la permission reviewer
         asReviewer();
-        assertThatThrownBy(() -> permissionService.assertCanTransition(TR_FREEZE))
-            .isInstanceOf(PermissionService.AccessDeniedException.class);
+        assertThatThrownBy(() -> actionPermissionService.assertTransition(TR_FREEZE))
+            .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
@@ -146,12 +147,12 @@ class PlmRoleAndViewTest {
 
         // Alice (designer) ne peut pas releaser
         asDesigner();
-        assertThatThrownBy(() -> permissionService.assertCanTransition(TR_RELEASE))
-            .isInstanceOf(PermissionService.AccessDeniedException.class);
+        assertThatThrownBy(() -> actionPermissionService.assertTransition(TR_RELEASE))
+            .isInstanceOf(AccessDeniedException.class);
 
         // Bob (reviewer) peut releaser
         asReviewer();
-        assertThatCode(() -> permissionService.assertCanTransition(TR_RELEASE))
+        assertThatCode(() -> actionPermissionService.assertTransition(TR_RELEASE))
             .doesNotThrowAnyException();
     }
 
@@ -174,7 +175,7 @@ class PlmRoleAndViewTest {
         // Charlie (reader) ne peut pas signer — permission denied before txId check
         asReader();
         assertThatThrownBy(() -> signatureService.sign(nodeId, USER_CHARLIE, null, "Reviewed", null))
-            .isInstanceOf(PermissionService.AccessDeniedException.class);
+            .isInstanceOf(AccessDeniedException.class);
     }
 
     // ================================================================
@@ -283,12 +284,13 @@ class PlmRoleAndViewTest {
         // The action ID is now the node_type_action id; the transition is referenced via transitionId
         assertThat(actionsDesigner).anyMatch(a -> TR_FREEZE.equals(a.get("transitionId")));
 
-        // Reader en Draft : aucune action (can_transition=false)
+        // Reader en Draft : all actions present but unauthorized (authorized=false)
         asReader();
         var descReader = nodeService.buildObjectDescription(nodeId, USER_CHARLIE, ROLE_READER);
         @SuppressWarnings("unchecked")
         var actionsReader = (List<Map<String, Object>>) descReader.get("actions");
-        assertThat(actionsReader).isEmpty();
+        assertThat(actionsReader).isNotEmpty();
+        assertThat(actionsReader).allMatch(a -> Boolean.FALSE.equals(a.get("authorized")));
     }
 
     // ================================================================
@@ -308,7 +310,7 @@ class PlmRoleAndViewTest {
             .doesNotThrowAnyException();
 
         // Admin peut déclencher n'importe quelle transition
-        assertThatCode(() -> permissionService.assertCanTransition(TR_RELEASE))
+        assertThatCode(() -> actionPermissionService.assertTransition(TR_RELEASE))
             .doesNotThrowAnyException();
     }
 

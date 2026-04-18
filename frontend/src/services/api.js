@@ -45,15 +45,6 @@ function onBackendUnreachable() {
   }, 3000);
 }
 
-function headers(userId) {
-  const h = {
-    'Content-Type': 'application/json',
-    'X-PLM-User': userId,
-  };
-  if (_projectSpaceId) h['X-PLM-ProjectSpace'] = _projectSpaceId;
-  return h;
-}
-
 /** Sends a request to pno-api (People & Organisation). */
 async function pnoRequest(method, path, userId, body) {
   let res;
@@ -83,43 +74,19 @@ async function pnoRequest(method, path, userId, body) {
   return text ? JSON.parse(text) : null;
 }
 
-/** Like request() but with an explicit project space override (for settings views). */
-async function requestForSpace(method, path, userId, psId, body) {
-  let res;
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-PLM-User': userId,
-        'X-PLM-ProjectSpace': psId,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch {
-    onBackendUnreachable();
-    const err = new Error('Backend unreachable');
-    if (_onError) _onError(err);
-    throw err;
-  }
-  if (!res.ok) {
-    if (res.status === 502 || res.status === 503) onBackendUnreachable();
-    const payload = await res.json().catch(() => ({ error: res.statusText }));
-    const err = new Error(payload.error || `HTTP ${res.status}`);
-    err.detail = payload;
-    if (_onError) _onError(err);
-    throw err;
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
-}
+async function request(method, path, userId, body, psOverride) {
+  const h = {
+    'Content-Type': 'application/json',
+    'X-PLM-User': userId,
+  };
+  const ps = psOverride ?? _projectSpaceId;
+  if (ps) h['X-PLM-ProjectSpace'] = ps;
 
-async function request(method, path, userId, body) {
   let res;
   try {
     res = await fetch(`${BASE}${path}`, {
       method,
-      headers: headers(userId),
+      headers: h,
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
@@ -140,6 +107,9 @@ async function request(method, path, userId, body) {
   return text ? JSON.parse(text) : null;
 }
 
+const requestForSpace = (method, path, userId, psId, body) =>
+  request(method, path, userId, body, psId);
+
 // ── Nodes ──────────────────────────────────────────────────────────
 
 export const api = {
@@ -152,8 +122,8 @@ export const api = {
     request('GET', '/metamodel/nodetypes/creatable', userId),
 
   // Lister tous les noeuds (dernière version committée)
-  listNodes: (userId) =>
-    request('GET', '/nodes', userId),
+  listNodes: (userId, page = 0, size = 50) =>
+    request('GET', `/nodes?page=${page}&size=${size}`, userId),
 
   // Historique complet des versions d'un noeud
   getVersionHistory: (userId, nodeId) =>
@@ -179,6 +149,18 @@ export const api = {
   // Signatures — lecture
   getSignatures: (userId, nodeId) =>
     request('GET', `/nodes/${nodeId}/signatures`, userId),
+
+  // Comments
+  getComments: (userId, nodeId) =>
+    request('GET', `/nodes/${nodeId}/comments`, userId),
+
+  addComment: (userId, nodeId, nodeVersionId, text, parentCommentId, attributeName) =>
+    request('POST', `/nodes/${nodeId}/comments`, userId, {
+      nodeVersionId,
+      text,
+      ...(parentCommentId ? { parentCommentId } : {}),
+      ...(attributeName   ? { attributeName }   : {}),
+    }),
 
   getLinkTypes: (userId) =>
     request('GET', '/metamodel/linktypes', userId),
@@ -310,28 +292,38 @@ export const api = {
   getActionsForNodeType: (userId, nodeTypeId) =>
     request('GET', `/metamodel/nodetypes/${nodeTypeId}/actions`, userId),
 
-  setNodeTypeActionStatus: (userId, nodeTypeId, ntaId, status) =>
-    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/actions/${ntaId}/status`, userId, { status }),
+  registerCustomAction: (userId, body) =>
+    request('POST', '/metamodel/actions', userId, body),
 
-  getActionPermissions: (userId, nodeTypeId, ntaId) =>
-    request('GET', `/metamodel/nodetypes/${nodeTypeId}/actions/${ntaId}/permissions`, userId),
+  getActionPermissions: (userId, nodeTypeId, actionCode, transitionId) =>
+    request('GET',
+      `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions${transitionId ? `?transitionId=${encodeURIComponent(transitionId)}` : ''}`,
+      userId),
 
-  addActionPermission: (userId, nodeTypeId, ntaId, roleId, lifecycleStateId) =>
-    request('POST', `/metamodel/nodetypes/${nodeTypeId}/actions/${ntaId}/permissions`, userId, { roleId, lifecycleStateId: lifecycleStateId || null }),
+  addActionPermission: (userId, nodeTypeId, actionCode, roleId, transitionId) =>
+    request('POST', `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions`, userId,
+      { roleId, transitionId: transitionId || null }),
 
-  removeActionPermission: (userId, nodeTypeId, ntaId, roleId, lifecycleStateId) =>
-    request('DELETE', `/metamodel/nodetypes/${nodeTypeId}/actions/${ntaId}/permissions`, userId, { roleId, lifecycleStateId: lifecycleStateId || null }),
+  removeActionPermission: (userId, nodeTypeId, actionCode, roleId, transitionId) =>
+    request('DELETE', `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions`, userId,
+      { roleId, transitionId: transitionId || null }),
 
   // Space-scoped variants — used in the Project Spaces settings view where the
   // target space may differ from the currently active project space.
-  getActionPermissionsForSpace: (userId, psId, nodeTypeId, ntaId) =>
-    requestForSpace('GET', `/metamodel/nodetypes/${nodeTypeId}/actions/${ntaId}/permissions`, userId, psId),
+  getActionPermissionsForSpace: (userId, psId, nodeTypeId, actionCode, transitionId) =>
+    requestForSpace('GET',
+      `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions${transitionId ? `?transitionId=${encodeURIComponent(transitionId)}` : ''}`,
+      userId, psId),
 
-  addActionPermissionForSpace: (userId, psId, nodeTypeId, ntaId, roleId, lifecycleStateId) =>
-    requestForSpace('POST', `/metamodel/nodetypes/${nodeTypeId}/actions/${ntaId}/permissions`, userId, psId, { roleId, lifecycleStateId: lifecycleStateId || null }),
+  addActionPermissionForSpace: (userId, psId, nodeTypeId, actionCode, roleId, transitionId) =>
+    requestForSpace('POST',
+      `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions`,
+      userId, psId, { roleId, transitionId: transitionId || null }),
 
-  removeActionPermissionForSpace: (userId, psId, nodeTypeId, ntaId, roleId, lifecycleStateId) =>
-    requestForSpace('DELETE', `/metamodel/nodetypes/${nodeTypeId}/actions/${ntaId}/permissions`, userId, psId, { roleId, lifecycleStateId: lifecycleStateId || null }),
+  removeActionPermissionForSpace: (userId, psId, nodeTypeId, actionCode, roleId, transitionId) =>
+    requestForSpace('DELETE',
+      `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions`,
+      userId, psId, { roleId, transitionId: transitionId || null }),
 
   // Baselines
   listBaselines: (userId) =>
@@ -423,6 +415,80 @@ export const api = {
   /** Revokes a GLOBAL action from a role. Requires MANAGE_ROLES. */
   removeRoleGlobalPermission: (userId, roleId, actionId) =>
     request('DELETE', `/admin/roles/${roleId}/global-permissions/${actionId}`, userId),
+
+  // ── Algorithms & Guards ─────────────────────────────────────────────
+
+  listAlgorithmTypes: (userId) =>
+    request('GET', '/algorithms/types', userId),
+
+  listAlgorithms: (userId) =>
+    request('GET', '/algorithms', userId),
+
+  listAlgorithmsByType: (userId, typeId) =>
+    request('GET', `/algorithms/by-type/${typeId}`, userId),
+
+  listAlgorithmParameters: (userId, algorithmId) =>
+    request('GET', `/algorithms/${algorithmId}/parameters`, userId),
+
+  listAllInstances: (userId) =>
+    request('GET', '/algorithms/instances', userId),
+
+  listInstances: (userId, algorithmId) =>
+    request('GET', `/algorithms/${algorithmId}/instances`, userId),
+
+  createInstance: (userId, algorithmId, name) =>
+    request('POST', '/algorithms/instances', userId, { algorithmId, name }),
+
+  updateInstance: (userId, instanceId, name) =>
+    request('PUT', `/algorithms/instances/${instanceId}`, userId, { name }),
+
+  deleteInstance: (userId, instanceId) =>
+    request('DELETE', `/algorithms/instances/${instanceId}`, userId),
+
+  getInstanceParams: (userId, instanceId) =>
+    request('GET', `/algorithms/instances/${instanceId}/params`, userId),
+
+  setInstanceParam: (userId, instanceId, parameterId, value) =>
+    request('PUT', `/algorithms/instances/${instanceId}/params/${parameterId}`, userId, { value }),
+
+  listActionGuards: (userId, actionId) =>
+    request('GET', `/algorithms/actions/${actionId}/guards`, userId),
+
+  attachActionGuard: (userId, actionId, instanceId, effect, displayOrder) =>
+    request('POST', `/algorithms/actions/${actionId}/guards`, userId, { instanceId, effect, displayOrder }),
+
+  detachActionGuard: (userId, actionId, guardId) =>
+    request('DELETE', `/algorithms/actions/${actionId}/guards/${guardId}`, userId),
+
+  listTransitionGuards: (userId, transitionId) =>
+    request('GET', `/algorithms/transitions/${transitionId}/guards`, userId),
+
+  attachTransitionGuard: (userId, transitionId, instanceId, effect, displayOrder) =>
+    request('POST', `/algorithms/transitions/${transitionId}/guards`, userId,
+      { instanceId, effect, displayOrder }),
+
+  detachTransitionGuard: (userId, guardId) =>
+    request('DELETE', `/algorithms/transitions/guards/${guardId}`, userId),
+
+  listNodeActionGuards: (userId, nodeTypeId, actionCode, transitionId) =>
+    request('GET',
+      `/algorithms/node-actions/${nodeTypeId}/${actionCode}/guards${transitionId ? `?transitionId=${encodeURIComponent(transitionId)}` : ''}`,
+      userId),
+
+  attachNodeActionGuard: (userId, nodeTypeId, actionCode, transitionId, instanceId, effect, overrideAction, displayOrder) =>
+    request('POST', `/algorithms/node-actions/${nodeTypeId}/${actionCode}/guards`, userId,
+      { transitionId: transitionId || null, instanceId, effect, overrideAction, displayOrder }),
+
+  detachNodeActionGuard: (userId, guardId) =>
+    request('DELETE', `/algorithms/node-actions/guards/${guardId}`, userId),
+
+  /** Returns persisted + in-memory merged stats. */
+  getAlgorithmStats: (userId) =>
+    request('GET', '/algorithms/stats', userId),
+
+  /** Resets all stats (memory + DB). */
+  resetAlgorithmStats: (userId) =>
+    request('DELETE', '/algorithms/stats', userId),
 };
 
 // ── Transactions ────────────────────────────────────────────────────
@@ -430,7 +496,7 @@ export const api = {
 export const txApi = {
   /** Ouvre une nouvelle transaction. Retourne { txId }. */
   open: (userId, title) =>
-    request('POST', '/transactions', userId, { userId, title }),
+    request('POST', '/transactions', userId, { title }),
 
   /** Statut de la transaction courante OPEN de l'utilisateur (résolu depuis X-PLM-User). */
   current: (userId) =>
@@ -439,15 +505,15 @@ export const txApi = {
   /** Commite avec un commentaire. nodeIds optionnel : si fourni, seuls ces noeuds sont commités. */
   commit: (userId, txId, comment, nodeIds) =>
     request('POST', `/transactions/${txId}/commit`, userId,
-      { userId, comment, ...(nodeIds ? { nodeIds } : {}) }),
+      { comment, ...(nodeIds ? { nodeIds } : {}) }),
 
   /** Libère une liste de noeuds d'une transaction (rollback partiel). */
   release: (userId, txId, nodeIds) =>
-    request('POST', `/transactions/${txId}/release`, userId, { userId, nodeIds }),
+    request('POST', `/transactions/${txId}/release`, userId, { nodeIds }),
 
   /** Annule et supprime la transaction. */
   rollback: (userId, txId) =>
-    request('POST', `/transactions/${txId}/rollback`, userId, { userId }),
+    request('POST', `/transactions/${txId}/rollback`, userId, null),
 
   /** Détail d'une transaction. */
   get: (userId, txId) =>
@@ -498,9 +564,10 @@ export async function txRequest(method, path, userId, txId, body) {
 }
 
 // All write operations go through the action registry.
-// nodeTypeActionId is node_type_action.id from desc.actions[].id.
+// actionCode matches action.action_code — from desc.actions[].actionCode.
+// transitionId is required for LIFECYCLE-scope actions.
 export const authoringApi = {
-  executeAction: (nodeId, nodeTypeActionId, userId, txId, parameters) =>
-    txRequest('POST', `/nodes/${nodeId}/actions/${nodeTypeActionId}`, userId, txId,
-      { userId, parameters: parameters || {} }),
+  executeAction: (nodeId, actionCode, userId, txId, parameters, transitionId) =>
+    txRequest('POST', `/nodes/${nodeId}/actions/${actionCode}`, userId, txId,
+      { parameters: parameters || {}, transitionId: transitionId || null }),
 };

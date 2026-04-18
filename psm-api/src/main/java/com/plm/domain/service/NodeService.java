@@ -5,9 +5,9 @@ import static java.util.Map.entry;
 import com.plm.domain.model.Enums.ChangeType;
 import com.plm.domain.model.Enums.VersionStrategy;
 import com.plm.domain.model.ResolvedAttribute;
+import com.plm.domain.action.PlmAction;
+import com.plm.domain.security.SecurityContextPort;
 import com.plm.infrastructure.PlmEventPublisher;
-import com.plm.infrastructure.security.PlmAction;
-import com.plm.infrastructure.security.PlmSecurityContext;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -45,18 +45,20 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class NodeService {
 
-    private final DSLContext dsl;
-    private final LockService lockService;
-    private final VersionService versionService;
-    private final PlmTransactionService txService;
-    private final PermissionService permissionService;
-    private final ValidationService validationService;
-    private final FingerPrintService fingerPrintService;
+    private final DSLContext                      dsl;
+    private final LockService                     lockService;
+    private final VersionService                  versionService;
+    private final PlmTransactionService           txService;
+    private final com.plm.domain.action.ActionPermissionService actionPermissionService;
+    private final ViewService                     viewService;
+    private final ValidationService               validationService;
+    private final FingerPrintService              fingerPrintService;
     private final com.plm.domain.action.ActionService actionService;
-    private final PlmEventPublisher eventPublisher;
-    private final MetaModelCache metaModelCache;
-    private final LinkService linkService;
-    private final GraphValidationService graphValidationService;
+    private final PlmEventPublisher               eventPublisher;
+    private final MetaModelCache                  metaModelCache;
+    private final LinkService                     linkService;
+    private final GraphValidationService          graphValidationService;
+    private final SecurityContextPort             secCtx;
 
     // ================================================================
     // CRÉATION (pas de txId — version initiale directement COMMITTED)
@@ -204,9 +206,9 @@ public class NodeService {
     }
 
     public PagedResult<Record> listNodes(String projectSpaceId, int page, int size) {
-        String currentUserId = PlmSecurityContext.get().getUserId();
-
         // Full query (no LIMIT yet — permission filter may reduce count)
+        // All versions (COMMITTED and OPEN) are visible to everyone.
+        // children_count counts links from all committed or open versions.
         List<Record> rows = dsl.fetch(
             """
             SELECT n.id, n.node_type_id, nt.name AS node_type_name,
@@ -217,7 +219,10 @@ public class NodeService {
                    pt.status AS tx_status,
                    nva_name.value AS display_name,
                    (SELECT COUNT(*) FROM node_version_link nvl
-                    WHERE nvl.source_node_version_id = nv.id) AS children_count
+                    JOIN node_version nv_lnk ON nv_lnk.id = nvl.source_node_version_id
+                    JOIN plm_transaction pt_lnk ON pt_lnk.id = nv_lnk.tx_id
+                    WHERE nv_lnk.node_id = n.id
+                      AND pt_lnk.status IN ('COMMITTED', 'OPEN')) AS children_count
             FROM node n
             JOIN node_type nt ON nt.id = n.node_type_id
             JOIN node_version nv ON nv.node_id = n.id
@@ -227,17 +232,15 @@ public class NodeService {
             LEFT JOIN node_version_attribute nva_name
                    ON nva_name.node_version_id = nv.id AND nva_name.attribute_def_id = ad_name.id
             WHERE n.project_space_id = ?
-              AND (pt.status = 'COMMITTED' OR (pt.status = 'OPEN' AND pt.owner_id = ?))
+              AND pt.status IN ('COMMITTED', 'OPEN')
               AND nv.version_number = (
                 SELECT MAX(nv2.version_number) FROM node_version nv2
                 JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id
                 WHERE nv2.node_id = n.id
-                  AND (pt2.status = 'COMMITTED' OR (pt2.status = 'OPEN' AND pt2.owner_id = ?)))
+                  AND pt2.status IN ('COMMITTED', 'OPEN'))
             ORDER BY n.created_at DESC
             """,
-            projectSpaceId,
-            currentUserId,
-            currentUserId
+            projectSpaceId
         );
 
         // Batch permission check: load all readable node type IDs in a single call
@@ -245,7 +248,9 @@ public class NodeService {
             .map(r -> r.get("node_type_id", String.class))
             .filter(Objects::nonNull)
             .collect(java.util.stream.Collectors.toSet());
-        Map<String, Boolean> readableByNodeType = permissionService.canReadNodeTypes(allNodeTypeIds);
+        // Direct call instead of @PlmAction: batch permission check filters a list of node types,
+        // not a single node — cannot be expressed as a method-level annotation.
+        Map<String, Boolean> readableByNodeType = actionPermissionService.canOnNodeTypes("READ", allNodeTypeIds);
 
         List<Record> filtered = rows.stream()
             .filter(r -> {
@@ -268,9 +273,8 @@ public class NodeService {
     // HISTORIQUE — toutes les versions d'un noeud
     // ================================================================
 
+    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
     public List<Record> getVersionHistory(String nodeId) {
-        permissionService.assertCanRead(nodeId);
-        String currentUserId = PlmSecurityContext.get().getUserId();
         return dsl.fetch(
             """
             SELECT nv.id, nv.version_number, nv.revision, nv.iteration,
@@ -286,11 +290,10 @@ public class NodeService {
             JOIN plm_transaction pt ON pt.id = nv.tx_id
             LEFT JOIN lifecycle_state ls ON ls.id = nv.lifecycle_state_id
             WHERE nv.node_id = ?
-              AND (pt.status = 'COMMITTED' OR (pt.status = 'OPEN' AND pt.owner_id = ?))
+              AND pt.status IN ('COMMITTED', 'OPEN')
             ORDER BY nv.version_number
             """,
-            nodeId,
-            currentUserId
+            nodeId
         );
     }
 
@@ -298,12 +301,12 @@ public class NodeService {
     // DIFF — comparaison de deux versions
     // ================================================================
 
+    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
     public Map<String, Object> getVersionDiff(
         String nodeId,
         int v1Num,
         int v2Num
     ) {
-        permissionService.assertCanRead(nodeId);
         // Fetch both version records
         var v1 = dsl.fetchOne(
             """
@@ -499,7 +502,7 @@ public class NodeService {
         String nodeId,
         int maxVersionNum
     ) {
-        String currentUserId = PlmSecurityContext.get().getUserId();
+        String currentUserId = secCtx.currentUser().getUserId();
         return dsl
             .fetch(
                 """
@@ -619,7 +622,6 @@ public class NodeService {
         String description,
         VersionStrategy strategy
     ) {
-        permissionService.assertCanUpdateNode(nodeId);
         assertNotFrozen(nodeId);
         lockService.tryLock(nodeId, userId);
 
@@ -650,6 +652,7 @@ public class NodeService {
     }
 
     /** Overload without strategy — defaults to ITERATE. */
+    @PlmAction(value = "UPDATE_NODE", nodeIdExpr = "#nodeId")
     @Transactional
     public String modifyNode(
         String nodeId,
@@ -696,6 +699,7 @@ public class NodeService {
      * Pipeline : règle d'état → override de vue → can_write → filtrage des actions par rôle.
      */
     /** Backward-compatible overload — no historical version pinning. */
+    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
     public Map<String, Object> buildObjectDescription(
         String nodeId,
         String userId,
@@ -710,13 +714,13 @@ public class NodeService {
      * @param versionNumber when non-null, pins the view to that specific historical version
      *                      (all attributes are forced read-only, actions list is empty).
      */
+    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
     public Map<String, Object> buildObjectDescription(
         String nodeId,
         String userId,
         String txId,
         Integer versionNumber
     ) {
-        permissionService.assertCanRead(nodeId);
 
         boolean historicalView = versionNumber != null;
 
@@ -726,11 +730,11 @@ public class NodeService {
                 "SELECT nv.* FROM node_version nv " +
                 "JOIN plm_transaction pt ON pt.id = nv.tx_id " +
                 "WHERE nv.node_id = ? AND nv.version_number = ? " +
-                "AND (pt.status = 'COMMITTED' OR (pt.status = 'OPEN' AND pt.owner_id = ?))",
-                nodeId, versionNumber, userId
+                "AND pt.status IN ('COMMITTED', 'OPEN')",
+                nodeId, versionNumber
             );
             if (current == null) throw new IllegalArgumentException(
-                "Version " + versionNumber + " not found or not visible for node: " + nodeId
+                "Version " + versionNumber + " not found for node: " + nodeId
             );
         } else {
             current =
@@ -759,7 +763,7 @@ public class NodeService {
             .where("id = ?", currentTxId)
             .fetchOne("status", String.class);
 
-        String activeViewId = permissionService.resolveActiveView(
+        String activeViewId = viewService.resolveActiveView(
             nodeTypeId,
             currentStateId
         );
@@ -804,7 +808,9 @@ public class NodeService {
               );
         boolean globalCanWrite = !historicalView && actions
             .stream()
-            .anyMatch(a -> "UPDATE_NODE".equals(a.get("actionCode")));
+            .anyMatch(a -> "UPDATE_NODE".equals(a.get("actionCode"))
+                && Boolean.TRUE.equals(a.get("authorized"))
+                && ((List<?>) a.getOrDefault("guardViolations", List.of())).isEmpty());
 
         // Valeurs courantes
         Map<String, String> currentValues = new java.util.HashMap<>();
@@ -849,8 +855,8 @@ public class NodeService {
                 boolean stateVisible =
                     rule == null || rule.get("visible", Integer.class) == 1;
 
-                PermissionService.AttributeOverride ov =
-                    permissionService.applyViewOverride(
+                ViewService.AttributeOverride ov =
+                    viewService.applyViewOverride(
                         activeViewId,
                         attrId,
                         stateEditable,
@@ -996,16 +1002,16 @@ public class NodeService {
     /**
      * Retourne les liens sortants du noeud (BOM / enfants).
      */
+    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
     public List<Map<String, Object>> getChildLinks(String nodeId) {
-        permissionService.assertCanRead(nodeId);
         return linkService.getChildLinks(nodeId);
     }
 
     /**
      * Retourne les liens entrants vers ce noeud (Where Used / parents).
      */
+    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
     public List<Map<String, Object>> getParentLinks(String nodeId) {
-        permissionService.assertCanRead(nodeId);
         return linkService.getParentLinks(nodeId);
     }
 

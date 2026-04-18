@@ -1,10 +1,10 @@
 package com.plm.domain.service;
 
 import com.plm.domain.action.ActionPermissionService;
+import com.plm.domain.action.PlmAction;
 import com.plm.domain.model.ResolvedAttribute;
+import com.plm.domain.security.SecurityContextPort;
 import com.plm.infrastructure.PlmEventPublisher;
-import com.plm.infrastructure.security.PlmAction;
-import com.plm.infrastructure.security.PlmSecurityContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.plm.domain.model.Enums.NumberingScheme;
@@ -35,11 +35,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MetaModelService {
 
-    private final DSLContext dsl;
-    private final ActionPermissionService actionPermissionService;
-    private final MetaModelCache metaModelCache;
-    private final PlmEventPublisher eventPublisher;
+    private final DSLContext                dsl;
+    private final ActionPermissionService   actionPermissionService;
+    private final MetaModelCache            metaModelCache;
+    private final PlmEventPublisher         eventPublisher;
     private final ActionRegistrationService actionRegistrationService;
+    private final SecurityContextPort       secCtx;
 
     // ================================================================
     // LIFECYCLE
@@ -55,7 +56,7 @@ public class MetaModelService {
         );
         log.info("Lifecycle created: {}", name);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
         return id;
     }
 
@@ -87,7 +88,7 @@ public class MetaModelService {
         );
         log.info("State '{}' added to lifecycle {}", name, lifecycleId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
         return id;
     }
 
@@ -109,7 +110,7 @@ public class MetaModelService {
         );
         log.info("Transition '{}' added: {} → {}", name, fromStateId, toStateId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
         return id;
     }
 
@@ -152,7 +153,7 @@ public class MetaModelService {
         );
         log.info("LifecycleState {} updated: name={}", stateId, name);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -167,7 +168,7 @@ public class MetaModelService {
         );
         log.info("LifecycleTransition {} updated: name={}", transitionId, name);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     public List<Record> getStates(String lifecycleId) {
@@ -182,8 +183,13 @@ public class MetaModelService {
             .where("lifecycle_id = ?", lifecycleId)
             .fetch();
 
-        // Fetch all signature requirements for this lifecycle's transitions in one query
-        List<Record> sigReqs = dsl.select()
+        // Fetch all signature requirements for this lifecycle's transitions in one query.
+        // Explicit column aliases avoid ambiguity on "id" (present in both joined tables).
+        var sigReqs = dsl.select(
+                DSL.field("sr.id").as("sr_id"),
+                DSL.field("sr.lifecycle_transition_id").as("lifecycle_transition_id"),
+                DSL.field("sr.role_required").as("role_required"),
+                DSL.field("sr.display_order").as("display_order"))
             .from("signature_requirement sr")
             .join("lifecycle_transition lt").on("lt.id = sr.lifecycle_transition_id")
             .where("lt.lifecycle_id = ?", lifecycleId)
@@ -196,7 +202,7 @@ public class MetaModelService {
                 r -> r.get("lifecycle_transition_id", String.class),
                 Collectors.mapping(r -> {
                     Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("id",          r.get("id",           String.class));
+                    m.put("id",           r.get("sr_id",        String.class));
                     m.put("roleRequired", r.get("role_required", String.class));
                     m.put("displayOrder", r.get("display_order", Integer.class));
                     return m;
@@ -220,7 +226,7 @@ public class MetaModelService {
             id, transitionId, roleId, displayOrder);
         log.info("SignatureRequirement added: transition={} role={}", transitionId, roleId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
         return id;
     }
 
@@ -230,7 +236,7 @@ public class MetaModelService {
         dsl.execute("DELETE FROM signature_requirement WHERE id = ?", reqId);
         log.info("SignatureRequirement {} deleted", reqId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     // ================================================================
@@ -290,59 +296,17 @@ public class MetaModelService {
             LocalDateTime.now()
         );
 
-        // Auto-register default-on built-in actions for the new node type
-        List<Record> defaultActions = dsl.fetch(
-            "SELECT id, display_category FROM action WHERE is_default = 1");
-        java.util.Set<String> registeredActionIds = new java.util.HashSet<>();
-        int displayOrder = 100;
-        for (Record action : defaultActions) {
-            String actionId = action.get("id", String.class);
-            String ntaId = "nta-" + actionId.replaceFirst("^act-", "") + "-" + id;
-            dsl.execute(
-                "INSERT INTO node_type_action (id, node_type_id, action_id, status, display_order) VALUES (?,?,?,?,?)",
-                ntaId, id, actionId, "ENABLED", displayOrder);
-            registeredActionIds.add(actionId);
-            displayOrder += 100;
-        }
-
-        // Auto-register TRANSITION actions for all transitions in the lifecycle
-        List<Record> transitions = dsl.fetch(
-            "SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?", lifecycleId);
-        for (Record tr : transitions) {
-            String trId = tr.get("id", String.class);
-            String ntaId = "nta-tr-" + trId + "-" + id;
-            dsl.execute(
-                "INSERT INTO node_type_action (id, node_type_id, action_id, status, transition_id, display_order) VALUES (?,?,?,?,?,?)",
-                ntaId, id, "act-transition", "ENABLED", trId, 0);
-        }
-        registeredActionIds.add("act-transition");
-
-        // If inheriting, also create NTA rows for any parent actions not yet registered
-        // (e.g. act-read which has is_default=0 but must be independently manageable).
-        // Then copy the parent's action_permission rows so the child starts with the same rights.
+        // Inherit access rights from parent: action_permission rows alone define which
+        // actions are wired for this type. Copy the parent's rows so the child starts
+        // with the same access rights. New types without a parent have no permissions
+        // until admin grants them.
         if (parentNodeTypeId != null && !parentNodeTypeId.isBlank()) {
-            List<Record> parentNtas = dsl.fetch(
-                "SELECT action_id, status, display_order FROM node_type_action " +
-                "WHERE node_type_id = ? AND transition_id IS NULL",
-                parentNodeTypeId);
-            for (Record pnta : parentNtas) {
-                String actionId = pnta.get("action_id", String.class);
-                if (!registeredActionIds.contains(actionId)) {
-                    String ntaId = "nta-" + actionId.replaceFirst("^act-", "") + "-" + id;
-                    dsl.execute(
-                        "INSERT INTO node_type_action (id, node_type_id, action_id, status, display_order) VALUES (?,?,?,?,?)",
-                        ntaId, id, actionId,
-                        pnta.get("status", String.class),
-                        pnta.get("display_order", Integer.class));
-                    registeredActionIds.add(actionId);
-                }
-            }
             copyActionPermissionsFromParent(id, parentNodeTypeId);
         }
 
         log.info("NodeType created: {} scheme={} parent={}", name, scheme, parentNodeTypeId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
         return id;
     }
 
@@ -368,7 +332,7 @@ public class MetaModelService {
         }
         log.info("NodeType {} parent updated to {}", nodeTypeId, parentNodeTypeId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     /**
@@ -403,7 +367,7 @@ public class MetaModelService {
         );
         log.info("NodeType {} numbering_scheme updated to {}", nodeTypeId, numberingScheme);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -416,7 +380,7 @@ public class MetaModelService {
         );
         log.info("NodeType {} version_policy updated to {}", nodeTypeId, versionPolicy);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -428,7 +392,7 @@ public class MetaModelService {
         );
         log.info("NodeType {} collapse_history updated to {}", nodeTypeId, collapseHistory);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -442,7 +406,7 @@ public class MetaModelService {
         );
         log.info("NodeType {} appearance updated: color={} icon={}", nodeTypeId, color, icon);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @Transactional
@@ -454,7 +418,7 @@ public class MetaModelService {
         );
         log.info("NodeType {} lifecycle_id updated to {}", nodeTypeId, lifecycleId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     public List<Record> getAllNodeTypes() {
@@ -464,10 +428,13 @@ public class MetaModelService {
     /**
      * Returns only the node types the current user is allowed to create.
      * Admins get all; other users are filtered by CHECKOUT action permission.
+     *
+     * Direct call instead of @PlmAction: filters a list of node types by permission,
+     * cannot be expressed as a method-level annotation.
      */
     public List<Record> getCreatableNodeTypes() {
         return getAllNodeTypes().stream()
-            .filter(nt -> actionPermissionService.canCreateNodeType(nt.get("id", String.class)))
+            .filter(nt -> actionPermissionService.canOnNodeType("CHECKOUT", nt.get("id", String.class)))
             .collect(Collectors.toList());
     }
 
@@ -515,7 +482,7 @@ public class MetaModelService {
         );
         log.info("AttributeDefinition '{}' created on nodeType {}", params.get("name"), nodeTypeId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
         return id;
     }
 
@@ -585,7 +552,7 @@ public class MetaModelService {
         log.info("AttributeStateRule set: nodeType={} attr={} state={} required={} editable={}",
             effectiveNodeTypeId, attributeDefId, stateId, required, editable);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
         return id;
     }
 
@@ -721,31 +688,12 @@ public class MetaModelService {
     }
 
     /**
-     * Returns node_type_action rows for a node type.
-     * Each node type owns its own NTA rows — child types have their own copies
-     * seeded at creation time, so no ancestor-chain walking is needed here.
+     * Returns the effective actions for a node type, derived from the {@code action}
+     * catalog + {@code action_permission} rows. Delegates to
+     * {@link ActionRegistrationService#getActionsForNodeType}.
      */
     public List<Map<String, Object>> getEffectiveActions(String nodeTypeId) {
-        List<Record> rows = dsl.fetch(
-            "SELECT nta.id AS nta_id, nta.node_type_id AS nta_node_type_id, " +
-            "       nta.status, nta.display_name_override, nta.display_order, nta.transition_id, " +
-            "       na.id AS action_id, na.action_code, na.action_kind, na.scope, " +
-            "       na.display_name, na.display_category, na.requires_tx, na.handler_ref, " +
-            "       lt.name AS transition_name, ls.name AS from_state_name " +
-            "FROM node_type_action nta " +
-            "JOIN action na ON na.id = nta.action_id " +
-            "LEFT JOIN lifecycle_transition lt ON lt.id = nta.transition_id " +
-            "LEFT JOIN lifecycle_state ls ON ls.id = lt.from_state_id " +
-            "WHERE nta.node_type_id = ? " +
-            "ORDER BY nta.display_order, na.display_category",
-            nodeTypeId);
-
-        return rows.stream().map(row -> {
-            Map<String, Object> m = new LinkedHashMap<>(row.intoMap());
-            m.put("inherited", false);
-            m.put("inherited_from", null);
-            return m;
-        }).collect(Collectors.toList());
+        return actionRegistrationService.getActionsForNodeType(nodeTypeId);
     }
 
     // ================================================================
@@ -797,7 +745,7 @@ public class MetaModelService {
         );
         log.info("AttributeDefinition {} updated", attrId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     // ================================================================
@@ -834,7 +782,7 @@ public class MetaModelService {
         );
         log.info("LinkType {} updated", linkTypeId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     // ================================================================
@@ -871,7 +819,7 @@ public class MetaModelService {
         );
         log.info("LinkTypeAttribute '{}' created on linkType {}", params.get("name"), linkTypeId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
         return id;
     }
 
@@ -913,7 +861,7 @@ public class MetaModelService {
         );
         log.info("LinkTypeAttribute {} updated", attrId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -922,7 +870,7 @@ public class MetaModelService {
         dsl.execute("DELETE FROM link_type_attribute WHERE id = ?", attrId);
         log.info("LinkTypeAttribute {} deleted", attrId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     // ================================================================
@@ -991,7 +939,7 @@ public class MetaModelService {
         );
         log.info("NodeType {} identity updated: label={} pattern={}", nodeTypeId, label, pattern);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     // ================================================================
@@ -1020,18 +968,18 @@ public class MetaModelService {
             "AND transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)",
             lifecycleId, lifecycleId
         );
-        dsl.execute(
-            "DELETE FROM node_type_action WHERE transition_id IN " +
-            "(SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId
-        );
         dsl.execute("DELETE FROM signature_requirement WHERE lifecycle_transition_id IN " +
+            "(SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
+        dsl.execute("DELETE FROM lifecycle_transition_guard WHERE lifecycle_transition_id IN " +
+            "(SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
+        dsl.execute("DELETE FROM node_action_guard WHERE transition_id IN " +
             "(SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM lifecycle_transition WHERE lifecycle_id = ?", lifecycleId);
         dsl.execute("DELETE FROM lifecycle_state WHERE lifecycle_id = ?", lifecycleId);
         dsl.execute("DELETE FROM lifecycle WHERE id = ?", lifecycleId);
         log.info("Lifecycle {} deleted", lifecycleId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -1054,7 +1002,7 @@ public class MetaModelService {
         dsl.execute("DELETE FROM lifecycle_state WHERE id = ?", stateId);
         log.info("LifecycleState {} deleted", stateId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -1069,12 +1017,13 @@ public class MetaModelService {
             "DELETE FROM action_permission WHERE action_id = 'act-transition' AND transition_id = ?",
             transitionId
         );
-        dsl.execute("DELETE FROM node_type_action WHERE transition_id = ?", transitionId);
         dsl.execute("DELETE FROM signature_requirement WHERE lifecycle_transition_id = ?", transitionId);
+        dsl.execute("DELETE FROM lifecycle_transition_guard WHERE lifecycle_transition_id = ?", transitionId);
+        dsl.execute("DELETE FROM node_action_guard WHERE transition_id = ?", transitionId);
         dsl.execute("DELETE FROM lifecycle_transition WHERE id = ?", transitionId);
         log.info("LifecycleTransition {} deleted", transitionId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -1096,9 +1045,10 @@ public class MetaModelService {
             "DELETE FROM link_type WHERE source_node_type_id = ? OR target_node_type_id = ?",
             nodeTypeId, nodeTypeId
         );
-        // Cascade action permissions then node_type_action rows
+        // Cascade action permissions + per-type param overrides + per-type guards
         dsl.execute("DELETE FROM action_permission WHERE node_type_id = ?", nodeTypeId);
-        dsl.execute("DELETE FROM node_type_action WHERE node_type_id = ?", nodeTypeId);
+        dsl.execute("DELETE FROM action_param_override WHERE node_type_id = ?", nodeTypeId);
+        dsl.execute("DELETE FROM node_action_guard WHERE node_type_id = ?", nodeTypeId);
         // Block deletion if any child type references this as parent
         int children = dsl.fetchCount(
             dsl.selectOne().from("node_type").where("parent_node_type_id = ?", nodeTypeId)
@@ -1109,7 +1059,7 @@ public class MetaModelService {
         dsl.execute("DELETE FROM node_type WHERE id = ?", nodeTypeId);
         log.info("NodeType {} deleted", nodeTypeId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -1125,7 +1075,7 @@ public class MetaModelService {
         dsl.execute("DELETE FROM attribute_definition WHERE id = ?", attrId);
         log.info("AttributeDefinition {} deleted", attrId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     @PlmAction("MANAGE_METAMODEL")
@@ -1140,7 +1090,7 @@ public class MetaModelService {
         dsl.execute("DELETE FROM link_type WHERE id = ?", linkTypeId);
         log.info("LinkType {} deleted", linkTypeId);
         metaModelCache.invalidate();
-        eventPublisher.metamodelChanged(PlmSecurityContext.get().getUserId());
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
     // ================================================================
@@ -1155,35 +1105,33 @@ public class MetaModelService {
         return actionRegistrationService.getActionsForNodeType(nodeTypeId);
     }
 
-    public String registerCustomAction(String nodeTypeId, String actionCode,
-                                       String displayName, String handlerRef,
+    public String registerCustomAction(String actionCode, String displayName, String handlerRef,
                                        String displayCategory, boolean requiresTx,
-                                       String description) {
+                                       String description, String scope) {
         return actionRegistrationService.registerCustomAction(
-            nodeTypeId, actionCode, displayName, handlerRef, displayCategory, requiresTx, description);
+            actionCode, displayName, handlerRef, displayCategory, requiresTx, description, scope);
     }
 
-    public void setNodeTypeActionStatus(String nodeTypeActionId, String status) {
-        actionRegistrationService.setNodeTypeActionStatus(nodeTypeActionId, status);
+    public void setActionPermission(String nodeTypeId, String actionCode,
+                                    String transitionId, String roleId) {
+        actionRegistrationService.setActionPermission(nodeTypeId, actionCode, transitionId, roleId);
     }
 
-    public void setNodeTypeActionPermission(String nodeTypeActionId, String roleId) {
-        actionRegistrationService.setNodeTypeActionPermission(nodeTypeActionId, roleId);
+    public void removeActionPermission(String nodeTypeId, String actionCode,
+                                       String transitionId, String roleId) {
+        actionRegistrationService.removeActionPermission(nodeTypeId, actionCode, transitionId, roleId);
     }
 
-    public void removeNodeTypeActionPermission(String nodeTypeActionId, String roleId) {
-        actionRegistrationService.removeNodeTypeActionPermission(nodeTypeActionId, roleId);
+    public List<Map<String, Object>> getActionPermissions(String nodeTypeId, String actionCode,
+                                                          String transitionId) {
+        return actionRegistrationService.getActionPermissions(nodeTypeId, actionCode, transitionId);
     }
 
-    public List<Map<String, Object>> getNodeTypeActionPermissions(String nodeTypeActionId) {
-        return actionRegistrationService.getNodeTypeActionPermissions(nodeTypeActionId);
-    }
-
-    public void setNodeActionParamOverride(String nodeTypeActionId, String parameterId,
-                                            String defaultValue, String allowedValues,
-                                            Integer required) {
+    public void setNodeActionParamOverride(String nodeTypeId, String actionCode, String parameterId,
+                                           String defaultValue, String allowedValues,
+                                           Integer required) {
         actionRegistrationService.setNodeActionParamOverride(
-            nodeTypeActionId, parameterId, defaultValue, allowedValues, required);
+            nodeTypeId, actionCode, parameterId, defaultValue, allowedValues, required);
     }
 
     // ================================================================

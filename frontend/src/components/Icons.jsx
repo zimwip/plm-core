@@ -53,6 +53,9 @@ export {
 
   // Manual / Help
   BookOpen     as BookIcon,
+
+  // Algorithms
+  Cpu          as CpuIcon,
 } from 'lucide-react';
 
 /**

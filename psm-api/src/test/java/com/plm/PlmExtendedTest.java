@@ -1,8 +1,8 @@
 package com.plm;
 
+import com.plm.domain.security.PlmUserContext;
 import com.plm.domain.service.*;
 import com.plm.infrastructure.security.PlmSecurityContext;
-import com.plm.infrastructure.security.PlmUserContext;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

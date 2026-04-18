@@ -1,8 +1,9 @@
 package com.plm;
 
+import com.plm.domain.exception.AccessDeniedException;
+import com.plm.domain.security.PlmUserContext;
 import com.plm.domain.service.*;
 import com.plm.infrastructure.security.PlmSecurityContext;
-import com.plm.infrastructure.security.PlmUserContext;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -267,7 +268,7 @@ class PlmTransactionTest {
 
         asBob();
         assertThatThrownBy(() -> txService.commitTransaction(txId, USER_BOB, "Trying to commit", null))
-            .isInstanceOf(PermissionService.AccessDeniedException.class);
+            .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test

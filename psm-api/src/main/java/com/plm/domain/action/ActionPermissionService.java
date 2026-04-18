@@ -1,9 +1,8 @@
 package com.plm.domain.action;
 
-import com.plm.domain.exception.PlmFunctionalException;
-import com.plm.infrastructure.security.PlmProjectSpaceContext;
-import com.plm.infrastructure.security.PlmSecurityContext;
-import com.plm.infrastructure.security.PlmUserContext;
+import com.plm.domain.exception.AccessDeniedException;
+import com.plm.domain.security.PlmUserContext;
+import com.plm.domain.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -12,170 +11,167 @@ import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * Unified action-level permission check against the {@code action_permission} table.
+ * Single authority for action-level permission checks.
  *
- * <h2>Permission model</h2>
- * {@code action_permission} links: action × project_space × role × [node_type] × [transition]
- *
- * <p>The action's {@code scope} column (on {@code action}) drives which fields
- * participate in the check:
+ * <h2>Public API — one assert per scope</h2>
  * <ul>
- *   <li><b>GLOBAL</b> — {@code (action_id, project_space_id, role_id)}. No node context.
- *       Used for admin/config operations (MANAGE_METAMODEL, MANAGE_ROLES, MANAGE_BASELINES).</li>
- *   <li><b>NODE</b> — adds {@code node_type_id}. Standard node actions (checkout, update, …).</li>
- *   <li><b>LIFECYCLE</b> — adds {@code node_type_id} + {@code transition_id}.
- *       Per-transition control: a DESIGNER may freeze but not unfreeze even though both
- *       transitions share the same from_state.</li>
+ *   <li>{@link #assertGlobal(String)}           — GLOBAL scope (no node context)</li>
+ *   <li>{@link #assertNode(String, String)}      — NODE scope (resolves nodeId → nodeTypeId)</li>
+ *   <li>{@link #assertNodeType(String, String)}  — NODE scope (nodeTypeId already known)</li>
+ *   <li>{@link #assertLifecycle(String, String, String)} — LIFECYCLE scope (nodeTypeId + transitionId)</li>
  * </ul>
  *
- * <h2>Permissive default</h2>
- * Zero matching rows in {@code action_permission} = open to all (allowlist only when
- * at least one row exists). Admin users bypass all checks.
+ * <h2>Permission model</h2>
+ * {@code action_permission} is the sole bridge linking
+ * action × project_space × role × [node_type] × [transition].
+ * The action's {@code scope} column drives which fields participate.
+ * If no applicable {@code action_permission} rows exist for a given
+ * (action, node_type[, transition]) key, the action is treated as not wired
+ * and access is denied. Admin users bypass all checks.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ActionPermissionService {
 
-    private final DSLContext dsl;
+    private final DSLContext          dsl;
+    private final SecurityContextPort secCtx;
 
-    /**
-     * Throws {@link AccessDeniedException} if the current user cannot execute
-     * the given node_type_action.
-     */
-    public void assertCanExecute(String nodeTypeActionId) {
-        if (!canExecute(nodeTypeActionId)) {
-            PlmUserContext ctx = PlmSecurityContext.get();
+    // ================================================================
+    // PUBLIC API — one assert per scope
+    // ================================================================
+
+    public void assertGlobal(String actionCode) {
+        assertCanExecuteInternal(actionCode, null, null);
+    }
+
+    public void assertNode(String actionCode, String nodeId) {
+        PlmUserContext ctx = secCtx.currentUser();
+        if (ctx.isAdmin()) return;
+
+        String nodeTypeId = resolveNodeTypeId(nodeId);
+        if (nodeTypeId == null) {
             throw new AccessDeniedException(
-                "User " + (ctx != null ? ctx.getUserId() : "unknown")
-                + " cannot execute action " + nodeTypeActionId);
-        }
-    }
-
-    /**
-     * Returns {@code true} if the current user can execute the given node_type_action.
-     */
-    public boolean canExecute(String nodeTypeActionId) {
-        PlmUserContext ctx = PlmSecurityContext.get();
-        if (ctx == null || ctx.isAdmin()) return true;
-
-        Record nta = dsl.select(
-                DSL.field("node_type_id"),
-                DSL.field("action_id"),
-                DSL.field("transition_id"),
-                DSL.field("status"))
-            .from("node_type_action")
-            .where("id = ?", nodeTypeActionId)
-            .fetchOne();
-
-        if (nta == null || !"ENABLED".equals(nta.get("status", String.class))) return false;
-
-        String nodeTypeId   = nta.get("node_type_id",  String.class);
-        String actionId     = nta.get("action_id",     String.class);
-        String transitionId = nta.get("transition_id", String.class);
-
-        // Resolve scope from action
-        String scope = dsl.select(DSL.field("scope")).from("action")
-            .where("id = ?", actionId)
-            .fetchOne(DSL.field("scope"), String.class);
-
-        return canExecuteCore(actionId, scope, nodeTypeId, transitionId, ctx);
-    }
-
-    /**
-     * Permission check by action code and node/transition context.
-     * Called by {@link com.plm.infrastructure.security.PlmActionAspect}.
-     *
-     * <p>{@code nodeTypeId} is required for NODE and LIFECYCLE scope actions.
-     * {@code transitionId} is required for LIFECYCLE scope actions; pass {@code null}
-     * for NODE scope (or to match any transition when blanket rows are seeded).
-     *
-     * <p>The check is skipped (open to all) if no enabled {@code node_type_action}
-     * row exists for the combination.
-     */
-    public void assertCanExecuteByCode(String nodeTypeId, String actionCode, String transitionId) {
-        PlmUserContext ctx = PlmSecurityContext.get();
-        if (ctx == null || ctx.isAdmin()) return;
-
-        // Resolve action row (id + scope)
-        Record action = dsl.select(DSL.field("id"), DSL.field("scope"))
-            .from("action")
-            .where("action_code = ?", actionCode)
-            .fetchOne();
-        if (action == null) return; // unknown code → open to all
-
-        String actionId = action.get("id",    String.class);
-        String scope    = action.get("scope", String.class);
-
-        // For LIFECYCLE scope: look up the NTA matching the specific transition
-        // For other scopes: any enabled NTA for (nodeTypeId, actionId)
-        if (nodeTypeId != null) {
-            var ntaQuery = dsl.select(DSL.field("id"))
-                .from("node_type_action")
-                .where("node_type_id = ?", nodeTypeId)
-                .and("action_id = ?", actionId)
-                .and("status = 'ENABLED'");
-            if ("LIFECYCLE".equals(scope) && transitionId != null) {
-                ntaQuery = ntaQuery.and("transition_id = ?", transitionId);
-            }
-            String ntaId = ntaQuery.limit(1).fetchOne(DSL.field("id"), String.class);
-            if (ntaId == null) return; // not configured for this node type → open to all
+                "User " + ctx.getUserId() + " cannot " + actionCode + " — node not found: " + nodeId);
         }
 
-        if (!canExecuteCore(actionId, scope, nodeTypeId, transitionId, ctx)) {
+        ResolvedAction ra = resolveAction(actionCode);
+        if (ra == null) return; // unknown action → open
+
+        if (!canExecuteCore(ra.actionId, ra.scope, nodeTypeId, null, ctx)) {
             throw new AccessDeniedException(
-                "User " + ctx.getUserId() + " cannot execute action '" + actionCode
-                + (nodeTypeId != null ? "' on node type '" + nodeTypeId + "'" : "'"));
+                "User " + ctx.getUserId() + " cannot " + actionCode + " on node " + nodeId);
         }
     }
 
-    // ── Node-type creation eligibility ───────────────────────────────
+    public void assertNodeType(String actionCode, String nodeTypeId) {
+        assertCanExecuteInternal(actionCode, nodeTypeId, null);
+    }
 
-    /**
-     * Returns {@code true} if the current user is allowed to create a node of the
-     * given type.  Creating a node is guarded by the CHECKOUT action at node-type
-     * scope (see {@link com.plm.domain.service.NodeService#createNode}).
-     */
-    public boolean canCreateNodeType(String nodeTypeId) {
-        PlmUserContext ctx = PlmSecurityContext.get();
-        if (ctx == null) return false;
+    public void assertLifecycle(String actionCode, String nodeTypeId, String transitionId) {
+        assertCanExecuteInternal(actionCode, nodeTypeId, transitionId);
+    }
+
+    // ================================================================
+    // NON-THROWING VARIANTS
+    // ================================================================
+
+    public boolean canOnNodeType(String actionCode, String nodeTypeId) {
+        PlmUserContext ctx = secCtx.currentUser();
         if (ctx.isAdmin()) return true;
 
-        String checkoutActionId = dsl.select(DSL.field("id"))
-            .from("action")
-            .where("action_code = 'CHECKOUT'")
-            .fetchOne(DSL.field("id"), String.class);
-        if (checkoutActionId == null) return true; // no CHECKOUT action → open to all
+        ResolvedAction ra = resolveAction(actionCode);
+        if (ra == null) return true;
 
-        // No NTA row for this type → deny (no data = no access)
-        String ntaId = dsl.select(DSL.field("id"))
-            .from("node_type_action")
-            .where("node_type_id = ?", nodeTypeId)
-            .and("action_id = ?", checkoutActionId)
-            .and("status = 'ENABLED'")
-            .limit(1)
-            .fetchOne(DSL.field("id"), String.class);
-        if (ntaId == null) return false;
-
-        return canExecuteCore(checkoutActionId, "NODE", nodeTypeId, null, ctx);
+        return canExecuteCore(ra.actionId, ra.scope, nodeTypeId, null, ctx);
     }
 
-    // ── Global permission introspection ──────────────────────────────
+    public Map<String, Boolean> canOnNodeTypes(String actionCode, Collection<String> nodeTypeIds) {
+        Map<String, Boolean> result = new HashMap<>();
+        if (nodeTypeIds.isEmpty()) return result;
+
+        PlmUserContext ctx = secCtx.currentUser();
+        if (ctx.isAdmin()) {
+            nodeTypeIds.forEach(id -> result.put(id, true));
+            return result;
+        }
+        if (ctx.getRoleIds().isEmpty()) {
+            nodeTypeIds.forEach(id -> result.put(id, false));
+            return result;
+        }
+
+        ResolvedAction ra = resolveAction(actionCode);
+        if (ra == null) {
+            nodeTypeIds.forEach(id -> result.put(id, true));
+            return result;
+        }
+
+        for (String nodeTypeId : nodeTypeIds) {
+            result.put(nodeTypeId,
+                canExecuteCore(ra.actionId, ra.scope, nodeTypeId, null, ctx));
+        }
+        return result;
+    }
 
     /**
-     * Returns the list of GLOBAL action codes the current user can execute
-     * in the active project space.  Admin users get all global actions.
-     * Used by the frontend to determine which write buttons to show.
+     * Checks whether the current user can trigger a specific transition.
+     * Resolves (nodeTypeId, actionId=act-transition) and delegates to
+     * {@link #canExecuteCore}. If no matching action_permission rows exist for
+     * the transition, the transition is treated as not wired → denied.
      */
+    public void assertTransition(String nodeTypeId, String transitionId) {
+        PlmUserContext ctx = secCtx.currentUser();
+        if (ctx.isAdmin()) return;
+
+        ResolvedAction ra = resolveAction("TRANSITION");
+        if (ra == null) return;
+
+        if (!canExecuteCore(ra.actionId, "LIFECYCLE", nodeTypeId, transitionId, ctx)) {
+            throw new AccessDeniedException(
+                "User " + ctx.getUserId() + " cannot trigger transition " + transitionId);
+        }
+    }
+
+    /**
+     * Single-arg convenience: asserts the current user can trigger this transition
+     * on at least one node type that has it wired.
+     */
+    public void assertTransition(String transitionId) {
+        PlmUserContext ctx = secCtx.currentUser();
+        if (ctx.isAdmin()) return;
+
+        ResolvedAction ra = resolveAction("TRANSITION");
+        if (ra == null) return;
+
+        List<String> nodeTypeIds = dsl.selectDistinct(DSL.field("node_type_id"))
+            .from("action_permission")
+            .where("action_id = ?", ra.actionId)
+            .and("transition_id = ?", transitionId)
+            .and("node_type_id IS NOT NULL")
+            .fetch(DSL.field("node_type_id"), String.class);
+
+        for (String nodeTypeId : nodeTypeIds) {
+            if (canExecuteCore(ra.actionId, "LIFECYCLE", nodeTypeId, transitionId, ctx)) return;
+        }
+
+        throw new AccessDeniedException(
+            "User " + ctx.getUserId() + " cannot trigger transition " + transitionId);
+    }
+
+    // ================================================================
+    // GLOBAL INTROSPECTION
+    // ================================================================
+
     public List<String> getExecutableGlobalActionCodes() {
-        PlmUserContext ctx = PlmSecurityContext.get();
-        if (ctx == null) return List.of();
+        PlmUserContext ctx = secCtx.currentUser();
 
         var allGlobal = dsl.select(DSL.field("id"), DSL.field("action_code"))
             .from("action")
@@ -197,10 +193,6 @@ public class ActionPermissionService {
         return result;
     }
 
-    /**
-     * Returns all actions with {@code scope = 'GLOBAL'} from the action catalog.
-     * Exposed to the frontend so the Access Rights section can enumerate them.
-     */
     public List<Map<String, Object>> listGlobalActions() {
         return dsl.select(
                 DSL.field("id"),
@@ -218,69 +210,85 @@ public class ActionPermissionService {
                 "description", r.get("description",  String.class)));
     }
 
-    // ── Core allowlist ────────────────────────────────────────────────
+    // ================================================================
+    // PACKAGE-PRIVATE — used by ActionService
+    // ================================================================
+
+    boolean canExecute(String actionId, String scope,
+                       String nodeTypeId, String transitionId) {
+        PlmUserContext ctx = secCtx.currentUser();
+        if (ctx.isAdmin()) return true;
+        return canExecuteCore(actionId, scope, nodeTypeId, transitionId, ctx);
+    }
+
+    // ================================================================
+    // INTERNALS
+    // ================================================================
+
+    private void assertCanExecuteInternal(String actionCode, String nodeTypeId, String transitionId) {
+        PlmUserContext ctx = secCtx.currentUser();
+        if (ctx.isAdmin()) return;
+
+        ResolvedAction ra = resolveAction(actionCode);
+        if (ra == null) return; // unknown action → open
+
+        if (!canExecuteCore(ra.actionId, ra.scope, nodeTypeId, transitionId, ctx)) {
+            throw new AccessDeniedException(
+                "User " + ctx.getUserId() + " cannot execute '" + actionCode + "'"
+                + (nodeTypeId != null ? " on node type " + nodeTypeId : ""));
+        }
+    }
 
     /**
-     * Core allowlist check against {@code action_permission}.
-     *
-     * <p>Match criteria vary by scope:
-     * <ul>
-     *   <li>GLOBAL: {@code action_id + project_space_id + role_id}</li>
-     *   <li>NODE: same + {@code node_type_id}, {@code transition_id IS NULL}</li>
-     *   <li>LIFECYCLE: same + {@code node_type_id} +
-     *       {@code (transition_id = ? OR transition_id IS NULL)}</li>
-     * </ul>
+     * Core allowlist check against {@code action_permission}. A single EXISTS query
+     * proves the user's role has a matching permission row. Absence of any applicable
+     * row (whether for this role or any role) = deny — "not wired" collapses into the
+     * same check since the role filter is applied upfront.
      */
-    boolean canExecuteCore(String actionId, String scope,
+    private boolean canExecuteCore(String actionId, String scope,
                                    String nodeTypeId, String transitionId,
                                    PlmUserContext ctx) {
         Set<String> roleIds = ctx.getRoleIds();
         if (roleIds.isEmpty()) return false;
 
-        String psId = PlmProjectSpaceContext.get();
-
-        // Build the base filter applicable to this scope
-        var baseQ = dsl.selectOne().from("action_permission")
-            .where("action_id = ?", actionId);
-        if (psId != null) baseQ = baseQ.and("project_space_id = ?", psId);
-
-        if ("GLOBAL".equals(scope)) {
-            baseQ = baseQ.and("node_type_id IS NULL");
-        } else {
-            // NODE or LIFECYCLE: must match node_type_id
-            if (nodeTypeId != null) baseQ = baseQ.and("node_type_id = ?", nodeTypeId);
-            if ("LIFECYCLE".equals(scope) && transitionId != null) {
-                baseQ = baseQ.and("(transition_id = ? OR transition_id IS NULL)", transitionId);
-            } else {
-                baseQ = baseQ.and("transition_id IS NULL");
-            }
-        }
-
-        // Zero applicable rows = open to all (permissive default)
-        if (dsl.fetchCount(baseQ) == 0) return true;
-
-        // Allowlist check: at least one row must match a role the user has
+        String psId = secCtx.currentProjectSpaceId();
         String ph = String.join(",", Collections.nCopies(roleIds.size(), "?"));
-        var allowQ = DSL.selectOne().from("action_permission")
+
+        var q = dsl.selectOne().from("action_permission")
             .where("action_id = ?", actionId)
             .and("role_id IN (" + ph + ")", roleIds.toArray());
-        if (psId != null) allowQ = allowQ.and("project_space_id = ?", psId);
+        if (psId != null) q = q.and("project_space_id = ?", psId);
 
         if ("GLOBAL".equals(scope)) {
-            allowQ = allowQ.and("node_type_id IS NULL");
+            q = q.and("node_type_id IS NULL");
         } else {
-            if (nodeTypeId != null) allowQ = allowQ.and("node_type_id = ?", nodeTypeId);
+            if (nodeTypeId != null) q = q.and("node_type_id = ?", nodeTypeId);
             if ("LIFECYCLE".equals(scope) && transitionId != null) {
-                allowQ = allowQ.and("(transition_id = ? OR transition_id IS NULL)", transitionId);
+                q = q.and("(transition_id = ? OR transition_id IS NULL)", transitionId);
             } else {
-                allowQ = allowQ.and("transition_id IS NULL");
+                q = q.and("transition_id IS NULL");
             }
         }
 
-        return dsl.fetchCount(allowQ) > 0;
+        return dsl.fetchExists(q);
     }
 
-    public static class AccessDeniedException extends PlmFunctionalException {
-        public AccessDeniedException(String message) { super(message, 403); }
+    private record ResolvedAction(String actionId, String scope) {}
+
+    private ResolvedAction resolveAction(String actionCode) {
+        Record action = dsl.select(DSL.field("id"), DSL.field("scope"))
+            .from("action")
+            .where("action_code = ?", actionCode)
+            .fetchOne();
+        if (action == null) return null;
+        return new ResolvedAction(
+            action.get("id", String.class),
+            action.get("scope", String.class));
+    }
+
+    private String resolveNodeTypeId(String nodeId) {
+        return dsl.select(DSL.field("node_type_id")).from("node")
+            .where("id = ?", nodeId)
+            .fetchOne(DSL.field("node_type_id"), String.class);
     }
 }

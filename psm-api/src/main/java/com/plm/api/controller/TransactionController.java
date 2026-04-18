@@ -1,9 +1,7 @@
 package com.plm.api.controller;
 
-import com.plm.domain.service.LockService;
-import com.plm.domain.service.PermissionService;
+import com.plm.domain.security.SecurityContextPort;
 import com.plm.domain.service.PlmTransactionService;
-import com.plm.infrastructure.security.PlmSecurityContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -31,14 +29,13 @@ import java.util.Map;
 public class TransactionController {
 
     private final PlmTransactionService txService;
+    private final SecurityContextPort   secCtx;
 
     // ── Ouvrir une transaction explicitement ──────────────────────────
 
     @PostMapping
-    public ResponseEntity<Map<String, String>> openTransaction(
-        @RequestBody Map<String, String> body
-    ) {
-        String userId = body.get("userId");
+    public ResponseEntity<Map<String, String>> openTransaction() {
+        String userId = secCtx.currentUser().getUserId();
         String txId   = txService.openTransaction(userId);
         return ResponseEntity.ok(Map.of("txId", txId));
     }
@@ -79,7 +76,7 @@ public class TransactionController {
         @PathVariable String txId,
         @RequestBody  Map<String, Object> body
     ) {
-        String userId  = (String) body.get("userId");
+        String userId  = secCtx.currentUser().getUserId();
         String comment = (String) body.get("comment");
         List<String> nodeIds = (List<String>) body.get("nodeIds");
         String continuationTxId = txService.commitTransaction(txId, userId, comment, nodeIds);
@@ -94,10 +91,9 @@ public class TransactionController {
 
     @PostMapping("/{txId}/rollback")
     public ResponseEntity<Map<String, String>> rollback(
-        @PathVariable String txId,
-        @RequestBody  Map<String, String> body
+        @PathVariable String txId
     ) {
-        String userId = body.get("userId");
+        String userId = secCtx.currentUser().getUserId();
         txService.rollbackTransaction(txId, userId);
         return ResponseEntity.ok(Map.of("status", "ROLLEDBACK", "txId", txId));
     }
@@ -109,7 +105,7 @@ public class TransactionController {
         @PathVariable String txId,
         @RequestBody  Map<String, Object> body
     ) {
-        String userId = (String) body.get("userId");
+        String userId = secCtx.currentUser().getUserId();
         @SuppressWarnings("unchecked")
         List<String> nodeIds = (List<String>) body.get("nodeIds");
         txService.releaseNodes(txId, userId, nodeIds);
@@ -122,7 +118,7 @@ public class TransactionController {
 
     @GetMapping("/current")
     public ResponseEntity<?> getCurrentTransaction() {
-        String userId = PlmSecurityContext.get().getUserId();
+        String userId = secCtx.currentUser().getUserId();
         String txId   = txService.findOpenTransaction(userId);
         if (txId == null) {
             return ResponseEntity.noContent().build();

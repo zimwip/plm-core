@@ -76,6 +76,8 @@ export default function App() {
   const clearTx             = usePlmStore(s => s.clearTx);
   const refreshAllNodeDescs = usePlmStore(s => s.refreshAllNodeDescs);
   const refreshNodeDesc     = usePlmStore(s => s.refreshNodeDesc);
+  const loadMoreNodes       = usePlmStore(s => s.loadMoreNodes);
+  const nodeHasMore         = usePlmStore(s => s._nodeHasMore);
 
   // ── Global WebSocket — transaction, node-creation & metamodel events ─────
   useWebSocket(
@@ -132,11 +134,24 @@ export default function App() {
   const [showSettings,         setShowSettings]         = useState(false);
   const [activeSettingsSection, setActiveSettingsSection] = useState(null);
   const [panelWidth,            setPanelWidth]            = useState(268);
+  const [showCommentPanel,      setShowCommentPanel]      = useState(false);
+  const [commentPanelWidth,     setCommentPanelWidth]     = useState(320);
+  const [commentVersionFilter,  setCommentVersionFilter]  = useState(null);
+  const [commentTriggerText,    setCommentTriggerText]    = useState(null);
 
-  // ── Panel resize ──────────────────────────────────────────────
+  // ── Panel resize (left) ───────────────────────────────────────
   function startResize(e) {
     const startX = e.clientX, startW = panelWidth;
     function onMove(ev) { setPanelWidth(Math.max(160, Math.min(600, startW + ev.clientX - startX))); }
+    function onUp() { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  // ── Panel resize (right / comments) ──────────────────────────
+  function startResizeRight(e) {
+    const startX = e.clientX, startW = commentPanelWidth;
+    function onMove(ev) { setCommentPanelWidth(Math.max(240, Math.min(560, startW + startX - ev.clientX))); }
     function onUp() { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -361,6 +376,8 @@ export default function App() {
             onSettingsSectionChange={setActiveSettingsSection}
             isDashboardOpen={isDashboardOpen}
             onOpenDashboard={openDashboard}
+            hasMore={nodeHasMore}
+            onLoadMore={loadMoreNodes}
             style={{ width: panelWidth }}
           />
         </ErrorBoundary>
@@ -393,6 +410,22 @@ export default function App() {
                 onNavigate={navigate}
                 onAutoOpenTx={autoOpenTx}
                 onDescriptionLoaded={onDescriptionLoaded}
+                showCommentPanel={showCommentPanel}
+                commentPanelWidth={commentPanelWidth}
+                onToggleCommentPanel={() => { setShowCommentPanel(s => !s); setCommentVersionFilter(null); }}
+                onStartResizeRight={startResizeRight}
+                commentVersionFilter={commentVersionFilter}
+                onOpenCommentsForVersion={versionId => {
+                  setCommentVersionFilter(versionId);
+                  setShowCommentPanel(true);
+                }}
+                users={users}
+                commentTriggerText={commentTriggerText}
+                onClearCommentTrigger={() => setCommentTriggerText(null)}
+                onCommentAttribute={attrId => {
+                  setCommentTriggerText('#' + attrId + ' ');
+                  setShowCommentPanel(true);
+                }}
               />
             </ErrorBoundary>
           )}

@@ -164,6 +164,17 @@ public class PlmEventPublisher {
         log.debug("Event published: NODES_RELEASED → count={}", nodeIds.size());
     }
 
+    public void commentAdded(String nodeId, String commentId, String nodeVersionId, String byUser) {
+        publish(nodeId, "COMMENT_ADDED", Map.of(
+            "nodeId",        nodeId,
+            "commentId",     commentId,
+            "nodeVersionId", nodeVersionId,
+            "byUser",        byUser,
+            "at",            LocalDateTime.now().toString()
+        ));
+        log.debug("Event published: COMMENT_ADDED → node={} comment={}", nodeId, commentId);
+    }
+
     public void metamodelChanged(String byUser) {
         enqueue("/topic/metamodel", Map.of(
             "event",  "METAMODEL_CHANGED",

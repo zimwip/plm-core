@@ -1,8 +1,9 @@
 package com.plm.domain.action;
 
-import com.plm.domain.service.LifecycleService;
-import com.plm.infrastructure.security.PlmSecurityContext;
-import com.plm.infrastructure.security.PlmUserContext;
+import com.plm.domain.guard.GuardContext;
+import com.plm.domain.guard.GuardEvaluation;
+import com.plm.domain.guard.GuardService;
+import com.plm.domain.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -18,12 +19,9 @@ import java.util.Map;
 /**
  * Builds the enriched actions list for the server-driven UI payload.
  *
- * For each node_type_action that is:
- *  - ENABLED
- *  - permitted for the current user × state
- *  - available in the current lifecycle state (TRANSITION filtered by from_state)
- *
- * Returns a list of action descriptors with their full parameter schema.
+ * Drives from the {@code action} catalog and {@code action_permission} as the
+ * sole bridge between actions and node types. For LIFECYCLE-scope actions,
+ * emits one entry per lifecycle transition wired for the node type.
  */
 @Slf4j
 @Service
@@ -32,161 +30,149 @@ public class ActionService {
 
     private final DSLContext              dsl;
     private final ActionPermissionService permissionService;
-    private final LifecycleService        lifecycleService;
+    private final GuardService            guardService;
+    private final SecurityContextPort     secCtx;
 
-    /** All write actions — only visible to the user who owns the open transaction (lock owner). */
-    private static final java.util.Set<String> TX_OWNER_ACTIONS = java.util.Set.of(
-        "CHECKIN", "UPDATE_NODE", "CREATE_LINK", "UPDATE_LINK", "DELETE_LINK"
-    );
-
-    /**
-     * Resolves all actions available to the current user for a given node,
-     * enriched with parameter schema (and per-node-type overrides).
-     *
-     * @param nodeId              the node being described
-     * @param nodeTypeId          the node's type
-     * @param currentStateId      the node's current lifecycle state
-     * @param isLocked            whether the node is currently locked (by anyone)
-     * @param isLockedByCurrentUser whether the lock is owned by the requesting user
-     */
     public List<Map<String, Object>> resolveActionsForNode(
         String nodeId, String nodeTypeId, String currentStateId,
         boolean isLocked, boolean isLockedByCurrentUser
     ) {
         List<Map<String, Object>> result = new ArrayList<>();
 
-        boolean isFrozen = currentStateId != null && Boolean.TRUE.equals(
-            dsl.select(DSL.field("is_frozen")).from("lifecycle_state")
-               .where(DSL.field("id").eq(currentStateId))
-               .fetchOne(r -> r.get("is_frozen", Integer.class) == 1));
+        String lifecycleId = dsl.select(DSL.field("lifecycle_id")).from("node_type")
+            .where("id = ?", nodeTypeId)
+            .fetchOne(DSL.field("lifecycle_id"), String.class);
 
-        // Load all ENABLED node_type_action rows for this node type.
-        // Each node type owns its own NTA rows — child types have their own copies
-        // seeded at creation time, so no ancestor-chain walking is needed here.
-        List<Record> ntaRows = dsl.fetch(
-            "SELECT nta.id AS nta_id, nta.node_type_id AS nta_owner_id, " +
-            "       nta.transition_id, nta.display_name_override, nta.display_order, " +
-            "       na.id AS action_id, na.action_code, na.action_kind, " +
-            "       na.display_name AS action_display_name, na.display_category, " +
-            "       na.requires_tx, na.handler_ref, " +
-            "       lt.name AS transition_name, lt.from_state_id " +
-            "FROM node_type_action nta " +
-            "JOIN action na ON na.id = nta.action_id " +
-            "LEFT JOIN lifecycle_transition lt ON lt.id = nta.transition_id " +
-            "WHERE nta.node_type_id = ? " +
-            "  AND nta.status = 'ENABLED' " +
-            "ORDER BY nta.display_order, na.display_category",
-            nodeTypeId);
+        // NODE-scope actions: one row per action (permission checked later by canExecute)
+        List<Record> nodeActions = dsl.fetch(
+            "SELECT a.id AS action_id, a.action_code, a.action_kind, a.scope, " +
+            "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref " +
+            "FROM action a " +
+            "WHERE a.scope = 'NODE' " +
+            "ORDER BY a.display_order, a.display_category");
 
-        for (Record row : ntaRows) {
-            String actionCode     = row.get("action_code",     String.class);
-            String displayCategory= row.get("display_category", String.class);
-            String ntaId          = row.get("nta_id",          String.class);
-            String transitionId   = row.get("transition_id",   String.class);
-            String fromStateId    = row.get("from_state_id",   String.class);
+        for (Record row : nodeActions) {
+            Map<String, Object> action = buildActionEntry(row, null, null,
+                nodeId, nodeTypeId, currentStateId, isLocked, isLockedByCurrentUser);
+            if (action != null) result.add(action);
+        }
 
-            // Skip structural permission anchors (e.g. act-read) — not UI actions
-            if ("STRUCTURAL".equals(displayCategory)) continue;
+        // LIFECYCLE-scope actions: one row per (action × transition) in this lifecycle
+        if (lifecycleId != null) {
+            List<Record> lifecycleActions = dsl.fetch(
+                "SELECT a.id AS action_id, a.action_code, a.action_kind, a.scope, " +
+                "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, " +
+                "       lt.id AS transition_id, lt.name AS transition_name " +
+                "FROM action a " +
+                "CROSS JOIN lifecycle_transition lt " +
+                "WHERE a.scope = 'LIFECYCLE' " +
+                "  AND lt.lifecycle_id = ? " +
+                "ORDER BY a.display_order, lt.name",
+                lifecycleId);
 
-            // TRANSITION: only if from_state matches current state AND node is not locked.
-            // Lifecycle transitions are mutually exclusive with authoring (checkout):
-            // you cannot change lifecycle state while an OPEN version is in progress.
-            if ("TRANSITION".equals(actionCode)) {
-                if (fromStateId == null || !fromStateId.equals(currentStateId)) continue;
-                if (isLocked) continue;
-                if (transitionId != null && !lifecycleService.checkAllSignaturesDone(nodeId, transitionId)) continue;
+            for (Record row : lifecycleActions) {
+                String transitionId   = row.get("transition_id",   String.class);
+                String transitionName = row.get("transition_name", String.class);
+                Map<String, Object> action = buildActionEntry(row, transitionId, transitionName,
+                    nodeId, nodeTypeId, currentStateId, isLocked, isLockedByCurrentUser);
+                if (action != null) result.add(action);
             }
-
-            // CHECKOUT: only when not locked and state is not frozen
-            if ("CHECKOUT".equals(actionCode)) {
-                if (isLocked || isFrozen) continue;
-            }
-
-            // All write actions require the current user to own the open transaction.
-            // isLockedByCurrentUser == true  → this user checked out → they own the tx.
-            // isLockedByCurrentUser == false → either no lock (actions that need checkout
-            //   first will fail server-side) or locked by someone else (must be hidden).
-            if (TX_OWNER_ACTIONS.contains(actionCode)) {
-                if (!isLockedByCurrentUser) continue;
-            }
-
-            // SIGN: visible only when (a) current state has outgoing transitions with
-            // signature requirements, and (b) current user has not already signed
-            // current revision.iteration.
-            if ("SIGN".equals(actionCode)) {
-                // (a) At least one outgoing transition from currentStateId must have
-                //     signature_requirement rows. If currentStateId is null → COUNT=0 → hidden.
-                boolean hasSignatureRequirement = dsl.fetchCount(dsl.selectOne()
-                    .from("lifecycle_transition lt")
-                    .join("signature_requirement sr")
-                        .on("sr.lifecycle_transition_id = lt.id")
-                    .where("lt.from_state_id = ?", currentStateId)) > 0;
-                if (!hasSignatureRequirement) continue;
-
-                // (b) User must not have already signed the latest committed version
-                //     at its current revision.iteration.
-                String signerId = PlmSecurityContext.get().getUserId();
-                boolean alreadySigned = dsl.fetchCount(dsl.selectOne()
-                    .from("node_signature ns")
-                    .join("node_version nv").on("ns.node_version_id = nv.id")
-                    .join("plm_transaction pt").on("pt.id = nv.tx_id")
-                    .where("ns.node_id   = ?", nodeId)
-                    .and  ("ns.signed_by = ?", signerId)
-                    .and  ("pt.status    = 'COMMITTED'")
-                    .and  ("nv.version_number = (" +
-                           "SELECT MAX(nv2.version_number) FROM node_version nv2 " +
-                           "JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id " +
-                           "WHERE nv2.node_id = ? AND pt2.status = 'COMMITTED')", nodeId)
-                ) > 0;
-                if (alreadySigned) continue;
-            }
-
-            // Permission check
-            if (!permissionService.canExecute(ntaId)) continue;
-
-            // Build display name
-            String overrideName = row.get("display_name_override", String.class);
-            String displayName  = overrideName != null && !overrideName.isBlank()
-                ? overrideName
-                : ("TRANSITION".equals(actionCode)
-                    ? row.get("transition_name", String.class)
-                    : row.get("action_display_name", String.class));
-
-            // Build parameter schema
-            List<Map<String, Object>> parameters = resolveParameters(
-                row.get("action_id", String.class), ntaId);
-
-            Map<String, Object> action = new LinkedHashMap<>();
-            action.put("id",              ntaId);
-            action.put("actionCode",      actionCode);
-            action.put("name",            displayName != null ? displayName : actionCode);
-            action.put("displayCategory", row.get("display_category", String.class));
-            action.put("requiresTx",      row.get("requires_tx", Integer.class) == 1);
-            if (transitionId != null) action.put("transitionId", transitionId);
-            action.put("parameters",      parameters);
-            result.add(action);
         }
 
         return result;
     }
 
-    /** Builds the parameter schema list for an action, applying overrides. */
-    private List<Map<String, Object>> resolveParameters(String actionId, String nodeTypeActionId) {
+    private Map<String, Object> buildActionEntry(
+        Record row, String transitionId, String transitionName,
+        String nodeId, String nodeTypeId, String currentStateId,
+        boolean isLocked, boolean isLockedByCurrentUser
+    ) {
+        String actionId        = row.get("action_id",       String.class);
+        String actionCode      = row.get("action_code",     String.class);
+        String scope           = row.get("scope",           String.class);
+        String displayCategory = row.get("display_category", String.class);
+
+        if ("STRUCTURAL".equals(displayCategory)) return null;
+
+        // Always evaluate guards — HIDE guards are structural (e.g. wrong-state transitions)
+        // and must filter even when authorization fails.
+        boolean isAdmin = secCtx.currentUser().isAdmin();
+        GuardContext gCtx = new GuardContext(nodeId, nodeTypeId, currentStateId,
+            actionCode, transitionId, isLocked, isLockedByCurrentUser,
+            secCtx.currentUser().getUserId(), Map.of());
+        GuardEvaluation guardEval = guardService.evaluate(actionId, nodeTypeId, transitionId, isAdmin, gCtx);
+
+        if (guardEval.hidden()) return null;
+
+        boolean authorized = permissionService.canExecute(actionId, scope, nodeTypeId, transitionId);
+
+        List<Map<String, Object>> guardViolations;
+        if (!authorized) {
+            guardViolations = List.of(Map.of(
+                "guardCode", "unauthorized",
+                "message",   "You do not have permission to perform this action"));
+        } else if (!guardEval.violations().isEmpty()) {
+            guardViolations = guardEval.violations().stream()
+                .map(v -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("guardCode", v.guardCode());
+                    m.put("message", v.message());
+                    if (v.fieldRef() != null) m.put("fieldRef", v.fieldRef());
+                    if (!v.details().isEmpty()) m.put("details", v.details());
+                    return (Map<String, Object>) m;
+                }).toList();
+        } else {
+            guardViolations = List.of();
+        }
+
+        String displayName = "TRANSITION".equals(actionCode) && transitionName != null
+            ? transitionName
+            : row.get("display_name", String.class);
+
+        List<Map<String, Object>> parameters = resolveParameters(actionId, nodeTypeId);
+
+        Map<String, Object> action = new LinkedHashMap<>();
+        action.put("id",              buildActionKey(actionCode, transitionId));
+        action.put("actionCode",      actionCode);
+        action.put("name",            displayName != null ? displayName : actionCode);
+        action.put("displayCategory", displayCategory);
+        action.put("requiresTx",      row.get("requires_tx", Integer.class) == 1);
+        action.put("authorized",      authorized);
+        if (transitionId != null) action.put("transitionId", transitionId);
+        action.put("parameters",      parameters);
+        action.put("guardViolations", guardViolations);
+
+        return action;
+    }
+
+    /**
+     * Composite identifier emitted to the UI. Matches the path segment the client
+     * POSTs back in {@code POST /api/psm/nodes/{id}/actions/{id}}. For LIFECYCLE
+     * actions, includes the transitionId so the dispatcher knows which transition
+     * to fire.
+     */
+    private String buildActionKey(String actionCode, String transitionId) {
+        return transitionId != null ? actionCode + "|" + transitionId : actionCode;
+    }
+
+    /** Builds the parameter schema list for an action, applying per-node-type overrides. */
+    private List<Map<String, Object>> resolveParameters(String actionId, String nodeTypeId) {
         List<Record> params = dsl.select().from("action_parameter")
             .where("action_id = ?", actionId)
             .and("visibility = 'UI_VISIBLE'")
             .orderBy(DSL.field("display_order"))
             .fetch();
 
+        Map<String, Record> overridesByParamId = new java.util.HashMap<>();
+        dsl.select().from("action_param_override")
+            .where("node_type_id = ?", nodeTypeId)
+            .and("action_id = ?", actionId)
+            .fetch()
+            .forEach(ov -> overridesByParamId.put(ov.get("parameter_id", String.class), ov));
+
         List<Map<String, Object>> result = new ArrayList<>();
         for (Record p : params) {
-            String paramId = p.get("id", String.class);
-
-            // Apply override if exists
-            Record ov = dsl.select().from("action_param_override")
-                .where("node_type_action_id = ?", nodeTypeActionId)
-                .and("parameter_id = ?", paramId)
-                .fetchOne();
+            Record ov = overridesByParamId.get(p.get("id", String.class));
 
             String allowedValues = ov != null && ov.get("allowed_values", String.class) != null
                 ? ov.get("allowed_values", String.class)

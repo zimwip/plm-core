@@ -467,78 +467,66 @@ public class MetaModelController {
         return ResponseEntity.ok(metaModelService.getActionsForNodeType(nodeTypeId));
     }
 
-    @PostMapping("/nodetypes/{nodeTypeId}/actions")
+    @PostMapping("/actions")
     public ResponseEntity<Map<String, String>> registerCustomAction(
-        @PathVariable String nodeTypeId,
         @RequestBody Map<String, Object> body
     ) {
-        String ntaId = metaModelService.registerCustomAction(
-            nodeTypeId,
+        String actionId = metaModelService.registerCustomAction(
             (String) body.get("actionCode"),
             (String) body.get("displayName"),
             (String) body.get("handlerRef"),
             (String) body.get("displayCategory"),
             Boolean.TRUE.equals(body.get("requiresTx")),
-            (String) body.get("description")
+            (String) body.get("description"),
+            (String) body.get("scope")
         );
-        return ResponseEntity.ok(Map.of("id", ntaId));
+        return ResponseEntity.ok(Map.of("id", actionId));
     }
 
-    @PutMapping("/nodetypes/{nodeTypeId}/actions/{ntaId}/status")
-    public ResponseEntity<?> setNodeTypeActionStatus(
-        @PathVariable String nodeTypeId,
-        @PathVariable String ntaId,
-        @RequestBody Map<String, String> body
-    ) {
-        try {
-            metaModelService.setNodeTypeActionStatus(ntaId, body.get("status"));
-            return ResponseEntity.ok(Map.of("id", ntaId));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @GetMapping("/nodetypes/{nodeTypeId}/actions/{ntaId}/permissions")
+    @GetMapping("/nodetypes/{nodeTypeId}/actions/{actionCode}/permissions")
     public ResponseEntity<?> getActionPermissions(
         @PathVariable String nodeTypeId,
-        @PathVariable String ntaId
+        @PathVariable String actionCode,
+        @RequestParam(required = false) String transitionId
     ) {
-        return ResponseEntity.ok(metaModelService.getNodeTypeActionPermissions(ntaId));
+        return ResponseEntity.ok(metaModelService.getActionPermissions(nodeTypeId, actionCode, transitionId));
     }
 
-    @PostMapping("/nodetypes/{nodeTypeId}/actions/{ntaId}/permissions")
+    @PostMapping("/nodetypes/{nodeTypeId}/actions/{actionCode}/permissions")
     public ResponseEntity<?> addActionPermission(
         @PathVariable String nodeTypeId,
-        @PathVariable String ntaId,
+        @PathVariable String actionCode,
         @RequestBody Map<String, String> body
     ) {
-        metaModelService.setNodeTypeActionPermission(ntaId, body.get("roleId"));
-        return ResponseEntity.ok(Map.of("id", ntaId));
+        String transitionId = body.get("transitionId");
+        metaModelService.setActionPermission(nodeTypeId, actionCode, transitionId, body.get("roleId"));
+        return ResponseEntity.ok(Map.of("actionCode", actionCode));
     }
 
-    @DeleteMapping("/nodetypes/{nodeTypeId}/actions/{ntaId}/permissions")
+    @DeleteMapping("/nodetypes/{nodeTypeId}/actions/{actionCode}/permissions")
     public ResponseEntity<?> removeActionPermission(
         @PathVariable String nodeTypeId,
-        @PathVariable String ntaId,
+        @PathVariable String actionCode,
         @RequestBody Map<String, String> body
     ) {
-        metaModelService.removeNodeTypeActionPermission(ntaId, body.get("roleId"));
+        String transitionId = body.get("transitionId");
+        metaModelService.removeActionPermission(nodeTypeId, actionCode, transitionId, body.get("roleId"));
         return ResponseEntity.noContent().build();
     }
 
-    @PutMapping("/nodetypes/{nodeTypeId}/actions/{ntaId}/param-overrides/{parameterId}")
+    @PutMapping("/nodetypes/{nodeTypeId}/actions/{actionCode}/param-overrides/{parameterId}")
     public ResponseEntity<?> setParamOverride(
         @PathVariable String nodeTypeId,
-        @PathVariable String ntaId,
+        @PathVariable String actionCode,
         @PathVariable String parameterId,
         @RequestBody Map<String, Object> body
     ) {
         metaModelService.setNodeActionParamOverride(
-            ntaId, parameterId,
+            nodeTypeId, actionCode, parameterId,
             (String) body.get("defaultValue"),
             (String) body.get("allowedValues"),
             body.get("required") != null ? (Boolean.TRUE.equals(body.get("required")) ? 1 : 0) : null
         );
-        return ResponseEntity.ok(Map.of("id", ntaId));
+        return ResponseEntity.ok(Map.of("actionCode", actionCode));
     }
 }

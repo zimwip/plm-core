@@ -2,9 +2,8 @@ package com.plm.api.controller;
 
 import com.plm.domain.action.ActionDispatcher;
 import com.plm.domain.action.ActionResult;
+import com.plm.domain.security.SecurityContextPort;
 import com.plm.domain.service.*;
-import com.plm.infrastructure.security.PlmProjectSpaceContext;
-import com.plm.infrastructure.security.PlmSecurityContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -17,24 +16,24 @@ import java.util.Map;
  * Toutes les opérations d'écriture (checkout, modification, transition, signature, lien)
  * passent exclusivement par l'endpoint générique :
  *
- *   POST /api/nodes/{nodeId}/actions/{nodeTypeActionId}
+ *   POST /api/psm/nodes/{nodeId}/actions/{actionCode}
  *   Header: X-PLM-Tx (requis si l'action a requires_tx = true)
- *   Body:   { "userId": "...", "parameters": { ... } }
+ *   Body:   { "parameters": { ... }, "transitionId": "tr-..." (pour LIFECYCLE) }
  *
- * L'identifiant nodeTypeActionId est l'id de node_type_action, obtenu via
- * GET /api/nodes/{nodeId}/description (champ actions[].id dans le payload UI).
- *
- * Opérations en lecture (GET) et création (POST /api/nodes) : pas de txId requis.
+ * Le code de l'action ({@code action.action_code}) est visible dans le payload UI
+ * via {@code actions[].actionCode} renvoyé par GET /nodes/{nodeId}/description.
  */
 @RestController
 @RequestMapping("/api/psm/nodes")
 @RequiredArgsConstructor
 public class NodeController {
 
-    private final NodeService       nodeService;
-    private final LockService       lockService;
-    private final SignatureService  signatureService;
-    private final ActionDispatcher  actionDispatcher;
+    private final NodeService         nodeService;
+    private final LockService         lockService;
+    private final SignatureService    signatureService;
+    private final CommentService      commentService;
+    private final ActionDispatcher    actionDispatcher;
+    private final SecurityContextPort secCtx;
 
     // ── Création ──────────────────────────────────────────────────────
 
@@ -42,10 +41,10 @@ public class NodeController {
     public ResponseEntity<Map<String, String>> createNode(
         @RequestBody Map<String, Object> body
     ) {
-        String projectSpaceId = PlmProjectSpaceContext.require();
+        String projectSpaceId = secCtx.requireProjectSpaceId();
         String nodeTypeId = (String) body.get("nodeTypeId");
         // userId always taken from security context — never from client payload
-        String userId     = PlmSecurityContext.get().getUserId();
+        String userId     = secCtx.currentUser().getUserId();
         String logicalId  = (String) body.get("logicalId");
         String externalId = (String) body.get("externalId");
         @SuppressWarnings("unchecked")
@@ -63,7 +62,7 @@ public class NodeController {
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "50") int size
     ) {
-        return ResponseEntity.ok(nodeService.listNodes(PlmProjectSpaceContext.require(), page, size));
+        return ResponseEntity.ok(nodeService.listNodes(secCtx.requireProjectSpaceId(), page, size));
     }
 
     // ── Lecture (Server-Driven UI) ────────────────────────────────────
@@ -79,7 +78,7 @@ public class NodeController {
         @RequestParam(required = false) Integer versionNumber
     ) {
         // userId always resolved from security context — never from query param
-        String userId = PlmSecurityContext.get().getUserId();
+        String userId = secCtx.currentUser().getUserId();
         return ResponseEntity.ok(nodeService.buildObjectDescription(nodeId, userId, txId, versionNumber));
     }
 
@@ -133,24 +132,45 @@ public class NodeController {
         return ResponseEntity.ok(signatureService.getFullSignatureHistory(nodeId));
     }
 
+    // ── Comments ─────────────────────────────────────────────────────
+
+    @GetMapping("/{nodeId}/comments")
+    public ResponseEntity<?> getComments(@PathVariable String nodeId) {
+        return ResponseEntity.ok(commentService.getComments(nodeId));
+    }
+
+    @PostMapping("/{nodeId}/comments")
+    public ResponseEntity<?> addComment(
+        @PathVariable String nodeId,
+        @RequestBody  Map<String, Object> body
+    ) {
+        String userId        = secCtx.currentUser().getUserId();
+        String nodeVersionId = (String) body.get("nodeVersionId");
+        String text          = (String) body.get("text");
+        String parentId      = (String) body.get("parentCommentId");
+        String attributeName = (String) body.get("attributeName");
+        String id = commentService.addComment(nodeId, nodeVersionId, userId, text, parentId, attributeName);
+        return ResponseEntity.ok(Map.of("commentId", id));
+    }
+
     // ── Actions (seul point d'entrée pour toutes les écritures) ───────
 
-    @PostMapping("/{nodeId}/actions/{nodeTypeActionId}")
+    @PostMapping("/{nodeId}/actions/{actionCode}")
     public ResponseEntity<?> executeAction(
         @PathVariable  String nodeId,
-        @PathVariable  String nodeTypeActionId,
+        @PathVariable  String actionCode,
         @RequestHeader(value = "X-PLM-Tx", required = false) String txId,
         @RequestBody   Map<String, Object> body
     ) {
-        // userId always resolved from security context — never accepted from client
-        String userId = PlmSecurityContext.get().getUserId();
+        String userId = secCtx.currentUser().getUserId();
         @SuppressWarnings("unchecked")
         Map<String, String> params = (Map<String, String>) body.getOrDefault("parameters", Map.of());
+        String transitionId = (String) body.get("transitionId");
 
         String currentStateId = nodeService.getCurrentStateId(nodeId, txId);
 
         ActionResult result = actionDispatcher.dispatch(
-            nodeTypeActionId, nodeId, currentStateId, userId, txId, params);
+            actionCode, transitionId, nodeId, currentStateId, userId, txId, params);
         return ResponseEntity.ok(result.data());
     }
 

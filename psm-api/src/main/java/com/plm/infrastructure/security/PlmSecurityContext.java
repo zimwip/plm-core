@@ -1,8 +1,11 @@
 package com.plm.infrastructure.security;
 
+import com.plm.domain.security.PlmUserContext;
+
 /**
  * Holder ThreadLocal du contexte utilisateur courant.
  * Initialisé par PlmAuthFilter à chaque requête HTTP.
+ * Accès externe via {@link ThreadLocalSecurityContext} (implémentation de SecurityContextPort).
  */
 public final class PlmSecurityContext {
 

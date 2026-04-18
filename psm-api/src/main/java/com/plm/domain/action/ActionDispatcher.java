@@ -13,10 +13,12 @@ import java.util.Map;
  * Central action executor.
  *
  * Responsibilities:
- *  1. Resolve the node_type_action and action rows.
- *  2. Enforce action-level permissions via ActionPermissionService.
+ *  1. Resolve the {@code action} row from its code.
+ *  2. Resolve the node's type for context (overrides, handler lookup).
  *  3. Validate parameters via ActionParameterValidator.
- *  4. Route to the correct ActionHandler via ActionHandlerRegistry.
+ *  4. Route to the correct ActionHandler via ActionHandlerRegistry (or Spring bean for CUSTOM).
+ *
+ * Permission enforcement happens upstream (service-layer {@code @PlmAction} AOP).
  */
 @Slf4j
 @Service
@@ -29,57 +31,55 @@ public class ActionDispatcher {
     private final ActionHandlerRegistry    handlerRegistry;
 
     /**
-     * Dispatches an action by its node_type_action.id.
+     * Dispatches an action by its {@code action.action_code}.
      *
-     * @param nodeTypeActionId  the node_type_action.id (from the UI payload)
-     * @param nodeId            target node
-     * @param currentStateId    current lifecycle state (for permission check)
-     * @param userId            executing user
-     * @param txId              open PLM transaction (may be null)
-     * @param rawParams         user-supplied parameters
+     * @param actionCode      the {@code action.action_code} (from the UI payload's
+     *                        {@code actionCode} field)
+     * @param transitionId    required for LIFECYCLE-scope actions, ignored otherwise
+     * @param nodeId          target node
+     * @param currentStateId  current lifecycle state (for permission check)
+     * @param userId          executing user
+     * @param txId            open PLM transaction (may be null)
+     * @param rawParams       user-supplied parameters
      */
     public ActionResult dispatch(
-        String nodeTypeActionId,
+        String actionCode,
+        String transitionId,
         String nodeId,
         String currentStateId,
         String userId,
         String txId,
         Map<String, String> rawParams
     ) {
-        // Load node_type_action + action
-        Record nta = dsl.select().from("node_type_action nta")
-            .join("action na").on("na.id = nta.action_id")
-            .where("nta.id = ?", nodeTypeActionId)
+        Record action = dsl.select().from("action")
+            .where("action_code = ?", actionCode)
             .fetchOne();
-        if (nta == null) throw new IllegalArgumentException("Unknown action: " + nodeTypeActionId);
+        if (action == null) throw new IllegalArgumentException("Unknown action: " + actionCode);
 
-        String actionId    = nta.get("action_id",     String.class);
-        String actionCode  = nta.get("action_code",   String.class);
-        String actionKind  = nta.get("action_kind",   String.class);
-        String handlerRef  = nta.get("handler_ref",   String.class);
-        String transitionId= nta.get("transition_id", String.class);
-        String nodeTypeId  = nta.get("node_type_id",  String.class);
+        String actionId    = action.get("id",           String.class);
+        String actionKind  = action.get("action_kind",  String.class);
+        String handlerRef  = action.get("handler_ref",  String.class);
 
-        // Permission check enforced at service layer via @PlmAction AOP.
+        String nodeTypeId = dsl.select(org.jooq.impl.DSL.field("node_type_id")).from("node")
+            .where("id = ?", nodeId)
+            .fetchOne(org.jooq.impl.DSL.field("node_type_id"), String.class);
 
-        // 2. Parameter validation
-        Map<String, String> params = paramValidator.validate(actionId, nodeTypeActionId, rawParams);
+        Map<String, String> params = paramValidator.validate(actionId, nodeTypeId, rawParams);
 
-        // 3. Handler resolution via registry; fall back to Spring bean lookup for CUSTOM actions
         ActionHandler handler;
         if (handlerRegistry.hasHandler(actionCode)) {
             handler = handlerRegistry.getHandler(actionCode);
         } else if ("CUSTOM".equals(actionKind) && handlerRef != null && !handlerRef.isBlank()) {
-            // CUSTOM action with a Spring-bean-name handler_ref not registered by code
             handler = appContext.getBean(handlerRef, ActionHandler.class);
         } else {
             throw new IllegalStateException("No handler registered for action code: " + actionCode);
         }
 
         ActionContext ctx = new ActionContext(
-            nodeId, nodeTypeId, nodeTypeActionId, transitionId, userId, txId);
+            nodeId, nodeTypeId, actionId, actionCode, transitionId, userId, txId);
 
-        log.info("Dispatching action {} ({}) on node {} by user {}", actionCode, nodeTypeActionId, nodeId, userId);
+        log.info("Dispatching action {} on node {} transition={} by user {}",
+            actionCode, nodeId, transitionId, userId);
         return handler.execute(ctx, params);
     }
 }

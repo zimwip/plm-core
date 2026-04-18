@@ -23,9 +23,10 @@ export default function LifecycleDiagram({
   lifecycleId,
   currentStateId,
   userId,
-  onTransition,             // optional: (transition) => void
-  availableTransitionNames, // optional: Set<string> — names actually executable by current user
-  previewMode,              // show all states colored, no interaction
+  onTransition,               // optional: (transition) => void
+  availableTransitionNames,   // optional: Set<string> — names in the actions list (all unblocked + blocked)
+  transitionGuardViolations,  // optional: Map<transitionName, string[]> — non-empty = blocked
+  previewMode,                // show all states colored, no interaction
 }) {
   const [states, setStates]           = useState([]);
   const [transitions, setTransitions] = useState([]);
@@ -178,9 +179,12 @@ export default function LifecycleDiagram({
     const midX = (x1 + x2) / 2;
 
     // Compute displayName early — needed for path splitting (chip width)
-    const fromCurrentEarly = !previewMode && fromId === currentStateId;
-    const blockedEarly     = fromCurrentEarly && availableTransitionNames != null && !availableTransitionNames.has(name);
-    const displayName      = blockedEarly ? `✕ ${name}` : name;
+    const fromCurrentEarly  = !previewMode && fromId === currentStateId;
+    const guardViolations   = transitionGuardViolations?.get(name) ?? [];
+    const hasViolations     = guardViolations.length > 0;
+    const blockedEarly      = hasViolations
+      || (fromCurrentEarly && availableTransitionNames != null && !availableTransitionNames.has(name));
+    const displayName       = blockedEarly ? `✕ ${name}` : name;
 
     // Half-width of the chip — used to split the rail path around it
     const hw = displayName ? Math.max(44, displayName.length * 6 + 18) / 2 : 0;
@@ -297,6 +301,10 @@ export default function LifecycleDiagram({
             onMouseLeave={enabled ? () => setHoveredIdx(null) : undefined}
             onClick={canClick ? () => onTransition(t) : undefined}
           >
+            {/* Native tooltip showing guard violation reasons */}
+            {hasViolations && (
+              <title>{'Blocked:\n\u2022 ' + guardViolations.map(v => typeof v === 'string' ? v : v.message || v.guardCode).join('\n\u2022 ')}</title>
+            )}
             {/* Larger invisible hit area */}
             <rect
               x={bx - 4} y={by - 4}

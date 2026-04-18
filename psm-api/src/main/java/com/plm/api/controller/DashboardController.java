@@ -1,7 +1,7 @@
 package com.plm.api.controller;
 
+import com.plm.domain.security.SecurityContextPort;
 import com.plm.domain.service.DashboardService;
-import com.plm.infrastructure.security.PlmSecurityContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -17,7 +17,8 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class DashboardController {
 
-    private final DashboardService dashboardService;
+    private final DashboardService    dashboardService;
+    private final SecurityContextPort secCtx;
 
     /**
      * Résumé de la transaction OPEN courante.
@@ -25,7 +26,7 @@ public class DashboardController {
      */
     @GetMapping("/transaction")
     public ResponseEntity<?> getOpenTransaction() {
-        String userId = PlmSecurityContext.get().getUserId();
+        String userId = secCtx.currentUser().getUserId();
         var summary = dashboardService.getOpenTransactionSummary(userId);
         return summary != null
             ? ResponseEntity.ok(summary)
@@ -38,7 +39,7 @@ public class DashboardController {
      */
     @GetMapping("/workitems")
     public ResponseEntity<?> getWorkItems() {
-        String userId = PlmSecurityContext.get().getUserId();
+        String userId = secCtx.currentUser().getUserId();
         return ResponseEntity.ok(dashboardService.getWorkItems(userId));
     }
 }

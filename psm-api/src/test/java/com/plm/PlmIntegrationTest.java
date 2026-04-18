@@ -1,8 +1,8 @@
 package com.plm;
 
+import com.plm.domain.security.PlmUserContext;
 import com.plm.domain.service.*;
 import com.plm.infrastructure.security.PlmSecurityContext;
-import com.plm.infrastructure.security.PlmUserContext;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
@@ -83,17 +83,22 @@ class PlmIntegrationTest {
         nodeTypeId = uid();
         dsl.execute("INSERT INTO NODE_TYPE (ID, NAME, LIFECYCLE_ID) VALUES (?,?,?)", nodeTypeId, "Document", lifecycleId);
 
-        // -- Action registry: register TRANSITION actions for the test node type
-        // (normally auto-created by MetaModelService.createNodeType, but test uses raw SQL)
-        dsl.execute("INSERT INTO node_type_action (id, node_type_id, action_id, status, transition_id, display_order) VALUES (?,?,?,?,?,?)",
-            "nta-tr-" + transitionToReviewId + "-" + nodeTypeId, nodeTypeId, "act-transition", "ENABLED", transitionToReviewId, 0);
-        dsl.execute("INSERT INTO node_type_action (id, node_type_id, action_id, status, transition_id, display_order) VALUES (?,?,?,?,?,?)",
-            "nta-tr-" + transitionToReleasedId + "-" + nodeTypeId, nodeTypeId, "act-transition", "ENABLED", transitionToReleasedId, 0);
-        // Register default-on built-in actions (CHECKOUT, SIGN, CREATE_LINK, BASELINE)
-        dsl.execute("INSERT INTO node_type_action (id, node_type_id, action_id, status, display_order) VALUES (?,?,?,?,?)",
-            "nta-co-" + nodeTypeId, nodeTypeId, "act-checkout", "ENABLED", 100);
-        dsl.execute("INSERT INTO node_type_action (id, node_type_id, action_id, status, display_order) VALUES (?,?,?,?,?)",
-            "nta-sg-" + nodeTypeId, nodeTypeId, "act-sign", "ENABLED", 200);
+        // action_permission rows wire actions to this node type. A role-less "wired"
+        // permission is not representable, so grant baseline perms to ROLE_DESIGNER
+        // (the default role used in the role/view tests).
+        String roleDesigner = "role-designer";
+        String[][] nodeActions = { {"act-checkout"}, {"act-sign"}, {"act-update-node"}, {"act-checkin"} };
+        for (String[] row : nodeActions) {
+            dsl.execute(
+                "INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,NULL)",
+                uid(), row[0], PS_DEFAULT, roleDesigner, nodeTypeId);
+        }
+        dsl.execute(
+            "INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?)",
+            uid(), "act-transition", PS_DEFAULT, roleDesigner, nodeTypeId, transitionToReviewId);
+        dsl.execute(
+            "INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?)",
+            uid(), "act-transition", PS_DEFAULT, roleDesigner, nodeTypeId, transitionToReleasedId);
 
         // -- Attributs
         attrNameId = uid();

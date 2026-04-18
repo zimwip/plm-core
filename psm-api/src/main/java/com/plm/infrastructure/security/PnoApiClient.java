@@ -2,9 +2,13 @@ package com.plm.infrastructure.security;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.plm.domain.security.PlmUserContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -26,14 +30,19 @@ import java.util.concurrent.TimeUnit;
 public class PnoApiClient {
 
     private final String      pnoApiUrl;
+    private final String      serviceSecret;
     private final RestTemplate rest  = new RestTemplate();
     private final Cache<String, PlmUserContext> cache = Caffeine.newBuilder()
-        .expireAfterWrite(30, TimeUnit.SECONDS)
+        .expireAfterWrite(10, TimeUnit.SECONDS)
         .maximumSize(500)
         .build();
 
-    public PnoApiClient(@Value("${pno.api.url:http://localhost:8081}") String pnoApiUrl) {
-        this.pnoApiUrl = pnoApiUrl;
+    public PnoApiClient(
+        @Value("${pno.api.url:http://localhost:8081}") String pnoApiUrl,
+        @Value("${plm.service.secret:dev-secret-change-in-prod}") String serviceSecret
+    ) {
+        this.pnoApiUrl     = pnoApiUrl;
+        this.serviceSecret = serviceSecret;
     }
 
     /**
@@ -56,7 +65,11 @@ public class PnoApiClient {
             }
             String url = builder.toUriString();
 
-            Map<String, Object> body = rest.getForObject(url, Map.class);
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Service-Secret", serviceSecret);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            Map<String, Object> body = rest.exchange(url, HttpMethod.GET, entity, Map.class).getBody();
             if (body == null) return null;
 
             String       username = (String)  body.get("username");

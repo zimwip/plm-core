@@ -31,10 +31,13 @@ export default function NodeEditor({
   toast,
   onAutoOpenTx,
   onDescriptionLoaded,
+  onOpenCommentsForVersion,
+  onCommentAttribute,
 }) {
   // desc lives in the store — subscribed below; all other state is local UI state
-  const [sigs,           setSigs]          = useState([]);
-  const [history,        setHistory]       = useState([]);
+  const [sigs,                setSigs]               = useState([]);
+  const [history,             setHistory]            = useState([]);
+  const [versionCommentCounts,setVersionCommentCounts] = useState({});
   const [edits,          setEdits]         = useState({});
   const [saveViolations, setSaveViolations]= useState([]);
   const [loading,        setLoading]       = useState(false);
@@ -43,7 +46,7 @@ export default function NodeEditor({
   const [checkinModal,     setCheckinModal]     = useState(false);
   const [checkinComment,   setCheckinComment]   = useState('');
   const [signPanel,        setSignPanel]        = useState(false);
-  const [sigMeaning,  setSigMeaning] = useState('Reviewed');
+  const [sigMeaning,  setSigMeaning] = useState('Approved');
   const [sigComment,  setSigComment] = useState('');
   const [diff,        setDiff]       = useState(null);   // { data, v1Num, v2Num } | null
   const [diffLoading, setDiffLoading]= useState(false);
@@ -64,6 +67,7 @@ export default function NodeEditor({
   const [linkActLoading,   setLinkActLoading]   = useState(false);
 
   const [isDragOver,     setIsDragOver]     = useState(false);
+  const [attrCtxMenu,    setAttrCtxMenu]    = useState(null); // { attrId, attrLabel, x, y }
   const [viewVersionNum, setViewVersionNum] = useState(null);
   const [historicalDesc, setHistoricalDesc] = useState(null);
   const [histLoading,    setHistLoading]    = useState(false);
@@ -101,12 +105,22 @@ export default function NodeEditor({
    */
   const load = useCallback(async () => {
     try {
-      const [s, h] = await Promise.all([
+      const [s, h, c] = await Promise.all([
         api.getSignatures(userId, nodeId).catch(() => []),
         api.getVersionHistory(userId, nodeId).catch(() => []),
+        api.getComments(userId, nodeId).catch(() => []),
       ]);
       setSigs(Array.isArray(s) ? s : []);
       setHistory(Array.isArray(h) ? h : []);
+      // Build per-version comment counts for history tab badges
+      const counts = {};
+      if (Array.isArray(c)) {
+        c.forEach(comment => {
+          const vid = comment.versionId;
+          if (vid) counts[vid] = (counts[vid] || 0) + 1;
+        });
+      }
+      setVersionCommentCounts(counts);
       setEdits({});
       setSaveViolations([]);
       await refreshNodeDesc(nodeId); // updates desc in store → triggers re-render
@@ -114,6 +128,21 @@ export default function NodeEditor({
   }, [nodeId, userId, refreshNodeDesc, toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Lightweight refresh: only re-fetch comments and rebuild counts (used by WS handler)
+  const refreshCommentCounts = useCallback(async () => {
+    try {
+      const c = await api.getComments(userId, nodeId).catch(() => []);
+      const counts = {};
+      if (Array.isArray(c)) {
+        c.forEach(comment => {
+          const vid = comment.versionId;
+          if (vid) counts[vid] = (counts[vid] || 0) + 1;
+        });
+      }
+      setVersionCommentCounts(counts);
+    } catch {}
+  }, [nodeId, userId]);
 
   // Reset PBS cache and historical view when node changes
   useEffect(() => {
@@ -163,6 +192,9 @@ export default function NodeEditor({
         if (['LOCK_RELEASED', 'LOCK_ACQUIRED', 'NODE_UPDATED'].includes(evt.event)) {
           refreshNodes();
         }
+      }
+      if (evt.event === 'COMMENT_ADDED') {
+        refreshCommentCounts();
       }
     },
     userId,
@@ -230,7 +262,7 @@ export default function NodeEditor({
       if (!createLinkAction) throw new Error('CREATE_LINK action not available for this node type');
 
       // V2V pinning is resolved server-side by CreateLinkActionHandler
-      await authoringApi.executeAction(nodeId, createLinkAction.id, userId, activeTxId, {
+      await authoringApi.executeAction(nodeId, createLinkAction.actionCode, userId, activeTxId, {
         linkTypeId:    selLinkType,
         targetNodeId:  selTarget,
         linkLogicalId: linkLogicalId || '',
@@ -253,7 +285,7 @@ export default function NodeEditor({
     try {
       const activeTxId = txId || await onAutoOpenTx();
       if (!activeTxId) return;
-      await authoringApi.executeAction(nodeId, updateLinkAction.id, userId, activeTxId,
+      await authoringApi.executeAction(nodeId, updateLinkAction.actionCode, userId, activeTxId,
         { linkId, logicalId: newLogicalId, targetNodeId: newTargetNodeId });
       setEditingLinkId(null);
       await refreshTx();
@@ -275,7 +307,7 @@ export default function NodeEditor({
     try {
       const activeTxId = txId || await onAutoOpenTx();
       if (!activeTxId) return;
-      await authoringApi.executeAction(nodeId, deleteLinkAction.id, userId, activeTxId, { linkId });
+      await authoringApi.executeAction(nodeId, deleteLinkAction.actionCode, userId, activeTxId, { linkId });
       await refreshTx();
       setPbsLoaded(false);
       await Promise.all([
@@ -292,7 +324,7 @@ export default function NodeEditor({
     setLoading(true);
     try {
       // Generic action endpoint — auto-creates tx if none is open
-      await authoringApi.executeAction(nodeId, checkoutAction.id, userId, txId, {});
+      await authoringApi.executeAction(nodeId, checkoutAction.actionCode, userId, txId, {});
       await refreshAll();       // updates activeTx in store before load() reads it
       await load();             // refreshNodeDesc reads updated activeTx → returns OPEN version
     } catch (e) { toast(e, 'error'); }
@@ -305,7 +337,7 @@ export default function NodeEditor({
     setCheckinComment('');
     setLoading(true);
     try {
-      const result = await authoringApi.executeAction(nodeId, checkinAction.id, userId, txId,
+      const result = await authoringApi.executeAction(nodeId, checkinAction.actionCode, userId, txId,
         { _description: comment });
       const cont = result?.continuationTxId;
       await refreshAll();
@@ -327,11 +359,11 @@ export default function NodeEditor({
     finally { setLoading(false); }
   }
 
-  async function autoSave(pendingEdits, currentTxId, updateActionId) {
+  async function autoSave(pendingEdits, currentTxId, updateActionCode) {
     setSaveStatus('saving');
     try {
       const result = await authoringApi.executeAction(
-        nodeId, updateActionId, userId, currentTxId,
+        nodeId, updateActionCode, userId, currentTxId,
         { ...pendingEdits, _description: 'Auto-save' }
       );
       // Optimistic patch: update attribute values in the store so inputs don't snap
@@ -349,10 +381,10 @@ export default function NodeEditor({
     }
   }
 
-  function scheduleAutoSave(pendingEdits, currentTxId, updateActionId) {
+  function scheduleAutoSave(pendingEdits, currentTxId, updateActionCode) {
     clearTimeout(saveTimer.current);
     setSaveStatus(null);
-    saveTimer.current = setTimeout(() => autoSave(pendingEdits, currentTxId, updateActionId), 800);
+    saveTimer.current = setTimeout(() => autoSave(pendingEdits, currentTxId, updateActionCode), 800);
   }
 
   async function handleTransition(action) {
@@ -365,8 +397,8 @@ export default function NodeEditor({
     try {
       const opened = await txApi.open(userId, `Transition: ${action.name}`);
       autoTxId = opened.txId;
-      // Use generic action endpoint — passes ntaId which encodes both action + transition
-      await authoringApi.executeAction(nodeId, action.id, userId, autoTxId, {});
+      // LIFECYCLE scope — actionCode is "TRANSITION"; transitionId scopes the call
+      await authoringApi.executeAction(nodeId, action.actionCode, userId, autoTxId, {}, action.transitionId);
       await txApi.commit(userId, autoTxId, `Transition: ${action.name}`);
       toast(`"${action.name}" applied`, 'success');
       await load();
@@ -388,7 +420,7 @@ export default function NodeEditor({
     try {
       const opened = await txApi.open(userId, `Signature: ${sigMeaning}`);
       autoTxId = opened.txId;
-      await authoringApi.executeAction(nodeId, signAction.id, userId, autoTxId,
+      await authoringApi.executeAction(nodeId, signAction.actionCode, userId, autoTxId,
         { meaning: sigMeaning, ...(sigComment ? { comment: sigComment } : {}) });
       await txApi.commit(userId, autoTxId, `Signature: ${sigMeaning}`);
       toast('Signature recorded', 'success');
@@ -429,13 +461,33 @@ export default function NodeEditor({
   );
 
   const isOpenVersion = activeDesc?.txStatus === 'OPEN';
-  const checkoutAction    = activeDesc?.actions?.find(a => a.actionCode === 'CHECKOUT');
-  const checkinAction     = activeDesc?.actions?.find(a => a.actionCode === 'CHECKIN');
+  const allActions = activeDesc?.actions || [];
   // fingerprintChanged is null for committed versions; false means OPEN but no content change
   const fingerprintChanged = activeDesc?.fingerprintChanged;
-  const signAction        = activeDesc?.actions?.find(a => a.actionCode === 'SIGN');
-  const updateNodeAction  = activeDesc?.actions?.find(a => a.actionCode === 'UPDATE_NODE');
-  const transitions       = activeDesc?.actions?.filter(a => a.actionCode === 'TRANSITION') || [];
+  // Internal actions used programmatically (not rendered as header buttons)
+  const INTERNAL_ACTIONS = new Set(['UPDATE_NODE', 'CREATE_LINK', 'UPDATE_LINK', 'DELETE_LINK', 'READ', 'COMMENT', 'BASELINE', 'MANAGE_METAMODEL', 'MANAGE_ROLES', 'MANAGE_BASELINES']);
+  const updateNodeAction = allActions.find(a => a.actionCode === 'UPDATE_NODE' && a.authorized !== false);
+  const checkinAction    = allActions.find(a => a.actionCode === 'CHECKIN' && a.authorized !== false);
+  // Visible header actions: authorized, non-internal, non-structural
+  const headerActions = allActions.filter(a =>
+    a.authorized !== false && !INTERNAL_ACTIONS.has(a.actionCode) && a.displayCategory !== 'STRUCTURAL'
+  );
+  // Guard violation helpers
+  const guardBlocked = (action) => action?.guardViolations?.length > 0;
+  const guardTooltip = (action) => {
+    const v = action?.guardViolations;
+    if (!v?.length) return '';
+    return 'Blocked:\n\u2022 ' + v.map(x => typeof x === 'string' ? x : x.message || x.guardCode).join('\n\u2022 ');
+  };
+  // Guard violation map for LifecycleDiagram: includes unauthorized transitions too
+  const allTransitions    = allActions.filter(a => a.actionCode === 'TRANSITION');
+  const transitionGuardViolations = new Map(
+    allTransitions
+      .filter(a => a.guardViolations?.length > 0)
+      .map(a => [a.name, a.guardViolations])
+  );
+  // Available (unblocked) transition names for lifecycle diagram
+  const transitions = headerActions.filter(a => a.actionCode === 'TRANSITION');
   const canUpdateLink     = activeDesc?.actions?.some(a => a.actionCode === 'UPDATE_LINK');
   const canDeleteLink     = activeDesc?.actions?.some(a => a.actionCode === 'DELETE_LINK');
   const hasLinkActions    = canUpdateLink || canDeleteLink;
@@ -455,14 +507,28 @@ export default function NodeEditor({
     v => (v.id || v.ID) === desc?.currentVersionId
   )?.version_number ?? null;
 
-  function actionColor(name) {
-    if (/approv|releas/i.test(name)) return 'btn-success';
-    if (/reject|obsol/i.test(name)) return 'btn-danger';
-    return '';
-  }
 
   return (
-    <div>
+    <div onClick={() => attrCtxMenu && setAttrCtxMenu(null)}>
+      {/* ── Attribute context menu ───────────────────── */}
+      {attrCtxMenu && ReactDOM.createPortal(
+        <div
+          className="attr-ctx-menu"
+          style={{ top: attrCtxMenu.y, left: attrCtxMenu.x }}
+          onClick={e => e.stopPropagation()}
+        >
+          <button
+            className="attr-ctx-item"
+            onClick={() => {
+              onCommentAttribute?.(attrCtxMenu.attrId, attrCtxMenu.attrLabel);
+              setAttrCtxMenu(null);
+            }}
+          >
+            💬 Comment on <code>#{attrCtxMenu.attrId}</code>
+          </button>
+        </div>,
+        document.body,
+      )}
       {/* ── Node header ─────────────────────────────── */}
       <div className="node-header">
         <div className="node-title-group">
@@ -507,14 +573,19 @@ export default function NodeEditor({
             )}
           </div>
           <div className="node-meta">
-            {isOpenVersion && (
+            {isOpenVersion && activeDesc?.lock?.lockedBy === userId && (
               <span className="pill" style={{ color: 'var(--warn)', background: 'rgba(232,169,71,.1)', border: '1px solid rgba(232,169,71,.25)' }}>
                 ✎ editing
               </span>
             )}
-            {isOpenVersion && (
+            {isOpenVersion && activeDesc?.lock?.lockedBy === userId && (
               <span style={{ fontSize: 11, color: 'var(--warn)', fontStyle: 'italic', opacity: 0.85 }}>
-                ⚡ uncommitted — not visible to others
+                ⚡ uncommitted changes
+              </span>
+            )}
+            {isOpenVersion && activeDesc?.lock?.lockedBy && activeDesc?.lock?.lockedBy !== userId && (
+              <span style={{ fontSize: 11, color: 'var(--accent)', fontStyle: 'italic', opacity: 0.9 }}>
+                ✎ in progress — being edited by {activeDesc.lock.lockedBy}
               </span>
             )}
             {saveStatus === 'saving' && (
@@ -530,45 +601,48 @@ export default function NodeEditor({
         </div>
 
         <div className="node-actions">
-          {checkoutAction && (
-            <button className="btn btn-sm" onClick={handleCheckout} disabled={loading}>
-              ✎ Checkout
-            </button>
-          )}
-          {checkinAction && fingerprintChanged !== false && (
-            <button className="btn btn-sm btn-success" onClick={() => setCheckinModal(true)} disabled={loading}>
-              ✓ Check In
-            </button>
-          )}
-          {checkinAction && fingerprintChanged === false && (
-            <button className="btn btn-sm" disabled title="No changes to check in">
-              ✓ Check In
-            </button>
-          )}
+          {headerActions.map(a => {
+            const isBlocked = guardBlocked(a);
+            const tooltip   = guardTooltip(a);
+            const catClass  = a.displayCategory === 'DANGEROUS' ? 'btn-danger'
+                            : a.displayCategory === 'PRIMARY'   ? 'btn-success'
+                            : '';
+
+            // Per-action click handler
+            const handleClick = () => {
+              if (isBlocked) return;
+              if (a.actionCode === 'CHECKOUT')   return handleCheckout();
+              if (a.actionCode === 'CHECKIN')    return setCheckinModal(true);
+              if (a.actionCode === 'SIGN')       return setSignPanel(p => !p);
+              if (a.actionCode === 'TRANSITION') return handleTransition(a);
+            };
+
+            // CHECKIN special case: no content change → disabled with specific message
+            if (a.actionCode === 'CHECKIN' && !isBlocked && fingerprintChanged === false) {
+              return (
+                <button key={a.id} className="btn btn-sm" disabled title="No changes to check in">
+                  {a.name}
+                </button>
+              );
+            }
+
+            return (
+              <button
+                key={a.id}
+                className={`btn btn-sm ${isBlocked ? '' : catClass}`}
+                disabled={loading || isBlocked}
+                title={tooltip}
+                style={isBlocked ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                onClick={handleClick}
+              >
+                {isBlocked ? `✕ ${a.name}` : a.name}
+              </button>
+            );
+          })}
+          {/* Cancel — not an action, releases node from transaction */}
           {checkinAction && (
             <button className="btn btn-sm btn-danger" onClick={() => setCancelConfirm(true)} disabled={loading}>
               ✕ Cancel
-            </button>
-          )}
-          {transitions.map(a => (
-            <button
-              key={a.id}
-              className={`btn btn-sm ${actionColor(a.name)}`}
-              disabled={loading}
-              title={txId ? 'Commit your transaction first' : ''}
-              onClick={() => handleTransition(a)}
-            >
-              {a.name}
-            </button>
-          ))}
-          {signAction && (
-            <button
-              className={`btn btn-sm btn-success ${signPanel ? 'active' : ''}`}
-              disabled={loading}
-              title={txId ? 'Commit your transaction first' : ''}
-              onClick={() => setSignPanel(p => !p)}
-            >
-              ✦ Sign
             </button>
           )}
         </div>
@@ -672,7 +746,7 @@ export default function NodeEditor({
           </div>
           <div className="field" style={{ margin: 0, flex: 1 }}>
             <label className="field-label">Comment (optional)</label>
-            <input className="field-input" placeholder="…" value={sigComment} onChange={e => setSigComment(e.target.value)} />
+            <textarea className="field-input" rows={3} placeholder="…" value={sigComment} onChange={e => setSigComment(e.target.value)} style={{ resize: 'vertical' }} />
           </div>
           <button className="btn btn-success btn-sm" disabled={loading} onClick={handleSign} style={{ alignSelf: 'flex-end' }}>
             ✦ Sign
@@ -748,7 +822,14 @@ export default function NodeEditor({
                     edits[attr.id] !== '' && !enumValues.includes(edits[attr.id]);
 
                   return (
-                    <div className="field" key={attr.id}>
+                    <div
+                      className="field"
+                      key={attr.id}
+                      onContextMenu={e => {
+                        e.preventDefault();
+                        setAttrCtxMenu({ attrId: attr.id, attrLabel: attr.label, x: e.clientX, y: e.clientY });
+                      }}
+                    >
                       <label className="field-label">
                         {attr.label}
                         {attr.required && <span className="field-req">*</span>}
@@ -761,7 +842,7 @@ export default function NodeEditor({
                           onChange={e => {
                             const newEdits = { ...edits, [attr.id]: e.target.value };
                             setEdits(newEdits);
-                            scheduleAutoSave(newEdits, txId, updateNodeAction?.id);
+                            scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
                           }}
                         >
                           <option value="">—</option>
@@ -777,7 +858,7 @@ export default function NodeEditor({
                             if (!isEditable) return;
                             const newEdits = { ...edits, [attr.id]: e.target.value };
                             setEdits(newEdits);
-                            scheduleAutoSave(newEdits, txId, updateNodeAction?.id);
+                            scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
                           }}
                         />
                       )}
@@ -1169,11 +1250,7 @@ export default function NodeEditor({
               <span className="sig-comment">{s.comment || s.COMMENT || ''}</span>
             </div>
           ))}
-          {signAction && (
-            <button className="btn btn-success btn-sm mt12" onClick={() => setSignPanel(true)}>
-              ✦ Add signature
-            </button>
-          )}
+
         </div>
       )}
 
@@ -1189,11 +1266,14 @@ export default function NodeEditor({
               lifecycleId={activeDesc.lifecycleId}
               currentStateId={activeDesc.state}
               userId={userId}
-              availableTransitionNames={new Set(transitions.map(a => a.name))}
+              availableTransitionNames={new Set(
+                transitions.filter(a => !a.guardViolations?.length).map(a => a.name)
+              )}
+              transitionGuardViolations={transitionGuardViolations}
               onTransition={lcTransition => {
                 const tName = lcTransition.name || lcTransition.NAME || '';
                 const action = transitions.find(a => a.name === tName);
-                if (action) handleTransition(action);
+                if (action && !action.guardViolations?.length) handleTransition(action);
               }}
             />
           </div>
@@ -1301,34 +1381,54 @@ export default function NodeEditor({
                         ) : <span style={{ opacity: .3 }}>—</span>}
                       </td>
                       <td style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        {!isFirst && (isPending || (v.change_type || v.CHANGE_TYPE) === 'CONTENT') && (
-                          <button
-                            className="btn-diff"
-                            title={`Diff v${arr[i + 1]?.version_number || arr[i + 1]?.VERSION_NUMBER} → v${vNum}${isPending ? ' (pending)' : ''}`}
-                            disabled={diffLoading}
-                            onClick={() => openDiff(vNum)}
-                          >
-                            ⊕ diff
-                          </button>
-                        )}
-                        {!isPending && vNum !== currentVersionNum && (
-                          <button
-                            className="btn-diff"
-                            title={isActiveHistorical ? 'Exit historical view' : `View node at version ${vNum}`}
-                            style={{ opacity: isActiveHistorical ? 1 : 0.6, background: isActiveHistorical ? 'rgba(251,191,36,.2)' : undefined }}
-                            onClick={() => {
-                              if (isActiveHistorical) {
-                                setViewVersionNum(null);
-                                setHistoricalDesc(null);
-                              } else {
-                                setViewVersionNum(vNum);
-                                setHistoricalDesc(null);
-                              }
-                            }}
-                          >
-                            👁
-                          </button>
-                        )}
+                        {/* Left group: diff + comment indicators */}
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          {!isFirst && (isPending || (v.change_type || v.CHANGE_TYPE) === 'CONTENT') && (
+                            <button
+                              className="btn-diff"
+                              title={`Diff v${arr[i + 1]?.version_number || arr[i + 1]?.VERSION_NUMBER} → v${vNum}${isPending ? ' (pending)' : ''}`}
+                              disabled={diffLoading}
+                              onClick={() => openDiff(vNum)}
+                            >
+                              ⊕ diff
+                            </button>
+                          )}
+                          {(() => {
+                            const vid = v.id || v.ID;
+                            const cnt = vid ? (versionCommentCounts[vid] || 0) : 0;
+                            return cnt > 0 && onOpenCommentsForVersion ? (
+                              <button
+                                className="btn-diff"
+                                title={`${cnt} comment${cnt > 1 ? 's' : ''} on this version`}
+                                onClick={() => onOpenCommentsForVersion(vid)}
+                                style={{ color: 'var(--accent)' }}
+                              >
+                                💬 {cnt}
+                              </button>
+                            ) : null;
+                          })()}
+                        </div>
+                        {/* View button: always far right */}
+                        <div style={{ marginLeft: 'auto' }}>
+                          {!isPending && vNum !== currentVersionNum && (
+                            <button
+                              className="btn-diff"
+                              title={isActiveHistorical ? 'Exit historical view' : `View node at version ${vNum}`}
+                              style={{ opacity: isActiveHistorical ? 1 : 0.6, background: isActiveHistorical ? 'rgba(251,191,36,.2)' : undefined }}
+                              onClick={() => {
+                                if (isActiveHistorical) {
+                                  setViewVersionNum(null);
+                                  setHistoricalDesc(null);
+                                } else {
+                                  setViewVersionNum(vNum);
+                                  setHistoricalDesc(null);
+                                }
+                              }}
+                            >
+                              👁
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1346,6 +1446,7 @@ export default function NodeEditor({
           v1Num={diff.v1Num}
           v2Num={diff.v2Num}
           onClose={() => setDiff(null)}
+          stateColorMap={stateColorMap}
         />
       )}
     </div>
@@ -1354,7 +1455,7 @@ export default function NodeEditor({
 
 /* ── DiffModal ─────────────────────────────────────────────────── */
 
-function DiffModal({ diff, v1Num, v2Num, onClose }) {
+function DiffModal({ diff, v1Num, v2Num, onClose, stateColorMap }) {
   const { v1, v2, attributeDiff, stateChanged, linkDiff = [] } = diff;
 
   const changedAttrs   = attributeDiff.filter(a => a.changed);
