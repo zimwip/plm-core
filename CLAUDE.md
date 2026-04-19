@@ -104,7 +104,7 @@ OPEN ──────► COMMITTED   (commit avec commentaire obligatoire)
 - Commentaire de commit **obligatoire** (comme message Git)
 - Rollback **supprime physiquement** versions OPEN + transaction
 - Nettoyage auto tx OPEN > 24h (auto-rollback)
-- **Dépendance circulaire** LockService ↔ PlmTransactionService résolue avec `@Lazy`
+- **Dépendance circulaire** LockService ↔ PlmTransactionService résolue avec `@Lazy` (historique, dans node.transaction.internal)
 
 **Visibilité des node_version :**
 | tx_status   | Visible par |
@@ -124,18 +124,20 @@ psm-api utilise **Spring Modulith** avec une organisation **domain-first**. Chaq
 shared (OPEN) ← tous les modules
 algorithm     ← action, node
 permission    ← node
-action        → node (TransactionApi, LockApi)
+action        → algorithm, shared (zéro dépendance sur node)
 node          → algorithm, permission, shared
 dashboard     → action, node, shared
 ```
+
+**Aucun cycle.** `action` ne dépend pas de `node`. Les wrappers (TransactionWrapper, LockWrapper) vivent dans `node` et sont découverts par `AlgorithmRegistry` comme beans d'algorithme. `ActionPermissionPort` (interface dans `shared`) rompt le couplage.
 
 ### Modules
 
 | Module | Package | Rôle |
 |--------|---------|------|
-| **shared** | `com.plm.shared` (OPEN) | Cross-cutting : security, authorization, events, metadata, model, hooks, guards, config, exceptions |
-| **node** | `com.plm.node` | Domaine principal : noeuds, versions, liens, lifecycle, metamodel, transactions, baselines, signatures |
-| **action** | `com.plm.action` | ActionDispatcher, ActionService, orchestration des actions |
+| **shared** | `com.plm.shared` (OPEN) | Cross-cutting : security, PlmAction annotation, ActionPermissionPort, ActionHandler interface, events, metadata, model, hooks, guard types, config, exceptions |
+| **node** | `com.plm.node` | Domaine principal : noeuds, versions, liens, lifecycle, metamodel, transactions, baselines, signatures, guard impls, action handlers, wrappers |
+| **action** | `com.plm.action` | ActionDispatcher, ActionService, ActionPermissionService, PlmActionAspect, ActionGuardService |
 | **algorithm** | `com.plm.algorithm` | AlgorithmRegistry, types, discovery, exécution |
 | **permission** | `com.plm.permission` | ViewService, PermissionAdminService, RoleController |
 | **dashboard** | `com.plm.dashboard` | Agrégations dashboard |
@@ -148,10 +150,8 @@ com.plm/
 │
 ├── shared/                          # @ApplicationModule(type = OPEN)
 │   ├── security/                    # SecurityContextPort, PlmUserContext, PlmAuthFilter, PnoApiClient
-│   ├── authorization/               # PlmAction, PlmActionAspect, ActionPermissionService
-│   │   ├── guard/                   # ActionGuardService, ActionGuard, impls
-│   │   └── lifecycle/guard/         # LifecycleGuardService, LifecycleGuard, impls
-│   ├── action/                      # ActionHandler (interface), ActionContext, ActionResult
+│   ├── authorization/               # PlmAction (annotation), ActionPermissionPort (interface)
+│   ├── action/                      # ActionHandler (@AlgorithmType interface), ActionContext, ActionResult
 │   ├── hook/                        # PreCommitValidator, AtCommitHook, PostCommitHook
 │   ├── event/                       # PlmEventPublisher, OutboxPoller
 │   ├── metadata/                    # MetadataService, Metadata, MetadataRegistry
@@ -164,30 +164,39 @@ com.plm/
 │   ├── NodeService.java             # API publique du module
 │   ├── NodeController.java          # /api/psm/nodes
 │   ├── transaction/
-│   │   ├── TransactionController.java  # /api/psm/transactions
+│   │   ├── TransactionController.java
 │   │   └── internal/               # PlmTransactionService, LockService
+│   │       └── guard/              # NotLockedGuard, LockOwnerRequiredGuard
 │   ├── version/internal/            # VersionService, FingerPrintService
+│   │   └── guard/                  # FingerprintUnchangedGuard
 │   ├── link/internal/               # LinkService, GraphValidationService
 │   ├── lifecycle/
 │   │   ├── LifecycleController.java
-│   │   └── internal/               # LifecycleService, StateActionService, guards
+│   │   └── internal/               # LifecycleService, StateActionService
+│   │       └── guard/              # LifecycleGuardService, NotFrozenGuard, FromStateMatchGuard
 │   ├── metamodel/
-│   │   ├── MetaModelController.java # /api/psm/metamodel
-│   │   └── internal/               # MetaModelService, MetaModelCache, ValidationService
-│   ├── baseline/
-│   │   ├── BaselineController.java  # /api/psm/baselines
+│   │   ├── MetaModelController.java
+│   │   └── internal/               # MetaModelService, MetaModelCache, ValidationService, ActionRegistrationService
+│   │       └── guard/              # AllRequiredFilledGuard
+│   ├── baseline/                    # BaselineController
 │   │   └── internal/               # BaselineService
 │   ├── signature/internal/          # SignatureService, CommentService
+│   │   └── guard/                  # HasSignatureRequirementGuard, NotAlreadySignedGuard, AllSignaturesDoneGuard
 │   ├── view/internal/               # (réservé)
 │   └── handler/                     # CheckoutActionHandler, TransitionActionHandler, ...
-│                                    # (implémentent shared.action.ActionHandler)
+│                                    # (@AlgorithmBean, implémentent ActionHandler)
 │
-├── action/                          # @ApplicationModule(allowedDependencies = {node, algorithm, shared})
+├── action/                          # @ApplicationModule(allowedDependencies = {algorithm, shared})
 │   ├── ActionService.java           # API publique
-│   └── internal/                    # ActionDispatcher, DefaultActionHandlerRegistry
+│   ├── ActionPermissionService.java # Implémente ActionPermissionPort (shared)
+│   ├── ActionWrapper.java           # @AlgorithmType interface — middleware pipeline
+│   ├── PlmActionAspect.java         # AOP cross-cutting pour @PlmAction
+│   ├── PlmActionValidator.java      # Startup validation
+│   ├── guard/                       # ActionGuardService, ActionGuard, ActionGuardContext
+│   └── internal/                    # ActionDispatcher, ActionParameterValidator
 │
 ├── algorithm/                       # @ApplicationModule(allowedDependencies = {shared})
-│   ├── AlgorithmRegistry.java       # API publique
+│   ├── AlgorithmRegistry.java       # API publique + getInstance() lazy accessor
 │   ├── AlgorithmBean.java, AlgorithmParam.java, AlgorithmType.java
 │   ├── AlgorithmController.java     # /api/psm/algorithms
 │   └── internal/                    # AlgorithmService, AlgorithmStartupValidator
@@ -202,15 +211,64 @@ com.plm/
     └── internal/                    # DashboardService
 ```
 
+### Système d'algorithmes unifié
+
+Tout comportement pluggable = **algorithm bean**. Trois types d'algorithmes :
+
+| Type | Interface | Localisation impls | Rôle |
+|------|-----------|-------------------|------|
+| `algtype-action-handler` | `ActionHandler` (shared) | `node.handler` | Exécute une action (CHECKOUT, TRANSITION, SIGN, …) |
+| `algtype-action-wrapper` | `ActionWrapper` (action) | `node.transaction.internal` | Middleware pipeline (transaction, lock) |
+| `algtype-action-guard` | `ActionGuard` (action.guard) | `node.*.guard` | Préconditions actions (NotLocked, NotFrozen, …) |
+| `algtype-lifecycle-guard` | `LifecycleGuard` (node.lifecycle) | `node.*.guard` | Préconditions transitions (AllRequiredFilled, …) |
+| `algtype-state-action` | `StateAction` (node.lifecycle) | `node.lifecycle.internal.stateaction` | Actions déclenchées par état |
+
+**Annotation** : `@AlgorithmBean(code = "CHECKOUT")` — auto-découvert par `AlgorithmRegistry` au `@PostConstruct`.
+**Configuration DB** : `algorithm` → `algorithm_instance` → `algorithm_instance_param_value`.
+**Statistiques** : chaque appel mesuré via proxy dynamique, exposé sur `/api/psm/algorithms/stats`.
+
+### Pipeline d'exécution d'une action
+
+```
+Request POST /nodes/{id}/actions/{code}
+  │
+  ├─ PlmActionAspect (@PlmAction AOP)    → permission check (ActionPermissionService)
+  │                                       → action guard evaluation (ActionGuardService)
+  │
+  └─ ActionDispatcher.dispatch()
+       │
+       ├─ Resolve handler via AlgorithmRegistry (code → ActionHandler)
+       ├─ Resolve wrappers via action_wrapper table (ordered algorithm instances)
+       ├─ Build chain: Wrapper₁ → Wrapper₂ → … → Handler
+       │
+       └─ chain.proceed(context, params)
+            │
+            ├─ LockWrapper.wrap()         → tryLock/unlock (si configuré)
+            │   └─ TransactionWrapper.wrap() → open/commit/rollback tx
+            │       └─ handler.execute()     → logique métier
+            │
+            └─ ActionResult returned
+```
+
+**Wrappers configurés par action** via table `action_wrapper` :
+- `ISOLATED` actions (TRANSITION, SIGN) : LockWrapper(order=10) → TransactionWrapper(ISOLATED, order=20)
+- `AUTO_OPEN` actions (CHECKOUT, CREATE_LINK) : TransactionWrapper(AUTO_OPEN, order=10)
+- `REQUIRED` actions (UPDATE_NODE, COMMIT) : TransactionWrapper(REQUIRED, order=10)
+- `NONE` actions (READ, BASELINE) : pas de wrapper explicite (défaut = TransactionWrapper NONE)
+
+`tx_mode` n'est plus une colonne de la table `action` — c'est un paramètre d'instance d'algorithme sur le TransactionWrapper.
+
 ### Règles de modularité
 
 - **Classes dans le package racine** du module = API publique, injectable par d'autres modules
 - **Classes dans `internal/`** = privées au module, invisibles de l'extérieur
 - **shared est OPEN** : tout module peut en dépendre sans déclaration explicite
-- **Action handlers** : pattern plugin — implémentent `ActionHandler` (shared), découverts par Spring, vivent dans `node.handler`
-- **@PlmAction** : annotation cross-cutting dans shared, aspect AOP dans shared.authorization
+- **Action handlers** : `@AlgorithmBean` dans `node.handler`, implémentent `ActionHandler` (shared), découverts par `AlgorithmRegistry`
+- **Guard impls** : distribués dans le sous-module de leur contexte métier (lock guards dans `node.transaction`, state guards dans `node.lifecycle`, etc.)
+- **ActionPermissionPort** : interface dans shared, implémentation dans action. Node dépend du port, pas d'action.
+- **AlgorithmRegistry.getInstance(appCtx)** : accesseur lazy pour éviter les cycles de dépendance. Utilisé par guard/state services au lieu d'injection constructeur.
+- **@PlmAction** : annotation dans shared.authorization, aspect AOP dans action
 - **ModularArchitectureTest** : `ApplicationModules.of(PlmApplication.class).verify()` — vérifie les frontières à chaque build
-- **Pas d'API interface formelle** pour l'instant (TransactionApi/LockApi prévus mais non extraits) — injection directe des services
 
 ### pno-api (inchangé)
 
@@ -341,7 +399,7 @@ docker exec pno-api mvn test -f /app/pom.xml
 
 ### Priorité basse
 - [ ] **Remplacer PlmAuthFilter par JWT/OAuth2** (Spring Security + Keycloak)
-- [ ] **Plugin system pour guards** : SPI Java pour guards custom sans modifier `LifecycleService`
+- [x] **Plugin system pour guards** : guards et handlers sont des algorithm beans pluggables via `@AlgorithmBean`
 - [ ] **Multi-tenant** : isolation par organisation
 - [ ] **JOOQ code generation** : générer classes JOOQ depuis schéma Flyway pour SQL encore plus typé
 
@@ -357,7 +415,15 @@ nginx utilise `proxy_pass` simple sans directive `resolver`. Ordre démarrage ga
 H2 mode PostgreSQL pour tests et dev local. Noms de contraintes FK suivent `{table}_{col}_fkey` (compatible H2 2.x + PostgreSQL). `DROP CONSTRAINT IF EXISTS` sécurisés sur les deux bases.
 
 ### Spring Modulith
-Architecture domain-first avec Spring Modulith 1.4.x. Frontières vérifiées par `ModularArchitectureTest`. Ajouter un nouveau service : le placer dans le bon module, respecter `allowedDependencies` dans `package-info.java`. Action handlers : implémenter `ActionHandler` de `shared.action`, placer dans `node.handler` — Spring les découvre automatiquement.
+Architecture domain-first avec Spring Modulith 1.4.x. Frontières vérifiées par `ModularArchitectureTest`. Ajouter un nouveau service : le placer dans le bon module, respecter `allowedDependencies` dans `package-info.java`.
+
+**Nouveau handler** : créer `@AlgorithmBean(code = "CODE")` implémentant `ActionHandler` dans `node.handler`. Ajouter entrées dans `algorithm`, `algorithm_instance`, `action`, et `action_wrapper`.
+
+**Nouveau wrapper** : créer `@AlgorithmBean` implémentant `ActionWrapper` dans le module pertinent. Attacher via `action_wrapper` table.
+
+**Nouveau guard** : créer `@AlgorithmBean` implémentant `ActionGuard` ou `LifecycleGuard` dans le sous-module guard approprié.
+
+**Dépendances circulaires** : guard/state services utilisent `AlgorithmRegistry.getInstance(appCtx)` (lazy accessor) au lieu d'injection constructeur pour éviter les cycles avec les handlers.
 
 ### JOOQ sans code generation
 JOOQ en mode "plain SQL" (sans génération de classes). Intentionnel pour démarrer vite. Prochaine étape : activer génération code JOOQ depuis schéma Flyway.
