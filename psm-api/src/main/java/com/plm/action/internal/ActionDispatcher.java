@@ -54,6 +54,11 @@ public class ActionDispatcher {
         if (action == null) throw new IllegalArgumentException("Unknown action: " + actionCode);
 
         String actionId = action.get("id", String.class);
+        String handlerInstanceId = action.get("handler_instance_id", String.class);
+
+        if (handlerInstanceId == null) {
+            throw new IllegalStateException("Action " + actionCode + " has no handler (permission-only action)");
+        }
 
         String nodeTypeId = null;
         if (nodeId != null) {
@@ -64,8 +69,13 @@ public class ActionDispatcher {
 
         Map<String, String> params = new HashMap<>(paramValidator.validate(actionId, nodeTypeId, rawParams));
 
-        // Resolve handler from algorithm registry
-        ActionHandler handler = algorithmRegistry.resolve(actionCode, ActionHandler.class);
+        // Resolve handler via algorithm_instance FK → algorithm.code → AlgorithmRegistry
+        String handlerCode = dsl.select(DSL.field("a.code"))
+            .from("algorithm_instance ai")
+            .join("algorithm a").on("a.id = ai.algorithm_id")
+            .where("ai.id = ?", handlerInstanceId)
+            .fetchOne(DSL.field("a.code"), String.class);
+        ActionHandler handler = algorithmRegistry.resolve(handlerCode, ActionHandler.class);
 
         // Build wrapper chain from attached algorithm instances
         List<ResolvedWrapper> wrappers = resolveWrappers(actionId);
