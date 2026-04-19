@@ -1,8 +1,15 @@
 package com.plm;
 
-import com.plm.domain.security.PlmUserContext;
-import com.plm.domain.service.*;
-import com.plm.infrastructure.security.PlmSecurityContext;
+import com.plm.shared.security.PlmUserContext;
+import com.plm.node.NodeService;
+import com.plm.node.baseline.internal.BaselineService;
+import com.plm.node.lifecycle.internal.LifecycleService;
+import com.plm.node.metamodel.internal.MetaModelService;
+import com.plm.node.signature.internal.SignatureService;
+import com.plm.node.transaction.internal.LockService;
+import com.plm.node.transaction.internal.PlmTransactionService;
+import com.plm.node.version.internal.VersionService;
+import com.plm.shared.security.PlmSecurityContext;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -224,8 +231,8 @@ class PlmExtendedTest {
     @DisplayName("MetaModel : création d'un NodeType avec attributs et règles état")
     void testMetaModelCreation() {
         String lcId = metaModelService.createLifecycle("Custom LC", "Test lifecycle");
-        String s1   = metaModelService.addState(lcId, "Draft",    true,  false, false, 1, null);
-        String s2   = metaModelService.addState(lcId, "Released", false, false, true,  2, null);
+        String s1   = metaModelService.addState(lcId, "Draft",    true,  Map.of(), 1, null);
+        String s2   = metaModelService.addState(lcId, "Released", false, Map.of("frozen", "false", "released", "true"), 2, null);
         metaModelService.addTransition(lcId, "Release", s1, s2, null, null, null);
 
         String ntId  = metaModelService.createNodeType("Component", "A component", lcId);

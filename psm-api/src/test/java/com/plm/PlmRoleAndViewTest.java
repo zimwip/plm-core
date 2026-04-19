@@ -1,9 +1,14 @@
 package com.plm;
 
-import com.plm.domain.exception.AccessDeniedException;
-import com.plm.domain.security.PlmUserContext;
-import com.plm.domain.service.*;
-import com.plm.infrastructure.security.PlmSecurityContext;
+import com.plm.shared.exception.AccessDeniedException;
+import com.plm.shared.security.PlmUserContext;
+import com.plm.node.NodeService;
+import com.plm.node.lifecycle.internal.LifecycleService;
+import com.plm.node.signature.internal.SignatureService;
+import com.plm.node.transaction.internal.PlmTransactionService;
+import com.plm.node.version.internal.VersionService;
+import com.plm.shared.authorization.ActionPermissionPort;
+import com.plm.shared.security.PlmSecurityContext;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +33,7 @@ class PlmRoleAndViewTest {
 
     @Autowired DSLContext            dsl;
     @Autowired NodeService           nodeService;
-    @Autowired com.plm.domain.action.ActionPermissionService actionPermissionService;
+    @Autowired com.plm.shared.authorization.ActionPermissionPort actionPermissionService;
     @Autowired LifecycleService      lifecycleService;
     @Autowired SignatureService      signatureService;
     @Autowired VersionService        versionService;

@@ -114,109 +114,114 @@ OPEN ──────► COMMITTED   (commit avec commentaire obligatoire)
 
 ---
 
-## Structure des fichiers
+## Architecture modulaire (Spring Modulith)
+
+psm-api utilise **Spring Modulith** avec une organisation **domain-first**. Chaque module = package direct sous `com.plm`. Classes dans le package racine du module = API publique. Sous-packages = internes au module.
+
+### Graphe de dépendances
 
 ```
-plm-core/
-├── ARCHITECTURE.md
-├── README.md
-├── CLAUDE.md                    ← ce fichier
-├── docker-compose.yml           ← orchestration complète (postgres, plm-api, pno-api, frontend)
-├── run.sh                       ← watch + rebuild automatique en dev
-├── .env.example
+shared (OPEN) ← tous les modules
+algorithm     ← action, node
+permission    ← node
+action        → node (TransactionApi, LockApi)
+node          → algorithm, permission, shared
+dashboard     → action, node, shared
+```
+
+### Modules
+
+| Module | Package | Rôle |
+|--------|---------|------|
+| **shared** | `com.plm.shared` (OPEN) | Cross-cutting : security, authorization, events, metadata, model, hooks, guards, config, exceptions |
+| **node** | `com.plm.node` | Domaine principal : noeuds, versions, liens, lifecycle, metamodel, transactions, baselines, signatures |
+| **action** | `com.plm.action` | ActionDispatcher, ActionService, orchestration des actions |
+| **algorithm** | `com.plm.algorithm` | AlgorithmRegistry, types, discovery, exécution |
+| **permission** | `com.plm.permission` | ViewService, PermissionAdminService, RoleController |
+| **dashboard** | `com.plm.dashboard` | Agrégations dashboard |
+
+### Structure psm-api (com.plm)
+
+```
+com.plm/
+├── PlmApplication.java
 │
-├── frontend/                    ← React 18 + nginx
-│   ├── Dockerfile
-│   ├── nginx.conf               ← /api/psm/ → plm-api, /api/pno/ → pno-api, /ws → plm-api
-│   ├── package.json
-│   └── src/
-│       ├── App.jsx
-│       ├── main.jsx
-│       ├── services/api.js      ← BASE='/api/psm', BASE_PNO='/api/pno'
-│       └── hooks/useWebSocket.js
+├── shared/                          # @ApplicationModule(type = OPEN)
+│   ├── security/                    # SecurityContextPort, PlmUserContext, PlmAuthFilter, PnoApiClient
+│   ├── authorization/               # PlmAction, PlmActionAspect, ActionPermissionService
+│   │   ├── guard/                   # ActionGuardService, ActionGuard, impls
+│   │   └── lifecycle/guard/         # LifecycleGuardService, LifecycleGuard, impls
+│   ├── action/                      # ActionHandler (interface), ActionContext, ActionResult
+│   ├── hook/                        # PreCommitValidator, AtCommitHook, PostCommitHook
+│   ├── event/                       # PlmEventPublisher, OutboxPoller
+│   ├── metadata/                    # MetadataService, Metadata, MetadataRegistry
+│   ├── model/                       # Enums, ResolvedAttribute, ResolvedNodeType, numbering/
+│   ├── guard/                       # GuardEffect, GuardEvaluation, GuardViolation
+│   ├── exception/                   # PlmFunctionalException, GlobalExceptionHandler
+│   └── config/                      # JacksonConfig, WebSocketConfig
 │
-├── plm-api/                     ← PSM — Product Structure Management (port 8080)
-│   ├── Dockerfile
-│   ├── pom.xml
-│   └── src/
-│       ├── main/
-│       │   ├── java/com/plm/
-│       │   │   ├── PlmApplication.java
-│       │   │   ├── api/controller/
-│       │   │   │   ├── NodeController.java          (/api/psm/nodes)
-│       │   │   │   ├── MetaModelController.java     (/api/psm/metamodel)
-│       │   │   │   ├── BaselineController.java      (/api/psm/baselines)
-│       │   │   │   ├── TransactionController.java   (/api/psm/transactions)
-│       │   │   │   └── RoleController.java          (/api/psm/admin — permissions PSM uniquement)
-│       │   │   ├── domain/
-│       │   │   │   ├── model/Enums.java
-│       │   │   │   └── service/
-│       │   │   │       ├── LockService.java          ← checkin/checkout/cascade
-│       │   │   │       ├── VersionService.java       ← règles revision.iteration
-│       │   │   │       ├── ValidationService.java    ← règles attribut×état
-│       │   │   │       ├── LifecycleService.java     ← transitions, guards, actions
-│       │   │   │       ├── NodeService.java          ← CRUD + payload UI
-│       │   │   │       ├── SignatureService.java     ← signatures électroniques
-│       │   │   │       ├── BaselineService.java      ← tag + résolution V2M
-│       │   │   │       ├── MetaModelService.java     ← CRUD méta-modèle
-│       │   │   │       ├── PermissionService.java    ← droits node-type, vues, overrides
-│       │   │   │       ├── PlmTransactionService.java← cycle de vie tx (open/commit/rollback)
-│       │   │   │       └── FingerPrintService.java
-│       │   │   └── infrastructure/
-│       │   │       ├── WebSocketConfig.java
-│       │   │       ├── PlmEventPublisher.java
-│       │   │       └── security/
-│       │   │           ├── PlmUserContext.java       ← identité + rôles par requête
-│       │   │           ├── PlmSecurityContext.java   ← ThreadLocal holder
-│       │   │           ├── PlmProjectSpaceContext.java
-│       │   │           ├── PlmAuthFilter.java        ← délègue à PnoApiClient (HTTP)
-│       │   │           └── PnoApiClient.java         ← cache Caffeine 30s → pno-api
-│       │   └── resources/
-│       │       ├── application.properties
-│       │       └── db/migration/                    ← schéma psm
-│       │           ├── V1__schema.sql
-│       │           ├── V2__seed_data.sql
-│       │           ├── V3__link_logical_id.sql
-│       │           ├── V4__cascade_child_state.sql
-│       │           ├── V5__action_registry.sql
-│       │           ├── V6__action_registry_v2.sql
-│       │           ├── V7__update_node_action.sql
-│       │           ├── V8__checkin_action.sql
-│       │           ├── V9__project_space_action_permissions.sql
-│       │           ├── V10__node_lock.sql
-│       │           └── V11__extract_pno_tables.sql  ← supprime plm_role/plm_user/user_role/project_space
-│       └── test/java/com/plm/
-│           ├── PlmIntegrationTest.java
-│           ├── PlmExtendedTest.java
-│           ├── PlmRoleAndViewTest.java
-│           └── PlmTransactionTest.java
+├── node/                            # @ApplicationModule(allowedDependencies = {algorithm, permission, shared})
+│   ├── NodeService.java             # API publique du module
+│   ├── NodeController.java          # /api/psm/nodes
+│   ├── transaction/
+│   │   ├── TransactionController.java  # /api/psm/transactions
+│   │   └── internal/               # PlmTransactionService, LockService
+│   ├── version/internal/            # VersionService, FingerPrintService
+│   ├── link/internal/               # LinkService, GraphValidationService
+│   ├── lifecycle/
+│   │   ├── LifecycleController.java
+│   │   └── internal/               # LifecycleService, StateActionService, guards
+│   ├── metamodel/
+│   │   ├── MetaModelController.java # /api/psm/metamodel
+│   │   └── internal/               # MetaModelService, MetaModelCache, ValidationService
+│   ├── baseline/
+│   │   ├── BaselineController.java  # /api/psm/baselines
+│   │   └── internal/               # BaselineService
+│   ├── signature/internal/          # SignatureService, CommentService
+│   ├── view/internal/               # (réservé)
+│   └── handler/                     # CheckoutActionHandler, TransitionActionHandler, ...
+│                                    # (implémentent shared.action.ActionHandler)
 │
-└── pno-api/                     ← PNO — People & Organisation (port 8081)
-    ├── Dockerfile
-    ├── pom.xml
-    └── src/
-        ├── main/
-        │   ├── java/com/pno/
-        │   │   ├── PnoApplication.java
-        │   │   ├── api/controller/
-        │   │   │   ├── UserController.java           (/api/pno/users — incl. /context)
-        │   │   │   ├── RoleController.java           (/api/pno/roles)
-        │   │   │   └── ProjectSpaceController.java   (/api/pno/project-spaces)
-        │   │   ├── domain/service/
-        │   │   │   ├── UserService.java              ← getUserContext() appelé par plm-api
-        │   │   │   ├── RoleService.java
-        │   │   │   └── ProjectSpaceService.java
-        │   │   └── infrastructure/security/
-        │   │       ├── PnoAuthFilter.java            ← bypass sur /context + /actuator
-        │   │       ├── PnoUserContext.java
-        │   │       └── PnoSecurityContext.java
-        │   └── resources/
-        │       ├── application.properties
-        │       └── db/migration/                    ← schéma pno
-        │           ├── V1__schema.sql               ← pno_role, pno_user, user_role, project_space
-        │           └── V2__seed_data.sql            ← seed autoritatif (rôles, users, espaces)
-        └── test/java/com/pno/
-            └── PnoSmokeTest.java
+├── action/                          # @ApplicationModule(allowedDependencies = {node, algorithm, shared})
+│   ├── ActionService.java           # API publique
+│   └── internal/                    # ActionDispatcher, DefaultActionHandlerRegistry
+│
+├── algorithm/                       # @ApplicationModule(allowedDependencies = {shared})
+│   ├── AlgorithmRegistry.java       # API publique
+│   ├── AlgorithmBean.java, AlgorithmParam.java, AlgorithmType.java
+│   ├── AlgorithmController.java     # /api/psm/algorithms
+│   └── internal/                    # AlgorithmService, AlgorithmStartupValidator
+│
+├── permission/                      # @ApplicationModule(allowedDependencies = {shared})
+│   ├── ViewService.java             # API publique
+│   ├── RoleController.java          # /api/psm/admin
+│   └── internal/                    # PermissionAdminService
+│
+└── dashboard/                       # @ApplicationModule(allowedDependencies = {action, node, shared})
+    ├── DashboardController.java
+    └── internal/                    # DashboardService
+```
+
+### Règles de modularité
+
+- **Classes dans le package racine** du module = API publique, injectable par d'autres modules
+- **Classes dans `internal/`** = privées au module, invisibles de l'extérieur
+- **shared est OPEN** : tout module peut en dépendre sans déclaration explicite
+- **Action handlers** : pattern plugin — implémentent `ActionHandler` (shared), découverts par Spring, vivent dans `node.handler`
+- **@PlmAction** : annotation cross-cutting dans shared, aspect AOP dans shared.authorization
+- **ModularArchitectureTest** : `ApplicationModules.of(PlmApplication.class).verify()` — vérifie les frontières à chaque build
+- **Pas d'API interface formelle** pour l'instant (TransactionApi/LockApi prévus mais non extraits) — injection directe des services
+
+### pno-api (inchangé)
+
+```
+pno-api/
+├── src/main/java/com/pno/
+│   ├── PnoApplication.java
+│   ├── api/controller/              # UserController, RoleController, ProjectSpaceController
+│   ├── domain/service/              # UserService, RoleService, ProjectSpaceService
+│   └── infrastructure/security/     # PnoAuthFilter, PnoUserContext, PnoSecurityContext
+└── src/main/resources/db/migration/ # V1__schema.sql, V2__seed_data.sql
 ```
 
 ---
@@ -351,11 +356,14 @@ nginx utilise `proxy_pass` simple sans directive `resolver`. Ordre démarrage ga
 ### H2 vs PostgreSQL
 H2 mode PostgreSQL pour tests et dev local. Noms de contraintes FK suivent `{table}_{col}_fkey` (compatible H2 2.x + PostgreSQL). `DROP CONSTRAINT IF EXISTS` sécurisés sur les deux bases.
 
+### Spring Modulith
+Architecture domain-first avec Spring Modulith 1.4.x. Frontières vérifiées par `ModularArchitectureTest`. Ajouter un nouveau service : le placer dans le bon module, respecter `allowedDependencies` dans `package-info.java`. Action handlers : implémenter `ActionHandler` de `shared.action`, placer dans `node.handler` — Spring les découvre automatiquement.
+
 ### JOOQ sans code generation
 JOOQ en mode "plain SQL" (sans génération de classes). Intentionnel pour démarrer vite. Prochaine étape : activer génération code JOOQ depuis schéma Flyway.
 
 ### PlmSecurityContext en test
-Tests injectent contexte manuellement via `PlmSecurityContext.set(...)`. En production, `PlmAuthFilter` (via `PnoApiClient`) le fait. Dualité à documenter pour futurs développeurs.
+Tests injectent contexte via `PlmSecurityContext.set(...)` (dans `shared.security`). En production, `PlmAuthFilter` (via `PnoApiClient`) le fait.
 
 ### Frontend : pas de state management global
 Frontend intentionnellement simple (pas Redux/Zustand). État local à chaque composant + rechargement depuis API. Acceptable pour POC, à revoir si volume données augmente.

@@ -1,8 +1,12 @@
 package com.plm;
 
-import com.plm.domain.security.PlmUserContext;
-import com.plm.domain.service.*;
-import com.plm.infrastructure.security.PlmSecurityContext;
+import com.plm.shared.security.PlmUserContext;
+import com.plm.node.NodeService;
+import com.plm.node.lifecycle.internal.LifecycleService;
+import com.plm.node.transaction.internal.LockService;
+import com.plm.node.transaction.internal.PlmTransactionService;
+import com.plm.node.version.internal.VersionService;
+import com.plm.shared.security.PlmSecurityContext;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
