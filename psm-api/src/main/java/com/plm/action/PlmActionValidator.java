@@ -63,8 +63,7 @@ public class PlmActionValidator {
                 // Verify the action_code exists in the action catalog
                 Integer count = dsl.fetchCount(
                     dsl.selectOne().from("action")
-                       .where("action_code = ?", code)
-                       .and("action_kind = 'BUILTIN'"));
+                       .where("action_code = ?", code));
 
                 if (count == 0) {
                     unknown.add(code + " (on " + targetClass.getSimpleName() + "." + m.getName() + ")");
@@ -78,17 +77,8 @@ public class PlmActionValidator {
             log.error("PlmActionValidator: {} unknown @PlmAction code(s) — not found in action table:",
                 unknown.size());
             unknown.forEach(entry -> log.error("  ✗ {}", entry));
-            log.error("Ensure action_code values match the `action` table (action_kind=BUILTIN). " +
+            log.error("Ensure action_code values match the `action` table. " +
                       "Affected methods will use the permissive default (no permission check).");
-        }
-
-        // Summary of validated codes at DEBUG
-        if (log.isDebugEnabled()) {
-            List<String> knownCodes = dsl.select(org.jooq.impl.DSL.field("action_code"))
-                .from("action").where("action_kind = 'BUILTIN'")
-                .fetch(org.jooq.impl.DSL.field("action_code"), String.class);
-            log.debug("PlmActionValidator: validated codes: {}", checked);
-            log.debug("PlmActionValidator: all BUILTIN codes in DB: {}", knownCodes);
         }
     }
 }

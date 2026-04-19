@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
@@ -28,8 +29,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Service
 public class StateActionService {
 
-    private final DSLContext        dsl;
-    private final AlgorithmRegistry algorithmRegistry;
+    private final DSLContext         dsl;
+    private final ApplicationContext appCtx;
+
+    private AlgorithmRegistry algorithmRegistry() {
+        return AlgorithmRegistry.getInstance(appCtx);
+    }
 
     /** Tier 1: lifecycle-state-level actions, keyed by (stateId, trigger). */
     private Map<StateKey, List<ResolvedStateAction>> stateActionsCache = Map.of();
@@ -38,9 +43,9 @@ public class StateActionService {
 
     private final ReentrantReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
-    public StateActionService(DSLContext dsl, AlgorithmRegistry algorithmRegistry) {
+    public StateActionService(DSLContext dsl, ApplicationContext appCtx) {
         this.dsl = dsl;
-        this.algorithmRegistry = algorithmRegistry;
+        this.appCtx = appCtx;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -206,14 +211,14 @@ public class StateActionService {
         StateActionMode mode = StateActionMode.valueOf(row.get("execution_mode", String.class));
         int displayOrder = row.get("display_order", Integer.class);
 
-        if (!algorithmRegistry.hasBean(code)) {
+        if (!algorithmRegistry().hasBean(code)) {
             log.warn("State action algorithm '{}' has no Spring bean — skipping", code);
             return null;
         }
 
         StateAction bean;
         try {
-            bean = algorithmRegistry.resolve(code, StateAction.class);
+            bean = algorithmRegistry().resolve(code, StateAction.class);
         } catch (IllegalArgumentException e) {
             log.warn("Algorithm '{}' does not implement StateAction — skipping (wrong attachment?)", code);
             return null;

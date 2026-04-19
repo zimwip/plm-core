@@ -6,13 +6,13 @@ import com.plm.shared.action.ActionResult;
 import com.plm.node.NodeService;
 import com.plm.node.metamodel.internal.ValidationService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import com.plm.algorithm.AlgorithmBean;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@Service("updateNodeActionHandler")
+@AlgorithmBean(code = "UPDATE_NODE", name = "UPDATE_NODE Handler")
 @RequiredArgsConstructor
 public class UpdateNodeActionHandler implements ActionHandler {
 

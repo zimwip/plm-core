@@ -5,12 +5,12 @@ import com.plm.shared.action.ActionHandler;
 import com.plm.shared.action.ActionResult;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import com.plm.algorithm.AlgorithmBean;
 
 import java.util.List;
 import java.util.Map;
 
-@Service("cancelActionHandler")
+@AlgorithmBean(code = "CANCEL", name = "CANCEL Handler")
 @RequiredArgsConstructor
 public class CancelActionHandler implements ActionHandler {
 

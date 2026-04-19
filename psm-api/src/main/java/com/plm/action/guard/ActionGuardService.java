@@ -7,6 +7,7 @@ import com.plm.shared.guard.GuardEvaluation;
 import com.plm.shared.guard.GuardViolation;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
+import org.springframework.context.ApplicationContext;
 import org.jooq.Record;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -30,8 +31,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Service
 public class ActionGuardService {
 
-    private final DSLContext         dsl;
-    private final AlgorithmRegistry  algorithmRegistry;
+    private final DSLContext          dsl;
+    private final ApplicationContext  appCtx;
 
     /** Action-level guards (global across node types), keyed by actionId. */
     private Map<String, List<ResolvedGuard>> actionGuardsCache = Map.of();
@@ -40,9 +41,13 @@ public class ActionGuardService {
 
     private final ReentrantReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
-    public ActionGuardService(DSLContext dsl, AlgorithmRegistry algorithmRegistry) {
+    public ActionGuardService(DSLContext dsl, ApplicationContext appCtx) {
         this.dsl = dsl;
-        this.algorithmRegistry = algorithmRegistry;
+        this.appCtx = appCtx;
+    }
+
+    private AlgorithmRegistry algorithmRegistry() {
+        return AlgorithmRegistry.getInstance(appCtx);
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -242,14 +247,14 @@ public class ActionGuardService {
         String instanceId = row.get("algorithm_instance_id", String.class);
         GuardEffect effect = GuardEffect.valueOf(row.get("effect", String.class));
 
-        if (!algorithmRegistry.hasBean(code)) {
+        if (!algorithmRegistry().hasBean(code)) {
             log.warn("Guard algorithm '{}' has no Spring bean -- skipping", code);
             return null;
         }
 
         ActionGuard bean;
         try {
-            bean = algorithmRegistry.resolve(code, ActionGuard.class);
+            bean = algorithmRegistry().resolve(code, ActionGuard.class);
         } catch (IllegalArgumentException e) {
             log.warn("Algorithm '{}' does not implement ActionGuard -- skipping (wrong attachment?)", code);
             return null;

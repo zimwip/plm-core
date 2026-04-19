@@ -45,7 +45,10 @@ public class ActionRegistrationService {
     // ================================================================
 
     public List<Record> getAllActions() {
-        return dsl.select().from("action").orderBy(DSL.field("action_code")).fetch();
+        return dsl.fetch(
+            "SELECT id, action_code, scope, display_name, description, " +
+            "display_category, display_order, managed_with " +
+            "FROM action ORDER BY action_code");
     }
 
     /**
@@ -67,8 +70,8 @@ public class ActionRegistrationService {
         List<Map<String, Object>> out = new java.util.ArrayList<>();
 
         List<Record> nodeRows = dsl.fetch(
-            "SELECT a.id AS action_id, a.action_code, a.action_kind, a.scope, " +
-            "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, a.managed_with, " +
+            "SELECT a.id AS action_id, a.action_code, a.scope, " +
+            "       a.display_name, a.display_category, a.display_order, a.managed_with, " +
             "       EXISTS (SELECT 1 FROM action_permission ap " +
             "               WHERE ap.action_id = a.id " +
             "                 AND (ap.node_type_id = ? OR ap.node_type_id IS NULL) " +
@@ -84,8 +87,8 @@ public class ActionRegistrationService {
 
         if (lifecycleId != null) {
             List<Record> lcRows = dsl.fetch(
-                "SELECT a.id AS action_id, a.action_code, a.action_kind, a.scope, " +
-                "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, a.managed_with, " +
+                "SELECT a.id AS action_id, a.action_code, a.scope, " +
+                "       a.display_name, a.display_category, a.display_order, a.managed_with, " +
                 "       lt.id AS transition_id, lt.name AS transition_name, ls.name AS from_state_name, " +
                 "       EXISTS (SELECT 1 FROM action_permission ap " +
                 "               WHERE ap.action_id = a.id " +
@@ -117,13 +120,10 @@ public class ActionRegistrationService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("action_id",        r.get("action_id",        String.class));
         m.put("action_code",      r.get("action_code",      String.class));
-        m.put("action_kind",      r.get("action_kind",      String.class));
         m.put("scope",            r.get("scope",            String.class));
         m.put("display_name",     r.get("display_name",     String.class));
         m.put("display_category", r.get("display_category", String.class));
-        m.put("requires_tx",      r.get("requires_tx",      Integer.class));
         m.put("display_order",    r.get("display_order",    Integer.class));
-        m.put("handler_ref",      r.get("handler_ref",      String.class));
         m.put("node_type_id",     nodeTypeId);
         m.put("transition_id",    transitionId);
         m.put("transition_name",  transitionName);

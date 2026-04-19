@@ -5,11 +5,11 @@ import com.plm.shared.action.ActionHandler;
 import com.plm.shared.action.ActionResult;
 import com.plm.node.baseline.internal.BaselineService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import com.plm.algorithm.AlgorithmBean;
 
 import java.util.Map;
 
-@Service("baselineActionHandler")
+@AlgorithmBean(code = "BASELINE", name = "BASELINE Handler")
 @RequiredArgsConstructor
 public class BaselineActionHandler implements ActionHandler {
 

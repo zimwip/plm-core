@@ -6,11 +6,11 @@ import com.plm.shared.action.ActionResult;
 import com.plm.node.NodeService;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import com.plm.algorithm.AlgorithmBean;
 
 import java.util.Map;
 
-@Service("checkoutActionHandler")
+@AlgorithmBean(code = "CHECKOUT", name = "CHECKOUT Handler")
 @RequiredArgsConstructor
 public class CheckoutActionHandler implements ActionHandler {
 

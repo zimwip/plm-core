@@ -3595,10 +3595,7 @@ export function GuardsSection({ userId, canWrite, toast }) {
             const aName    = action.display_name   || action.displayName || aCode;
             const aScope   = action.scope;
             const aDesc    = action.description;
-            const aHandler = action.handler_ref    || action.handlerRef;
             const aCat     = action.display_category || action.displayCategory;
-            const aKind    = action.action_kind    || action.actionKind;
-            const aTx      = action.requires_tx    ?? action.requiresTx;
             const managedWith = action.managed_with || action.managedWith || null;
             const isManaged   = !!managedWith;
 
@@ -3677,10 +3674,7 @@ export function GuardsSection({ userId, canWrite, toast }) {
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>
                       <span>ID: <code>{action.id}</code></span>
                       <span>Code: <code>{aCode}</code></span>
-                      <span>Handler: <code>{aHandler}</code></span>
                       <span>Category: <span className="settings-badge">{aCat}</span></span>
-                      <span>Kind: <span className="settings-badge">{aKind}</span></span>
-                      {aTx === 1 && <span className="settings-badge">Requires TX</span>}
                       {aDesc && <span style={{ flexBasis: '100%' }}>{aDesc}</span>}
                     </div>
 

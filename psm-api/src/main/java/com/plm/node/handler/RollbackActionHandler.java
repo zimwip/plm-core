@@ -5,11 +5,11 @@ import com.plm.shared.action.ActionHandler;
 import com.plm.shared.action.ActionResult;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import com.plm.algorithm.AlgorithmBean;
 
 import java.util.Map;
 
-@Service("rollbackActionHandler")
+@AlgorithmBean(code = "ROLLBACK", name = "ROLLBACK Handler")
 @RequiredArgsConstructor
 public class RollbackActionHandler implements ActionHandler {
 

@@ -33,8 +33,9 @@ public class TransactionWrapper implements ActionWrapper {
     private final PlmTransactionService txService;
 
     @Override
-    public ActionResult wrap(ActionContext context, Map<String, String> params, Chain chain) {
-        String txMode = params.getOrDefault("_wrapper_tx_mode", "REQUIRED");
+    public ActionResult wrap(ActionContext context, Map<String, String> params,
+                             Map<String, String> instanceParams, Chain chain) {
+        String txMode = instanceParams.getOrDefault("tx_mode", "REQUIRED");
         String userId = context.userId();
         String txId = context.txId();
 

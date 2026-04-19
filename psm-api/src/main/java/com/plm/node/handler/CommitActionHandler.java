@@ -5,12 +5,12 @@ import com.plm.shared.action.ActionHandler;
 import com.plm.shared.action.ActionResult;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import com.plm.algorithm.AlgorithmBean;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-@Service("commitActionHandler")
+@AlgorithmBean(code = "COMMIT", name = "COMMIT Handler")
 @RequiredArgsConstructor
 public class CommitActionHandler implements ActionHandler {
 

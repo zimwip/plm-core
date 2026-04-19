@@ -14,12 +14,12 @@ import java.lang.annotation.Target;
  * At startup, {@link AlgorithmStartupValidator} cross-checks all annotated beans
  * against DB rows — missing algorithms are auto-registered.
  *
- * This annotation is meta-annotated with {@link Component}, so annotated classes
- * are automatically registered as Spring beans.
+ * Also acts as {@link Component} so annotated classes are Spring beans.
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Component
+
 public @interface AlgorithmBean {
 
     /** Must match {@code algorithm.code} in the database. */

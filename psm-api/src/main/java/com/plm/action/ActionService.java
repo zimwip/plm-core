@@ -1,10 +1,11 @@
 package com.plm.action;
 
-import com.plm.shared.action.ActionHandlerRegistry;
 
 import com.plm.action.guard.ActionGuardContext;
 import com.plm.action.guard.ActionGuardService;
 import com.plm.shared.guard.GuardEvaluation;
+import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.shared.action.ActionHandler;
 import com.plm.shared.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +35,7 @@ public class ActionService {
     private final ActionPermissionService permissionService;
     private final ActionGuardService       actionGuardService;
     private final SecurityContextPort     secCtx;
-    private final ActionHandlerRegistry   handlerRegistry;
+    private final AlgorithmRegistry       algorithmRegistry;
 
     public List<Map<String, Object>> resolveActionsForNode(
         String nodeId, String nodeTypeId, String currentStateId,
@@ -48,8 +49,8 @@ public class ActionService {
 
         // NODE-scope actions: one row per action (permission checked later by canExecute)
         List<Record> nodeActions = dsl.fetch(
-            "SELECT a.id AS action_id, a.action_code, a.action_kind, a.scope, " +
-            "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, a.tx_mode, a.managed_with " +
+            "SELECT a.id AS action_id, a.action_code, a.scope, " +
+            "       a.display_name, a.display_category, a.display_order, a.managed_with " +
             "FROM action a " +
             "WHERE a.scope = 'NODE' " +
             "ORDER BY a.display_order, a.display_category");
@@ -63,8 +64,8 @@ public class ActionService {
         // LIFECYCLE-scope actions: one row per (action × transition) in this lifecycle
         if (lifecycleId != null) {
             List<Record> lifecycleActions = dsl.fetch(
-                "SELECT a.id AS action_id, a.action_code, a.action_kind, a.scope, " +
-                "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, a.tx_mode, a.managed_with, " +
+                "SELECT a.id AS action_id, a.action_code, a.scope, " +
+                "       a.display_name, a.display_category, a.display_order, a.managed_with, " +
                 "       lt.id AS transition_id, lt.name AS transition_name " +
                 "FROM action a " +
                 "CROSS JOIN lifecycle_transition lt " +
@@ -150,8 +151,6 @@ public class ActionService {
         action.put("actionCode",      actionCode);
         action.put("name",            displayName != null ? displayName : actionCode);
         action.put("displayCategory", displayCategory);
-        action.put("requiresTx",      row.get("requires_tx", Integer.class) == 1);
-        action.put("txMode",          row.get("tx_mode", String.class));
         action.put("authorized",      authorized);
         if (managedWith != null) action.put("managedWith", managedWith);
         if (transitionId != null) action.put("transitionId", transitionId);
@@ -159,9 +158,9 @@ public class ActionService {
         action.put("guardViolations", guardViolations);
 
         // Display hints from handler (e.g. transition target state color)
-        if (handlerRegistry.hasHandler(actionCode)) {
-            Map<String, Object> hints = handlerRegistry.getHandler(actionCode)
-                .resolveDisplayHints(nodeId, nodeTypeId, transitionId);
+        if (algorithmRegistry.hasBean(actionCode)) {
+            ActionHandler handler = algorithmRegistry.resolve(actionCode, ActionHandler.class);
+            Map<String, Object> hints = handler.resolveDisplayHints(nodeId, nodeTypeId, transitionId);
             if (hints != null && !hints.isEmpty()) {
                 action.putAll(hints);
             }

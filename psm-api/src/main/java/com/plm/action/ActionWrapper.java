@@ -28,13 +28,15 @@ public interface ActionWrapper {
     /**
      * Wraps action execution.
      *
-     * @param context   current action context (may be enriched by previous wrappers)
-     * @param params    validated user-supplied parameters
-     * @param chain     the rest of the pipeline — call {@code chain.proceed(context, params)}
-     *                  to continue execution
-     * @return          action result
+     * @param context        current action context (may be enriched by previous wrappers)
+     * @param params         validated user-supplied parameters
+     * @param instanceParams algorithm instance parameters for this wrapper (e.g., tx_mode=ISOLATED)
+     * @param chain          the rest of the pipeline — call {@code chain.proceed(context, params)}
+     *                       to continue execution
+     * @return               action result
      */
-    ActionResult wrap(ActionContext context, Map<String, String> params, Chain chain);
+    ActionResult wrap(ActionContext context, Map<String, String> params,
+                      Map<String, String> instanceParams, Chain chain);
 
     /**
      * Represents the rest of the wrapper chain + the final handler.

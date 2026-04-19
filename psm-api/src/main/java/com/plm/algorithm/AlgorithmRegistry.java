@@ -1,6 +1,8 @@
 package com.plm.algorithm;
 import com.plm.algorithm.internal.AlgorithmStats;
 
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
@@ -15,20 +17,37 @@ import java.util.Map;
  * Discovers all {@link AlgorithmBean}-annotated beans at startup, wraps each
  * in a timing proxy that records execution statistics, and indexes them by code.
  *
- * Every call to the algorithm interface methods is measured and recorded in
- * {@link AlgorithmStats}. Stats are exposed via the {@code /api/psm/algorithms/stats}
- * endpoint.
+ * Discovery runs in {@code @PostConstruct} (not constructor) to avoid circular
+ * dependency issues — action handlers depend on services that depend on
+ * AlgorithmRegistry.
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class AlgorithmRegistry {
 
-    /** code → proxied bean (with stats collection) */
-    private final Map<String, Object> beansByCode = new HashMap<>();
-    /** code → original unwrapped bean (for type checks) */
-    private final Map<String, Object> rawBeansByCode = new HashMap<>();
+    private static AlgorithmRegistry INSTANCE;
 
-    public AlgorithmRegistry(ApplicationContext ctx) {
+    private final ApplicationContext ctx;
+
+    /** code → proxied bean (with stats collection) */
+    private Map<String, Object> beansByCode = new HashMap<>();
+    /** code → original unwrapped bean (for type checks) */
+    private Map<String, Object> rawBeansByCode = new HashMap<>();
+
+    /**
+     * Lazy accessor for services that cannot inject AlgorithmRegistry at
+     * construction time (breaks circular dependency). Use this instead of
+     * injecting AlgorithmRegistry via constructor.
+     */
+    public static AlgorithmRegistry getInstance(ApplicationContext ctx) {
+        if (INSTANCE != null) return INSTANCE;
+        return ctx.getBean(AlgorithmRegistry.class);
+    }
+
+    @PostConstruct
+    public void discover() {
+        INSTANCE = this;
         Map<String, Object> beans = ctx.getBeansWithAnnotation(AlgorithmBean.class);
         for (Object bean : beans.values()) {
             AlgorithmBean ann = bean.getClass().getAnnotation(AlgorithmBean.class);
@@ -54,7 +73,7 @@ public class AlgorithmRegistry {
             log.debug("Registered algorithm bean: code={} class={} proxied={}",
                 code, bean.getClass().getSimpleName(), ifaces.length > 0);
         }
-        log.info("AlgorithmRegistry: {} algorithm beans discovered (all proxied with stats)", beansByCode.size());
+        log.info("AlgorithmRegistry: {} algorithm beans discovered", beansByCode.size());
     }
 
     /**

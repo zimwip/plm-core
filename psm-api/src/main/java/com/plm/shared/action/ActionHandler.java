@@ -1,14 +1,19 @@
 package com.plm.shared.action;
 
+import com.plm.algorithm.AlgorithmType;
+
 import java.util.Map;
 
 /**
  * Contract for all action handlers — built-in and custom.
  *
- * Spring beans implementing this interface are auto-collected by ActionDispatcher.
+ * Implementations are algorithm beans discovered via {@link com.plm.algorithm.AlgorithmRegistry}.
  * Each bean must return a unique, stable action_code that matches its
  * action.action_code value in the database.
  */
+@AlgorithmType(id = "algtype-action-handler",
+    name = "Action Handler",
+    description = "Executes a PLM action (checkout, transition, sign, etc.)")
 public interface ActionHandler {
 
     /** Stable action code this handler serves (e.g. "SIGN", "CHECKOUT"). */

@@ -1,6 +1,7 @@
 package com.plm.node.lifecycle.internal.guard;
 
 import com.plm.algorithm.AlgorithmRegistry;
+import org.springframework.context.ApplicationContext;
 import com.plm.shared.exception.GuardViolationException;
 import com.plm.shared.guard.GuardEffect;
 import com.plm.shared.guard.GuardEvaluation;
@@ -36,8 +37,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Service
 public class LifecycleGuardService {
 
-    private final DSLContext        dsl;
-    private final AlgorithmRegistry algorithmRegistry;
+    private final DSLContext          dsl;
+    private final ApplicationContext  appCtx;
 
     /** Tier 1: lifecycle-transition guards, keyed by transitionId. */
     private Map<String, List<ResolvedGuard>> transitionGuardsCache = Map.of();
@@ -46,9 +47,13 @@ public class LifecycleGuardService {
 
     private final ReentrantReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
-    public LifecycleGuardService(DSLContext dsl, AlgorithmRegistry algorithmRegistry) {
+    public LifecycleGuardService(DSLContext dsl, ApplicationContext appCtx) {
         this.dsl = dsl;
-        this.algorithmRegistry = algorithmRegistry;
+        this.appCtx = appCtx;
+    }
+
+    private AlgorithmRegistry algorithmRegistry() {
+        return AlgorithmRegistry.getInstance(appCtx);
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -196,14 +201,14 @@ public class LifecycleGuardService {
         String instanceId = row.get("algorithm_instance_id", String.class);
         GuardEffect effect = GuardEffect.valueOf(row.get("effect", String.class));
 
-        if (!algorithmRegistry.hasBean(code)) {
+        if (!algorithmRegistry().hasBean(code)) {
             log.warn("Lifecycle guard algorithm '{}' has no Spring bean — skipping", code);
             return null;
         }
 
         LifecycleGuard bean;
         try {
-            bean = algorithmRegistry.resolve(code, LifecycleGuard.class);
+            bean = algorithmRegistry().resolve(code, LifecycleGuard.class);
         } catch (IllegalArgumentException e) {
             log.warn("Algorithm '{}' does not implement LifecycleGuard — skipping (wrong attachment?)", code);
             return null;

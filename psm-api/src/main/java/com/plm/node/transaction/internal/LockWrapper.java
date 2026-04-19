@@ -26,7 +26,8 @@ public class LockWrapper implements ActionWrapper {
     private final LockService lockService;
 
     @Override
-    public ActionResult wrap(ActionContext context, Map<String, String> params, Chain chain) {
+    public ActionResult wrap(ActionContext context, Map<String, String> params,
+                             Map<String, String> instanceParams, Chain chain) {
         String nodeId = context.nodeId();
         if (nodeId == null) {
             return chain.proceed(context, params);

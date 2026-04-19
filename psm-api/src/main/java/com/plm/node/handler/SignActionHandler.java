@@ -5,11 +5,11 @@ import com.plm.shared.action.ActionHandler;
 import com.plm.shared.action.ActionResult;
 import com.plm.node.signature.internal.SignatureService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import com.plm.algorithm.AlgorithmBean;
 
 import java.util.Map;
 
-@Service("signActionHandler")
+@AlgorithmBean(code = "SIGN", name = "SIGN Handler")
 @RequiredArgsConstructor
 public class SignActionHandler implements ActionHandler {
 

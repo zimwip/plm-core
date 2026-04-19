@@ -6,11 +6,11 @@ import com.plm.shared.action.ActionResult;
 import com.plm.node.NodeService;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
-import org.springframework.stereotype.Service;
+import com.plm.algorithm.AlgorithmBean;
 
 import java.util.Map;
 
-@Service("createLinkActionHandler")
+@AlgorithmBean(code = "CREATE_LINK", name = "CREATE_LINK Handler")
 @RequiredArgsConstructor
 public class CreateLinkActionHandler implements ActionHandler {
 

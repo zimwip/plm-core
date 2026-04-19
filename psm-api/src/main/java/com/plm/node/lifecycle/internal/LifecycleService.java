@@ -3,8 +3,6 @@ import com.plm.node.metamodel.internal.MetaModelCache;
 import com.plm.node.version.internal.VersionService;
 import com.plm.node.transaction.internal.LockService;
 
-import com.plm.action.guard.ActionGuardContext;
-import com.plm.action.guard.ActionGuardService;
 import com.plm.shared.guard.GuardEvaluation;
 import com.plm.shared.guard.GuardViolation;
 import com.plm.node.lifecycle.internal.guard.LifecycleGuardContext;
@@ -54,7 +52,6 @@ public class LifecycleService {
     private final VersionService          versionService;
     private final LockService             lockService;
     private final PlmEventPublisher       eventPublisher;
-    private final ActionGuardService       actionGuardService;
     private final LifecycleGuardService    lifecycleGuardService;
     private final SecurityContextPort     secCtx;
     private final StateActionService      stateActionService;
@@ -511,28 +508,11 @@ public class LifecycleService {
         // Vérifier permission transition
         // (délégué à permissionService dans NodeController — ici on fait confiance à l'appelant)
 
-        // Evaluate guards via GuardService — resolves action_guard + node_action_guard
+        // Action-level guards (action_guard + node_action_guard) are evaluated upstream
+        // by PlmActionAspect before dispatch — not duplicated here.
+
         String nodeTypeId = dsl.select(DSL.field("node_type_id")).from("node")
             .where("id = ?", nodeId).fetchOne(DSL.field("node_type_id"), String.class);
-        String actionId = dsl.select(DSL.field("id")).from("action")
-            .where("action_code = 'TRANSITION'")
-            .fetchOne(DSL.field("id"), String.class);
-
-        if (actionId != null && nodeTypeId != null) {
-            boolean isAdmin = secCtx.currentUser().isAdmin();
-            ActionGuardContext gCtx = new ActionGuardContext(nodeId, nodeTypeId, currentStateId,
-                "TRANSITION", transitionId, false, false,
-                secCtx.currentUser().getUserId(), Map.of());
-            GuardEvaluation eval = actionGuardService.evaluate(actionId, nodeTypeId, transitionId, isAdmin, gCtx);
-            if (!eval.passed()) {
-                List<String> messages = eval.violations().stream()
-                    .map(GuardViolation::message).toList();
-                throw new GuardException(
-                    "Transition blocked:\n" + messages.stream()
-                        .map(s -> "  • " + s)
-                        .collect(Collectors.joining("\n")));
-            }
-        }
 
         // Créer la version LIFECYCLE avec la stratégie de numérotation de la transition
         String versionId = versionService.createVersion(
@@ -624,25 +604,8 @@ public class LifecycleService {
     // Guards
     // ================================================================
 
-    /**
-     * Evaluates all guards for a transition via GuardService.
-     * Kept as a convenience method for callers that don't have the full context.
-     */
-    public List<String> evaluateAllGuards(String nodeId, String transitionId) {
-        String nodeTypeId = dsl.select(DSL.field("node_type_id")).from("node")
-            .where("id = ?", nodeId).fetchOne(DSL.field("node_type_id"), String.class);
-        if (nodeTypeId == null) return List.of();
-
-        Record current = versionService.getCurrentVersion(nodeId);
-        String currentStateId = current != null ? current.get("lifecycle_state_id", String.class) : null;
-
-        boolean isAdmin = secCtx.currentUser().isAdmin();
-        ActionGuardContext gCtx = new ActionGuardContext(nodeId, nodeTypeId, currentStateId,
-            "TRANSITION", transitionId, false, false,
-            secCtx.currentUser().getUserId(), Map.of());
-        GuardEvaluation eval = actionGuardService.evaluate("act-transition", nodeTypeId, transitionId, isAdmin, gCtx);
-        return eval.violations().stream().map(GuardViolation::message).toList();
-    }
+    // Action-level guard evaluation (evaluateAllGuards) removed —
+    // handled by PlmActionAspect before dispatch, not duplicated in service.
 
     // ================================================================
     // Actions
