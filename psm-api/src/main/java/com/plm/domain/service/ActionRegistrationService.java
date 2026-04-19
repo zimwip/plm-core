@@ -1,6 +1,8 @@
 package com.plm.domain.service;
 
 import com.plm.domain.action.PlmAction;
+import com.plm.domain.action.guard.ActionGuardService;
+import com.plm.domain.lifecycle.guard.LifecycleGuardService;
 import com.plm.domain.security.SecurityContextPort;
 import com.plm.infrastructure.PlmEventPublisher;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,8 @@ public class ActionRegistrationService {
     private final MetaModelCache      metaModelCache;
     private final PlmEventPublisher   eventPublisher;
     private final SecurityContextPort secCtx;
+    private final ActionGuardService   actionGuardService;
+    private final LifecycleGuardService lifecycleGuardService;
 
     // ================================================================
     // ACTION REGISTRY — read
@@ -63,7 +67,7 @@ public class ActionRegistrationService {
 
         List<Record> nodeRows = dsl.fetch(
             "SELECT a.id AS action_id, a.action_code, a.action_kind, a.scope, " +
-            "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, " +
+            "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, a.managed_with, " +
             "       EXISTS (SELECT 1 FROM action_permission ap " +
             "               WHERE ap.action_id = a.id " +
             "                 AND (ap.node_type_id = ? OR ap.node_type_id IS NULL) " +
@@ -80,7 +84,7 @@ public class ActionRegistrationService {
         if (lifecycleId != null) {
             List<Record> lcRows = dsl.fetch(
                 "SELECT a.id AS action_id, a.action_code, a.action_kind, a.scope, " +
-                "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, " +
+                "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, a.managed_with, " +
                 "       lt.id AS transition_id, lt.name AS transition_name, ls.name AS from_state_name, " +
                 "       EXISTS (SELECT 1 FROM action_permission ap " +
                 "               WHERE ap.action_id = a.id " +
@@ -123,9 +127,23 @@ public class ActionRegistrationService {
         m.put("transition_id",    transitionId);
         m.put("transition_name",  transitionName);
         m.put("from_state_name",  fromStateName);
+        String managedWith = r.get("managed_with", String.class);
+        m.put("managed_with",     managedWith);
         m.put("status",           enabled ? "ENABLED" : "DISABLED");
         m.put("inherited",        false);
         m.put("inherited_from",   null);
+
+        // For manager actions, list managed action codes
+        if (managedWith == null) {
+            String actionId = r.get("action_id", String.class);
+            List<String> managedActions = dsl.select(DSL.field("action_code")).from("action")
+                .where("managed_with = ?", actionId)
+                .fetch(DSL.field("action_code"), String.class);
+            if (!managedActions.isEmpty()) {
+                m.put("managed_actions", managedActions);
+            }
+        }
+
         return m;
     }
 
@@ -183,6 +201,7 @@ public class ActionRegistrationService {
                                     String transitionId, String roleId) {
         String psId = secCtx.requireProjectSpaceId();
         String actionId = resolveActionId(actionCode);
+        assertNotManaged(actionId, actionCode);
 
         deleteActionPermissionRow(nodeTypeId, actionId, roleId, psId, transitionId);
         dsl.execute(
@@ -198,6 +217,7 @@ public class ActionRegistrationService {
                                        String transitionId, String roleId) {
         String psId = secCtx.requireProjectSpaceId();
         String actionId = resolveActionId(actionCode);
+        assertNotManaged(actionId, actionCode);
         deleteActionPermissionRow(nodeTypeId, actionId, roleId, psId, transitionId);
     }
 
@@ -275,12 +295,99 @@ public class ActionRegistrationService {
     // Private helpers
     // ================================================================
 
+    // ================================================================
+    // MANAGED_WITH — admin management
+    // ================================================================
+
+    /**
+     * Sets or clears managed_with on an action.
+     * When setting: validates manager exists, scope matches, no chaining.
+     * Deletes all guards and permissions from the managed action.
+     */
+    @PlmAction("MANAGE_METAMODEL")
+    @Transactional
+    public Map<String, Object> setManagedWith(String actionId, String managedWithId) {
+        Record action = dsl.select(DSL.field("id"), DSL.field("scope"), DSL.field("action_code"))
+            .from("action").where("id = ?", actionId).fetchOne();
+        if (action == null) throw new IllegalArgumentException("Unknown action: " + actionId);
+
+        int deletedGuards = 0;
+        int deletedPerms  = 0;
+
+        if (managedWithId != null) {
+            // Validate manager exists
+            Record manager = dsl.select(DSL.field("id"), DSL.field("scope"), DSL.field("managed_with"))
+                .from("action").where("id = ?", managedWithId).fetchOne();
+            if (manager == null)
+                throw new IllegalArgumentException("Manager action not found: " + managedWithId);
+
+            // Scope must match
+            if (!action.get("scope", String.class).equals(manager.get("scope", String.class)))
+                throw new IllegalArgumentException("Scope mismatch: managed action scope must match manager scope");
+
+            // No chaining
+            if (manager.get("managed_with", String.class) != null)
+                throw new IllegalArgumentException("Cannot chain: manager action is itself managed");
+
+            // Cannot manage self
+            if (actionId.equals(managedWithId))
+                throw new IllegalArgumentException("Action cannot manage itself");
+
+            // Clean up HIDE guards only — BLOCK guards belong to the managee
+            deletedGuards += dsl.execute("DELETE FROM action_guard WHERE action_id = ? AND effect = 'HIDE'", actionId);
+            deletedGuards += dsl.execute("DELETE FROM node_action_guard WHERE action_id = ? AND effect = 'HIDE'", actionId);
+            deletedPerms   = dsl.execute("DELETE FROM action_permission WHERE action_id = ?", actionId);
+        }
+
+        dsl.execute("UPDATE action SET managed_with = ? WHERE id = ?", managedWithId, actionId);
+        actionGuardService.evictCache();
+        lifecycleGuardService.evictCache();
+        metaModelCache.invalidate();
+        eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
+
+        log.info("Action {} managed_with set to {} (deleted {} guards, {} permissions)",
+            actionId, managedWithId, deletedGuards, deletedPerms);
+
+        return Map.of(
+            "actionId", actionId,
+            "managedWith", managedWithId != null ? managedWithId : "",
+            "deletedGuards", deletedGuards,
+            "deletedPermissions", deletedPerms);
+    }
+
+    /** Lists actions managed by a given manager action. */
+    public List<Map<String, Object>> getManagedActions(String managerActionId) {
+        return dsl.select(DSL.field("id"), DSL.field("action_code"), DSL.field("display_name"))
+            .from("action")
+            .where("managed_with = ?", managerActionId)
+            .fetch()
+            .map(r -> Map.<String, Object>of(
+                "id",          r.get("id",           String.class),
+                "actionCode",  r.get("action_code",  String.class),
+                "displayName", r.get("display_name", String.class)));
+    }
+
+    // ================================================================
+    // Private helpers
+    // ================================================================
+
     private String resolveActionId(String actionCode) {
         String id = dsl.select(DSL.field("id")).from("action")
             .where("action_code = ?", actionCode)
             .fetchOne(DSL.field("id"), String.class);
         if (id == null) throw new IllegalArgumentException("Unknown action: " + actionCode);
         return id;
+    }
+
+    private void assertNotManaged(String actionId, String actionCode) {
+        String managedWith = dsl.select(DSL.field("managed_with")).from("action")
+            .where("id = ?", actionId)
+            .fetchOne(DSL.field("managed_with"), String.class);
+        if (managedWith != null) {
+            throw new IllegalArgumentException(
+                "Cannot modify permissions on managed action '" + actionCode +
+                "' — configure on manager action instead");
+        }
     }
 
     private void deleteActionPermissionRow(String nodeTypeId, String actionId,

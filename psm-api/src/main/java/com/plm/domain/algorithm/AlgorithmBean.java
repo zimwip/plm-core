@@ -12,7 +12,7 @@ import java.lang.annotation.Target;
  *
  * The {@link #code()} must match the {@code algorithm.code} column in the database.
  * At startup, {@link AlgorithmStartupValidator} cross-checks all annotated beans
- * against DB rows to ensure consistency.
+ * against DB rows — missing algorithms are auto-registered.
  *
  * This annotation is meta-annotated with {@link Component}, so annotated classes
  * are automatically registered as Spring beans.
@@ -25,6 +25,9 @@ public @interface AlgorithmBean {
     /** Must match {@code algorithm.code} in the database. */
     String code();
 
-    /** Algorithm type code (e.g. "ACTION_GUARD", "LIFECYCLE_GUARD"). Documentation only. */
-    String type() default "";
+    /** Human-readable name. If empty, defaults to the simple class name. */
+    String name() default "";
+
+    /** Description. If empty, defaults to empty string in DB. */
+    String description() default "";
 }

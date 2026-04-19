@@ -257,6 +257,7 @@ public class LinkService {
                    n.id AS target_node_id, nt.name AS target_node_type,
                    n.logical_id AS target_logical_id,
                    nv.revision, nv.iteration, nv.lifecycle_state_id,
+                   ls.name AS state_name,
                    (SELECT COUNT(*) FROM node_version_link nvl_c
                     WHERE nvl_c.source_node_version_id = nv.id) AS target_children_count
             FROM node_version_link nl
@@ -267,6 +268,7 @@ public class LinkService {
             JOIN node_type nt        ON nt.id     = n.node_type_id
             JOIN node_version nv     ON nv.node_id = n.id
             JOIN plm_transaction pt  ON pt.id     = nv.tx_id
+            LEFT JOIN lifecycle_state ls ON ls.id = nv.lifecycle_state_id
             WHERE nv_src.node_id = ?
               AND (pt_src.status = 'COMMITTED'
                    OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
@@ -299,6 +301,7 @@ public class LinkService {
             m.put("targetRevision",    Objects.toString(r.get("revision",             String.class), ""));
             m.put("targetIteration",   Objects.toString(r.get("iteration",            Integer.class), ""));
             m.put("targetState",       Objects.toString(r.get("lifecycle_state_id",  String.class), ""));
+            m.put("targetStateName",   Objects.toString(r.get("state_name",          String.class), ""));
             m.put("targetChildrenCount", r.get("target_children_count", Integer.class));
             return m;
         }).toList();
@@ -318,7 +321,8 @@ public class LinkService {
                    nl.link_logical_id, lt.link_logical_id_label,
                    n.id AS source_node_id, nt.name AS source_node_type,
                    n.logical_id AS source_logical_id,
-                   nv.revision, nv.iteration, nv.lifecycle_state_id
+                   nv.revision, nv.iteration, nv.lifecycle_state_id,
+                   ls.name AS state_name
             FROM node_version_link nl
             JOIN link_type lt        ON lt.id     = nl.link_type_id
             JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
@@ -327,6 +331,7 @@ public class LinkService {
             JOIN node_type nt        ON nt.id     = n.node_type_id
             JOIN node_version nv     ON nv.node_id = n.id
             JOIN plm_transaction pt  ON pt.id     = nv.tx_id
+            LEFT JOIN lifecycle_state ls ON ls.id = nv.lifecycle_state_id
             WHERE nl.target_node_id = ?
               AND (pt_src.status = 'COMMITTED'
                    OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
@@ -357,6 +362,7 @@ public class LinkService {
             m.put("sourceRevision",     Objects.toString(r.get("revision",             String.class), ""));
             m.put("sourceIteration",    Objects.toString(r.get("iteration",            Integer.class), ""));
             m.put("sourceState",        Objects.toString(r.get("lifecycle_state_id",  String.class), ""));
+            m.put("sourceStateName",    Objects.toString(r.get("state_name",          String.class), ""));
             return m;
         }).toList();
     }

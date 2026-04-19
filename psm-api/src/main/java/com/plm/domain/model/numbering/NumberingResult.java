@@ -8,7 +8,7 @@ public record NumberingResult(String revision, int iteration) {
     public NumberingResult {
         if (revision == null || revision.isBlank())
             throw new IllegalArgumentException("revision must not be blank");
-        if (iteration < 1)
-            throw new IllegalArgumentException("iteration must be >= 1");
+        if (iteration < 0)
+            throw new IllegalArgumentException("iteration must be >= 0");
     }
 }

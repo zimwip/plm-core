@@ -4,7 +4,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import {
   LayersIcon, LifecycleIcon, CloseIcon,
   ChevronRightIcon, ChevronDownIcon, HexIcon, TerminalIcon, PlusIcon,
-  EditIcon, TrashIcon, UsersIcon, UserIcon, ShieldIcon, BookIcon, WorkflowIcon, CpuIcon,
+  EditIcon, TrashIcon, UsersIcon, UserIcon, ShieldIcon, BookIcon, WorkflowIcon, CpuIcon, CopyIcon,
 } from './Icons';
 import { NODE_ICONS, NODE_ICON_NAMES } from './Icons';
 import ApiPlayground from './ApiPlayground';
@@ -647,7 +647,6 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
         await Promise.all([
           api.updateNodeTypeNumberingScheme(userId, ctx.nodeTypeId, form.numberingScheme || 'ALPHA_NUMERIC'),
           api.updateNodeTypeVersionPolicy(userId, ctx.nodeTypeId, form.versionPolicy || 'ITERATE'),
-          api.updateNodeTypeCollapseHistory(userId, ctx.nodeTypeId, !!form.collapseHistory),
         ]);
         await loadTypes();
         setExpanded(null);
@@ -880,18 +879,9 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
               {form.versionPolicy === 'ITERATE' && 'Checkout increments the iteration: A.1 → A.2.'}
               {form.versionPolicy === 'RELEASE' && 'Checkout starts a new revision: A.3 → B.1.'}
             </div>
-            <Field label="Collapse history on release">
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={!!form.collapseHistory}
-                  onChange={e => setForm(f => ({ ...f, collapseHistory: e.target.checked }))}
-                />
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  On release, delete intermediate iterations (A.1, A.2 → A). History shows A, B, C only.
-                </span>
-              </label>
-            </Field>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, padding: '6px 8px', background: 'var(--accent-dim)', borderRadius: 4 }}>
+              History collapse is now managed via State Actions on lifecycle states.
+            </div>
           </>}
 
           {/* ── Edit appearance (node type color + icon) ── */}
@@ -1055,7 +1045,6 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
         const lidPattern  = nt.logical_id_pattern || nt.LOGICAL_ID_PATTERN || '';
         const numScheme      = nt.numbering_scheme   || nt.NUMBERING_SCHEME   || 'ALPHA_NUMERIC';
         const verPolicy      = nt.version_policy     || nt.VERSION_POLICY     || 'ITERATE';
-        const collapseHist   = !!(nt.collapse_history || nt.COLLAPSE_HISTORY);
         const lcId        = nt.lifecycle_id       || nt.LIFECYCLE_ID       || null;
         const lcName      = lifecycles.find(lc => (lc.id || lc.ID) === lcId)?.name || lcId || '—';
         const ntColor     = nt.color || nt.COLOR || null;
@@ -1156,7 +1145,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 }}>
                   <span className="settings-sub-label" style={{ margin: 0 }}>Versioning</span>
                   {canWrite && (
-                    <button className="panel-icon-btn" title="Edit versioning" onClick={() => openModal('edit-versioning', { nodeTypeId: id }, { numberingScheme: numScheme, versionPolicy: verPolicy, collapseHistory: collapseHist })}>
+                    <button className="panel-icon-btn" title="Edit versioning" onClick={() => openModal('edit-versioning', { nodeTypeId: id }, { numberingScheme: numScheme, versionPolicy: verPolicy })}>
                       <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
                     </button>
                   )}
@@ -1170,10 +1159,6 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                     <tr>
                       <td style={{ color: 'var(--muted)' }}>Policy</td>
                       <td><span className="settings-badge">{verPolicy}</span></td>
-                    </tr>
-                    <tr>
-                      <td style={{ color: 'var(--muted)' }}>History</td>
-                      <td><span className="settings-badge">{collapseHist ? 'Collapse' : 'Keep all'}</span></td>
                     </tr>
                   </tbody>
                 </table>
@@ -1414,7 +1399,18 @@ function ColorPicker({ value, onChange }) {
   );
 }
 
-function StateFormFields({ form, setForm }) {
+function StateFormFields({ form, setForm, knownMetaKeys = [] }) {
+  const meta = form.metadata || {};
+  const setMeta = (key, val) => setForm(f => ({
+    ...f,
+    metadata: { ...(f.metadata || {}), [key]: val ? 'true' : undefined },
+  }));
+
+  // Known keys from @Metadata annotations
+  const knownKeyNames = new Set(knownMetaKeys.map(k => k.key));
+  // Extra keys in current metadata not covered by known keys
+  const extraKeys = Object.keys(meta).filter(k => !knownKeyNames.has(k));
+
   return (
     <>
       <Field label="State Name *">
@@ -1423,18 +1419,39 @@ function StateFormFields({ form, setForm }) {
       <Field label="Display Order">
         <input className="field-input" type="number" min="0" value={form.displayOrder ?? ''} onChange={e => setForm(f => ({ ...f, displayOrder: e.target.value }))} placeholder="0" style={{ width: 100 }} />
       </Field>
-      <Field label="Tags">
+      <Field label="Flags">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {[
-            ['isInitial', 'INIT',   'Initial state — entry point of the lifecycle'],
-            ['isFrozen',  'FROZEN', 'Frozen — lock cascades to children via V2M links'],
-            ['isReleased','REL',    'Released — triggers a revision bump on the node'],
-          ].map(([key, badge, desc]) => (
-            <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={!!form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))} />
-              <span className="lc-state-flag" style={{ opacity: form[key] ? 1 : 0.4 }}>{badge}</span>
-              <span style={{ color: 'var(--muted)', fontSize: 11 }}>{desc}</span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!form.isInitial} onChange={e => setForm(f => ({ ...f, isInitial: e.target.checked }))} />
+            <span className="lc-state-flag" style={{ opacity: form.isInitial ? 1 : 0.4 }}>INIT</span>
+            <span style={{ color: 'var(--muted)', fontSize: 11 }}>Initial state — entry point of the lifecycle</span>
+          </label>
+        </div>
+      </Field>
+      <Field label="Metadata">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {knownMetaKeys.map(mk => (
+            <label key={mk.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={meta[mk.key] === 'true'} onChange={e => setMeta(mk.key, e.target.checked)} />
+              <span className="lc-state-flag" style={{ opacity: meta[mk.key] === 'true' ? 1 : 0.4 }}>{mk.key.toUpperCase()}</span>
+              <span style={{ color: 'var(--muted)', fontSize: 11 }}>{mk.description}</span>
             </label>
+          ))}
+          {knownMetaKeys.length === 0 && (
+            <span style={{ color: 'var(--muted)', fontSize: 11 }}>No metadata keys registered in backend</span>
+          )}
+          {/* Extra keys not declared by @Metadata */}
+          {extraKeys.map(k => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+              <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{k}</span>
+              <span style={{ color: 'var(--muted)' }}>=</span>
+              <span style={{ color: 'var(--text)' }}>{meta[k]}</span>
+              <button className="panel-icon-btn" onClick={() => {
+                const copy = { ...(form.metadata || {}) };
+                delete copy[k];
+                setForm(f => ({ ...f, metadata: copy }));
+              }} title="Remove"><TrashIcon size={10} strokeWidth={2} color="var(--danger)" /></button>
+            </div>
           ))}
         </div>
       </Field>
@@ -1465,9 +1482,6 @@ function TransitionFormFields({ form, setForm, states }) {
           </select>
         </Field>
       </div>
-      <Field label="Guard Expression">
-        <input className="field-input" value={form.guardExpr || ''} onChange={e => setForm(f => ({ ...f, guardExpr: e.target.value }))} placeholder="e.g. all_required_filled" />
-      </Field>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field label="Action Type">
           <select className="field-input" value={form.actionType || 'NONE'} onChange={e => setForm(f => ({ ...f, actionType: e.target.value }))}>
@@ -1495,6 +1509,12 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
   const [roles,       setRoles]       = useState([]);
   const [sigReqRole,  setSigReqRole]  = useState('');
   const [sigReqBusy,  setSigReqBusy]  = useState(false);
+  const [transGuards, setTransGuards] = useState({});  // transitionId → guard[]
+  const [instances,   setInstances]   = useState([]);
+  const [stateActions, setStateActions] = useState({});  // stateId → action[]
+  const [expandedState, setExpandedState] = useState(null);
+  const [expandedTrans, setExpandedTrans] = useState(null);
+  const [knownMetaKeys, setKnownMetaKeys] = useState([]);
 
   function loadLcs() {
     return api.getLifecycles(userId).then(d => setLcs(Array.isArray(d) ? d : []));
@@ -1503,6 +1523,8 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
   useEffect(() => {
     loadLcs().finally(() => setLoading(false));
     api.getRoles(userId).then(d => setRoles(Array.isArray(d) ? d : [])).catch(() => {});
+    api.listAllInstances(userId).then(d => setInstances(Array.isArray(d) ? d : [])).catch(() => {});
+    api.getMetadataKeys(userId, 'LIFECYCLE_STATE').then(d => setKnownMetaKeys(Array.isArray(d) ? d : [])).catch(() => {});
   }, [userId]);
 
   useWebSocket(
@@ -1516,10 +1538,26 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
       api.getLifecycleStates(userId, id),
       api.getLifecycleTransitions(userId, id),
     ]);
+    const transList = Array.isArray(transitions) ? transitions : [];
     setLcData(s => ({ ...s, [id]: {
-      states:      Array.isArray(states)      ? states      : [],
-      transitions: Array.isArray(transitions) ? transitions : [],
+      states:      Array.isArray(states) ? states : [],
+      transitions: transList,
     }}));
+    // Load guards for each transition
+    for (const t of transList) {
+      const tid = t.id || t.ID;
+      api.listTransitionGuards(userId, tid)
+        .then(g => setTransGuards(s => ({ ...s, [tid]: Array.isArray(g) ? g : [] })))
+        .catch(() => {});
+    }
+    // Load state actions for each state
+    const statesList = Array.isArray(states) ? states : [];
+    for (const st of statesList) {
+      const sid = st.id || st.ID;
+      api.listLifecycleStateActions(userId, id, sid)
+        .then(a => setStateActions(s => ({ ...s, [sid]: Array.isArray(a) ? a : [] })))
+        .catch(() => {});
+    }
   }
 
   async function expand(lc) {
@@ -1536,11 +1574,16 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
     setSaving(true);
     try {
       const { type, ctx } = modal;
+      // Clean metadata: remove keys with undefined/null values
+      const rawMeta = form.metadata || {};
+      const cleanMeta = {};
+      for (const [k, v] of Object.entries(rawMeta)) {
+        if (v != null) cleanMeta[k] = v;
+      }
       const stateBody = {
         name:         form.name?.trim(),
         isInitial:    !!form.isInitial,
-        isFrozen:     !!form.isFrozen,
-        isReleased:   !!form.isReleased,
+        metadata:     cleanMeta,
         displayOrder: form.displayOrder !== '' ? Number(form.displayOrder) : 0,
         color:        form.color || null,
       };
@@ -1548,13 +1591,15 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
         name:            form.name?.trim(),
         fromStateId:     form.fromStateId,
         toStateId:       form.toStateId,
-        guardExpr:       form.guardExpr?.trim() || null,
         actionType:      form.actionType || 'NONE',
         versionStrategy: form.versionStrategy || 'NONE',
       };
 
       if (type === 'create-lc') {
         await api.createLifecycle(userId, { name: form.name?.trim(), description: form.description?.trim() || null });
+        await loadLcs();
+      } else if (type === 'duplicate-lc') {
+        await api.duplicateLifecycle(userId, ctx.sourceId, form.name?.trim());
         await loadLcs();
       } else if (type === 'create-state') {
         await api.addLifecycleState(userId, ctx.lifecycleId, stateBody);
@@ -1622,7 +1667,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
   const saveDisabled = () => {
     if (!modal || saving) return true;
     const { type } = modal;
-    if (type === 'create-lc') return !form.name?.trim();
+    if (type === 'create-lc' || type === 'duplicate-lc') return !form.name?.trim();
     if (type === 'create-state' || type === 'edit-state') return !form.name?.trim();
     if (type === 'create-transition' || type === 'edit-transition') return !form.name?.trim() || !form.fromStateId || !form.toStateId;
     return false;
@@ -1632,6 +1677,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
 
   const modalTitle = {
     'create-lc':         'New Lifecycle',
+    'duplicate-lc':      'Duplicate Lifecycle',
     'create-state':      'Add State',
     'edit-state':        'Edit State',
     'create-transition': 'Add Transition',
@@ -1660,8 +1706,17 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
             </Field>
           </>}
 
+          {modal.type === 'duplicate-lc' && <>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+              Duplicating <strong style={{ color: 'var(--text)' }}>{modal.ctx.sourceName}</strong> — copies all states, transitions, guards, signature requirements, state actions, and metadata.
+            </div>
+            <Field label="New Name *">
+              <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Standard (v2)" />
+            </Field>
+          </>}
+
           {(modal.type === 'create-state' || modal.type === 'edit-state') && (
-            <StateFormFields form={form} setForm={setForm} />
+            <StateFormFields form={form} setForm={setForm} knownMetaKeys={knownMetaKeys} />
           )}
 
           {(modal.type === 'create-transition' || modal.type === 'edit-transition') && (
@@ -1739,7 +1794,15 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
               <span className="settings-card-name">{name}</span>
               <span className="settings-card-id">{id}</span>
               {canWrite && (
-                <button className="panel-icon-btn" title="Delete lifecycle" style={{ marginLeft: 'auto' }} onClick={e => deleteLifecycle(e, lc)}>
+                <button className="panel-icon-btn" title="Duplicate lifecycle" style={{ marginLeft: 'auto' }} onClick={e => {
+                  e.stopPropagation();
+                  openModal('duplicate-lc', { sourceId: id, sourceName: name }, { name: `${name} (copy)` });
+                }}>
+                  <CopyIcon size={12} strokeWidth={2} color="var(--accent)" />
+                </button>
+              )}
+              {canWrite && (
+                <button className="panel-icon-btn" title="Delete lifecycle" onClick={e => deleteLifecycle(e, lc)}>
                   <TrashIcon size={12} strokeWidth={2} color="var(--danger, #f87171)" />
                 </button>
               )}
@@ -1776,51 +1839,180 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                   const sid   = s.id   || s.ID;
                   const sname = s.name || s.NAME || sid;
                   const color = stateColor(s);
+                  const meta  = s.metadata || {};
                   const flags = [
-                    (s.is_initial  || s.IS_INITIAL)  ? 'INIT'   : null,
-                    (s.is_frozen   || s.IS_FROZEN)   ? 'FROZEN' : null,
-                    (s.is_released || s.IS_RELEASED) ? 'REL'    : null,
+                    (s.is_initial || s.IS_INITIAL) ? 'INIT' : null,
+                    ...Object.keys(meta).map(k => k.toUpperCase()),
                   ].filter(Boolean);
                   const order = s.display_order ?? s.DISPLAY_ORDER ?? 0;
+                  const isStateExp = expandedState === sid;
+                  const sActions = stateActions[sid] || [];
+
                   return (
-                    <div key={sid} style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '6px 8px', borderRadius: 5, marginBottom: 3,
-                      background: 'rgba(255,255,255,.02)',
-                      border: '1px solid var(--border)',
-                    }}>
-                      {/* Color swatch */}
-                      <span style={{
-                        width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
-                        background: color, boxShadow: `0 0 0 2px ${color}33`,
-                      }} />
-                      {/* Name */}
-                      <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)', flex: 1 }}>{sname}</span>
-                      {/* Flags */}
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {flags.map(f => (
-                          <span key={f} className="lc-state-flag" style={{ background: color + '22', color, borderColor: color + '55' }}>{f}</span>
-                        ))}
+                    <div key={sid} style={{ marginBottom: 3 }}>
+                      {/* ── State header (collapsible) ── */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '6px 8px', borderRadius: isStateExp ? '5px 5px 0 0' : 5,
+                        background: 'rgba(255,255,255,.02)',
+                        border: '1px solid var(--border)',
+                        borderBottom: isStateExp ? '1px solid var(--border2)' : '1px solid var(--border)',
+                        cursor: 'pointer',
+                      }} onClick={() => setExpandedState(isStateExp ? null : sid)}>
+                        <span style={{ flexShrink: 0 }}>
+                          {isStateExp
+                            ? <ChevronDownIcon size={11} strokeWidth={2} color="var(--muted)" />
+                            : <ChevronRightIcon size={11} strokeWidth={2} color="var(--muted)" />}
+                        </span>
+                        {/* Color swatch */}
+                        <span style={{
+                          width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+                          background: color, boxShadow: `0 0 0 2px ${color}33`,
+                        }} />
+                        {/* Name */}
+                        <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)', flex: 1 }}>{sname}</span>
+                        {/* Flags */}
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {flags.map(f => (
+                            <span key={f} className="lc-state-flag" style={{ background: color + '22', color, borderColor: color + '55' }}>{f}</span>
+                          ))}
+                        </div>
+                        {/* Action count badge */}
+                        {sActions.length > 0 && (
+                          <span className="settings-badge" title={`${sActions.length} state action(s)`}>
+                            {sActions.length} action{sActions.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {/* Order badge */}
+                        <span style={{ fontSize: 10, color: 'var(--muted)', minWidth: 24, textAlign: 'right' }}>#{order}</span>
+                        {/* Edit/Delete */}
+                        {canWrite && (
+                          <button className="panel-icon-btn" title="Edit state" onClick={e => { e.stopPropagation(); openModal('edit-state', { lifecycleId: id, stateId: sid }, {
+                            name:         sname,
+                            isInitial:    !!(s.is_initial  || s.IS_INITIAL),
+                            metadata:     { ...meta },
+                            displayOrder: order,
+                            color,
+                          }); }}>
+                            <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
+                          </button>
+                        )}
+                        {canWrite && (
+                          <button className="panel-icon-btn" title="Delete state" onClick={e => { e.stopPropagation(); deleteState(id, s); }}>
+                            <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                          </button>
+                        )}
                       </div>
-                      {/* Order badge */}
-                      <span style={{ fontSize: 10, color: 'var(--muted)', minWidth: 24, textAlign: 'right' }}>#{order}</span>
-                      {/* Actions */}
-                      {canWrite && (
-                        <button className="panel-icon-btn" title="Edit state" onClick={() => openModal('edit-state', { lifecycleId: id, stateId: sid }, {
-                          name:         sname,
-                          isInitial:    !!(s.is_initial  || s.IS_INITIAL),
-                          isFrozen:     !!(s.is_frozen   || s.IS_FROZEN),
-                          isReleased:   !!(s.is_released || s.IS_RELEASED),
-                          displayOrder: order,
-                          color,
-                        })}>
-                          <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
-                        </button>
-                      )}
-                      {canWrite && (
-                        <button className="panel-icon-btn" title="Delete state" onClick={() => deleteState(id, s)}>
-                          <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
-                        </button>
+
+                      {/* ── State body (expanded) ── */}
+                      {isStateExp && (
+                        <div style={{
+                          padding: '10px 12px',
+                          background: 'rgba(255,255,255,.01)',
+                          border: '1px solid var(--border)',
+                          borderTop: 'none',
+                          borderRadius: '0 0 5px 5px',
+                        }}>
+                          {/* State info */}
+                          <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: 11 }}>
+                            <div><span style={{ color: 'var(--muted)' }}>ID</span> <span style={{ fontFamily: 'var(--mono)', color: 'var(--text)', fontSize: 10 }}>{sid}</span></div>
+                            <div><span style={{ color: 'var(--muted)' }}>Order</span> <span style={{ color: 'var(--text)' }}>{order}</span></div>
+                          </div>
+
+                          {/* Metadata */}
+                          {Object.keys(meta).length > 0 && (
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Metadata</div>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                {Object.entries(meta).map(([k, v]) => (
+                                  <span key={k} style={{
+                                    fontSize: 10, fontFamily: 'var(--mono)', padding: '2px 6px',
+                                    borderRadius: 3, background: 'var(--accent-dim)', color: 'var(--accent)',
+                                    border: '1px solid rgba(106,172,255,.2)',
+                                  }}>{k}={v}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* State Actions */}
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+                            State Actions
+                          </div>
+
+                          {sActions.length === 0 && (
+                            <div className="settings-empty-row" style={{ fontSize: 11, marginBottom: 8 }}>No actions attached to this state</div>
+                          )}
+
+                          {sActions.map(a => (
+                            <div key={a.id} style={{
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              padding: '4px 6px', marginBottom: 2, borderRadius: 3,
+                              background: 'rgba(255,255,255,.02)',
+                              border: '1px solid var(--border)',
+                              fontSize: 11,
+                            }}>
+                              <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600 }}>{a.algorithmCode || a.instanceName}</span>
+                              <span className="settings-badge" style={{
+                                background: a.trigger === 'ON_ENTER' ? 'rgba(52,211,153,.15)' : 'rgba(248,113,113,.15)',
+                                color:      a.trigger === 'ON_ENTER' ? '#34d399' : '#f87171',
+                                fontSize: 9,
+                              }}>{a.trigger}</span>
+                              <span className="settings-badge" style={{
+                                background: a.executionMode === 'TRANSACTIONAL' ? 'rgba(167,139,250,.15)' : 'rgba(250,204,21,.15)',
+                                color:      a.executionMode === 'TRANSACTIONAL' ? '#a78bfa' : '#facc15',
+                                fontSize: 9,
+                              }}>{a.executionMode}</span>
+                              <span style={{ flex: 1 }} />
+                              {canWrite && (
+                                <button className="panel-icon-btn" title="Detach action" onClick={async () => {
+                                  try {
+                                    await api.detachLifecycleStateAction(userId, id, sid, a.id);
+                                    setStateActions(prev => ({ ...prev, [sid]: (prev[sid] || []).filter(x => x.id !== a.id) }));
+                                    toast('Action detached', 'success');
+                                  } catch (err) { toast(err, 'error'); }
+                                }}>
+                                  <TrashIcon size={10} strokeWidth={2} color="var(--danger, #f87171)" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+
+                          {/* Attach new action */}
+                          {canWrite && (() => {
+                            const stateActionInstances = instances.filter(i => i.typeName === 'State Action');
+                            return (
+                              <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                                <select className="field-input" id={`sa-inst-${sid}`} style={{ flex: 1, fontSize: 11 }} defaultValue="">
+                                  <option value="">Select action instance…</option>
+                                  {stateActionInstances.map(i => <option key={i.id} value={i.id}>{i.algorithmName || i.name} — {i.name}</option>)}
+                                  {stateActionInstances.length === 0 && <option disabled>No State Action instances available</option>}
+                                </select>
+                                <select className="field-input" id={`sa-trigger-${sid}`} style={{ width: 100, fontSize: 11 }} defaultValue="ON_ENTER">
+                                  <option value="ON_ENTER">ON_ENTER</option>
+                                  <option value="ON_EXIT">ON_EXIT</option>
+                                </select>
+                                <select className="field-input" id={`sa-mode-${sid}`} style={{ width: 130, fontSize: 11 }} defaultValue="TRANSACTIONAL">
+                                  <option value="TRANSACTIONAL">TRANSACTIONAL</option>
+                                  <option value="POST_COMMIT">POST_COMMIT</option>
+                                </select>
+                                <button className="btn btn-sm" style={{ fontSize: 10 }} onClick={async () => {
+                                  const instEl = document.getElementById(`sa-inst-${sid}`);
+                                  const trigEl = document.getElementById(`sa-trigger-${sid}`);
+                                  const modeEl = document.getElementById(`sa-mode-${sid}`);
+                                  if (!instEl?.value) return;
+                                  try {
+                                    await api.attachLifecycleStateAction(userId, id, sid, instEl.value, trigEl.value, modeEl.value);
+                                    const updated = await api.listLifecycleStateActions(userId, id, sid);
+                                    setStateActions(prev => ({ ...prev, [sid]: Array.isArray(updated) ? updated : [] }));
+                                    instEl.value = '';
+                                    toast('Action attached', 'success');
+                                  } catch (err) { toast(err, 'error'); }
+                                }}>Attach</button>
+                              </div>
+                            );
+                          })()}
+                        </div>
                       )}
                     </div>
                   );
@@ -1848,57 +2040,196 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                   const toS    = states.find(s => (s.id || s.ID) === toId);
                   const fromColor = stateColor(fromS);
                   const toColor   = stateColor(toS);
-                  const guard  = t.guard_expr      || t.GUARD_EXPR;
-                  const vstrat = t.version_strategy || t.VERSION_STRATEGY;
+                  const vstrat    = t.version_strategy || t.VERSION_STRATEGY;
+                  const actType   = t.action_type || t.ACTION_TYPE || 'NONE';
+                  const tGuards   = transGuards[tid] || [];
+                  const isTransExp = expandedTrans === tid;
+                  const sigReqs   = t.signatureRequirements || [];
+                  const guardInstances = instances.filter(i => i.typeName === 'Action Guard' || i.typeName === 'Lifecycle Guard');
+
                   return (
-                    <div key={tid} style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '6px 8px', borderRadius: 5, marginBottom: 3,
-                      background: 'rgba(255,255,255,.02)',
-                      border: '1px solid var(--border)',
-                    }}>
-                      {/* Name */}
-                      <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)', minWidth: 90 }}>{tname}</span>
-                      {/* From → To */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, fontSize: 11 }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: fromColor, flexShrink: 0 }} />
-                          <span style={{ color: fromColor }}>{fromS?.name || fromS?.NAME || fromId}</span>
+                    <div key={tid} style={{ marginBottom: 3 }}>
+                      {/* ── Transition header (collapsible) ── */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '6px 8px',
+                        borderRadius: isTransExp ? '5px 5px 0 0' : 5,
+                        background: 'rgba(255,255,255,.02)',
+                        border: '1px solid var(--border)',
+                        borderBottom: isTransExp ? '1px solid var(--border2)' : '1px solid var(--border)',
+                        cursor: 'pointer',
+                      }} onClick={() => setExpandedTrans(isTransExp ? null : tid)}>
+                        <span style={{ flexShrink: 0 }}>
+                          {isTransExp
+                            ? <ChevronDownIcon size={11} strokeWidth={2} color="var(--muted)" />
+                            : <ChevronRightIcon size={11} strokeWidth={2} color="var(--muted)" />}
                         </span>
-                        <span style={{ color: 'var(--muted)' }}>→</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: toColor, flexShrink: 0 }} />
-                          <span style={{ color: toColor }}>{toS?.name || toS?.NAME || toId}</span>
-                        </span>
-                      </div>
-                      {/* Badges */}
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {guard && <span className="settings-badge" title="Guard">{guard}</span>}
-                        {vstrat && vstrat !== 'NONE' && <span className="settings-badge">{vstrat}</span>}
-                        {t.signatureRequirements?.length > 0 && (
-                          <span className="settings-badge" title={`${t.signatureRequirements.length} signature(s) required`}
-                            style={{ background: 'rgba(139,92,246,.18)', color: '#a78bfa' }}>
-                            {t.signatureRequirements.length} sign. req.
+                        {/* Name */}
+                        <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)', minWidth: 90 }}>{tname}</span>
+                        {/* From → To */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, fontSize: 11 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: fromColor, flexShrink: 0 }} />
+                            <span style={{ color: fromColor }}>{fromS?.name || fromS?.NAME || fromId}</span>
                           </span>
+                          <span style={{ color: 'var(--muted)' }}>→</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: toColor, flexShrink: 0 }} />
+                            <span style={{ color: toColor }}>{toS?.name || toS?.NAME || toId}</span>
+                          </span>
+                        </div>
+                        {/* Summary badges */}
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {tGuards.length > 0 && (
+                            <span className="settings-badge" title={tGuards.map(g => g.algorithmCode).join(', ')}>
+                              {tGuards.length} guard{tGuards.length > 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {vstrat && vstrat !== 'NONE' && <span className="settings-badge">{vstrat}</span>}
+                          {sigReqs.length > 0 && (
+                            <span className="settings-badge" style={{ background: 'rgba(139,92,246,.18)', color: '#a78bfa' }}>
+                              {sigReqs.length} sign.
+                            </span>
+                          )}
+                        </div>
+                        {/* Edit/Delete */}
+                        {canWrite && (
+                          <button className="panel-icon-btn" title="Edit transition" onClick={e => { e.stopPropagation(); openModal('edit-transition', { lifecycleId: id, transId: tid, states }, {
+                            name: tname, fromStateId: fromId, toStateId: toId,
+                            actionType: actType, versionStrategy: vstrat || 'NONE',
+                          }); }}>
+                            <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
+                          </button>
+                        )}
+                        {canWrite && (
+                          <button className="panel-icon-btn" title="Delete transition" onClick={e => { e.stopPropagation(); deleteTransition(id, t); }}>
+                            <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                          </button>
                         )}
                       </div>
-                      {/* Actions */}
-                      {canWrite && (
-                        <button className="panel-icon-btn" title="Edit transition" onClick={() => openModal('edit-transition', { lifecycleId: id, transId: tid, states }, {
-                          name:            tname,
-                          fromStateId:     fromId,
-                          toStateId:       toId,
-                          guardExpr:       guard || '',
-                          actionType:      t.action_type || t.ACTION_TYPE || 'NONE',
-                          versionStrategy: vstrat || 'NONE',
-                        })}>
-                          <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
-                        </button>
-                      )}
-                      {canWrite && (
-                        <button className="panel-icon-btn" title="Delete transition" onClick={() => deleteTransition(id, t)}>
-                          <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
-                        </button>
+
+                      {/* ── Transition body (expanded) ── */}
+                      {isTransExp && (
+                        <div style={{
+                          padding: '10px 12px',
+                          background: 'rgba(255,255,255,.01)',
+                          border: '1px solid var(--border)',
+                          borderTop: 'none',
+                          borderRadius: '0 0 5px 5px',
+                        }}>
+                          {/* Info row */}
+                          <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: 11, flexWrap: 'wrap' }}>
+                            <div><span style={{ color: 'var(--muted)' }}>ID</span> <span style={{ fontFamily: 'var(--mono)', color: 'var(--text)', fontSize: 10 }}>{tid}</span></div>
+                            <div><span style={{ color: 'var(--muted)' }}>Action Type</span> <span style={{ color: 'var(--text)' }}>{actType}</span></div>
+                            <div><span style={{ color: 'var(--muted)' }}>Version Strategy</span> <span style={{ color: 'var(--text)' }}>{vstrat || 'NONE'}</span></div>
+                          </div>
+
+                          {/* Guards section */}
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+                            Guards
+                          </div>
+
+                          {tGuards.length === 0 && (
+                            <div className="settings-empty-row" style={{ fontSize: 11, marginBottom: 8 }}>No guards attached</div>
+                          )}
+
+                          {tGuards.map(g => (
+                            <div key={g.id} style={{
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              padding: '4px 6px', marginBottom: 2, borderRadius: 3,
+                              background: 'rgba(255,255,255,.02)',
+                              border: '1px solid var(--border)',
+                              fontSize: 11,
+                            }}>
+                              <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600 }}>{g.algorithmCode || g.instanceName}</span>
+                              <span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`} style={{ fontSize: 9 }}>{g.effect}</span>
+                              <span style={{ flex: 1 }} />
+                              {canWrite && (
+                                <button className="panel-icon-btn" title="Detach guard" onClick={async () => {
+                                  try {
+                                    await api.detachTransitionGuard(userId, g.id);
+                                    setTransGuards(s => ({ ...s, [tid]: (s[tid] || []).filter(x => x.id !== g.id) }));
+                                    toast('Guard detached', 'success');
+                                  } catch (err) { toast(err, 'error'); }
+                                }}>
+                                  <TrashIcon size={10} strokeWidth={2} color="var(--danger, #f87171)" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+
+                          {canWrite && (
+                            <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
+                              <select className="field-input" id={`tg-inst-${tid}`} style={{ flex: 1, fontSize: 11 }} defaultValue="">
+                                <option value="">Select guard instance…</option>
+                                {guardInstances.map(i => <option key={i.id} value={i.id}>{i.algorithmName || i.name} — {i.name}</option>)}
+                              </select>
+                              <select className="field-input" id={`tg-effect-${tid}`} style={{ width: 80, fontSize: 11 }} defaultValue="BLOCK">
+                                <option value="BLOCK">BLOCK</option>
+                                <option value="HIDE">HIDE</option>
+                              </select>
+                              <button className="btn btn-sm" style={{ fontSize: 10 }} onClick={async () => {
+                                const instEl = document.getElementById(`tg-inst-${tid}`);
+                                const effectEl = document.getElementById(`tg-effect-${tid}`);
+                                if (!instEl?.value) return;
+                                try {
+                                  await api.attachTransitionGuard(userId, tid, instEl.value, effectEl.value, 0);
+                                  const g = await api.listTransitionGuards(userId, tid);
+                                  setTransGuards(s => ({ ...s, [tid]: Array.isArray(g) ? g : [] }));
+                                  instEl.value = '';
+                                  toast('Guard attached', 'success');
+                                } catch (err) { toast(err, 'error'); }
+                              }}>Attach</button>
+                            </div>
+                          )}
+
+                          {/* Signature Requirements section */}
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 14, marginBottom: 6 }}>
+                            Signature Requirements
+                          </div>
+
+                          {sigReqs.length === 0 && (
+                            <div className="settings-empty-row" style={{ fontSize: 11, marginBottom: 8 }}>No signatures required</div>
+                          )}
+
+                          {sigReqs.map(req => (
+                            <div key={req.id} style={{
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              padding: '4px 6px', marginBottom: 2, borderRadius: 3,
+                              background: 'rgba(255,255,255,.02)',
+                              border: '1px solid var(--border)',
+                              fontSize: 11,
+                            }}>
+                              <span style={{ color: 'var(--text)', flex: 1 }}>
+                                {roles.find(r => (r.id || r.ID) === req.roleRequired)?.name || req.roleRequired}
+                              </span>
+                              {canWrite && (
+                                <button className="panel-icon-btn" disabled={sigReqBusy} title="Remove requirement"
+                                  onClick={() => removeSigReq(tid, req.id, id)}>
+                                  <TrashIcon size={10} strokeWidth={2} color="var(--danger, #f87171)" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+
+                          {canWrite && (
+                            <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
+                              <select className="field-input" style={{ flex: 1, fontSize: 11 }}
+                                value={sigReqRole} onChange={e => setSigReqRole(e.target.value)}>
+                                <option value="">Add required role…</option>
+                                {roles.map(r => {
+                                  const rid = r.id || r.ID;
+                                  const used = sigReqs.some(sr => sr.roleRequired === rid);
+                                  return <option key={rid} value={rid} disabled={used}>{r.name || r.NAME || rid}</option>;
+                                })}
+                              </select>
+                              <button className="btn btn-sm" style={{ fontSize: 10 }} disabled={!sigReqRole || sigReqBusy}
+                                onClick={() => addSigReq(tid, id)}>
+                                Add
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   );
@@ -1990,6 +2321,11 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
     const code    = a.action_code     || a.ACTION_CODE;
     const name    = a.display_name    || a.DISPLAY_NAME    || code;
     const order   = a.display_order   || a.DISPLAY_ORDER   || 0;
+    const managedWith    = a.managed_with    || a.MANAGED_WITH    || null;
+    const managedActions = a.managed_actions || a.MANAGED_ACTIONS || [];
+
+    // Skip managed actions — they inherit permissions from their manager
+    if (managedWith) return;
 
     if (scope === 'LIFECYCLE' || tranId) {
       if (tranId && !lcColMap.has(tranId)) {
@@ -2000,7 +2336,7 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
       }
     } else {
       if (code && !nodeColMap.has(code)) {
-        nodeColMap.set(code, { actionCode: code, displayName: name, order });
+        nodeColMap.set(code, { actionCode: code, displayName: name, order, managedActions });
       }
     }
   });
@@ -2089,13 +2425,19 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
                     Node Type
                   </th>
                   {nodeColumns.map(col => (
-                    <th key={col.actionCode} style={{ ...thStyle, minWidth: 72 }}>
+                    <th key={col.actionCode} style={{ ...thStyle, minWidth: 72 }}
+                        title={col.managedActions?.length ? `Also controls: ${col.managedActions.join(', ')}` : undefined}>
                       <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--accent)', marginBottom: 1 }}>
                         {col.actionCode}
                       </div>
                       <div style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400 }}>
                         {col.displayName}
                       </div>
+                      {col.managedActions?.length > 0 && (
+                        <div style={{ fontSize: 8, color: 'var(--warning, orange)', fontStyle: 'italic', marginTop: 1 }}>
+                          + {col.managedActions.join(', ')}
+                        </div>
+                      )}
                     </th>
                   ))}
                 </tr>
@@ -2756,13 +3098,178 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
   );
 }
 
-/* ── Algorithms Section (types + instances) ─────────────────────── */
+/* ── Algorithms Section (types + instances + parameters) ────────── */
+
+function InstanceCard({ inst, algo, userId, canWrite, toast, onReload }) {
+  const [expanded, setExpanded] = useState(false);
+  const [params, setParams]    = useState(null);   // algorithm parameter defs
+  const [values, setValues]    = useState(null);   // instance param values
+  const [editing, setEditing]  = useState(false);
+  const [nameVal, setNameVal]  = useState(inst.name || '');
+
+  async function loadParams() {
+    const [paramDefs, paramVals] = await Promise.all([
+      api.listAlgorithmParameters(userId, algo.id),
+      api.getInstanceParams(userId, inst.id),
+    ]);
+    setParams(Array.isArray(paramDefs) ? paramDefs : []);
+    setValues(Array.isArray(paramVals) ? paramVals : []);
+  }
+
+  function toggle() {
+    if (expanded) { setExpanded(false); return; }
+    setExpanded(true);
+    if (params === null) loadParams().catch(() => { setParams([]); setValues([]); });
+  }
+
+  async function saveName() {
+    if (!nameVal.trim() || nameVal.trim() === inst.name) { setEditing(false); return; }
+    try {
+      await api.updateInstance(userId, inst.id, nameVal.trim());
+      toast('Name updated', 'success');
+      setEditing(false);
+      onReload();
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function setParamValue(parameterId, value) {
+    try {
+      await api.setInstanceParam(userId, inst.id, parameterId, value);
+      const updated = await api.getInstanceParams(userId, inst.id);
+      setValues(Array.isArray(updated) ? updated : []);
+      toast('Parameter saved', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Delete instance "${inst.name}"?\n\nAll guard/action attachments using this instance will be removed.`)) return;
+    try {
+      await api.deleteInstance(userId, inst.id);
+      toast('Instance deleted', 'success');
+      onReload();
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  return (
+    <div style={{ marginBottom: 2 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '4px 6px',
+        borderRadius: expanded ? '4px 4px 0 0' : 4,
+        background: 'rgba(255,255,255,.02)',
+        border: '1px solid var(--border)',
+        borderBottom: expanded ? '1px solid var(--border2)' : '1px solid var(--border)',
+        cursor: 'pointer', fontSize: 12,
+      }} onClick={toggle}>
+        <span style={{ flexShrink: 0 }}>
+          {expanded
+            ? <ChevronDownIcon size={10} strokeWidth={2} color="var(--muted)" />
+            : <ChevronRightIcon size={10} strokeWidth={2} color="var(--muted)" />}
+        </span>
+        {editing ? (
+          <input className="field-input" autoFocus value={nameVal}
+            onClick={e => e.stopPropagation()}
+            onChange={e => setNameVal(e.target.value)}
+            onBlur={saveName}
+            onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditing(false); setNameVal(inst.name || ''); } }}
+            style={{ fontSize: 12, padding: '1px 4px', width: 200 }} />
+        ) : (
+          <span style={{ fontWeight: 600, color: 'var(--text)' }}>{inst.name || inst.id}</span>
+        )}
+        <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--muted)' }}>{inst.id}</span>
+        <span style={{ flex: 1 }} />
+        {canWrite && !editing && (
+          <button className="panel-icon-btn" title="Rename" onClick={e => { e.stopPropagation(); setEditing(true); setNameVal(inst.name || ''); }}>
+            <EditIcon size={10} strokeWidth={2} color="var(--accent)" />
+          </button>
+        )}
+        {canWrite && (
+          <button className="panel-icon-btn" title="Delete instance" onClick={e => { e.stopPropagation(); handleDelete(); }}>
+            <TrashIcon size={10} strokeWidth={2} color="var(--danger, #f87171)" />
+          </button>
+        )}
+      </div>
+
+      {expanded && (
+        <div style={{
+          padding: '8px 10px',
+          background: 'rgba(255,255,255,.01)',
+          border: '1px solid var(--border)',
+          borderTop: 'none',
+          borderRadius: '0 0 4px 4px',
+        }}>
+          {params === null && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading parameters…</div>}
+
+          {params !== null && params.length === 0 && (
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>No parameters defined for this algorithm</div>
+          )}
+
+          {params !== null && params.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+                Parameters
+              </div>
+              {params.map(p => {
+                const paramName  = p.paramName  || p.param_name;
+                const paramLabel = p.paramLabel || p.param_label || paramName;
+                const paramId    = p.id || p.ID;
+                const dataType   = p.dataType || p.data_type || 'STRING';
+                const required   = p.required === 1 || p.required === true;
+                const defaultVal = p.defaultValue || p.default_value || '';
+                const currentVal = values?.find(v => (v.paramName || v.param_name) === paramName);
+                const currentValue = currentVal?.value ?? '';
+
+                return (
+                  <div key={paramId} style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '4px 0', borderBottom: '1px solid var(--border)', fontSize: 11,
+                  }}>
+                    <span style={{ minWidth: 120, color: 'var(--text)', fontWeight: 500 }}>
+                      {paramLabel}{required ? ' *' : ''}
+                    </span>
+                    <span style={{ fontSize: 9, color: 'var(--muted)', fontFamily: 'var(--mono)', minWidth: 50 }}>{dataType}</span>
+                    {canWrite ? (
+                      <input className="field-input"
+                        style={{ flex: 1, fontSize: 11, padding: '2px 6px' }}
+                        value={currentValue}
+                        placeholder={defaultVal ? `default: ${defaultVal}` : ''}
+                        onChange={e => {
+                          const newVal = e.target.value;
+                          setValues(prev => {
+                            const copy = [...(prev || [])];
+                            const idx = copy.findIndex(v => (v.paramName || v.param_name) === paramName);
+                            if (idx >= 0) copy[idx] = { ...copy[idx], value: newVal };
+                            else copy.push({ paramName, value: newVal });
+                            return copy;
+                          });
+                        }}
+                        onBlur={() => setParamValue(paramId, currentValue)}
+                        onKeyDown={e => { if (e.key === 'Enter') setParamValue(paramId, currentValue); }}
+                      />
+                    ) : (
+                      <span style={{ flex: 1, color: currentValue ? 'var(--text)' : 'var(--muted)' }}>
+                        {currentValue || defaultVal || '—'}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AlgorithmsSection({ userId, canWrite, toast }) {
   const [tab, setTab]               = useState('catalog');
   const [algorithms, setAlgorithms] = useState(null);
   const [instances, setInstances]   = useState(null);
   const [stats, setStats]           = useState(null);
   const [expandedAlgo, setExpandedAlgo] = useState(null);
+  const [newInstName, setNewInstName] = useState('');
+  const [algoParams, setAlgoParams]   = useState({});  // algorithmId → param[]
 
   const reload = useCallback(() => {
     Promise.all([
@@ -2785,19 +3292,13 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
   useEffect(() => { reload(); }, [reload]);
 
   async function handleCreateInstance(algorithmId) {
+    const name = newInstName.trim();
+    if (!name) { toast('Instance name is required', 'error'); return; }
     try {
-      const algo = algorithms.find(a => a.id === algorithmId);
-      await api.createInstance(userId, algorithmId, algo?.name || 'New Instance');
+      await api.createInstance(userId, algorithmId, name);
+      setNewInstName('');
       reload();
       toast('Instance created', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  async function handleDeleteInstance(instanceId) {
-    try {
-      await api.deleteInstance(userId, instanceId);
-      reload();
-      toast('Instance deleted', 'success');
     } catch (e) { toast(e, 'error'); }
   }
 
@@ -2900,8 +3401,15 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
                 const algoInstances = instancesByAlgo[algo.id] || [];
                 return (
                   <div key={algo.id} className="settings-card" style={{ marginBottom: 4 }}>
-                    <div className="settings-card-hd" onClick={() => setExpandedAlgo(isExp ? null : algo.id)}
-                      style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                    <div className="settings-card-hd" onClick={() => {
+                      const nextId = isExp ? null : algo.id;
+                      setExpandedAlgo(nextId); setNewInstName('');
+                      if (nextId && !algoParams[nextId]) {
+                        api.listAlgorithmParameters(userId, nextId)
+                          .then(p => setAlgoParams(s => ({ ...s, [nextId]: Array.isArray(p) ? p : [] })))
+                          .catch(() => setAlgoParams(s => ({ ...s, [nextId]: [] })));
+                      }
+                    }} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
                       <span className="settings-card-chevron">
                         {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
                       </span>
@@ -2916,26 +3424,77 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
 
                     {isExp && (
                       <div className="settings-card-body" style={{ padding: '8px 12px 12px 28px' }}>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Handler: <code>{algo.handlerRef}</code></div>
-                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, marginTop: 8 }}>Instances</div>
-                        {algoInstances.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No instances</div>}
+                        <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
+                          <span>Handler: <code style={{ color: 'var(--text)' }}>{algo.handlerRef}</code></span>
+                          <span>Type: <code style={{ color: 'var(--text)' }}>{algo.typeName}</code></span>
+                        </div>
+
+                        {/* ── Parameter definitions ── */}
+                        {(() => {
+                          const pDefs = algoParams[algo.id];
+                          if (pDefs === undefined) return null;
+                          if (pDefs.length === 0) return null;
+                          return (
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+                                Parameter Schema
+                              </div>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                                <thead>
+                                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <th style={{ textAlign: 'left', padding: '3px 6px', color: 'var(--muted)', fontWeight: 600, fontSize: 10 }}>Name</th>
+                                    <th style={{ textAlign: 'left', padding: '3px 6px', color: 'var(--muted)', fontWeight: 600, fontSize: 10 }}>Label</th>
+                                    <th style={{ textAlign: 'left', padding: '3px 6px', color: 'var(--muted)', fontWeight: 600, fontSize: 10 }}>Type</th>
+                                    <th style={{ textAlign: 'center', padding: '3px 6px', color: 'var(--muted)', fontWeight: 600, fontSize: 10 }}>Req.</th>
+                                    <th style={{ textAlign: 'left', padding: '3px 6px', color: 'var(--muted)', fontWeight: 600, fontSize: 10 }}>Default</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {pDefs.map(p => {
+                                    const pName  = p.paramName  || p.param_name;
+                                    const pLabel = p.paramLabel || p.param_label || pName;
+                                    const pType  = p.dataType   || p.data_type || 'STRING';
+                                    const pReq   = p.required === 1 || p.required === true;
+                                    const pDef   = p.defaultValue || p.default_value || '';
+                                    return (
+                                      <tr key={p.id || pName} style={{ borderBottom: '1px solid var(--border)' }}>
+                                        <td style={{ padding: '3px 6px', fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{pName}</td>
+                                        <td style={{ padding: '3px 6px', color: 'var(--text)' }}>{pLabel}</td>
+                                        <td style={{ padding: '3px 6px', fontFamily: 'var(--mono)', color: 'var(--muted)', fontSize: 10 }}>{pType}</td>
+                                        <td style={{ padding: '3px 6px', textAlign: 'center' }}>{pReq ? '✓' : ''}</td>
+                                        <td style={{ padding: '3px 6px', color: pDef ? 'var(--text)' : 'var(--muted)', fontFamily: 'var(--mono)', fontSize: 10 }}>{pDef || '—'}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          );
+                        })()}
+
+                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+                          Instances
+                        </div>
+
+                        {algoInstances.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>No instances</div>}
+
                         {algoInstances.map(inst => (
-                          <div key={inst.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 12 }}>
-                            <span>{inst.name || inst.id}</span>
-                            <span style={{ fontSize: 10, color: 'var(--muted)' }}>{inst.id}</span>
-                            {canWrite && (
-                              <button className="btn btn-xs btn-danger" style={{ marginLeft: 'auto' }}
-                                onClick={() => handleDeleteInstance(inst.id)}>
-                                <TrashIcon size={10} /> Delete
-                              </button>
-                            )}
-                          </div>
+                          <InstanceCard key={inst.id} inst={inst} algo={algo} userId={userId} canWrite={canWrite} toast={toast} onReload={reload} />
                         ))}
+
                         {canWrite && (
-                          <button className="btn btn-xs btn-primary" style={{ marginTop: 6 }}
-                            onClick={() => handleCreateInstance(algo.id)}>
-                            <PlusIcon size={10} /> New Instance
-                          </button>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                            <input className="field-input" style={{ flex: 1, fontSize: 11, padding: '3px 6px' }}
+                              placeholder="New instance name…"
+                              value={newInstName}
+                              onChange={e => setNewInstName(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') handleCreateInstance(algo.id); }} />
+                            <button className="btn btn-sm" style={{ fontSize: 10 }}
+                              disabled={!newInstName.trim()}
+                              onClick={() => handleCreateInstance(algo.id)}>
+                              <PlusIcon size={10} strokeWidth={2.5} /> Create
+                            </button>
+                          </div>
                         )}
                       </div>
                     )}
@@ -3033,18 +3592,79 @@ export function GuardsSection({ userId, canWrite, toast }) {
             const aCat     = action.display_category || action.displayCategory;
             const aKind    = action.action_kind    || action.actionKind;
             const aTx      = action.requires_tx    ?? action.requiresTx;
+            const managedWith = action.managed_with || action.managedWith || null;
+            const isManaged   = !!managedWith;
+
+            // Find manager action name for display
+            const managerName = isManaged
+              ? (actions.find(a => a.id === managedWith)?.display_name
+                || actions.find(a => a.id === managedWith)?.displayName
+                || managedWith)
+              : null;
+
+            // Find managed action names for manager hint
+            const managedActions = !isManaged
+              ? actions.filter(a => (a.managed_with || a.managedWith) === action.id)
+                  .map(a => a.action_code || a.actionCode)
+              : [];
+
             return (
               <div key={action.id} className="settings-card" style={{ marginBottom: 4 }}>
-                <div className="settings-card-hd" onClick={() => toggleAction(action.id)}
-                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                  <span className="settings-card-chevron">
-                    {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
-                  </span>
-                  <span className="settings-card-name">{aName}</span>
-                  <span className="settings-badge" style={{ marginLeft: 6 }}>{aScope}</span>
+                <div className="settings-card-hd" onClick={() => !isManaged && toggleAction(action.id)}
+                  style={{ display: 'flex', alignItems: 'center', cursor: isManaged ? 'default' : 'pointer' }}>
+                  {!isManaged && (
+                    <span className="settings-card-chevron">
+                      {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
+                    </span>
+                  )}
+                  {isManaged && <span style={{ width: 13, display: 'inline-block', marginRight: 4 }} />}
+                  <span className="settings-card-name" style={isManaged ? { color: 'var(--muted)' } : undefined}>{aName}</span>
+                  {isManaged && (
+                    <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--warning, orange)', fontStyle: 'italic' }}>
+                      Managed by {managerName}
+                    </span>
+                  )}
+                  {managedActions.length > 0 && (
+                    <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--accent)', fontStyle: 'italic' }}>
+                      Manages: {managedActions.join(', ')}
+                    </span>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  {/* Managed-with selector */}
+                  {canWrite && (
+                    <select
+                      className="field-input"
+                      style={{ fontSize: 10, width: 140, padding: '1px 4px', marginRight: 8 }}
+                      value={managedWith || ''}
+                      onClick={e => e.stopPropagation()}
+                      onChange={async e => {
+                        const newManager = e.target.value || null;
+                        if (newManager && !window.confirm(
+                          `Set ${aCode} as managed by ${actions.find(a => a.id === newManager)?.action_code || newManager}?\n\n` +
+                          `All existing guards and permissions for ${aCode} will be removed.`
+                        )) { e.target.value = managedWith || ''; return; }
+                        try {
+                          await api.setManagedWith(userId, action.id, newManager);
+                          toast(newManager ? `${aCode} now managed` : `${aCode} now independent`, 'success');
+                          // Reload actions
+                          const acts = await api.getAllActions(userId);
+                          setActions(Array.isArray(acts) ? acts : []);
+                        } catch (err) { toast(err, 'error'); }
+                      }}
+                    >
+                      <option value="">— Independent —</option>
+                      {actions
+                        .filter(a => a.id !== action.id && !(a.managed_with || a.managedWith))
+                        .map(a => (
+                          <option key={a.id} value={a.id}>{a.action_code || a.actionCode}</option>
+                        ))
+                      }
+                    </select>
+                  )}
+                  <span className="settings-badge">{aScope}</span>
                 </div>
 
-                {isExp && (
+                {isExp && !isManaged && (
                   <div className="settings-card-body" style={{ padding: '8px 12px 12px 28px' }}>
                     {/* Action details */}
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>

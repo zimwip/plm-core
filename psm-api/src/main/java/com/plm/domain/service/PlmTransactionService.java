@@ -144,19 +144,6 @@ public class PlmTransactionService {
      */
     @Transactional
     public String openTransaction(String userId) {
-        assertNoOpenTransaction(userId);
-        return createTransactionInternal(userId);
-    }
-
-    // getOrCreateTransaction a été supprimé : la transaction est désormais
-    // un élément de première classe, toujours créée explicitement par l'appelant.
-
-    /**
-     * Crée une transaction sans vérifier l'unicité (usage interne uniquement).
-     * Utilisé lors du partial-commit pour créer la transaction "suite" avant
-     * de fermer la transaction courante, et par openTransaction après validation.
-     */
-    private String createTransactionInternal(String userId) {
         String txId = UUID.randomUUID().toString();
         dsl.execute(
             "INSERT INTO plm_transaction (ID, OWNER_ID, STATUS, CREATED_AT) VALUES (?,?,?,?)",
@@ -215,7 +202,7 @@ public class PlmTransactionService {
         // ── Move deferred nodes to a new transaction ─────────────────────
         String continuationTxId = null;
         if (!deferredNodeIds.isEmpty()) {
-            continuationTxId = createTransactionInternal(userId);
+            continuationTxId = openTransaction(userId);
             try {
                 for (String nodeId : deferredNodeIds) {
                     dsl.execute(
@@ -844,18 +831,6 @@ public class PlmTransactionService {
         return tx;
     }
 
-    private void assertNoOpenTransaction(String userId) {
-        String existing = findOpenTransaction(userId);
-        if (existing != null) {
-            throw new IllegalStateException(
-                "User " +
-                    userId +
-                    " already has an open transaction: " +
-                    existing +
-                    ". Commit or rollback it first."
-            );
-        }
-    }
 
     // ================================================================
     // Exceptions

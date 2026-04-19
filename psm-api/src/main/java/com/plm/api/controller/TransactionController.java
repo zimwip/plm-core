@@ -1,5 +1,7 @@
 package com.plm.api.controller;
 
+import com.plm.domain.action.ActionDispatcher;
+import com.plm.domain.action.ActionResult;
 import com.plm.domain.security.SecurityContextPort;
 import com.plm.domain.service.PlmTransactionService;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * API REST pour la gestion des transactions PLM.
@@ -30,6 +33,7 @@ public class TransactionController {
 
     private final PlmTransactionService txService;
     private final SecurityContextPort   secCtx;
+    private final ActionDispatcher      actionDispatcher;
 
     // ── Ouvrir une transaction explicitement ──────────────────────────
 
@@ -38,6 +42,26 @@ public class TransactionController {
         String userId = secCtx.currentUser().getUserId();
         String txId   = txService.openTransaction(userId);
         return ResponseEntity.ok(Map.of("txId", txId));
+    }
+
+    // ── TX-scope action dispatch ─────────────────────────────────────
+
+    @PostMapping("/{txId}/actions/{actionCode}")
+    public ResponseEntity<?> executeTransactionAction(
+        @PathVariable String txId,
+        @PathVariable String actionCode,
+        @RequestBody Map<String, Object> body
+    ) {
+        String userId = secCtx.currentUser().getUserId();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> paramMap = (Map<String, Object>) body.getOrDefault("parameters", Map.of());
+        Map<String, String> params = paramMap.entrySet().stream()
+            .collect(Collectors.toMap(Map.Entry::getKey, e -> String.valueOf(e.getValue())));
+
+        ActionResult result = actionDispatcher.dispatch(
+            actionCode, null, null, null, userId, txId, params);
+
+        return ResponseEntity.ok(result.data());
     }
 
     // ── Consulter une transaction ─────────────────────────────────────

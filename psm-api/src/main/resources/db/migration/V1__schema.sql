@@ -1,5 +1,5 @@
 -- ============================================================
--- PSM (Product Structure Management) SCHEMA
+-- PSM (Product Structure Management) SCHEMA — Collapsed
 --
 -- In PostgreSQL these live in the 'psm' schema.
 -- In H2 dev/test mode they live in the default PUBLIC schema.
@@ -46,17 +46,19 @@ CREATE TABLE lifecycle_transition (
 -- ============================================================
 
 CREATE TABLE node_type (
-    id                 VARCHAR(36)  NOT NULL PRIMARY KEY,
-    name               VARCHAR(255) NOT NULL,
-    description        VARCHAR(1000),
-    lifecycle_id       VARCHAR(36)  REFERENCES lifecycle(id),
-    logical_id_label   VARCHAR(100) DEFAULT 'Identifier',
-    logical_id_pattern VARCHAR(500),
-    numbering_scheme   VARCHAR(50)  NOT NULL DEFAULT 'ALPHA_NUMERIC',
-    version_policy     VARCHAR(20)  NOT NULL DEFAULT 'ITERATE',  -- NONE | ITERATE | RELEASE
-    color              VARCHAR(20),
-    icon               VARCHAR(50),
-    created_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id                  VARCHAR(36)  NOT NULL PRIMARY KEY,
+    name                VARCHAR(255) NOT NULL,
+    description         VARCHAR(1000),
+    lifecycle_id        VARCHAR(36)  REFERENCES lifecycle(id),
+    logical_id_label    VARCHAR(100) DEFAULT 'Identifier',
+    logical_id_pattern  VARCHAR(500),
+    numbering_scheme    VARCHAR(50)  NOT NULL DEFAULT 'ALPHA_NUMERIC',
+    version_policy      VARCHAR(20)  NOT NULL DEFAULT 'ITERATE',  -- NONE | ITERATE | RELEASE
+    color               VARCHAR(20),
+    icon                VARCHAR(50),
+    collapse_history    BOOLEAN      NOT NULL DEFAULT FALSE,
+    parent_node_type_id VARCHAR(36)  REFERENCES node_type(id),
+    created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE attribute_definition (
@@ -73,7 +75,7 @@ CREATE TABLE attribute_definition (
     display_order   INT          NOT NULL DEFAULT 0,
     display_section VARCHAR(100),
     tooltip         VARCHAR(500),
-    as_name         INTEGER      NOT NULL DEFAULT 0,  -- only one per node_type; enforced at app level
+    as_name         INTEGER      NOT NULL DEFAULT 0,
     created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -83,7 +85,9 @@ CREATE TABLE attribute_state_rule (
     lifecycle_state_id      VARCHAR(36) NOT NULL REFERENCES lifecycle_state(id),
     required                SMALLINT    NOT NULL DEFAULT 0,
     editable                SMALLINT    NOT NULL DEFAULT 1,
-    visible                 SMALLINT    NOT NULL DEFAULT 1
+    visible                 SMALLINT    NOT NULL DEFAULT 1,
+    node_type_id            VARCHAR(36),
+    CONSTRAINT uq_attr_state_rule UNIQUE (node_type_id, attribute_definition_id, lifecycle_state_id)
 );
 
 -- ============================================================
@@ -102,6 +106,7 @@ CREATE TABLE link_type (
     link_logical_id_label   VARCHAR(100) DEFAULT 'Link ID',
     link_logical_id_pattern VARCHAR(500),
     color                   VARCHAR(20),
+    icon                    VARCHAR(50),
     created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -122,8 +127,6 @@ CREATE TABLE link_type_attribute (
     created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Cascade rules: when parent node fires parent_transition_id,
--- children in child_from_state_id are pushed via child_transition_id.
 CREATE TABLE link_type_cascade (
     id                   VARCHAR(36)  NOT NULL PRIMARY KEY,
     link_type_id         VARCHAR(36)  NOT NULL REFERENCES link_type(id),
@@ -135,14 +138,12 @@ CREATE TABLE link_type_cascade (
 
 -- ============================================================
 -- TRANSACTION
--- OPEN  → visible to owner + admins only
--- COMMITTED → visible to everyone
 -- ============================================================
 
 CREATE TABLE plm_transaction (
     id             VARCHAR(36)   NOT NULL PRIMARY KEY,
     owner_id       VARCHAR(100)  NOT NULL,
-    status         VARCHAR(20)   NOT NULL DEFAULT 'OPEN',  -- OPEN | COMMITTED
+    status         VARCHAR(20)   NOT NULL DEFAULT 'OPEN',
     commit_comment VARCHAR(2000),
     created_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     committed_at   TIMESTAMP,
@@ -156,10 +157,10 @@ CREATE TABLE plm_transaction (
 CREATE TABLE node (
     id               VARCHAR(36)  NOT NULL PRIMARY KEY,
     node_type_id     VARCHAR(36)  NOT NULL REFERENCES node_type(id),
-    project_space_id VARCHAR(36),           -- plain ref, no FK (cross-service)
+    project_space_id VARCHAR(36),
     logical_id       VARCHAR(500),
     external_id      VARCHAR(255),
-    locked_by        VARCHAR(100),          -- non-null = node is locked
+    locked_by        VARCHAR(100),
     locked_at        TIMESTAMP,
     created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by       VARCHAR(100) NOT NULL
@@ -172,7 +173,7 @@ CREATE TABLE node_version (
     revision            VARCHAR(10)   NOT NULL DEFAULT 'A',
     iteration           INT           NOT NULL DEFAULT 1,
     lifecycle_state_id  VARCHAR(36)   REFERENCES lifecycle_state(id),
-    change_type         VARCHAR(50)   NOT NULL DEFAULT 'CONTENT',  -- CONTENT | LIFECYCLE | SIGNATURE
+    change_type         VARCHAR(50)   NOT NULL DEFAULT 'CONTENT',
     change_description  VARCHAR(1000),
     tx_id               VARCHAR(36)   NOT NULL REFERENCES plm_transaction(id),
     previous_version_id VARCHAR(36)   REFERENCES node_version(id),
@@ -191,8 +192,6 @@ CREATE TABLE node_version_attribute (
     CONSTRAINT uq_node_version_attr UNIQUE (node_version_id, attribute_def_id)
 );
 
--- VERSION_TO_MASTER: pinned_version_id IS NULL  → resolves to latest committed version
--- VERSION_TO_VERSION: pinned_version_id NOT NULL → frozen pointer to a specific version
 CREATE TABLE node_version_link (
     id                     VARCHAR(36)  NOT NULL PRIMARY KEY,
     link_type_id           VARCHAR(36)  NOT NULL REFERENCES link_type(id),
@@ -209,13 +208,14 @@ CREATE TABLE node_version_link (
 -- ============================================================
 
 CREATE TABLE node_signature (
-    id              VARCHAR(36)  NOT NULL PRIMARY KEY,
-    node_id         VARCHAR(36)  NOT NULL REFERENCES node(id),
-    node_version_id VARCHAR(36)  NOT NULL REFERENCES node_version(id),
-    signed_by       VARCHAR(100) NOT NULL,
-    signed_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    meaning         VARCHAR(100) NOT NULL,
-    comment         VARCHAR(1000)
+    id                         VARCHAR(36)  NOT NULL PRIMARY KEY,
+    node_id                    VARCHAR(36)  NOT NULL REFERENCES node(id),
+    node_version_id            VARCHAR(36)  NOT NULL REFERENCES node_version(id),
+    signed_by                  VARCHAR(100) NOT NULL,
+    signed_at                  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    meaning                    VARCHAR(100) NOT NULL,
+    comment                    VARCHAR(1000),
+    signed_version_fingerprint VARCHAR(64)
 );
 
 CREATE TABLE signature_requirement (
@@ -246,8 +246,6 @@ CREATE TABLE baseline_entry (
 
 -- ============================================================
 -- ATTRIBUTE VIEWS
--- Restrict (never expand) attribute rights per role x state.
--- eligible_role_id is a plain VARCHAR ref (cross-service).
 -- ============================================================
 
 CREATE TABLE attribute_view (
@@ -255,8 +253,8 @@ CREATE TABLE attribute_view (
     node_type_id      VARCHAR(36)  NOT NULL REFERENCES node_type(id),
     name              VARCHAR(100) NOT NULL,
     description       VARCHAR(500),
-    eligible_role_id  VARCHAR(36),                                   -- NULL = all roles
-    eligible_state_id VARCHAR(36)  REFERENCES lifecycle_state(id),  -- NULL = all states
+    eligible_role_id  VARCHAR(36),
+    eligible_state_id VARCHAR(36)  REFERENCES lifecycle_state(id),
     priority          INT          NOT NULL DEFAULT 0
 );
 
@@ -274,34 +272,23 @@ CREATE TABLE view_attribute_override (
 -- ============================================================
 -- ACTION REGISTRY
 --
--- action               = global catalog (built-in + custom)
--- action_parameter     = parameter schema per action
--- node_type_action     = enabled actions per node type
--- action_param_override= per node-type-action parameter overrides
--- action_permission    = flat allowlist:
---   action x project_space x role [x node_type] [x transition]
---
---   scope = NODE     → permission by (action, node_type, project_space, role)
---   scope = LIFECYCLE→ permission by (action, node_type, transition, project_space, role)
---   scope = GLOBAL   → permission by (action, project_space, role); node_type/transition NULL
---
--- Zero rows for (action, project_space) = open to all.
--- One or more rows = explicit allowlist.
--- Admins bypass all checks via isAdmin flag.
--- display_category = STRUCTURAL hides an action from the UI action list.
+-- scope: NODE | LIFECYCLE | GLOBAL | TX
+-- tx_mode: NONE | REQUIRED | AUTO_OPEN | ISOLATED
+-- display_category: PRIMARY | SECONDARY | DANGEROUS | STRUCTURAL
 -- ============================================================
 
 CREATE TABLE action (
     id               VARCHAR(100)  NOT NULL PRIMARY KEY,
     action_code      VARCHAR(100)  NOT NULL,
     action_kind      VARCHAR(20)   NOT NULL DEFAULT 'BUILTIN',
-    scope            VARCHAR(20)   NOT NULL DEFAULT 'NODE',   -- NODE | LIFECYCLE | GLOBAL
+    scope            VARCHAR(20)   NOT NULL DEFAULT 'NODE',
     display_name     VARCHAR(200)  NOT NULL,
     description      VARCHAR(1000),
     handler_ref      VARCHAR(200)  NOT NULL,
     display_category VARCHAR(20)   NOT NULL DEFAULT 'PRIMARY',
     requires_tx      SMALLINT      NOT NULL DEFAULT 0,
-    is_default       SMALLINT      NOT NULL DEFAULT 0,
+    tx_mode          VARCHAR(30)   NOT NULL DEFAULT 'NONE',
+    display_order    INT           NOT NULL DEFAULT 0,
     created_at       TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_action_code UNIQUE (action_code)
 );
@@ -325,25 +312,15 @@ CREATE TABLE action_parameter (
     CONSTRAINT uq_action_param UNIQUE (action_id, param_name)
 );
 
-CREATE TABLE node_type_action (
-    id                    VARCHAR(100) NOT NULL PRIMARY KEY,
-    node_type_id          VARCHAR(36)  NOT NULL REFERENCES node_type(id),
-    action_id             VARCHAR(100) NOT NULL REFERENCES action(id),
-    status                VARCHAR(20)  NOT NULL DEFAULT 'ENABLED',
-    display_name_override VARCHAR(200),
-    transition_id         VARCHAR(36)  REFERENCES lifecycle_transition(id),
-    display_order         INT          NOT NULL DEFAULT 0,
-    CONSTRAINT uq_nodetype_action UNIQUE (node_type_id, action_id, transition_id)
-);
-
 CREATE TABLE action_param_override (
-    id                  VARCHAR(100) NOT NULL PRIMARY KEY,
-    node_type_action_id VARCHAR(100) NOT NULL REFERENCES node_type_action(id),
-    parameter_id        VARCHAR(100) NOT NULL REFERENCES action_parameter(id),
-    default_value       VARCHAR(1000),
-    allowed_values      VARCHAR(2000),
-    required            SMALLINT,
-    CONSTRAINT uq_napo UNIQUE (node_type_action_id, parameter_id)
+    id              VARCHAR(100) NOT NULL PRIMARY KEY,
+    node_type_id    VARCHAR(36)  NOT NULL REFERENCES node_type(id),
+    action_id       VARCHAR(100) NOT NULL REFERENCES action(id),
+    parameter_id    VARCHAR(100) NOT NULL REFERENCES action_parameter(id),
+    default_value   VARCHAR(1000),
+    allowed_values  VARCHAR(2000),
+    required        SMALLINT,
+    CONSTRAINT uq_apo UNIQUE (node_type_id, action_id, parameter_id)
 );
 
 CREATE TABLE action_permission (
@@ -351,42 +328,174 @@ CREATE TABLE action_permission (
     action_id        VARCHAR(100) NOT NULL REFERENCES action(id),
     project_space_id VARCHAR(36)  NOT NULL,
     role_id          VARCHAR(36)  NOT NULL,
-    node_type_id     VARCHAR(36),   -- NULL for GLOBAL-scope actions
-    transition_id    VARCHAR(36),   -- NULL for NODE-scope; specific transition for LIFECYCLE-scope
+    node_type_id     VARCHAR(36),
+    transition_id    VARCHAR(36),
     CONSTRAINT uq_action_permission UNIQUE (action_id, project_space_id, role_id,
                                             node_type_id, transition_id)
+);
+
+-- ============================================================
+-- EVENT OUTBOX
+-- ============================================================
+
+CREATE TABLE event_outbox (
+    id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+    destination VARCHAR(255) NOT NULL,
+    payload     TEXT         NOT NULL,
+    created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================================
+-- COMMENTS
+-- ============================================================
+
+CREATE TABLE node_version_comment (
+    id                  VARCHAR(36)   NOT NULL PRIMARY KEY,
+    node_id             VARCHAR(36)   NOT NULL REFERENCES node(id),
+    node_version_id     VARCHAR(36)   NOT NULL REFERENCES node_version(id),
+    author              VARCHAR(100)  NOT NULL,
+    created_at          TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    text                TEXT          NOT NULL,
+    version_fingerprint VARCHAR(64),
+    parent_comment_id   VARCHAR(36)   REFERENCES node_version_comment(id),
+    attribute_name      VARCHAR(100)
+);
+
+-- ============================================================
+-- ALGORITHM FRAMEWORK
+-- ============================================================
+
+CREATE TABLE algorithm_type (
+    id              VARCHAR(100)  NOT NULL PRIMARY KEY,
+    name            VARCHAR(200)  NOT NULL,
+    description     VARCHAR(1000),
+    java_interface  VARCHAR(500)  NOT NULL
+);
+
+CREATE TABLE algorithm (
+    id                VARCHAR(100)  NOT NULL PRIMARY KEY,
+    algorithm_type_id VARCHAR(100)  NOT NULL REFERENCES algorithm_type(id),
+    code              VARCHAR(100)  NOT NULL,
+    name              VARCHAR(200)  NOT NULL,
+    description       VARCHAR(1000),
+    handler_ref       VARCHAR(500)  NOT NULL,
+    created_at        TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_algorithm_code UNIQUE (code)
+);
+
+CREATE TABLE algorithm_parameter (
+    id            VARCHAR(100)  NOT NULL PRIMARY KEY,
+    algorithm_id  VARCHAR(100)  NOT NULL REFERENCES algorithm(id),
+    param_name    VARCHAR(100)  NOT NULL,
+    param_label   VARCHAR(200)  NOT NULL,
+    data_type     VARCHAR(50)   NOT NULL DEFAULT 'STRING',
+    required      SMALLINT      NOT NULL DEFAULT 0,
+    default_value VARCHAR(1000),
+    display_order INT           NOT NULL DEFAULT 0,
+    CONSTRAINT uq_algo_param UNIQUE (algorithm_id, param_name)
+);
+
+CREATE TABLE algorithm_instance (
+    id           VARCHAR(100) NOT NULL PRIMARY KEY,
+    algorithm_id VARCHAR(100) NOT NULL REFERENCES algorithm(id),
+    name         VARCHAR(200),
+    created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE algorithm_instance_param_value (
+    id                     VARCHAR(100)  NOT NULL PRIMARY KEY,
+    algorithm_instance_id  VARCHAR(100)  NOT NULL REFERENCES algorithm_instance(id),
+    algorithm_parameter_id VARCHAR(100)  NOT NULL REFERENCES algorithm_parameter(id),
+    value                  VARCHAR(2000) NOT NULL,
+    CONSTRAINT uq_aipv UNIQUE (algorithm_instance_id, algorithm_parameter_id)
+);
+
+-- ============================================================
+-- GUARD ATTACHMENT TABLES
+--
+-- Tiers (merge order: generic → specific):
+--   1. action_guard               — global, on action.id
+--   2. lifecycle_transition_guard  — on lifecycle_transition.id, all node_types
+--   3. node_action_guard           — per (node_type, action, transition?), ADD or DISABLE
+-- ============================================================
+
+CREATE TABLE action_guard (
+    id                    VARCHAR(100) NOT NULL PRIMARY KEY,
+    action_id             VARCHAR(100) NOT NULL REFERENCES action(id),
+    algorithm_instance_id VARCHAR(100) NOT NULL REFERENCES algorithm_instance(id),
+    effect                VARCHAR(20)  NOT NULL DEFAULT 'HIDE',
+    display_order         INT          NOT NULL DEFAULT 0,
+    CONSTRAINT uq_action_guard UNIQUE (action_id, algorithm_instance_id)
+);
+
+CREATE TABLE lifecycle_transition_guard (
+    id                      VARCHAR(100) NOT NULL PRIMARY KEY,
+    lifecycle_transition_id VARCHAR(36)  NOT NULL REFERENCES lifecycle_transition(id),
+    algorithm_instance_id   VARCHAR(100) NOT NULL REFERENCES algorithm_instance(id),
+    effect                  VARCHAR(20)  NOT NULL DEFAULT 'HIDE',
+    display_order           INT          NOT NULL DEFAULT 0,
+    CONSTRAINT uq_ltg UNIQUE (lifecycle_transition_id, algorithm_instance_id)
+);
+
+CREATE TABLE node_action_guard (
+    id                    VARCHAR(100) NOT NULL PRIMARY KEY,
+    node_type_id          VARCHAR(36)  NOT NULL REFERENCES node_type(id),
+    action_id             VARCHAR(100) NOT NULL REFERENCES action(id),
+    transition_id         VARCHAR(36)  REFERENCES lifecycle_transition(id),
+    algorithm_instance_id VARCHAR(100) NOT NULL REFERENCES algorithm_instance(id),
+    effect                VARCHAR(20)  NOT NULL DEFAULT 'HIDE',
+    override_action       VARCHAR(20)  NOT NULL DEFAULT 'ADD',
+    display_order         INT          NOT NULL DEFAULT 0,
+    CONSTRAINT uq_nag UNIQUE (node_type_id, action_id, transition_id, algorithm_instance_id)
+);
+
+-- ============================================================
+-- ALGORITHM STATISTICS
+-- ============================================================
+
+CREATE TABLE algorithm_stat (
+    algorithm_code VARCHAR(100) NOT NULL PRIMARY KEY,
+    call_count     BIGINT       NOT NULL DEFAULT 0,
+    total_ns       BIGINT       NOT NULL DEFAULT 0,
+    min_ns         BIGINT       NOT NULL DEFAULT 9223372036854775807,
+    max_ns         BIGINT       NOT NULL DEFAULT 0,
+    last_flushed   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
 -- INDEXES
 -- ============================================================
 
-CREATE INDEX idx_tx_owner_status    ON plm_transaction(owner_id, status);
-CREATE INDEX idx_node_project_space ON node(project_space_id);
-CREATE INDEX idx_node_version_node  ON node_version(node_id);
-CREATE INDEX idx_node_version_state ON node_version(lifecycle_state_id);
-CREATE INDEX idx_node_version_tx    ON node_version(tx_id);
-CREATE INDEX idx_node_version_fp    ON node_version(fingerprint);
-CREATE INDEX idx_link_source        ON node_version_link(source_node_version_id);
-CREATE INDEX idx_link_target        ON node_version_link(target_node_id);
-CREATE INDEX idx_attr_def_nodetype  ON attribute_definition(node_type_id);
-CREATE INDEX idx_attr_state_rule    ON attribute_state_rule(attribute_definition_id);
-CREATE INDEX idx_baseline_entry     ON baseline_entry(baseline_id);
-CREATE INDEX idx_signature_node     ON node_signature(node_id);
-CREATE INDEX idx_signature_version  ON node_signature(node_version_id);
-CREATE INDEX idx_sigreq_transition  ON signature_requirement(lifecycle_transition_id);
-CREATE INDEX idx_view_nodetype      ON attribute_view(node_type_id);
-CREATE INDEX idx_view_role          ON attribute_view(eligible_role_id);
-CREATE INDEX idx_vao_view           ON view_attribute_override(view_id);
-CREATE INDEX idx_lta_link_type      ON link_type_attribute(link_type_id);
-CREATE INDEX idx_ltc_link_type      ON link_type_cascade(link_type_id);
-CREATE INDEX idx_ltc_parent_trans   ON link_type_cascade(parent_transition_id);
-CREATE INDEX idx_ltc_child_state    ON link_type_cascade(child_from_state_id);
-CREATE INDEX idx_nta_nodetype       ON node_type_action(node_type_id);
-CREATE INDEX idx_nta_action         ON node_type_action(action_id);
-CREATE INDEX idx_nta_transition     ON node_type_action(transition_id);
-CREATE INDEX idx_napar_action       ON action_parameter(action_id);
-CREATE INDEX idx_napov_nta          ON action_param_override(node_type_action_id);
-CREATE INDEX idx_ap_action          ON action_permission(action_id);
-CREATE INDEX idx_ap_nodetype        ON action_permission(node_type_id);
-CREATE INDEX idx_ap_role            ON action_permission(role_id);
+CREATE INDEX idx_tx_owner_status     ON plm_transaction(owner_id, status);
+CREATE INDEX idx_node_project_space  ON node(project_space_id);
+CREATE INDEX idx_node_version_node   ON node_version(node_id);
+CREATE INDEX idx_node_version_state  ON node_version(lifecycle_state_id);
+CREATE INDEX idx_node_version_tx     ON node_version(tx_id);
+CREATE INDEX idx_node_version_fp     ON node_version(fingerprint);
+CREATE INDEX idx_link_source         ON node_version_link(source_node_version_id);
+CREATE INDEX idx_link_target         ON node_version_link(target_node_id);
+CREATE INDEX idx_attr_def_nodetype   ON attribute_definition(node_type_id);
+CREATE INDEX idx_attr_state_rule     ON attribute_state_rule(attribute_definition_id);
+CREATE INDEX idx_baseline_entry      ON baseline_entry(baseline_id);
+CREATE INDEX idx_signature_node      ON node_signature(node_id);
+CREATE INDEX idx_signature_version   ON node_signature(node_version_id);
+CREATE INDEX idx_sigreq_transition   ON signature_requirement(lifecycle_transition_id);
+CREATE INDEX idx_view_nodetype       ON attribute_view(node_type_id);
+CREATE INDEX idx_view_role           ON attribute_view(eligible_role_id);
+CREATE INDEX idx_vao_view            ON view_attribute_override(view_id);
+CREATE INDEX idx_lta_link_type       ON link_type_attribute(link_type_id);
+CREATE INDEX idx_ltc_link_type       ON link_type_cascade(link_type_id);
+CREATE INDEX idx_ltc_parent_trans    ON link_type_cascade(parent_transition_id);
+CREATE INDEX idx_ltc_child_state     ON link_type_cascade(child_from_state_id);
+CREATE INDEX idx_event_outbox_ts     ON event_outbox(created_at);
+CREATE INDEX idx_comment_node        ON node_version_comment(node_id);
+CREATE INDEX idx_comment_version     ON node_version_comment(node_version_id);
+CREATE INDEX idx_napar_action        ON action_parameter(action_id);
+CREATE INDEX idx_apo_key             ON action_param_override(node_type_id, action_id);
+CREATE INDEX idx_ap_action           ON action_permission(action_id);
+CREATE INDEX idx_ap_nodetype         ON action_permission(node_type_id);
+CREATE INDEX idx_ap_role             ON action_permission(role_id);
+CREATE INDEX idx_action_guard_action ON action_guard(action_id);
+CREATE INDEX idx_ltg_transition      ON lifecycle_transition_guard(lifecycle_transition_id);
+CREATE INDEX idx_nag_key             ON node_action_guard(node_type_id, action_id, transition_id);
+CREATE INDEX idx_algo_instance_algo  ON algorithm_instance(algorithm_id);

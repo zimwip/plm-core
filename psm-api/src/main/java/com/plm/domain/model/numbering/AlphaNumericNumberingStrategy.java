@@ -24,10 +24,13 @@ public class AlphaNumericNumberingStrategy implements VersionNumberingStrategy {
     public NumberingResult compute(VersionStrategy versionStrategy,
                                    String previousRevision,
                                    int previousIteration) {
+        // Normalize: iteration 0 is a display-only value from collapse history
+        // (e.g. "B" instead of "B.1"). Treat as 1 for numbering purposes.
+        int effIteration = Math.max(previousIteration, 1);
         return switch (versionStrategy) {
             case REVISE  -> new NumberingResult(nextRevision(previousRevision), 1);
-            case ITERATE -> new NumberingResult(previousRevision, previousIteration + 1);
-            case NONE    -> new NumberingResult(previousRevision, previousIteration);
+            case ITERATE -> new NumberingResult(previousRevision, effIteration + 1);
+            case NONE    -> new NumberingResult(previousRevision, effIteration);
         };
     }
 

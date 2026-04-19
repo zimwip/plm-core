@@ -2,6 +2,8 @@ package com.plm.domain.service;
 
 import static java.util.Map.entry;
 
+import com.plm.domain.metadata.Metadata;
+import com.plm.domain.metadata.MetadataService;
 import com.plm.domain.model.Enums.ChangeType;
 import com.plm.domain.model.Enums.VersionStrategy;
 import com.plm.domain.model.ResolvedAttribute;
@@ -40,6 +42,8 @@ import org.springframework.transaction.annotation.Transactional;
  * createNode est un cas particulier : la version initiale est directement COMMITTED
  * (création = acte atomique, pas de review nécessaire).
  */
+@Metadata(key = "frozen", target = "LIFECYCLE_STATE",
+    description = "Blocks content modifications (checkout, attribute changes)")
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -53,12 +57,12 @@ public class NodeService {
     private final ViewService                     viewService;
     private final ValidationService               validationService;
     private final FingerPrintService              fingerPrintService;
-    private final com.plm.domain.action.ActionService actionService;
     private final PlmEventPublisher               eventPublisher;
     private final MetaModelCache                  metaModelCache;
     private final LinkService                     linkService;
     private final GraphValidationService          graphValidationService;
     private final SecurityContextPort             secCtx;
+    private final MetadataService                 metadataService;
 
     // ================================================================
     // CRÉATION (pas de txId — version initiale directement COMMITTED)
@@ -753,6 +757,12 @@ public class NodeService {
             .where("id = ?", nodeId)
             .fetchOne("node_type_id", String.class);
         String currentStateId = current.get("lifecycle_state_id", String.class);
+        String currentStateName = currentStateId != null
+            ? dsl.select(DSL.field("name"))
+                  .from("lifecycle_state")
+                  .where("id = ?", currentStateId)
+                  .fetchOne("name", String.class)
+            : null;
         String revision = current.get("revision", String.class);
         int iteration = current.get("iteration", Integer.class);
         String versionId = current.get("id", String.class);
@@ -792,25 +802,6 @@ public class NodeService {
             .fetchOne();
         String logicalId = nodeRecord.get("logical_id", String.class);
         String externalId = nodeRecord.get("external_id", String.class);
-
-        // Actions disponibles — server-driven via le registre d'actions.
-        // Historical views are always read-only: no actions, no editable fields.
-        boolean isLockedByCurrentUser = lockInfo.locked()
-            && userId.equals(lockInfo.lockedBy());
-        List<Map<String, Object>> actions = historicalView
-            ? List.of()
-            : actionService.resolveActionsForNode(
-                nodeId,
-                nodeTypeId,
-                currentStateId,
-                lockInfo.locked(),
-                isLockedByCurrentUser
-              );
-        boolean globalCanWrite = !historicalView && actions
-            .stream()
-            .anyMatch(a -> "UPDATE_NODE".equals(a.get("actionCode"))
-                && Boolean.TRUE.equals(a.get("authorized"))
-                && ((List<?>) a.getOrDefault("guardViolations", List.of())).isEmpty());
 
         // Valeurs courantes
         Map<String, String> currentValues = new java.util.HashMap<>();
@@ -883,7 +874,7 @@ public class NodeService {
                         ov.displaySection() != null ? ov.displaySection() : ""
                     ),
                     entry("displayOrder", ov.displayOrder()),
-                    entry("editable", globalCanWrite && ov.editable()),
+                    entry("editable", ov.editable()),
                     entry("required", requiredByState || requiredGlobal),
                     entry(
                         "namingRegex",
@@ -922,6 +913,7 @@ public class NodeService {
         result.put("revision", revision);
         result.put("iteration", iteration);
         result.put("state", currentStateId != null ? currentStateId : "");
+        result.put("stateName", currentStateName != null ? currentStateName : "");
         result.put("txStatus", txStatus != null ? txStatus : "COMMITTED");
         result.put("lifecycleId", lifecycleId != null ? lifecycleId : "");
         // Look up the OPEN version's txId separately — lock is tx-agnostic on node table.
@@ -956,7 +948,6 @@ public class NodeService {
         result.put("nodeTypeId", nodeTypeId);
         result.put("currentVersionId", versionId);
         result.put("attributes", attributes);
-        result.put("actions", actions);
         result.put("historicalView", historicalView);
         if (historicalView) result.put("versionNumber", versionNumber);
 
@@ -1119,8 +1110,9 @@ public class NodeService {
     }
 
     /**
-     * Throws FrozenStateException if the node's current lifecycle state has is_frozen = 1.
-     * A FROZEN state prohibits content modifications (checkout / modifyNode).
+     * Throws FrozenStateException if the node's current lifecycle state has
+     * metadata key "frozen" = "true".
+     * A frozen state prohibits content modifications (checkout / modifyNode).
      * Lifecycle transitions and signatures are still allowed.
      */
     private void assertNotFrozen(String nodeId) {
@@ -1128,12 +1120,7 @@ public class NodeService {
         if (current == null) return;
         String stateId = current.get("lifecycle_state_id", String.class);
         if (stateId == null) return;
-        Integer frozen = dsl
-            .select()
-            .from("lifecycle_state")
-            .where("id = ?", stateId)
-            .fetchOne("is_frozen", Integer.class);
-        if (frozen != null && frozen == 1) {
+        if (metadataService.isTrue("LIFECYCLE_STATE", stateId, "frozen")) {
             throw new FrozenStateException(nodeId, stateId);
         }
     }

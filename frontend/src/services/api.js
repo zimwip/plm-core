@@ -113,6 +113,10 @@ const requestForSpace = (method, path, userId, psId, body) =>
 // ── Nodes ──────────────────────────────────────────────────────────
 
 export const api = {
+  // Metadata keys (discovered from @Metadata annotations)
+  getMetadataKeys: (userId, targetType) =>
+    request('GET', targetType ? `/metamodel/metadata/keys/${targetType}` : '/metamodel/metadata/keys', userId),
+
   // Lister les types de noeuds disponibles
   getNodeTypes: (userId) =>
     request('GET', '/metamodel/nodetypes', userId),
@@ -188,6 +192,9 @@ export const api = {
   createLifecycle: (userId, body) =>
     request('POST', '/metamodel/lifecycles', userId, body),
 
+  duplicateLifecycle: (userId, sourceId, name) =>
+    request('POST', `/metamodel/lifecycles/${sourceId}/duplicate`, userId, { name }),
+
   deleteLifecycle: (userId, lifecycleId) =>
     request('DELETE', `/metamodel/lifecycles/${lifecycleId}`, userId),
 
@@ -199,6 +206,16 @@ export const api = {
 
   deleteLifecycleState: (userId, lifecycleId, stateId) =>
     request('DELETE', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}`, userId),
+
+  // State actions (lifecycle state level)
+  listLifecycleStateActions: (userId, lifecycleId, stateId) =>
+    request('GET', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}/actions`, userId),
+
+  attachLifecycleStateAction: (userId, lifecycleId, stateId, instanceId, trigger, executionMode, displayOrder = 0) =>
+    request('POST', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}/actions`, userId, { instanceId, trigger, executionMode, displayOrder }),
+
+  detachLifecycleStateAction: (userId, lifecycleId, stateId, actionId) =>
+    request('DELETE', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}/actions/${actionId}`, userId),
 
   addLifecycleTransition: (userId, lifecycleId, body) =>
     request('POST', `/metamodel/lifecycles/${lifecycleId}/transitions`, userId, body),
@@ -481,6 +498,14 @@ export const api = {
 
   detachNodeActionGuard: (userId, guardId) =>
     request('DELETE', `/algorithms/node-actions/guards/${guardId}`, userId),
+
+  // ── Managed-with ──
+
+  setManagedWith: (userId, actionId, managedWith) =>
+    request('PUT', `/metamodel/actions/${actionId}/managed-with`, userId, { managedWith: managedWith || '' }),
+
+  getManagedActions: (userId, actionId) =>
+    request('GET', `/metamodel/actions/${actionId}/managed-actions`, userId),
 
   /** Returns persisted + in-memory merged stats. */
   getAlgorithmStats: (userId) =>

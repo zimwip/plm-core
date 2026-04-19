@@ -66,7 +66,7 @@ public class ActionPermissionService {
         ResolvedAction ra = resolveAction(actionCode);
         if (ra == null) return; // unknown action → open
 
-        if (!canExecuteCore(ra.actionId, ra.scope, nodeTypeId, null, ctx)) {
+        if (!canExecuteCore(ra.effectiveActionId, ra.scope, nodeTypeId, null, ctx)) {
             throw new AccessDeniedException(
                 "User " + ctx.getUserId() + " cannot " + actionCode + " on node " + nodeId);
         }
@@ -91,7 +91,7 @@ public class ActionPermissionService {
         ResolvedAction ra = resolveAction(actionCode);
         if (ra == null) return true;
 
-        return canExecuteCore(ra.actionId, ra.scope, nodeTypeId, null, ctx);
+        return canExecuteCore(ra.effectiveActionId, ra.scope, nodeTypeId, null, ctx);
     }
 
     public Map<String, Boolean> canOnNodeTypes(String actionCode, Collection<String> nodeTypeIds) {
@@ -116,7 +116,7 @@ public class ActionPermissionService {
 
         for (String nodeTypeId : nodeTypeIds) {
             result.put(nodeTypeId,
-                canExecuteCore(ra.actionId, ra.scope, nodeTypeId, null, ctx));
+                canExecuteCore(ra.effectiveActionId, ra.scope, nodeTypeId, null, ctx));
         }
         return result;
     }
@@ -218,7 +218,8 @@ public class ActionPermissionService {
                        String nodeTypeId, String transitionId) {
         PlmUserContext ctx = secCtx.currentUser();
         if (ctx.isAdmin()) return true;
-        return canExecuteCore(actionId, scope, nodeTypeId, transitionId, ctx);
+        String effectiveId = resolveEffectiveActionId(actionId);
+        return canExecuteCore(effectiveId, scope, nodeTypeId, transitionId, ctx);
     }
 
     // ================================================================
@@ -232,7 +233,7 @@ public class ActionPermissionService {
         ResolvedAction ra = resolveAction(actionCode);
         if (ra == null) return; // unknown action → open
 
-        if (!canExecuteCore(ra.actionId, ra.scope, nodeTypeId, transitionId, ctx)) {
+        if (!canExecuteCore(ra.effectiveActionId, ra.scope, nodeTypeId, transitionId, ctx)) {
             throw new AccessDeniedException(
                 "User " + ctx.getUserId() + " cannot execute '" + actionCode + "'"
                 + (nodeTypeId != null ? " on node type " + nodeTypeId : ""));
@@ -273,17 +274,29 @@ public class ActionPermissionService {
         return dsl.fetchExists(q);
     }
 
-    private record ResolvedAction(String actionId, String scope) {}
+    private record ResolvedAction(String actionId, String scope, String effectiveActionId) {}
 
     private ResolvedAction resolveAction(String actionCode) {
-        Record action = dsl.select(DSL.field("id"), DSL.field("scope"))
+        Record action = dsl.select(DSL.field("id"), DSL.field("scope"), DSL.field("managed_with"))
             .from("action")
             .where("action_code = ?", actionCode)
             .fetchOne();
         if (action == null) return null;
-        return new ResolvedAction(
-            action.get("id", String.class),
-            action.get("scope", String.class));
+        String actionId   = action.get("id", String.class);
+        String managedWith = action.get("managed_with", String.class);
+        return new ResolvedAction(actionId, action.get("scope", String.class),
+            managedWith != null ? managedWith : actionId);
+    }
+
+    /**
+     * Returns the effective action ID for permission/guard lookups.
+     * If the action has managed_with set, returns the manager's ID.
+     */
+    public String resolveEffectiveActionId(String actionId) {
+        String managedWith = dsl.select(DSL.field("managed_with")).from("action")
+            .where("id = ?", actionId)
+            .fetchOne(DSL.field("managed_with"), String.class);
+        return managedWith != null ? managedWith : actionId;
     }
 
     private String resolveNodeTypeId(String nodeId) {

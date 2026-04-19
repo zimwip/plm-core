@@ -1,11 +1,14 @@
 package com.plm.api.controller;
 
+import com.plm.domain.metadata.MetadataRegistry;
 import com.plm.domain.service.MetaModelService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -14,150 +17,30 @@ import java.util.Map;
 public class MetaModelController {
 
     private final MetaModelService metaModelService;
+    private final MetadataRegistry metadataRegistry;
 
-    // -- Lifecycle
-    @GetMapping("/lifecycles")
-    public ResponseEntity<?> getAllLifecycles() {
-        return ResponseEntity.ok(metaModelService.getAllLifecycles());
+    // -- Metadata keys (discovered from @Metadata annotations)
+
+    @GetMapping("/metadata/keys")
+    public ResponseEntity<?> getAllMetadataKeys() {
+        return ResponseEntity.ok(metadataRegistry.getAllKeys().stream().map(this::keyToMap).toList());
     }
 
-    @PostMapping("/lifecycles")
-    public ResponseEntity<Map<String, String>> createLifecycle(@RequestBody Map<String, String> body) {
-        String id = metaModelService.createLifecycle(body.get("name"), body.get("description"));
-        return ResponseEntity.ok(Map.of("id", id));
+    @GetMapping("/metadata/keys/{targetType}")
+    public ResponseEntity<?> getMetadataKeysForTarget(@PathVariable String targetType) {
+        return ResponseEntity.ok(metadataRegistry.getKeysForTarget(targetType).stream().map(this::keyToMap).toList());
     }
 
-    @GetMapping("/lifecycles/{id}/states")
-    public ResponseEntity<?> getStates(@PathVariable String id) {
-        return ResponseEntity.ok(metaModelService.getStates(id));
+    private Map<String, String> keyToMap(MetadataRegistry.KnownKey k) {
+        var m = new LinkedHashMap<String, String>();
+        m.put("key", k.key());
+        m.put("target", k.target());
+        m.put("description", k.description());
+        m.put("declaredBy", k.declaredBy());
+        return m;
     }
 
-    @GetMapping("/lifecycles/{id}/transitions")
-    public ResponseEntity<?> getTransitions(@PathVariable String id) {
-        return ResponseEntity.ok(metaModelService.getTransitions(id));
-    }
-
-    @PostMapping("/lifecycles/{id}/states")
-    public ResponseEntity<Map<String, String>> addState(
-        @PathVariable String id,
-        @RequestBody Map<String, Object> body
-    ) {
-        try {
-            String stateId = metaModelService.addState(
-                id,
-                (String) body.get("name"),
-                Boolean.TRUE.equals(body.get("isInitial")),
-                Boolean.TRUE.equals(body.get("isFrozen")),
-                Boolean.TRUE.equals(body.get("isReleased")),
-                (int) body.getOrDefault("displayOrder", 0),
-                (String) body.get("color")
-            );
-            return ResponseEntity.ok(Map.of("id", stateId));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @PutMapping("/lifecycles/{lcId}/states/{stateId}")
-    public ResponseEntity<?> updateState(
-        @PathVariable String lcId,
-        @PathVariable String stateId,
-        @RequestBody Map<String, Object> body
-    ) {
-        try {
-            metaModelService.updateState(
-                stateId,
-                (String) body.get("name"),
-                Boolean.TRUE.equals(body.get("isInitial")),
-                Boolean.TRUE.equals(body.get("isFrozen")),
-                Boolean.TRUE.equals(body.get("isReleased")),
-                (int) body.getOrDefault("displayOrder", 0),
-                (String) body.get("color")
-            );
-            return ResponseEntity.ok(Map.of("id", stateId));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @PutMapping("/lifecycles/{lcId}/transitions/{transId}")
-    public ResponseEntity<?> updateTransition(
-        @PathVariable String lcId,
-        @PathVariable String transId,
-        @RequestBody Map<String, String> body
-    ) {
-        metaModelService.updateTransition(
-            transId,
-            body.get("name"),
-            body.get("fromStateId"),
-            body.get("toStateId"),
-            body.get("guardExpr"),
-            body.get("actionType"),
-            body.get("versionStrategy")
-        );
-        return ResponseEntity.ok(Map.of("id", transId));
-    }
-
-    @PostMapping("/lifecycles/{id}/transitions")
-    public ResponseEntity<Map<String, String>> addTransition(
-        @PathVariable String id,
-        @RequestBody Map<String, String> body
-    ) {
-        String transId = metaModelService.addTransition(
-            id, body.get("name"),
-            body.get("fromStateId"), body.get("toStateId"),
-            body.get("guardExpr"), body.get("actionType"),
-            body.get("versionStrategy")
-        );
-        return ResponseEntity.ok(Map.of("id", transId));
-    }
-
-    @DeleteMapping("/lifecycles/{id}")
-    public ResponseEntity<?> deleteLifecycle(@PathVariable String id) {
-        try {
-            metaModelService.deleteLifecycle(id);
-            return ResponseEntity.noContent().build();
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @DeleteMapping("/lifecycles/{lcId}/states/{stateId}")
-    public ResponseEntity<?> deleteState(@PathVariable String lcId, @PathVariable String stateId) {
-        try {
-            metaModelService.deleteState(stateId);
-            return ResponseEntity.noContent().build();
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @DeleteMapping("/lifecycles/{lcId}/transitions/{transId}")
-    public ResponseEntity<?> deleteTransition(@PathVariable String lcId, @PathVariable String transId) {
-        metaModelService.deleteTransition(transId);
-        return ResponseEntity.noContent().build();
-    }
-
-    // -- Signature Requirements
-
-    @PostMapping("/transitions/{transId}/signature-requirements")
-    public ResponseEntity<?> addSignatureRequirement(
-        @PathVariable String transId,
-        @RequestBody Map<String, Object> body
-    ) {
-        int order = body.get("displayOrder") instanceof Number n ? n.intValue() : 0;
-        String id = metaModelService.addSignatureRequirement(transId, (String) body.get("roleId"), order);
-        return ResponseEntity.ok(Map.of("id", id));
-    }
-
-    @DeleteMapping("/transitions/{transId}/signature-requirements/{reqId}")
-    public ResponseEntity<?> removeSignatureRequirement(
-        @PathVariable String transId,
-        @PathVariable String reqId
-    ) {
-        metaModelService.removeSignatureRequirement(reqId);
-        return ResponseEntity.noContent().build();
-    }
+    // -- Lifecycle endpoints moved to LifecycleController
 
     // -- NodeType
     @GetMapping("/nodetypes")
@@ -528,5 +411,22 @@ public class MetaModelController {
             body.get("required") != null ? (Boolean.TRUE.equals(body.get("required")) ? 1 : 0) : null
         );
         return ResponseEntity.ok(Map.of("actionCode", actionCode));
+    }
+
+    // -- Managed-with
+
+    @PutMapping("/actions/{actionId}/managed-with")
+    public ResponseEntity<?> setManagedWith(
+        @PathVariable String actionId,
+        @RequestBody Map<String, String> body
+    ) {
+        String managedWith = body.get("managedWith");
+        return ResponseEntity.ok(metaModelService.setManagedWith(actionId,
+            managedWith != null && !managedWith.isBlank() ? managedWith : null));
+    }
+
+    @GetMapping("/actions/{actionId}/managed-actions")
+    public ResponseEntity<?> getManagedActions(@PathVariable String actionId) {
+        return ResponseEntity.ok(metaModelService.getManagedActions(actionId));
     }
 }

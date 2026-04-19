@@ -1,6 +1,8 @@
 package com.plm.domain.service;
 
 import com.plm.domain.action.PlmAction;
+import com.plm.domain.metadata.Metadata;
+import com.plm.domain.metadata.MetadataService;
 import com.plm.infrastructure.PlmEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +33,8 @@ import java.util.UUID;
  *  Une fois Frozen, aucune nouvelle version ne peut être créée sur les noeuds enfants.
  *  Le tag de baseline est donc toujours cohérent.
  */
+@Metadata(key = "frozen", target = "LIFECYCLE_STATE",
+    description = "Prerequisite for baseline creation")
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -39,6 +43,7 @@ public class BaselineService {
     private final DSLContext        dsl;
     private final VersionService    versionService;
     private final PlmEventPublisher eventPublisher;
+    private final MetadataService   metadataService;
 
     /**
      * Crée une baseline sur un noeud racine.
@@ -211,12 +216,7 @@ public class BaselineService {
             throw new IllegalStateException("Node has no lifecycle state: " + nodeId);
         }
 
-        Integer isFrozen = dsl.select()
-            .from("lifecycle_state")
-            .where("id = ?", stateId)
-            .fetchOne("is_frozen", Integer.class);
-
-        if (isFrozen == null || isFrozen != 1) {
+        if (!metadataService.isTrue("LIFECYCLE_STATE", stateId, "frozen")) {
             throw new IllegalStateException(
                 "Node " + nodeId + " must be in Frozen state before creating a baseline. " +
                 "Apply CASCADE_FROZEN transition first."

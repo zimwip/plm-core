@@ -43,6 +43,9 @@ export {
   // API Playground
   Terminal     as TerminalIcon,
 
+  // Copy / Duplicate
+  Copy         as CopyIcon,
+
   // Destructive
   Trash2       as TrashIcon,
 

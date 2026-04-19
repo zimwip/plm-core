@@ -1,8 +1,8 @@
 package com.plm.domain.action;
 
-import com.plm.domain.guard.GuardContext;
+import com.plm.domain.action.guard.ActionGuardContext;
+import com.plm.domain.action.guard.ActionGuardService;
 import com.plm.domain.guard.GuardEvaluation;
-import com.plm.domain.guard.GuardService;
 import com.plm.domain.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,8 +30,9 @@ public class ActionService {
 
     private final DSLContext              dsl;
     private final ActionPermissionService permissionService;
-    private final GuardService            guardService;
+    private final ActionGuardService       actionGuardService;
     private final SecurityContextPort     secCtx;
+    private final ActionHandlerRegistry   handlerRegistry;
 
     public List<Map<String, Object>> resolveActionsForNode(
         String nodeId, String nodeTypeId, String currentStateId,
@@ -46,7 +47,7 @@ public class ActionService {
         // NODE-scope actions: one row per action (permission checked later by canExecute)
         List<Record> nodeActions = dsl.fetch(
             "SELECT a.id AS action_id, a.action_code, a.action_kind, a.scope, " +
-            "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref " +
+            "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, a.tx_mode, a.managed_with " +
             "FROM action a " +
             "WHERE a.scope = 'NODE' " +
             "ORDER BY a.display_order, a.display_category");
@@ -61,7 +62,7 @@ public class ActionService {
         if (lifecycleId != null) {
             List<Record> lifecycleActions = dsl.fetch(
                 "SELECT a.id AS action_id, a.action_code, a.action_kind, a.scope, " +
-                "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, " +
+                "       a.display_name, a.display_category, a.requires_tx, a.display_order, a.handler_ref, a.tx_mode, a.managed_with, " +
                 "       lt.id AS transition_id, lt.name AS transition_name " +
                 "FROM action a " +
                 "CROSS JOIN lifecycle_transition lt " +
@@ -91,20 +92,31 @@ public class ActionService {
         String actionCode      = row.get("action_code",     String.class);
         String scope           = row.get("scope",           String.class);
         String displayCategory = row.get("display_category", String.class);
+        String managedWith     = row.get("managed_with",    String.class);
 
         if ("STRUCTURAL".equals(displayCategory)) return null;
+
+        // Resolve effective action ID for permission lookups (follows managed_with)
+        String effectiveId = managedWith != null ? managedWith : actionId;
 
         // Always evaluate guards — HIDE guards are structural (e.g. wrong-state transitions)
         // and must filter even when authorization fails.
         boolean isAdmin = secCtx.currentUser().isAdmin();
-        GuardContext gCtx = new GuardContext(nodeId, nodeTypeId, currentStateId,
+        ActionGuardContext gCtx = new ActionGuardContext(nodeId, nodeTypeId, currentStateId,
             actionCode, transitionId, isLocked, isLockedByCurrentUser,
             secCtx.currentUser().getUserId(), Map.of());
-        GuardEvaluation guardEval = guardService.evaluate(actionId, nodeTypeId, transitionId, isAdmin, gCtx);
+
+        // Managee: HIDE from manager, BLOCK from self
+        GuardEvaluation guardEval;
+        if (managedWith != null) {
+            guardEval = actionGuardService.evaluate(managedWith, actionId, nodeTypeId, transitionId, isAdmin, gCtx);
+        } else {
+            guardEval = actionGuardService.evaluate(actionId, nodeTypeId, transitionId, isAdmin, gCtx);
+        }
 
         if (guardEval.hidden()) return null;
 
-        boolean authorized = permissionService.canExecute(actionId, scope, nodeTypeId, transitionId);
+        boolean authorized = permissionService.canExecute(effectiveId, scope, nodeTypeId, transitionId);
 
         List<Map<String, Object>> guardViolations;
         if (!authorized) {
@@ -137,10 +149,21 @@ public class ActionService {
         action.put("name",            displayName != null ? displayName : actionCode);
         action.put("displayCategory", displayCategory);
         action.put("requiresTx",      row.get("requires_tx", Integer.class) == 1);
+        action.put("txMode",          row.get("tx_mode", String.class));
         action.put("authorized",      authorized);
+        if (managedWith != null) action.put("managedWith", managedWith);
         if (transitionId != null) action.put("transitionId", transitionId);
         action.put("parameters",      parameters);
         action.put("guardViolations", guardViolations);
+
+        // Display hints from handler (e.g. transition target state color)
+        if (handlerRegistry.hasHandler(actionCode)) {
+            Map<String, Object> hints = handlerRegistry.getHandler(actionCode)
+                .resolveDisplayHints(nodeId, nodeTypeId, transitionId);
+            if (hints != null && !hints.isEmpty()) {
+                action.putAll(hints);
+            }
+        }
 
         return action;
     }

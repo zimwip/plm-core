@@ -22,4 +22,18 @@ public interface ActionHandler {
      * @return         result payload included in the HTTP response
      */
     ActionResult execute(ActionContext context, Map<String, String> params);
+
+    /**
+     * Returns optional display hints for the UI (color, icon, label override, etc.).
+     * Called by ActionService when building the action list for a node.
+     * Default: empty map (no overrides).
+     *
+     * @param nodeId        target node
+     * @param nodeTypeId    node's type
+     * @param transitionId  lifecycle transition (null for NODE-scope actions)
+     * @return              map of hint keys to values (e.g. "displayColor" → "#4ade80")
+     */
+    default Map<String, Object> resolveDisplayHints(String nodeId, String nodeTypeId, String transitionId) {
+        return Map.of();
+    }
 }

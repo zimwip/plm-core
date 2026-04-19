@@ -2,12 +2,14 @@ package com.plm.api.controller;
 
 import com.plm.domain.action.ActionDispatcher;
 import com.plm.domain.action.ActionResult;
+import com.plm.domain.action.ActionService;
 import com.plm.domain.security.SecurityContextPort;
 import com.plm.domain.service.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -33,6 +35,7 @@ public class NodeController {
     private final SignatureService    signatureService;
     private final CommentService      commentService;
     private final ActionDispatcher    actionDispatcher;
+    private final ActionService       actionService;
     private final SecurityContextPort secCtx;
 
     // ── Création ──────────────────────────────────────────────────────
@@ -72,14 +75,51 @@ public class NodeController {
      * txId optionnel : si fourni, montre la version OPEN de la transaction (si owner).
      */
     @GetMapping("/{nodeId}/description")
+    @SuppressWarnings("unchecked")
     public ResponseEntity<Map<String, Object>> getDescription(
         @PathVariable String nodeId,
         @RequestParam(required = false) String txId,
         @RequestParam(required = false) Integer versionNumber
     ) {
-        // userId always resolved from security context — never from query param
         String userId = secCtx.currentUser().getUserId();
-        return ResponseEntity.ok(nodeService.buildObjectDescription(nodeId, userId, txId, versionNumber));
+        Map<String, Object> description = nodeService.buildObjectDescription(nodeId, userId, txId, versionNumber);
+
+        // Resolve actions (skip for historical views)
+        boolean historicalView = Boolean.TRUE.equals(description.get("historicalView"));
+        List<Map<String, Object>> actions = List.of();
+        if (!historicalView) {
+            String nodeTypeId = (String) description.get("nodeTypeId");
+            String currentStateId = (String) description.get("state");
+            Map<String, Object> lockInfo = (Map<String, Object>) description.get("lock");
+            boolean isLocked = Boolean.TRUE.equals(lockInfo.get("locked"));
+            boolean isLockedByCurrentUser = isLocked && userId.equals(lockInfo.get("lockedBy"));
+            actions = actionService.resolveActionsForNode(
+                nodeId, nodeTypeId, currentStateId, isLocked, isLockedByCurrentUser);
+        }
+
+        // Derive globalCanWrite from actions
+        boolean globalCanWrite = !historicalView && actions.stream()
+            .anyMatch(a -> "UPDATE_NODE".equals(a.get("actionCode"))
+                && Boolean.TRUE.equals(a.get("authorized"))
+                && ((List<?>) a.getOrDefault("guardViolations", List.of())).isEmpty());
+
+        // If not globally writable, override all attribute editable flags to false
+        if (!globalCanWrite) {
+            List<Map<String, Object>> attrs = (List<Map<String, Object>>) description.get("attributes");
+            if (attrs != null) {
+                List<Map<String, Object>> mutableAttrs = attrs.stream()
+                    .map(a -> {
+                        Map<String, Object> m = new java.util.HashMap<>(a);
+                        m.put("editable", false);
+                        return m;
+                    })
+                    .toList();
+                description.put("attributes", mutableAttrs);
+            }
+        }
+
+        description.put("actions", actions);
+        return ResponseEntity.ok(description);
     }
 
     // ── Liens — lecture ───────────────────────────────────────────────

@@ -42,12 +42,8 @@ export default function NodeEditor({
   const [saveViolations, setSaveViolations]= useState([]);
   const [loading,        setLoading]       = useState(false);
   const [saveStatus,     setSaveStatus]    = useState(null); // null | 'saving' | 'saved'
-  const [cancelConfirm,    setCancelConfirm]    = useState(false);
-  const [checkinModal,     setCheckinModal]     = useState(false);
-  const [checkinComment,   setCheckinComment]   = useState('');
-  const [signPanel,        setSignPanel]        = useState(false);
-  const [sigMeaning,  setSigMeaning] = useState('Approved');
-  const [sigComment,  setSigComment] = useState('');
+  const [actionDialog,     setActionDialog]     = useState(null);  // action object | null
+  const [actionParams,     setActionParams]     = useState({});    // param values for dialog
   const [diff,        setDiff]       = useState(null);   // { data, v1Num, v2Num } | null
   const [diffLoading, setDiffLoading]= useState(false);
   const [children,    setChildren]   = useState([]);
@@ -319,44 +315,41 @@ export default function NodeEditor({
     finally { setLinkActLoading(false); }
   }
 
-  async function handleCheckout() {
-    if (!checkoutAction) return;
+  /**
+   * Generic action executor — tx handling is fully managed by the backend
+   * (ActionDispatcher reads action.tx_mode and wraps handler accordingly).
+   */
+  async function executeAction(action, params = {}) {
+    setActionDialog(null);
     setLoading(true);
     try {
-      // Generic action endpoint — auto-creates tx if none is open
-      await authoringApi.executeAction(nodeId, checkoutAction.actionCode, userId, txId, {});
-      await refreshAll();       // updates activeTx in store before load() reads it
-      await load();             // refreshNodeDesc reads updated activeTx → returns OPEN version
-    } catch (e) { toast(e, 'error'); }
-    finally { setLoading(false); }
-  }
+      const result = await authoringApi.executeAction(
+        nodeId, action.actionCode, userId, txId, params, action.transitionId);
 
-  async function submitCheckin(comment) {
-    if (!checkinAction || !txId) return;
-    setCheckinModal(false);
-    setCheckinComment('');
-    setLoading(true);
-    try {
-      const result = await authoringApi.executeAction(nodeId, checkinAction.actionCode, userId, txId,
-        { _description: comment });
-      const cont = result?.continuationTxId;
+      if (result?.message) toast(result.message, 'success');
+
       await refreshAll();
       await load();
-      if (cont) toast('Checked in — other nodes moved to a new transaction', 'info');
-    } catch (e) { toast(e, 'error'); }
-    finally { setLoading(false); }
+    } catch (e) {
+      toast(e, 'error');
+    } finally { setLoading(false); }
   }
 
-  async function handleCancelNode() {
-    if (!txId) return;
-    setLoading(true);
-    setCancelConfirm(false);
-    try {
-      await txApi.release(userId, txId, [nodeId]);
-      await refreshAll();
-      await load();
-    } catch (e) { toast(e, 'error'); }
-    finally { setLoading(false); }
+  /** Opens the generic parameter dialog or confirmation, or executes immediately. */
+  function triggerAction(action) {
+    const uiParams = (action.parameters || []).filter(p => p.widget);
+    if (uiParams.length > 0) {
+      const defaults = {};
+      uiParams.forEach(p => { if (p.default) defaults[p.name] = p.default; });
+      setActionParams(defaults);
+      setActionDialog(action);
+    } else if (action.displayCategory === 'DANGEROUS') {
+      // Dangerous actions without params get a confirmation dialog
+      setActionParams({});
+      setActionDialog(action);
+    } else {
+      executeAction(action);
+    }
   }
 
   async function autoSave(pendingEdits, currentTxId, updateActionCode) {
@@ -366,15 +359,13 @@ export default function NodeEditor({
         nodeId, updateActionCode, userId, currentTxId,
         { ...pendingEdits, _description: 'Auto-save' }
       );
-      // Optimistic patch: update attribute values in the store so inputs don't snap
-      // back to the stale server value while the next full refresh is in-flight.
       patchNodeDescAttrs(nodeId, pendingEdits);
       setEdits({});
       setSaveViolations(result?.violations || []);
       setSaveStatus('saved');
       clearTimeout(savedTimer.current);
       savedTimer.current = setTimeout(() => setSaveStatus(null), 2000);
-      refreshTx();  // update tx panel (no await — fire-and-forget is fine for auto-save)
+      refreshTx();
     } catch (e) {
       setSaveStatus(null);
       toast(e, 'error');
@@ -385,52 +376,6 @@ export default function NodeEditor({
     clearTimeout(saveTimer.current);
     setSaveStatus(null);
     saveTimer.current = setTimeout(() => autoSave(pendingEdits, currentTxId, updateActionCode), 800);
-  }
-
-  async function handleTransition(action) {
-    if (txId) {
-      toast('Commit or rollback your current transaction before changing lifecycle state', 'warn');
-      return;
-    }
-    setLoading(true);
-    let autoTxId = null;
-    try {
-      const opened = await txApi.open(userId, `Transition: ${action.name}`);
-      autoTxId = opened.txId;
-      // LIFECYCLE scope — actionCode is "TRANSITION"; transitionId scopes the call
-      await authoringApi.executeAction(nodeId, action.actionCode, userId, autoTxId, {}, action.transitionId);
-      await txApi.commit(userId, autoTxId, `Transition: ${action.name}`);
-      toast(`"${action.name}" applied`, 'success');
-      await load();
-      refreshAll();  // state changed → tree must update (fire-and-forget)
-    } catch (e) {
-      if (autoTxId) await txApi.rollback(userId, autoTxId).catch(() => {});
-      toast(e, 'error');
-    } finally { setLoading(false); }
-  }
-
-  async function handleSign() {
-    if (!signAction) return;
-    if (txId) {
-      toast('Commit or rollback your current transaction before signing', 'warn');
-      return;
-    }
-    setLoading(true);
-    let autoTxId = null;
-    try {
-      const opened = await txApi.open(userId, `Signature: ${sigMeaning}`);
-      autoTxId = opened.txId;
-      await authoringApi.executeAction(nodeId, signAction.actionCode, userId, autoTxId,
-        { meaning: sigMeaning, ...(sigComment ? { comment: sigComment } : {}) });
-      await txApi.commit(userId, autoTxId, `Signature: ${sigMeaning}`);
-      toast('Signature recorded', 'success');
-      setSigComment('');
-      setSignPanel(false);
-      await load();
-    } catch (e) {
-      if (autoTxId) await txApi.rollback(userId, autoTxId).catch(() => {});
-      toast(e, 'error');
-    } finally { setLoading(false); }
   }
 
   // Fetch historical version description when user clicks eye icon in history table
@@ -467,7 +412,6 @@ export default function NodeEditor({
   // Internal actions used programmatically (not rendered as header buttons)
   const INTERNAL_ACTIONS = new Set(['UPDATE_NODE', 'CREATE_LINK', 'UPDATE_LINK', 'DELETE_LINK', 'READ', 'COMMENT', 'BASELINE', 'MANAGE_METAMODEL', 'MANAGE_ROLES', 'MANAGE_BASELINES']);
   const updateNodeAction = allActions.find(a => a.actionCode === 'UPDATE_NODE' && a.authorized !== false);
-  const checkinAction    = allActions.find(a => a.actionCode === 'CHECKIN' && a.authorized !== false);
   // Visible header actions: authorized, non-internal, non-structural
   const headerActions = allActions.filter(a =>
     a.authorized !== false && !INTERNAL_ACTIONS.has(a.actionCode) && a.displayCategory !== 'STRUCTURAL'
@@ -604,27 +548,14 @@ export default function NodeEditor({
           {headerActions.map(a => {
             const isBlocked = guardBlocked(a);
             const tooltip   = guardTooltip(a);
-            const catClass  = a.displayCategory === 'DANGEROUS' ? 'btn-danger'
+            const color     = a.displayColor; // handler-provided color override
+            const catClass  = color ? ''
+                            : a.displayCategory === 'DANGEROUS' ? 'btn-danger'
                             : a.displayCategory === 'PRIMARY'   ? 'btn-success'
                             : '';
-
-            // Per-action click handler
-            const handleClick = () => {
-              if (isBlocked) return;
-              if (a.actionCode === 'CHECKOUT')   return handleCheckout();
-              if (a.actionCode === 'CHECKIN')    return setCheckinModal(true);
-              if (a.actionCode === 'SIGN')       return setSignPanel(p => !p);
-              if (a.actionCode === 'TRANSITION') return handleTransition(a);
-            };
-
-            // CHECKIN special case: no content change → disabled with specific message
-            if (a.actionCode === 'CHECKIN' && !isBlocked && fingerprintChanged === false) {
-              return (
-                <button key={a.id} className="btn btn-sm" disabled title="No changes to check in">
-                  {a.name}
-                </button>
-              );
-            }
+            const colorStyle = !isBlocked && color
+              ? { color, borderColor: `${color}60`, background: `${color}15` }
+              : undefined;
 
             return (
               <button
@@ -632,61 +563,80 @@ export default function NodeEditor({
                 className={`btn btn-sm ${isBlocked ? '' : catClass}`}
                 disabled={loading || isBlocked}
                 title={tooltip}
-                style={isBlocked ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
-                onClick={handleClick}
+                style={isBlocked ? { opacity: 0.45, cursor: 'not-allowed' } : colorStyle}
+                onClick={() => !isBlocked && triggerAction(a)}
               >
                 {isBlocked ? `✕ ${a.name}` : a.name}
               </button>
             );
           })}
-          {/* Cancel — not an action, releases node from transaction */}
-          {checkinAction && (
-            <button className="btn btn-sm btn-danger" onClick={() => setCancelConfirm(true)} disabled={loading}>
-              ✕ Cancel
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Check In modal — portaled to document.body to avoid stacking-context clipping */}
-      {checkinModal && ReactDOM.createPortal(
+      {/* Generic action parameter dialog */}
+      {actionDialog && ReactDOM.createPortal(
         <div style={{
           position: 'fixed', inset: 0, zIndex: 2000,
           background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => { setCheckinModal(false); setCheckinComment(''); }}>
+        }} onClick={() => setActionDialog(null)}>
           <div style={{
             background: 'var(--surface)', border: '1px solid var(--border)',
             borderRadius: 10, padding: '28px 32px', maxWidth: 440, width: '90%',
             boxShadow: '0 8px 32px rgba(0,0,0,.4)',
           }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Check In</div>
-            <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
-              Describe what changed in <strong>{desc.identity}</strong>.
-            </div>
-            <div className="field" style={{ marginBottom: 20 }}>
-              <label className="field-label" htmlFor="checkin-comment-input">
-                Comment <span className="field-req" aria-label="required">*</span>
-              </label>
-              <input
-                id="checkin-comment-input"
-                className="field-input"
-                placeholder="What did you change?"
-                value={checkinComment}
-                onChange={e => setCheckinComment(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && checkinComment.trim()) submitCheckin(checkinComment.trim()); }}
-                autoFocus
-              />
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-sm" onClick={() => { setCheckinModal(false); setCheckinComment(''); }}>
-                Cancel
-              </button>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>{actionDialog.name}</div>
+            {(actionDialog.parameters || []).filter(p => p.widget).map(p => {
+              const val = actionParams[p.name] || '';
+              let enumValues = null;
+              if (p.type === 'ENUM' || p.widget === 'DROPDOWN') {
+                try { enumValues = JSON.parse(p.allowedValues || '[]'); } catch { enumValues = []; }
+              }
+              return (
+                <div className="field" key={p.name} style={{ marginBottom: 14 }}>
+                  <label className="field-label">
+                    {p.label || p.name}
+                    {p.required && <span className="field-req">*</span>}
+                  </label>
+                  {enumValues ? (
+                    <select
+                      className="field-input"
+                      value={val}
+                      onChange={e => setActionParams(prev => ({ ...prev, [p.name]: e.target.value }))}
+                    >
+                      {!val && <option value="">—</option>}
+                      {enumValues.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  ) : p.widget === 'TEXTAREA' ? (
+                    <textarea
+                      className="field-input"
+                      rows={3}
+                      placeholder={p.tooltip || ''}
+                      value={val}
+                      onChange={e => setActionParams(prev => ({ ...prev, [p.name]: e.target.value }))}
+                      style={{ resize: 'vertical' }}
+                    />
+                  ) : (
+                    <input
+                      className="field-input"
+                      placeholder={p.tooltip || ''}
+                      value={val}
+                      onChange={e => setActionParams(prev => ({ ...prev, [p.name]: e.target.value }))}
+                      autoFocus={p.displayOrder === 1 || p.displayOrder == null}
+                    />
+                  )}
+                </div>
+              );
+            })}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+              <button className="btn btn-sm" onClick={() => setActionDialog(null)}>Cancel</button>
               <button
                 className="btn btn-sm btn-success"
-                disabled={!checkinComment.trim()}
-                onClick={() => submitCheckin(checkinComment.trim())}
+                disabled={
+                  (actionDialog.parameters || []).filter(p => p.widget && p.required).some(p => !actionParams[p.name]?.trim?.())
+                }
+                onClick={() => executeAction(actionDialog, actionParams)}
               >
-                ✓ Check In
+                {actionDialog.name}
               </button>
             </div>
           </div>
@@ -694,33 +644,6 @@ export default function NodeEditor({
         document.body
       )}
 
-      {/* Cancel confirmation modal */}
-      {cancelConfirm && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <div style={{
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 10, padding: '28px 32px', maxWidth: 420, width: '90%',
-            boxShadow: '0 8px 32px rgba(0,0,0,.4)',
-          }}>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Remove from transaction?</div>
-            <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 24, lineHeight: 1.5 }}>
-              All unsaved edits on <strong>{desc.identity}</strong> will be discarded and the node
-              will be removed from the current transaction. This cannot be undone.
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-sm" onClick={() => setCancelConfirm(false)}>
-                Keep editing
-              </button>
-              <button className="btn btn-sm btn-danger" onClick={handleCancelNode} disabled={loading}>
-                Remove from transaction
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Validation violations from last save (dry-run) */}
       {saveViolations.length > 0 && (
@@ -729,29 +652,6 @@ export default function NodeEditor({
           <ul className="violations-banner-list">
             {saveViolations.map((v, i) => <li key={i}>{v}</li>)}
           </ul>
-        </div>
-      )}
-
-      {/* Sign panel */}
-      {signPanel && signAction && (
-        <div className="sign-panel">
-          <div className="field" style={{ margin: 0, flex: '0 0 150px' }}>
-            <label className="field-label">Meaning</label>
-            <select className="field-input" value={sigMeaning} onChange={e => setSigMeaning(e.target.value)}>
-              {(() => {
-                const meaningParam = signAction.parameters?.find(p => p.name === 'meaning');
-                try { return JSON.parse(meaningParam?.allowedValues || '[]'); } catch { return ['Reviewed','Approved','Verified','Acknowledged']; }
-              })().map(m => <option key={m}>{m}</option>)}
-            </select>
-          </div>
-          <div className="field" style={{ margin: 0, flex: 1 }}>
-            <label className="field-label">Comment (optional)</label>
-            <textarea className="field-input" rows={3} placeholder="…" value={sigComment} onChange={e => setSigComment(e.target.value)} style={{ resize: 'vertical' }} />
-          </div>
-          <button className="btn btn-success btn-sm" disabled={loading} onClick={handleSign} style={{ alignSelf: 'flex-end' }}>
-            ✦ Sign
-          </button>
-          <button className="btn btn-sm" onClick={() => setSignPanel(false)} style={{ alignSelf: 'flex-end' }}>Cancel</button>
         </div>
       )}
 
@@ -1110,7 +1010,7 @@ export default function NodeEditor({
                           ? <span style={{ opacity: .35 }}>—</span>
                           : `${c.targetRevision}.${c.targetIteration}`}
                       </td>
-                      <td><StatePill stateId={c.targetState} stateColorMap={stateColorMap} /></td>
+                      <td><StatePill stateId={c.targetState} stateName={c.targetStateName} stateColorMap={stateColorMap} /></td>
                       <td>
                         <span className="hist-type-badge" data-type={c.linkPolicy} style={{ fontSize: 10 }}>
                           {c.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
@@ -1221,7 +1121,7 @@ export default function NodeEditor({
                         ? <span style={{ opacity: .35 }}>—</span>
                         : `${p.sourceRevision}.${p.sourceIteration}`}
                     </td>
-                    <td><StatePill stateId={p.sourceState} stateColorMap={stateColorMap} /></td>
+                    <td><StatePill stateId={p.sourceState} stateName={p.sourceStateName} stateColorMap={stateColorMap} /></td>
                     <td>
                       <span className="hist-type-badge" data-type={p.linkPolicy} style={{ fontSize: 10 }}>
                         {p.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
@@ -1273,7 +1173,7 @@ export default function NodeEditor({
               onTransition={lcTransition => {
                 const tName = lcTransition.name || lcTransition.NAME || '';
                 const action = transitions.find(a => a.name === tName);
-                if (action && !action.guardViolations?.length) handleTransition(action);
+                if (action && !action.guardViolations?.length) triggerAction(action);
               }}
             />
           </div>

@@ -3,8 +3,8 @@ package com.plm.infrastructure.security;
 import com.plm.domain.action.ActionPermissionService;
 import com.plm.domain.action.PlmAction;
 import com.plm.domain.exception.UnauthenticatedException;
-import com.plm.domain.guard.GuardContext;
-import com.plm.domain.guard.GuardService;
+import com.plm.domain.action.guard.ActionGuardContext;
+import com.plm.domain.action.guard.ActionGuardService;
 import com.plm.domain.security.PlmUserContext;
 import com.plm.domain.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
@@ -55,7 +55,7 @@ import org.springframework.stereotype.Component;
 public class PlmActionAspect {
 
     private final ActionPermissionService actionPermissionService;
-    private final GuardService            guardService;
+    private final ActionGuardService       actionGuardService;
     private final SecurityContextPort     secCtx;
     private final DSLContext              dsl;
 
@@ -166,8 +166,8 @@ public class PlmActionAspect {
      */
     private void evaluateGuards(String actionCode, String nodeId,
                                 String nodeTypeId, String transitionId, PlmUserContext user) {
-        String actionId = resolveActionId(actionCode);
-        if (actionId == null) return;
+        ActionIds ids = resolveActionIds(actionCode);
+        if (ids == null) return;
 
         var stateRow = dsl.fetchOne(
             "SELECT nv.lifecycle_state_id FROM node_version nv " +
@@ -182,17 +182,24 @@ public class PlmActionAspect {
         boolean isLocked = lockedBy != null;
         boolean isLockedByCurrentUser = isLocked && user.getUserId().equals(lockedBy);
 
-        GuardContext gCtx = new GuardContext(nodeId, nodeTypeId, currentStateId,
+        ActionGuardContext gCtx = new ActionGuardContext(nodeId, nodeTypeId, currentStateId,
             actionCode, transitionId, isLocked, isLockedByCurrentUser,
             user.getUserId(), java.util.Map.of());
 
-        guardService.assertGuards(actionId, nodeTypeId, transitionId, user.isAdmin(), gCtx);
+        if (ids.managedWith != null) {
+            actionGuardService.assertGuards(ids.managedWith, ids.actionId, nodeTypeId, transitionId, user.isAdmin(), gCtx);
+        } else {
+            actionGuardService.assertGuards(ids.actionId, nodeTypeId, transitionId, user.isAdmin(), gCtx);
+        }
     }
 
-    private String resolveActionId(String actionCode) {
-        return dsl.select(DSL.field("id")).from("action")
-            .where("action_code = ?", actionCode)
-            .fetchOne(DSL.field("id"), String.class);
+    private record ActionIds(String actionId, String managedWith) {}
+
+    private ActionIds resolveActionIds(String actionCode) {
+        var row = dsl.select(DSL.field("id"), DSL.field("managed_with")).from("action")
+            .where("action_code = ?", actionCode).fetchOne();
+        if (row == null) return null;
+        return new ActionIds(row.get("id", String.class), row.get("managed_with", String.class));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

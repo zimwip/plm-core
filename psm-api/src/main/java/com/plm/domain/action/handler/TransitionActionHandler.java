@@ -26,4 +26,10 @@ public class TransitionActionHandler implements ActionHandler {
             ctx.nodeId(), ctx.transitionId(), ctx.userId(), ctx.txId());
         return ActionResult.ok(Map.of("versionId", versionId, "txId", ctx.txId()));
     }
+
+    @Override
+    public Map<String, Object> resolveDisplayHints(String nodeId, String nodeTypeId, String transitionId) {
+        String color = lifecycleService.getTransitionTargetStateColor(transitionId);
+        return color != null ? Map.of("displayColor", color) : Map.of();
+    }
 }

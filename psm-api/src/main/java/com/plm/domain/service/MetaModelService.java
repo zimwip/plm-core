@@ -2,6 +2,7 @@ package com.plm.domain.service;
 
 import com.plm.domain.action.ActionPermissionService;
 import com.plm.domain.action.PlmAction;
+import com.plm.domain.metadata.MetadataService;
 import com.plm.domain.model.ResolvedAttribute;
 import com.plm.domain.security.SecurityContextPort;
 import com.plm.infrastructure.PlmEventPublisher;
@@ -41,6 +42,7 @@ public class MetaModelService {
     private final PlmEventPublisher         eventPublisher;
     private final ActionRegistrationService actionRegistrationService;
     private final SecurityContextPort       secCtx;
+    private final MetadataService           metadataService;
 
     // ================================================================
     // LIFECYCLE
@@ -63,7 +65,7 @@ public class MetaModelService {
     @PlmAction("MANAGE_METAMODEL")
     @Transactional
     public String addState(String lifecycleId, String name,
-                           boolean isInitial, boolean isFrozen, boolean isReleased,
+                           boolean isInitial, Map<String, String> metadata,
                            int displayOrder, String color) {
         if (isInitial) {
             int existing = dsl.fetchCount(
@@ -78,14 +80,15 @@ public class MetaModelService {
 
         String id = UUID.randomUUID().toString();
         dsl.execute(
-            "INSERT INTO lifecycle_state (ID, LIFECYCLE_ID, NAME, IS_INITIAL, IS_FROZEN, IS_RELEASED, DISPLAY_ORDER, COLOR) VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO lifecycle_state (ID, LIFECYCLE_ID, NAME, IS_INITIAL, DISPLAY_ORDER, COLOR) VALUES (?,?,?,?,?,?)",
             id, lifecycleId, name,
             isInitial  ? 1 : 0,
-            isFrozen   ? 1 : 0,
-            isReleased ? 1 : 0,
             displayOrder,
             color
         );
+        if (metadata != null && !metadata.isEmpty()) {
+            metadataService.setAll("LIFECYCLE_STATE", id, metadata);
+        }
         log.info("State '{}' added to lifecycle {}", name, lifecycleId);
         metaModelCache.invalidate();
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
@@ -124,10 +127,9 @@ public class MetaModelService {
 
     @PlmAction("MANAGE_METAMODEL")
     @Transactional
-    public void updateState(String stateId, String name, boolean isInitial, boolean isFrozen,
-                            boolean isReleased, int displayOrder, String color) {
+    public void updateState(String stateId, String name, boolean isInitial,
+                            Map<String, String> metadata, int displayOrder, String color) {
         if (isInitial) {
-            // Ensure no other state in the same lifecycle is already initial
             String lifecycleId = dsl.select().from("lifecycle_state")
                                     .where("id = ?", stateId)
                                     .fetchOne("lifecycle_id", String.class);
@@ -142,15 +144,16 @@ public class MetaModelService {
             }
         }
         dsl.execute(
-            "UPDATE lifecycle_state SET NAME = ?, IS_INITIAL = ?, IS_FROZEN = ?, IS_RELEASED = ?, DISPLAY_ORDER = ?, COLOR = ? WHERE ID = ?",
+            "UPDATE lifecycle_state SET NAME = ?, IS_INITIAL = ?, DISPLAY_ORDER = ?, COLOR = ? WHERE ID = ?",
             name,
             isInitial  ? 1 : 0,
-            isFrozen   ? 1 : 0,
-            isReleased ? 1 : 0,
             displayOrder,
             color,
             stateId
         );
+        if (metadata != null) {
+            metadataService.setAll("LIFECYCLE_STATE", stateId, metadata);
+        }
         log.info("LifecycleState {} updated: name={}", stateId, name);
         metaModelCache.invalidate();
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
@@ -1132,6 +1135,14 @@ public class MetaModelService {
                                            Integer required) {
         actionRegistrationService.setNodeActionParamOverride(
             nodeTypeId, actionCode, parameterId, defaultValue, allowedValues, required);
+    }
+
+    public Map<String, Object> setManagedWith(String actionId, String managedWithId) {
+        return actionRegistrationService.setManagedWith(actionId, managedWithId);
+    }
+
+    public List<Map<String, Object>> getManagedActions(String managerActionId) {
+        return actionRegistrationService.getManagedActions(managerActionId);
     }
 
     // ================================================================

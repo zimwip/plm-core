@@ -204,6 +204,70 @@ public class AlgorithmController {
     }
 
     // ================================================================
+    // LIFECYCLE STATE ACTIONS (tier 1 — lifecycle-state level)
+    // ================================================================
+
+    @GetMapping("/states/{stateId}/actions")
+    public ResponseEntity<List<Map<String, Object>>> listStateActions(@PathVariable String stateId) {
+        return ResponseEntity.ok(algorithmService.listStateActions(stateId));
+    }
+
+    @PostMapping("/states/{stateId}/actions")
+    public ResponseEntity<Map<String, String>> attachStateAction(
+        @PathVariable String stateId,
+        @RequestBody Map<String, Object> body
+    ) {
+        String id = algorithmService.attachStateAction(
+            stateId,
+            (String) body.get("instanceId"),
+            (String) body.getOrDefault("trigger", "ON_ENTER"),
+            (String) body.getOrDefault("executionMode", "TRANSACTIONAL"),
+            (int) body.getOrDefault("displayOrder", 0));
+        return ResponseEntity.ok(Map.of("id", id));
+    }
+
+    @DeleteMapping("/state-actions/{attachmentId}")
+    public ResponseEntity<Void> detachStateAction(@PathVariable String attachmentId) {
+        algorithmService.detachStateAction(attachmentId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ================================================================
+    // NODE-TYPE STATE ACTIONS (tier 2 — per-node-type override)
+    // ================================================================
+
+    @GetMapping("/node-types/{nodeTypeId}/states/{stateId}/actions")
+    public ResponseEntity<List<Map<String, Object>>> listNodeTypeStateActions(
+        @PathVariable String nodeTypeId,
+        @PathVariable String stateId
+    ) {
+        return ResponseEntity.ok(algorithmService.listNodeTypeStateActions(nodeTypeId, stateId));
+    }
+
+    @PostMapping("/node-types/{nodeTypeId}/states/{stateId}/actions")
+    public ResponseEntity<Map<String, String>> attachNodeTypeStateAction(
+        @PathVariable String nodeTypeId,
+        @PathVariable String stateId,
+        @RequestBody Map<String, Object> body
+    ) {
+        String id = algorithmService.attachNodeTypeStateAction(
+            nodeTypeId,
+            stateId,
+            (String) body.get("instanceId"),
+            (String) body.getOrDefault("trigger", "ON_ENTER"),
+            (String) body.getOrDefault("executionMode", "TRANSACTIONAL"),
+            (String) body.getOrDefault("overrideAction", "ADD"),
+            (int) body.getOrDefault("displayOrder", 0));
+        return ResponseEntity.ok(Map.of("id", id));
+    }
+
+    @DeleteMapping("/node-type-state-actions/{attachmentId}")
+    public ResponseEntity<Void> detachNodeTypeStateAction(@PathVariable String attachmentId) {
+        algorithmService.detachNodeTypeStateAction(attachmentId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ================================================================
     // EXECUTION STATISTICS
     // ================================================================
 

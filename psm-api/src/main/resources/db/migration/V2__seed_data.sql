@@ -1,7 +1,7 @@
 -- ============================================================
--- PSM SEED DATA
+-- PSM SEED DATA — Collapsed
 -- Covers: lifecycle, node types, link types, attribute views,
---         action catalog, and permissions for ps-default.
+--         action catalog, guards, and permissions for ps-default.
 -- ============================================================
 
 -- ============================================================
@@ -19,11 +19,16 @@ INSERT INTO lifecycle_state (id, lifecycle_id, name, is_initial, is_frozen, is_r
   ('st-obsolete', 'lc-standard', 'Obsolete', 0, 1, 0, 4, '#94a3b8');
 
 INSERT INTO lifecycle_transition (id, lifecycle_id, name, from_state_id, to_state_id, guard_expr, action_type, version_strategy) VALUES
-  ('tr-freeze',   'lc-standard', 'Freeze',        'st-inwork',   'st-frozen',   NULL,                  'CASCADE_FROZEN', 'NONE'),
-  ('tr-unfreeze', 'lc-standard', 'Unfreeze',      'st-frozen',   'st-inwork',   NULL,                  NULL,             'NONE'),
-  ('tr-release',  'lc-standard', 'Release',       'st-frozen',   'st-released', 'all_signatures_done', NULL,             'REVISE'),
-  ('tr-revise',   'lc-standard', 'Revise',        'st-released', 'st-inwork',   NULL,                  NULL,             'NONE'),
-  ('tr-obsolete', 'lc-standard', 'Make Obsolete', 'st-released', 'st-obsolete', NULL,                  NULL,             'NONE');
+  ('tr-freeze',   'lc-standard', 'Freeze',        'st-inwork',   'st-frozen',   NULL, 'CASCADE_FROZEN', 'NONE'),
+  ('tr-unfreeze', 'lc-standard', 'Unfreeze',      'st-frozen',   'st-inwork',   NULL, NULL,             'NONE'),
+  ('tr-release',  'lc-standard', 'Release',       'st-frozen',   'st-released', NULL, NULL,             'REVISE'),
+  ('tr-revise',   'lc-standard', 'Revise',        'st-released', 'st-inwork',   NULL, NULL,             'NONE'),
+  ('tr-obsolete', 'lc-standard', 'Make Obsolete', 'st-released', 'st-obsolete', NULL, NULL,             'NONE');
+
+-- Signature requirements (replaces old guard_expr='all_signatures_done')
+INSERT INTO signature_requirement (id, lifecycle_transition_id, role_required, display_order) VALUES
+  ('sr-rel-01', 'tr-release', 'role-reviewer', 10),
+  ('sr-rel-02', 'tr-release', 'role-admin',    20);
 
 -- ============================================================
 -- NODE TYPE "Document"
@@ -44,30 +49,30 @@ INSERT INTO attribute_definition
 UPDATE attribute_definition SET allowed_values = '["Design","Test","Spec","Procedure","Report"]'
 WHERE id = 'ad-doc-cat';
 
-INSERT INTO attribute_state_rule (id, attribute_definition_id, lifecycle_state_id, required, editable, visible) VALUES
+INSERT INTO attribute_state_rule (id, attribute_definition_id, lifecycle_state_id, required, editable, visible, node_type_id) VALUES
   -- In Work: reviewNote hidden
-  ('asr-iw-01',  'ad-doc-review',  'st-inwork',   0, 0, 0),
+  ('asr-iw-01',  'ad-doc-review',  'st-inwork',   0, 0, 0, 'nt-document'),
   -- Frozen: all locked except reviewNote
-  ('asr-fz-01',  'ad-doc-title',   'st-frozen',   1, 0, 1),
-  ('asr-fz-02',  'ad-doc-version', 'st-frozen',   0, 0, 1),
-  ('asr-fz-03',  'ad-doc-desc',    'st-frozen',   0, 0, 1),
-  ('asr-fz-04',  'ad-doc-cat',     'st-frozen',   1, 0, 1),
-  ('asr-fz-05',  'ad-doc-author',  'st-frozen',   1, 0, 1),
-  ('asr-fz-06',  'ad-doc-review',  'st-frozen',   0, 1, 1),
+  ('asr-fz-01',  'ad-doc-title',   'st-frozen',   1, 0, 1, 'nt-document'),
+  ('asr-fz-02',  'ad-doc-version', 'st-frozen',   0, 0, 1, 'nt-document'),
+  ('asr-fz-03',  'ad-doc-desc',    'st-frozen',   0, 0, 1, 'nt-document'),
+  ('asr-fz-04',  'ad-doc-cat',     'st-frozen',   1, 0, 1, 'nt-document'),
+  ('asr-fz-05',  'ad-doc-author',  'st-frozen',   1, 0, 1, 'nt-document'),
+  ('asr-fz-06',  'ad-doc-review',  'st-frozen',   0, 1, 1, 'nt-document'),
   -- Released: all locked
-  ('asr-rl-01',  'ad-doc-title',   'st-released', 1, 0, 1),
-  ('asr-rl-02',  'ad-doc-version', 'st-released', 0, 0, 1),
-  ('asr-rl-03',  'ad-doc-desc',    'st-released', 0, 0, 1),
-  ('asr-rl-04',  'ad-doc-cat',     'st-released', 1, 0, 1),
-  ('asr-rl-05',  'ad-doc-author',  'st-released', 1, 0, 1),
-  ('asr-rl-06',  'ad-doc-review',  'st-released', 0, 0, 1),
+  ('asr-rl-01',  'ad-doc-title',   'st-released', 1, 0, 1, 'nt-document'),
+  ('asr-rl-02',  'ad-doc-version', 'st-released', 0, 0, 1, 'nt-document'),
+  ('asr-rl-03',  'ad-doc-desc',    'st-released', 0, 0, 1, 'nt-document'),
+  ('asr-rl-04',  'ad-doc-cat',     'st-released', 1, 0, 1, 'nt-document'),
+  ('asr-rl-05',  'ad-doc-author',  'st-released', 1, 0, 1, 'nt-document'),
+  ('asr-rl-06',  'ad-doc-review',  'st-released', 0, 0, 1, 'nt-document'),
   -- Obsolete: all locked, reviewNote hidden
-  ('asr-ob-01',  'ad-doc-title',   'st-obsolete', 1, 0, 1),
-  ('asr-ob-02',  'ad-doc-version', 'st-obsolete', 0, 0, 1),
-  ('asr-ob-03',  'ad-doc-desc',    'st-obsolete', 0, 0, 1),
-  ('asr-ob-04',  'ad-doc-cat',     'st-obsolete', 1, 0, 1),
-  ('asr-ob-05',  'ad-doc-author',  'st-obsolete', 1, 0, 1),
-  ('asr-ob-06',  'ad-doc-review',  'st-obsolete', 0, 0, 0);
+  ('asr-ob-01',  'ad-doc-title',   'st-obsolete', 1, 0, 1, 'nt-document'),
+  ('asr-ob-02',  'ad-doc-version', 'st-obsolete', 0, 0, 1, 'nt-document'),
+  ('asr-ob-03',  'ad-doc-desc',    'st-obsolete', 0, 0, 1, 'nt-document'),
+  ('asr-ob-04',  'ad-doc-cat',     'st-obsolete', 1, 0, 1, 'nt-document'),
+  ('asr-ob-05',  'ad-doc-author',  'st-obsolete', 1, 0, 1, 'nt-document'),
+  ('asr-ob-06',  'ad-doc-review',  'st-obsolete', 0, 0, 0, 'nt-document');
 
 -- ============================================================
 -- NODE TYPE "Part"
@@ -86,33 +91,32 @@ INSERT INTO attribute_definition
 UPDATE attribute_definition SET allowed_values = '["Steel","Aluminum","Titanium","Composite","Plastic"]'
 WHERE id = 'ad-part-material';
 
-INSERT INTO attribute_state_rule (id, attribute_definition_id, lifecycle_state_id, required, editable, visible) VALUES
+INSERT INTO attribute_state_rule (id, attribute_definition_id, lifecycle_state_id, required, editable, visible, node_type_id) VALUES
   -- Frozen
-  ('asr-pfz-01', 'ad-part-name',     'st-frozen',   1, 0, 1),
-  ('asr-pfz-02', 'ad-part-material', 'st-frozen',   0, 0, 1),
-  ('asr-pfz-03', 'ad-part-weight',   'st-frozen',   0, 0, 1),
-  ('asr-pfz-04', 'ad-part-drawing',  'st-frozen',   0, 0, 1),
+  ('asr-pfz-01', 'ad-part-name',     'st-frozen',   1, 0, 1, 'nt-part'),
+  ('asr-pfz-02', 'ad-part-material', 'st-frozen',   0, 0, 1, 'nt-part'),
+  ('asr-pfz-03', 'ad-part-weight',   'st-frozen',   0, 0, 1, 'nt-part'),
+  ('asr-pfz-04', 'ad-part-drawing',  'st-frozen',   0, 0, 1, 'nt-part'),
   -- Released
-  ('asr-prl-01', 'ad-part-name',     'st-released', 1, 0, 1),
-  ('asr-prl-02', 'ad-part-material', 'st-released', 0, 0, 1),
-  ('asr-prl-03', 'ad-part-weight',   'st-released', 0, 0, 1),
-  ('asr-prl-04', 'ad-part-drawing',  'st-released', 0, 0, 1),
+  ('asr-prl-01', 'ad-part-name',     'st-released', 1, 0, 1, 'nt-part'),
+  ('asr-prl-02', 'ad-part-material', 'st-released', 0, 0, 1, 'nt-part'),
+  ('asr-prl-03', 'ad-part-weight',   'st-released', 0, 0, 1, 'nt-part'),
+  ('asr-prl-04', 'ad-part-drawing',  'st-released', 0, 0, 1, 'nt-part'),
   -- Obsolete
-  ('asr-pob-01', 'ad-part-name',     'st-obsolete', 1, 0, 1),
-  ('asr-pob-02', 'ad-part-material', 'st-obsolete', 0, 0, 1),
-  ('asr-pob-03', 'ad-part-weight',   'st-obsolete', 0, 0, 1),
-  ('asr-pob-04', 'ad-part-drawing',  'st-obsolete', 0, 0, 1);
+  ('asr-pob-01', 'ad-part-name',     'st-obsolete', 1, 0, 1, 'nt-part'),
+  ('asr-pob-02', 'ad-part-material', 'st-obsolete', 0, 0, 1, 'nt-part'),
+  ('asr-pob-03', 'ad-part-weight',   'st-obsolete', 0, 0, 1, 'nt-part'),
+  ('asr-pob-04', 'ad-part-drawing',  'st-obsolete', 0, 0, 1, 'nt-part');
 
 -- ============================================================
 -- LINK TYPES
 -- ============================================================
 
 INSERT INTO link_type (id, name, description, source_node_type_id, target_node_type_id, link_policy, link_logical_id_label) VALUES
-  ('lt-composed-of', 'composed_of',   'Part → Part composition',     'nt-part', 'nt-part',     'VERSION_TO_MASTER',  'Assembly Ref'),
-  ('lt-doc-part',    'documented_by', 'Document references a Part',  'nt-part', 'nt-document', 'VERSION_TO_VERSION', 'Doc Ref'),
+  ('lt-composed-of', 'composed_of',   'Part → Part composition',      'nt-part', 'nt-part',     'VERSION_TO_MASTER',  'Assembly Ref'),
+  ('lt-doc-part',    'documented_by', 'Document references a Part',   'nt-part', 'nt-document', 'VERSION_TO_VERSION', 'Doc Ref'),
   ('lt-supersedes',  'supersedes',    'Part supersedes another Part', 'nt-part', 'nt-part',     'VERSION_TO_VERSION', 'Supersession Ref');
 
--- Cascade: freezing a composed_of parent cascades tr-freeze to In-Work children
 INSERT INTO link_type_cascade (id, link_type_id, parent_transition_id, child_from_state_id, child_transition_id) VALUES
   ('ltc-composed-freeze', 'lt-composed-of', 'tr-freeze', 'st-inwork', 'tr-freeze');
 
@@ -120,112 +124,64 @@ INSERT INTO link_type_cascade (id, link_type_id, parent_transition_id, child_fro
 -- ACTION CATALOG
 -- ============================================================
 
-INSERT INTO action (id, action_code, action_kind, scope, display_name, description, handler_ref, display_category, requires_tx, is_default) VALUES
-  -- Structural permission anchors (hidden from UI action list)
-  ('act-read',             'READ',             'BUILTIN', 'NODE',      'Read',                    'Read access to nodes of this type',                                               'noopActionHandler',       'STRUCTURAL', 0, 0),
-  ('act-manage-metamodel', 'MANAGE_METAMODEL', 'BUILTIN', 'GLOBAL',    'Manage Metamodel',        'Create/update/delete lifecycle, node types, link types, attribute definitions',   '_global',                 'STRUCTURAL', 0, 0),
-  ('act-manage-roles',     'MANAGE_ROLES',     'BUILTIN', 'GLOBAL',    'Manage Roles & Permissions','Configure action permissions, views, and view overrides',                      '_global',                 'STRUCTURAL', 0, 0),
-  ('act-manage-baselines', 'MANAGE_BASELINES', 'BUILTIN', 'GLOBAL',    'Manage Baselines',        'Create baselines (service-level, outside action dispatch)',                      '_global',                 'STRUCTURAL', 0, 0),
+INSERT INTO action (id, action_code, action_kind, scope, display_name, description, handler_ref, display_category, requires_tx, tx_mode, display_order) VALUES
+  -- Structural permission anchors (hidden from UI)
+  ('act-read',             'READ',             'BUILTIN', 'NODE',      'Read',                      'Read access to nodes of this type',                                             'noopActionHandler',       'STRUCTURAL', 0, 'NONE',     -20),
+  ('act-manage-metamodel', 'MANAGE_METAMODEL', 'BUILTIN', 'GLOBAL',    'Manage Metamodel',          'Create/update/delete lifecycle, node types, link types, attribute definitions',   '_global',                 'STRUCTURAL', 0, 'NONE',       0),
+  ('act-manage-roles',     'MANAGE_ROLES',     'BUILTIN', 'GLOBAL',    'Manage Roles & Permissions','Configure action permissions, views, and view overrides',                        '_global',                 'STRUCTURAL', 0, 'NONE',       0),
+  ('act-manage-baselines', 'MANAGE_BASELINES', 'BUILTIN', 'GLOBAL',    'Manage Baselines',          'Create baselines (service-level, outside action dispatch)',                      '_global',                 'STRUCTURAL', 0, 'NONE',       0),
+  ('act-manage-lifecycle', 'MANAGE_LIFECYCLE', 'BUILTIN', 'GLOBAL',    'Manage Lifecycle',          'Create/update/delete lifecycles, states, transitions, signature requirements',   '_global',                 'STRUCTURAL', 0, 'NONE',       0),
   -- Operational actions
-  ('act-checkout',    'CHECKOUT',    'BUILTIN', 'NODE',      'Checkout',       'Open a node for editing',                    'checkoutActionHandler',   'SECONDARY',  0, 1),
-  ('act-checkin',     'CHECKIN',     'BUILTIN', 'NODE',      'Check In',       'Commit this node and close its transaction', 'checkinActionHandler',    'SECONDARY',  1, 1),
-  ('act-update-node', 'UPDATE_NODE', 'BUILTIN', 'NODE',      'Update Node',    'Save attribute changes to the open version', 'updateNodeActionHandler', 'SECONDARY',  1, 1),
-  ('act-transition',  'TRANSITION',  'BUILTIN', 'LIFECYCLE', 'Transition',     'Apply a lifecycle state transition',         'transitionActionHandler', 'PRIMARY',    1, 0),
-  ('act-sign',        'SIGN',        'BUILTIN', 'NODE',      'Sign',           'Record an electronic signature',             'signActionHandler',       'PRIMARY',    1, 1),
-  ('act-create-link', 'CREATE_LINK', 'BUILTIN', 'NODE',      'Create Link',    'Add a link to another node',                 'createLinkActionHandler', 'SECONDARY',  1, 1),
-  ('act-update-link', 'UPDATE_LINK', 'BUILTIN', 'NODE',      'Update Link',    'Modify link attributes',                     'updateLinkActionHandler', 'SECONDARY',  1, 1),
-  ('act-delete-link', 'DELETE_LINK', 'BUILTIN', 'NODE',      'Delete Link',    'Remove a link between nodes',                'deleteLinkActionHandler', 'DANGEROUS',  1, 1),
-  ('act-baseline',    'BASELINE',    'BUILTIN', 'NODE',      'Create Baseline','Tag a frozen tree as a baseline',            'baselineActionHandler',   'SECONDARY',  0, 1);
+  ('act-checkout',    'CHECKOUT',    'BUILTIN', 'NODE',      'Checkout',        'Open a node for editing',                    'checkoutActionHandler',   'SECONDARY',  0, 'AUTO_OPEN', 100),
+  ('act-checkin',     'CHECKIN',     'BUILTIN', 'NODE',      'Check In',        'Commit this node and close its transaction', 'checkinActionHandler',    'SECONDARY',  1, 'REQUIRED',  110),
+  ('act-update-node', 'UPDATE_NODE', 'BUILTIN', 'NODE',      'Update Node',     'Save attribute changes to the open version', 'updateNodeActionHandler', 'SECONDARY',  1, 'REQUIRED',   50),
+  ('act-transition',  'TRANSITION',  'BUILTIN', 'LIFECYCLE', 'Transition',      'Apply a lifecycle state transition',         'transitionActionHandler', 'PRIMARY',    1, 'ISOLATED',   10),
+  ('act-sign',        'SIGN',        'BUILTIN', 'NODE',      'Sign',            'Record an electronic signature',             'signActionHandler',       'PRIMARY',    1, 'ISOLATED',  200),
+  ('act-create-link', 'CREATE_LINK', 'BUILTIN', 'NODE',      'Create Link',     'Add a link to another node',                 'createLinkActionHandler', 'SECONDARY',  1, 'AUTO_OPEN', 300),
+  ('act-update-link', 'UPDATE_LINK', 'BUILTIN', 'NODE',      'Update Link',     'Modify link attributes',                     'updateLinkActionHandler', 'SECONDARY',  1, 'AUTO_OPEN', 350),
+  ('act-delete-link', 'DELETE_LINK', 'BUILTIN', 'NODE',      'Delete Link',     'Remove a link between nodes',                'deleteLinkActionHandler', 'DANGEROUS',  1, 'AUTO_OPEN', 360),
+  ('act-baseline',    'BASELINE',    'BUILTIN', 'NODE',      'Create Baseline', 'Tag a frozen tree as a baseline',            'baselineActionHandler',   'SECONDARY',  0, 'NONE',      400),
+  -- TX-scope actions
+  ('act-commit',      'COMMIT',      'BUILTIN', 'TX',        'Commit',          'Commit transaction',                         'commitActionHandler',     'STRUCTURAL', 1, 'REQUIRED',  900),
+  ('act-rollback',    'ROLLBACK',    'BUILTIN', 'TX',        'Rollback',        'Rollback transaction',                       'rollbackActionHandler',   'STRUCTURAL', 1, 'REQUIRED',  910),
+  -- NODE-scope cancel
+  ('act-cancel',      'CANCEL',      'BUILTIN', 'NODE',      'Cancel',          'Release node from transaction',              'cancelActionHandler',     'DANGEROUS',  1, 'REQUIRED',  800);
 
--- Parameters for SIGN
+-- ============================================================
+-- ACTION PARAMETERS
+-- ============================================================
+
+-- SIGN
 INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, default_value, allowed_values, widget_type, display_order) VALUES
-  ('nap-sign-meaning', 'act-sign', 'meaning', 'Meaning', 'ENUM',   1, 'Reviewed', '["Reviewed","Approved","Verified","Acknowledged"]', 'DROPDOWN', 1),
-  ('nap-sign-comment', 'act-sign', 'comment', 'Comment', 'STRING', 0, NULL,       NULL,                                                 'TEXTAREA', 2);
+  ('nap-sign-meaning', 'act-sign', 'meaning', 'Meaning', 'ENUM',   1, 'Approved', '["Approved","Rejected"]', 'DROPDOWN', 1),
+  ('nap-sign-comment', 'act-sign', 'comment', 'Comment', 'STRING', 0, NULL,       NULL,                      'TEXTAREA', 2);
 
--- Parameters for BASELINE
+-- BASELINE
 INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
   ('nap-bl-name', 'act-baseline', 'name',        'Baseline Name', 'STRING', 1, 'TEXT',     1),
   ('nap-bl-desc', 'act-baseline', 'description', 'Description',   'STRING', 0, 'TEXTAREA', 2);
 
--- Parameters for CREATE_LINK
+-- CREATE_LINK
 INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
   ('nap-lnk-type',   'act-create-link', 'linkTypeId',    'Link Type',   'ENUM',     1, 'DROPDOWN', 1),
   ('nap-lnk-target', 'act-create-link', 'targetNodeId',  'Target Node', 'NODE_REF', 1, 'DROPDOWN', 2),
   ('nap-lnk-lid',    'act-create-link', 'linkLogicalId', 'Link ID',     'STRING',   1, 'TEXT',     3);
 
--- Parameters for UPDATE_LINK
+-- UPDATE_LINK
 INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
   ('nap-ul-linkid', 'act-update-link', 'linkId',    'Link ID',         'STRING', 1, 'TEXT', 1),
   ('nap-ul-logid',  'act-update-link', 'logicalId', 'Link Logical ID', 'STRING', 0, 'TEXT', 2);
 
--- Parameters for DELETE_LINK
+-- DELETE_LINK
 INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
   ('nap-dl-linkid', 'act-delete-link', 'linkId', 'Link ID', 'STRING', 1, 'TEXT', 1);
 
--- ============================================================
--- NODE TYPE ACTIONS (node_type_action)
--- One row per (node_type, action[, transition]).
--- ============================================================
-
--- ── Document ────────────────────────────────────────────────
-INSERT INTO node_type_action (id, node_type_id, action_id, status, display_order) VALUES
-  ('nta-rd-doc',  'nt-document', 'act-read',        'ENABLED', -20),
-  ('nta-co-doc',  'nt-document', 'act-checkout',    'ENABLED', 100),
-  ('nta-ci-doc',  'nt-document', 'act-checkin',     'ENABLED', 110),
-  ('nta-un-doc',  'nt-document', 'act-update-node', 'ENABLED',  50),
-  ('nta-sg-doc',  'nt-document', 'act-sign',        'ENABLED', 200),
-  ('nta-cl-doc',  'nt-document', 'act-create-link', 'ENABLED', 300),
-  ('nta-ul-doc',  'nt-document', 'act-update-link', 'ENABLED', 350),
-  ('nta-dl-doc',  'nt-document', 'act-delete-link', 'ENABLED', 360),
-  ('nta-bl-doc',  'nt-document', 'act-baseline',    'ENABLED', 400);
-
-INSERT INTO node_type_action (id, node_type_id, action_id, status, transition_id, display_order) VALUES
-  ('nta-tr-freeze-doc',   'nt-document', 'act-transition', 'ENABLED', 'tr-freeze',   10),
-  ('nta-tr-unfreeze-doc', 'nt-document', 'act-transition', 'ENABLED', 'tr-unfreeze', 20),
-  ('nta-tr-release-doc',  'nt-document', 'act-transition', 'ENABLED', 'tr-release',  30),
-  ('nta-tr-revise-doc',   'nt-document', 'act-transition', 'ENABLED', 'tr-revise',   40),
-  ('nta-tr-obsolete-doc', 'nt-document', 'act-transition', 'ENABLED', 'tr-obsolete', 50);
-
--- ── Part ────────────────────────────────────────────────────
-INSERT INTO node_type_action (id, node_type_id, action_id, status, display_order) VALUES
-  ('nta-rd-prt',  'nt-part', 'act-read',        'ENABLED', -20),
-  ('nta-co-prt',  'nt-part', 'act-checkout',    'ENABLED', 100),
-  ('nta-ci-prt',  'nt-part', 'act-checkin',     'ENABLED', 110),
-  ('nta-un-prt',  'nt-part', 'act-update-node', 'ENABLED',  50),
-  ('nta-sg-prt',  'nt-part', 'act-sign',        'ENABLED', 200),
-  ('nta-cl-prt',  'nt-part', 'act-create-link', 'ENABLED', 300),
-  ('nta-ul-prt',  'nt-part', 'act-update-link', 'ENABLED', 350),
-  ('nta-dl-prt',  'nt-part', 'act-delete-link', 'ENABLED', 360),
-  ('nta-bl-prt',  'nt-part', 'act-baseline',    'ENABLED', 400);
-
-INSERT INTO node_type_action (id, node_type_id, action_id, status, transition_id, display_order) VALUES
-  ('nta-tr-freeze-prt',   'nt-part', 'act-transition', 'ENABLED', 'tr-freeze',   10),
-  ('nta-tr-unfreeze-prt', 'nt-part', 'act-transition', 'ENABLED', 'tr-unfreeze', 20),
-  ('nta-tr-release-prt',  'nt-part', 'act-transition', 'ENABLED', 'tr-release',  30),
-  ('nta-tr-revise-prt',   'nt-part', 'act-transition', 'ENABLED', 'tr-revise',   40),
-  ('nta-tr-obsolete-prt', 'nt-part', 'act-transition', 'ENABLED', 'tr-obsolete', 50);
+-- COMMIT
+INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order, visibility) VALUES
+  ('ap-commit-comment', 'act-commit', 'comment', 'Commit message', 'STRING', 1, 'TEXT', 1, 'UI_VISIBLE');
 
 -- ============================================================
 -- ACTION PERMISSIONS (for ps-default)
---
--- NODE-scope actions:
---   act-read              : DESIGNER + REVIEWER + READER
---   act-checkout          : DESIGNER
---   act-checkin           : DESIGNER
---   act-update-node       : DESIGNER
---   act-sign              : REVIEWER
---   act-create/update/delete-link: DESIGNER
---   act-baseline          : ADMIN only
---
--- LIFECYCLE-scope (per transition):
---   tr-freeze   — DESIGNER + ADMIN
---   tr-unfreeze — ADMIN only
---   tr-release  — REVIEWER + ADMIN
---   tr-revise   — DESIGNER + ADMIN
---   tr-obsolete — ADMIN only
---
--- GLOBAL-scope:
---   act-manage-metamodel / act-manage-roles / act-manage-baselines: ADMIN only
 -- ============================================================
 
 INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_type_id, transition_id) VALUES
@@ -293,9 +249,10 @@ INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_ty
   ('ap-tr-a-prt-obsolete', 'act-transition', 'ps-default', 'role-admin',    'nt-part',     'tr-obsolete'),
 
   -- GLOBAL-scope: ADMIN only
-  ('ap-gl-mm-admin', 'act-manage-metamodel', 'ps-default', 'role-admin', NULL, NULL),
-  ('ap-gl-rl-admin', 'act-manage-roles',     'ps-default', 'role-admin', NULL, NULL),
-  ('ap-gl-bl-admin', 'act-manage-baselines', 'ps-default', 'role-admin', NULL, NULL);
+  ('ap-gl-mm-admin',  'act-manage-metamodel',  'ps-default', 'role-admin', NULL, NULL),
+  ('ap-gl-rl-admin',  'act-manage-roles',      'ps-default', 'role-admin', NULL, NULL),
+  ('ap-gl-bl-admin',  'act-manage-baselines',  'ps-default', 'role-admin', NULL, NULL),
+  ('ap-gl-mlc-admin', 'act-manage-lifecycle',  'ps-default', 'role-admin', NULL, NULL);
 
 -- ============================================================
 -- ATTRIBUTE VIEWS
@@ -320,3 +277,76 @@ INSERT INTO attribute_view (id, node_type_id, name, description, eligible_role_i
 
 INSERT INTO view_attribute_override (id, view_id, attribute_def_id, visible, editable, display_order, display_section) VALUES
   ('vao-r1', 'view-reader-all', 'ad-doc-review', 0, 0, NULL, NULL);
+
+-- ============================================================
+-- ALGORITHM TYPES
+-- ============================================================
+
+INSERT INTO algorithm_type (id, name, description, java_interface) VALUES
+  ('algtype-action-guard',    'Action Guard',    'Checks node/action state preconditions (frozen, locked, ownership)',       'com.plm.domain.guard.Guard'),
+  ('algtype-lifecycle-guard', 'Lifecycle Guard', 'Checks lifecycle transition preconditions (required fields, signatures)', 'com.plm.domain.guard.Guard');
+
+-- ============================================================
+-- GUARD ALGORITHMS
+-- ============================================================
+
+-- Action Guards
+INSERT INTO algorithm (id, algorithm_type_id, code, name, description, handler_ref) VALUES
+  ('alg-not-frozen',          'algtype-action-guard', 'not_frozen',               'Not Frozen',               'Node must not be in a frozen lifecycle state',                 'notFrozenGuard'),
+  ('alg-not-locked',          'algtype-action-guard', 'not_locked',               'Not Locked',               'Node must not be locked by any user',                          'notLockedGuard'),
+  ('alg-lock-owner-required', 'algtype-action-guard', 'lock_owner_required',      'Lock Owner Required',      'Current user must own the lock on this node',                  'lockOwnerRequiredGuard'),
+  ('alg-from-state-match',    'algtype-action-guard', 'from_state_match',         'From State Match',         'Node must be in the transition source state',                  'fromStateMatchGuard'),
+  ('alg-not-already-signed',  'algtype-action-guard', 'not_already_signed',       'Not Already Signed',       'User must not have already signed current revision.iteration', 'notAlreadySignedGuard'),
+  ('alg-has-sig-requirement', 'algtype-action-guard', 'has_signature_requirement','Has Signature Requirement','At least one outgoing transition requires signatures',         'hasSignatureRequirementGuard');
+
+-- Lifecycle Guards
+INSERT INTO algorithm (id, algorithm_type_id, code, name, description, handler_ref) VALUES
+  ('alg-all-required-filled', 'algtype-lifecycle-guard', 'all_required_filled', 'All Required Filled', 'All required attributes for target state must have values', 'allRequiredFilledGuard'),
+  ('alg-all-signatures-done', 'algtype-lifecycle-guard', 'all_signatures_done', 'All Signatures Done', 'All required signatures must be collected',                 'allSignaturesDoneGuard');
+
+-- ============================================================
+-- ALGORITHM INSTANCES (one per guard, no parameters)
+-- ============================================================
+
+INSERT INTO algorithm_instance (id, algorithm_id, name) VALUES
+  ('gi-not-frozen',         'alg-not-frozen',          'Not Frozen'),
+  ('gi-not-locked',         'alg-not-locked',          'Not Locked'),
+  ('gi-lock-owner',         'alg-lock-owner-required', 'Lock Owner Required'),
+  ('gi-from-state',         'alg-from-state-match',    'From State Match'),
+  ('gi-not-already-signed', 'alg-not-already-signed',  'Not Already Signed'),
+  ('gi-has-sig-req',        'alg-has-sig-requirement', 'Has Signature Requirement'),
+  ('gi-all-required',       'alg-all-required-filled', 'All Required Filled'),
+  ('gi-all-signatures',     'alg-all-signatures-done', 'All Signatures Done');
+
+-- ============================================================
+-- ACTION-LEVEL GUARDS (tier 1)
+-- ============================================================
+
+INSERT INTO action_guard (id, action_id, algorithm_instance_id, effect, display_order) VALUES
+  -- CHECKOUT: not_frozen, not_locked
+  ('ag-checkout-frozen', 'act-checkout', 'gi-not-frozen', 'HIDE', 1),
+  ('ag-checkout-locked', 'act-checkout', 'gi-not-locked', 'HIDE', 2),
+  -- CHECKIN, UPDATE_NODE, CREATE_LINK, UPDATE_LINK, DELETE_LINK: lock_owner_required
+  ('ag-checkin-owner',   'act-checkin',     'gi-lock-owner', 'HIDE', 1),
+  ('ag-update-owner',    'act-update-node', 'gi-lock-owner', 'HIDE', 1),
+  ('ag-clink-owner',     'act-create-link', 'gi-lock-owner', 'HIDE', 1),
+  ('ag-ulink-owner',     'act-update-link', 'gi-lock-owner', 'HIDE', 1),
+  ('ag-dlink-owner',     'act-delete-link', 'gi-lock-owner', 'HIDE', 1),
+  -- TRANSITION: from_state_match, not_locked
+  ('ag-trans-state',     'act-transition', 'gi-from-state', 'HIDE', 1),
+  ('ag-trans-locked',    'act-transition', 'gi-not-locked', 'HIDE', 2),
+  -- SIGN: has_signature_requirement, not_already_signed
+  ('ag-sign-req',        'act-sign', 'gi-has-sig-req',        'HIDE', 1),
+  ('ag-sign-already',    'act-sign', 'gi-not-already-signed', 'HIDE', 2),
+  -- CANCEL: lock_owner_required
+  ('ag-cancel-owner',    'act-cancel', 'gi-lock-owner', 'HIDE', 1);
+
+-- ============================================================
+-- LIFECYCLE TRANSITION GUARDS (tier 2)
+-- ============================================================
+
+INSERT INTO lifecycle_transition_guard (id, lifecycle_transition_id, algorithm_instance_id, effect, display_order) VALUES
+  -- tr-release: all signatures must be done (BLOCK)
+  ('ltg-release-sig',      'tr-release', 'gi-all-signatures', 'BLOCK', 1),
+  -- tr-freeze: all required attributes must be filled (BLOCK)
+  ('ltg-freeze-required',  'tr-freeze',  'gi-all-required',   'BLOCK', 1);
