@@ -1,4 +1,4 @@
 @org.springframework.modulith.ApplicationModule(
-    allowedDependencies = {"node", "algorithm", "shared"}
+    allowedDependencies = {"algorithm", "shared"}
 )
 package com.plm.action;

@@ -176,6 +176,7 @@ public class AlgorithmService {
         dsl.execute("DELETE FROM node_action_guard WHERE algorithm_instance_id = ?", instanceId);
         dsl.execute("DELETE FROM lifecycle_transition_guard WHERE algorithm_instance_id = ?", instanceId);
         dsl.execute("DELETE FROM action_guard WHERE algorithm_instance_id = ?", instanceId);
+        dsl.execute("DELETE FROM action_wrapper WHERE algorithm_instance_id = ?", instanceId);
         dsl.execute("DELETE FROM algorithm_instance_param_value WHERE algorithm_instance_id = ?", instanceId);
         dsl.execute("DELETE FROM algorithm_instance WHERE id = ?", instanceId);
         actionGuardService.evictCache();
@@ -259,6 +260,50 @@ public class AlgorithmService {
         actionGuardService.evictCache();
         lifecycleGuardService.evictCache();
         log.info("Action guard detached: id={}", guardId);
+    }
+
+    // ================================================================
+    // ACTION WRAPPERS (middleware pipeline)
+    // ================================================================
+
+    public List<Map<String, Object>> listActionWrappers(String actionId) {
+        return dsl.fetch("""
+            SELECT aw.id, aw.action_id, aw.algorithm_instance_id, aw.execution_order,
+                   ai.name AS instance_name, a.code AS algorithm_code,
+                   a.name  AS algorithm_name
+            FROM action_wrapper aw
+            JOIN algorithm_instance ai ON ai.id = aw.algorithm_instance_id
+            JOIN algorithm a           ON a.id = ai.algorithm_id
+            WHERE aw.action_id = ?
+            ORDER BY aw.execution_order
+            """, actionId)
+            .map(r -> {
+                Map<String, Object> m = new java.util.LinkedHashMap<>();
+                m.put("id",              r.get("id",              String.class));
+                m.put("actionId",        r.get("action_id",       String.class));
+                m.put("instanceId",      r.get("algorithm_instance_id", String.class));
+                m.put("executionOrder",  r.get("execution_order", Integer.class));
+                m.put("instanceName",    r.get("instance_name",   String.class));
+                m.put("algorithmCode",   r.get("algorithm_code",  String.class));
+                m.put("algorithmName",   r.get("algorithm_name",  String.class));
+                return m;
+            });
+    }
+
+    @PlmAction("MANAGE_METAMODEL")
+    public String attachActionWrapper(String actionId, String instanceId, int executionOrder) {
+        String id = java.util.UUID.randomUUID().toString();
+        dsl.execute(
+            "INSERT INTO action_wrapper (id, action_id, algorithm_instance_id, execution_order) VALUES (?,?,?,?)",
+            id, actionId, instanceId, executionOrder);
+        log.info("Action wrapper attached: action={} instance={} order={}", actionId, instanceId, executionOrder);
+        return id;
+    }
+
+    @PlmAction("MANAGE_METAMODEL")
+    public void detachActionWrapper(String wrapperId) {
+        dsl.execute("DELETE FROM action_wrapper WHERE id = ?", wrapperId);
+        log.info("Action wrapper detached: id={}", wrapperId);
     }
 
     // ================================================================

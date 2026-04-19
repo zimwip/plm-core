@@ -1,36 +1,37 @@
 package com.plm.action.internal;
+
+import com.plm.action.ActionWrapper;
+import com.plm.algorithm.AlgorithmRegistry;
 import com.plm.shared.action.ActionHandlerRegistry;
 import com.plm.shared.action.ActionResult;
 import com.plm.shared.action.ActionContext;
 import com.plm.shared.action.ActionHandler;
 
-import com.plm.node.transaction.internal.LockService;
-import com.plm.node.transaction.internal.PlmTransactionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * Central action executor.
+ * Central action executor with middleware pipeline.
  *
  * Responsibilities:
  *  1. Resolve the {@code action} row from its code.
- *  2. Manage transaction lifecycle based on {@code action.tx_mode}.
+ *  2. Build a wrapper chain from attached algorithm instances.
  *  3. Validate parameters via ActionParameterValidator.
- *  4. Route to the correct ActionHandler via ActionHandlerRegistry (or Spring bean for CUSTOM).
+ *  4. Execute the chain: wrappers → handler.
  *
- * Transaction modes:
- *  - NONE      — no tx needed
- *  - REQUIRED  — tx must exist (passed via header)
- *  - AUTO_OPEN — find or create user's tx if none passed
- *  - ISOLATED  — dedicated tx per execution, auto-commit/rollback
- *
- * Permission enforcement happens upstream (service-layer {@code @PlmAction} AOP).
+ * Transaction/lock management is no longer handled here — it's delegated
+ * to {@link com.plm.node.transaction.internal.TransactionWrapper} and
+ * {@link com.plm.node.transaction.internal.LockWrapper} via the wrapper chain.
  */
 @Slf4j
 @Service
@@ -41,8 +42,7 @@ public class ActionDispatcher {
     private final ApplicationContext       appContext;
     private final ActionParameterValidator paramValidator;
     private final ActionHandlerRegistry    handlerRegistry;
-    private final PlmTransactionService    txService;
-    private final LockService              lockService;
+    private final AlgorithmRegistry        algorithmRegistry;
 
     /**
      * Dispatches an action by its {@code action.action_code}.
@@ -73,16 +73,17 @@ public class ActionDispatcher {
         String actionKind  = action.get("action_kind",  String.class);
         String handlerRef  = action.get("handler_ref",  String.class);
         String txMode      = action.get("tx_mode",      String.class);
-        String scope       = action.get("scope",        String.class);
 
         String nodeTypeId = null;
         if (nodeId != null) {
-            nodeTypeId = dsl.select(org.jooq.impl.DSL.field("node_type_id")).from("node")
+            nodeTypeId = dsl.select(DSL.field("node_type_id")).from("node")
                 .where("id = ?", nodeId)
-                .fetchOne(org.jooq.impl.DSL.field("node_type_id"), String.class);
+                .fetchOne(DSL.field("node_type_id"), String.class);
         }
 
-        Map<String, String> params = paramValidator.validate(actionId, nodeTypeId, rawParams);
+        Map<String, String> params = new HashMap<>(paramValidator.validate(actionId, nodeTypeId, rawParams));
+        // Inject tx_mode as wrapper parameter so TransactionWrapper can read it
+        params.put("_wrapper_tx_mode", txMode != null ? txMode : "NONE");
 
         ActionHandler handler;
         if (handlerRegistry.hasHandler(actionCode)) {
@@ -93,56 +94,65 @@ public class ActionDispatcher {
             throw new IllegalStateException("No handler registered for action code: " + actionCode);
         }
 
-        // ── Transaction management based on tx_mode ──
-        String effectiveTxId = txId;
-        boolean isolatedTx = false;
-
-        if ("ISOLATED".equals(txMode)) {
-            // Acquire lock before creating tx — guards already evaluated by PlmActionAspect
-            // before dispatch, so they don't see this lock. Fail-fast if locked by another user.
-            if (nodeId != null) lockService.tryLock(nodeId, userId);
-            effectiveTxId = txService.openTransaction(userId);
-            isolatedTx = true;
-        } else if ("AUTO_OPEN".equals(txMode) && txId == null) {
-            effectiveTxId = txService.findOpenTransaction(userId);
-            if (effectiveTxId == null) {
-                effectiveTxId = txService.openTransaction(userId);
-            }
-        } else if ("REQUIRED".equals(txMode) && txId == null) {
-            throw new IllegalStateException(actionCode + " requires an open transaction");
-        }
+        // Build wrapper chain from algorithm instances attached to this action
+        List<ActionWrapper> wrappers = resolveWrappers(actionId);
 
         ActionContext ctx = new ActionContext(
-            nodeId, nodeTypeId, actionId, actionCode, transitionId, userId, effectiveTxId);
+            nodeId, nodeTypeId, actionId, actionCode, transitionId, userId, txId);
 
-        log.info("Dispatching action {} on node {} transition={} txMode={} by user {}",
-            actionCode, nodeId, transitionId, txMode, userId);
+        log.info("Dispatching action {} on node {} transition={} txMode={} wrappers={} by user {}",
+            actionCode, nodeId, transitionId, txMode, wrappers.size(), userId);
 
-        try {
-            ActionResult result = handler.execute(ctx, params);
+        // Build chain: wrappers[0] → wrappers[1] → ... → handler
+        ActionWrapper.Chain chain = buildChain(wrappers, handler);
+        return chain.proceed(ctx, params);
+    }
 
-            if (isolatedTx) {
-                String comment = params.getOrDefault("_description", actionCode);
-                txService.commitTransaction(effectiveTxId, userId, comment, null);
-            }
+    /**
+     * Resolves ordered wrappers attached to an action via algorithm instances.
+     * Falls back to default wrappers based on tx_mode if none configured.
+     */
+    private List<ActionWrapper> resolveWrappers(String actionId) {
+        // Query wrapper algorithm instances attached to this action
+        var attachments = dsl.select(
+                DSL.field("a.code"),
+                DSL.field("aw.execution_order"))
+            .from("action_wrapper aw")
+            .join("algorithm_instance ai").on("ai.id = aw.algorithm_instance_id")
+            .join("algorithm a").on("a.id = ai.algorithm_id")
+            .where("aw.action_id = ?", actionId)
+            .orderBy(DSL.field("aw.execution_order"))
+            .fetch();
 
-            return result;
-        } catch (Exception e) {
-            if (isolatedTx) {
-                try { txService.rollbackTransaction(effectiveTxId, userId); }
-                catch (Exception rollbackErr) {
-                    log.warn("Failed to rollback isolated tx {}: {}", effectiveTxId, rollbackErr.getMessage());
-                }
-            }
-            throw e;
-        } finally {
-            // Release isolated lock — commit/rollback already happened
-            if (isolatedTx && nodeId != null) {
-                try { lockService.unlock(nodeId); }
-                catch (Exception unlockErr) {
-                    log.warn("Failed to unlock node {} after isolated action: {}", nodeId, unlockErr.getMessage());
-                }
-            }
+        if (attachments.isEmpty()) {
+            // Default chain: transaction wrapper (reads tx_mode from params)
+            return List.of(
+                algorithmRegistry.resolve("wrapper-transaction", ActionWrapper.class)
+            );
         }
+
+        List<ActionWrapper> wrappers = new ArrayList<>();
+        for (var r : attachments) {
+            String code = r.get("code", String.class);
+            wrappers.add(algorithmRegistry.resolve(code, ActionWrapper.class));
+        }
+        return wrappers;
+    }
+
+    /**
+     * Builds a chain of wrappers ending with the handler.
+     */
+    private ActionWrapper.Chain buildChain(List<ActionWrapper> wrappers, ActionHandler handler) {
+        // Terminal chain: just call the handler
+        ActionWrapper.Chain terminal = handler::execute;
+
+        // Wrap from last to first
+        ActionWrapper.Chain chain = terminal;
+        for (int i = wrappers.size() - 1; i >= 0; i--) {
+            ActionWrapper wrapper = wrappers.get(i);
+            ActionWrapper.Chain next = chain;
+            chain = (ctx, params) -> wrapper.wrap(ctx, params, next);
+        }
+        return chain;
     }
 }

@@ -477,6 +477,16 @@ export const api = {
   detachActionGuard: (userId, actionId, guardId) =>
     request('DELETE', `/algorithms/actions/${actionId}/guards/${guardId}`, userId),
 
+  // Action wrappers (middleware pipeline)
+  listActionWrappers: (userId, actionId) =>
+    request('GET', `/algorithms/actions/${actionId}/wrappers`, userId),
+
+  attachActionWrapper: (userId, actionId, instanceId, executionOrder) =>
+    request('POST', `/algorithms/actions/${actionId}/wrappers`, userId, { instanceId, executionOrder }),
+
+  detachActionWrapper: (userId, actionId, wrapperId) =>
+    request('DELETE', `/algorithms/actions/${actionId}/wrappers/${wrapperId}`, userId),
+
   listTransitionGuards: (userId, transitionId) =>
     request('GET', `/algorithms/transitions/${transitionId}/guards`, userId),
 

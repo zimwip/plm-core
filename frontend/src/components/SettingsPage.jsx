@@ -3516,6 +3516,7 @@ export function GuardsSection({ userId, canWrite, toast }) {
   const [nodeTypes, setNodeTypes]   = useState(null);
   const [expandedAction, setExpandedAction] = useState(null);
   const [actionGuards, setActionGuards]     = useState({});
+  const [actionWrappers, setActionWrappers] = useState({});
 
   useEffect(() => {
     Promise.all([
@@ -3534,10 +3535,16 @@ export function GuardsSection({ userId, canWrite, toast }) {
     setActionGuards(s => ({ ...s, [actionId]: Array.isArray(guards) ? guards : [] }));
   }
 
+  async function loadActionWrappers(actionId) {
+    const wrappers = await api.listActionWrappers(userId, actionId).catch(() => []);
+    setActionWrappers(s => ({ ...s, [actionId]: Array.isArray(wrappers) ? wrappers : [] }));
+  }
+
   function toggleAction(actionId) {
     if (expandedAction === actionId) { setExpandedAction(null); return; }
     setExpandedAction(actionId);
     if (!actionGuards[actionId]) loadActionGuards(actionId);
+    if (!actionWrappers[actionId]) loadActionWrappers(actionId);
   }
 
   async function handleAttachActionGuard(actionId, instanceId) {
@@ -3718,6 +3725,68 @@ export function GuardsSection({ userId, canWrite, toast }) {
                         </button>
                       </div>
                     )}
+
+                    {/* Wrappers (middleware pipeline) */}
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, marginTop: 12 }}>Wrappers (middleware pipeline)</div>
+                    {(() => {
+                      const wrappers = actionWrappers[action.id] || [];
+                      const wrapperInstances = (instances || []).filter(i => i.typeName === 'Action Wrapper');
+                      return (<>
+                        {wrappers.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No wrappers — uses default (transaction wrapper)</div>}
+                        {wrappers.length > 0 && (
+                          <table className="settings-table" style={{ width: '100%', marginBottom: 8 }}>
+                            <thead>
+                              <tr><th>Order</th><th>Wrapper</th><th>Instance</th><th></th></tr>
+                            </thead>
+                            <tbody>
+                              {wrappers.map(w => (
+                                <tr key={w.id}>
+                                  <td style={{ width: 50 }}>{w.executionOrder}</td>
+                                  <td>{w.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({w.algorithmCode})</span></td>
+                                  <td style={{ fontSize: 11, color: 'var(--muted)' }}>{w.instanceName}</td>
+                                  <td style={{ textAlign: 'right' }}>
+                                    {canWrite && (
+                                      <button className="btn btn-xs btn-danger" onClick={async () => {
+                                        try {
+                                          await api.detachActionWrapper(userId, action.id, w.id);
+                                          loadActionWrappers(action.id);
+                                          toast('Wrapper detached', 'success');
+                                        } catch (e) { toast(e, 'error'); }
+                                      }}>
+                                        <TrashIcon size={10} />
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                        {canWrite && wrapperInstances.length > 0 && (
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <select id={`add-wrapper-${action.id}`} className="field-input" style={{ fontSize: 11, flex: 1 }}>
+                              {wrapperInstances.map(i => (
+                                <option key={i.id} value={i.id}>{i.algorithmName} — {i.name || i.id}</option>
+                              ))}
+                            </select>
+                            <input id={`add-wrapper-order-${action.id}`} type="number" className="field-input"
+                              style={{ fontSize: 11, width: 60 }} placeholder="Order" defaultValue={(wrappers.length + 1) * 10} />
+                            <button className="btn btn-xs btn-primary" onClick={async () => {
+                              const sel = document.getElementById(`add-wrapper-${action.id}`);
+                              const ord = document.getElementById(`add-wrapper-order-${action.id}`);
+                              if (!sel?.value) return;
+                              try {
+                                await api.attachActionWrapper(userId, action.id, sel.value, parseInt(ord?.value || '0'));
+                                loadActionWrappers(action.id);
+                                toast('Wrapper attached', 'success');
+                              } catch (e) { toast(e, 'error'); }
+                            }}>
+                              <PlusIcon size={10} /> Attach
+                            </button>
+                          </div>
+                        )}
+                      </>);
+                    })()}
                   </div>
                 )}
               </div>

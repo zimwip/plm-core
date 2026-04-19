@@ -1,7 +1,7 @@
 package com.plm.node.metamodel.internal;
 
 import com.plm.shared.authorization.ActionPermissionPort;
-import com.plm.action.internal.ActionRegistrationService;
+import com.plm.node.metamodel.internal.ActionRegistrationService;
 import com.plm.shared.authorization.PlmAction;
 import com.plm.shared.metadata.MetadataService;
 import com.plm.shared.model.ResolvedAttribute;

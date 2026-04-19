@@ -1,4 +1,4 @@
-package com.plm.action.internal;
+package com.plm.node.metamodel.internal;
 import com.plm.node.metamodel.internal.MetaModelCache;
 
 import com.plm.shared.authorization.PlmAction;

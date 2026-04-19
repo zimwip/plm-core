@@ -19,4 +19,9 @@ public record ActionContext(
     String transitionId,
     String userId,
     String txId
-) {}
+) {
+    /** Returns a copy with a different txId (used by TransactionWrapper). */
+    public ActionContext withTxId(String newTxId) {
+        return new ActionContext(nodeId, nodeTypeId, actionId, actionCode, transitionId, userId, newTxId);
+    }
+}

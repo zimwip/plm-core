@@ -204,6 +204,36 @@ public class AlgorithmController {
     }
 
     // ================================================================
+    // ACTION WRAPPERS (middleware pipeline)
+    // ================================================================
+
+    @GetMapping("/actions/{actionId}/wrappers")
+    public ResponseEntity<List<Map<String, Object>>> listActionWrappers(@PathVariable String actionId) {
+        return ResponseEntity.ok(algorithmService.listActionWrappers(actionId));
+    }
+
+    @PostMapping("/actions/{actionId}/wrappers")
+    public ResponseEntity<Map<String, String>> attachActionWrapper(
+        @PathVariable String actionId,
+        @RequestBody Map<String, Object> body
+    ) {
+        String id = algorithmService.attachActionWrapper(
+            actionId,
+            (String) body.get("instanceId"),
+            (int) body.getOrDefault("executionOrder", 0));
+        return ResponseEntity.ok(Map.of("id", id));
+    }
+
+    @DeleteMapping("/actions/{actionId}/wrappers/{wrapperId}")
+    public ResponseEntity<Void> detachActionWrapper(
+        @PathVariable String actionId,
+        @PathVariable String wrapperId
+    ) {
+        algorithmService.detachActionWrapper(wrapperId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ================================================================
     // LIFECYCLE STATE ACTIONS (tier 1 — lifecycle-state level)
     // ================================================================
 
