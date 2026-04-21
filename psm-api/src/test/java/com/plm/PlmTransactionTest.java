@@ -6,6 +6,7 @@ import com.plm.node.NodeService;
 import com.plm.node.transaction.internal.LockService;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import com.plm.node.version.internal.VersionService;
+import com.plm.shared.security.PlmProjectSpaceContext;
 import com.plm.shared.security.PlmSecurityContext;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.*;
@@ -35,18 +36,21 @@ class PlmTransactionTest {
     static final String AD_DOC_AUTHOR = "ad-doc-author";
     static final String AD_DOC_CAT    = "ad-doc-cat";
 
-    @AfterEach void clearCtx() { PlmSecurityContext.clear(); }
+    @AfterEach void clearCtx() { PlmSecurityContext.clear(); PlmProjectSpaceContext.clear(); }
 
     // ── Helpers ──────────────────────────────────────────────────────
 
     private void asAlice() {
         PlmSecurityContext.set(new PlmUserContext(USER_ALICE, "alice", Set.of("role-designer"), false));
+        PlmProjectSpaceContext.set("ps-default");
     }
     private void asBob() {
         PlmSecurityContext.set(new PlmUserContext(USER_BOB, "bob", Set.of("role-reviewer"), false));
+        PlmProjectSpaceContext.set("ps-default");
     }
     private void asAdmin() {
         PlmSecurityContext.set(new PlmUserContext(USER_ADMIN, "admin", Set.of("role-admin"), true));
+        PlmProjectSpaceContext.set("ps-default");
     }
 
     private String createDoc() {

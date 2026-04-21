@@ -7,13 +7,16 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Periodically flushes in-memory algorithm execution statistics to the
- * {@code algorithm_stat} table. Runs every 60 seconds.
+ * {@code algorithm_stat} table (all-time) and {@code algorithm_stat_window}
+ * table (15-minute buckets). Runs every 60 seconds.
  *
  * The flush is additive: in-memory counters are drained (reset to zero)
  * and merged into the DB row using SQL aggregation (call_count += delta,
@@ -25,6 +28,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AlgorithmStatsService {
 
+    private static final int WINDOW_MINUTES = 15;
+    private static final int RETENTION_HOURS = 48;
+
     private final DSLContext dsl;
 
     /**
@@ -35,13 +41,16 @@ public class AlgorithmStatsService {
         Map<String, AlgorithmStats> all = AlgorithmStats.all();
         if (all.isEmpty()) return;
 
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime windowStart = truncateToWindow(now);
+
         int flushed = 0;
         for (Map.Entry<String, AlgorithmStats> entry : all.entrySet()) {
             String code = entry.getKey();
             AlgorithmStats.Snapshot snap = entry.getValue().drainAndReset();
             if (snap.callCount() == 0) continue;
 
-            // MERGE pattern: upsert with aggregation
+            // ── All-time stats ──
             int updated = dsl.execute("""
                 UPDATE algorithm_stat
                 SET call_count   = call_count + ?,
@@ -51,21 +60,45 @@ public class AlgorithmStatsService {
                     last_flushed = ?
                 WHERE algorithm_code = ?
                 """, snap.callCount(), snap.totalNanos(), snap.minNanos(),
-                     snap.maxNanos(), LocalDateTime.now(), code);
+                     snap.maxNanos(), now, code);
 
             if (updated == 0) {
                 dsl.execute("""
                     INSERT INTO algorithm_stat (algorithm_code, call_count, total_ns, min_ns, max_ns, last_flushed)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """, code, snap.callCount(), snap.totalNanos(), snap.minNanos(),
-                         snap.maxNanos(), LocalDateTime.now());
+                         snap.maxNanos(), now);
             }
+
+            // ── Windowed stats (15-min bucket) ──
+            int wUpdated = dsl.execute("""
+                UPDATE algorithm_stat_window
+                SET call_count = call_count + ?,
+                    total_ns   = total_ns + ?,
+                    min_ns     = LEAST(min_ns, ?),
+                    max_ns     = GREATEST(max_ns, ?)
+                WHERE algorithm_code = ? AND window_start = ?
+                """, snap.callCount(), snap.totalNanos(), snap.minNanos(),
+                     snap.maxNanos(), code, windowStart);
+
+            if (wUpdated == 0) {
+                dsl.execute("""
+                    INSERT INTO algorithm_stat_window (algorithm_code, window_start, call_count, total_ns, min_ns, max_ns)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, code, windowStart, snap.callCount(), snap.totalNanos(),
+                         snap.minNanos(), snap.maxNanos());
+            }
+
             flushed++;
         }
 
         if (flushed > 0) {
             log.debug("Algorithm stats flushed: {} algorithms updated", flushed);
         }
+
+        // Purge old windows beyond retention
+        dsl.execute("DELETE FROM algorithm_stat_window WHERE window_start < ?",
+                     now.minusHours(RETENTION_HOURS));
     }
 
     /**
@@ -123,11 +156,47 @@ public class AlgorithmStatsService {
         return List.copyOf(dbStats.values());
     }
 
-    /** Resets both in-memory and DB stats. */
+    /**
+     * Returns windowed time-series stats for the last N hours.
+     * Each entry: { windowStart, algorithmCode, callCount, totalMs, avgMs, minMs, maxMs }
+     */
+    public List<Map<String, Object>> getTimeseries(int hours) {
+        LocalDateTime since = LocalDateTime.now().minusHours(hours);
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        dsl.select().from("algorithm_stat_window")
+           .where(org.jooq.impl.DSL.field("window_start").greaterOrEqual(since))
+           .orderBy(org.jooq.impl.DSL.field("window_start"),
+                    org.jooq.impl.DSL.field("algorithm_code"))
+           .fetch()
+           .forEach(r -> {
+               String code   = r.get("algorithm_code", String.class);
+               long count    = r.get("call_count", Long.class);
+               long totalNs  = r.get("total_ns", Long.class);
+               long minNs    = r.get("min_ns", Long.class);
+               long maxNs    = r.get("max_ns", Long.class);
+               String window = r.get("window_start").toString();
+
+               var m = new LinkedHashMap<String, Object>();
+               m.put("windowStart", window);
+               m.put("algorithmCode", code);
+               m.put("callCount", count);
+               m.put("totalMs", totalNs / 1_000_000.0);
+               m.put("avgMs", count > 0 ? (totalNs / 1_000_000.0) / count : 0.0);
+               m.put("minMs", minNs / 1_000_000.0);
+               m.put("maxMs", maxNs / 1_000_000.0);
+               result.add(m);
+           });
+
+        return result;
+    }
+
+    /** Resets both in-memory and DB stats (all-time + windowed). */
     public void resetAll() {
         AlgorithmStats.resetAll();
         dsl.execute("DELETE FROM algorithm_stat");
-        log.info("Algorithm stats reset (memory + DB)");
+        dsl.execute("DELETE FROM algorithm_stat_window");
+        log.info("Algorithm stats reset (memory + DB + windows)");
     }
 
     private Map<String, Object> buildStatsMap(String code, long count, long totalNs,
@@ -144,5 +213,12 @@ public class AlgorithmStatsService {
         m.put("lastFlushed", lastFlushed);
         m.put("pendingFlush", 0L);
         return m;
+    }
+
+    /** Truncate datetime to the nearest 15-minute window floor. */
+    private static LocalDateTime truncateToWindow(LocalDateTime dt) {
+        LocalDateTime hourStart = dt.truncatedTo(ChronoUnit.HOURS);
+        int minuteBucket = (dt.getMinute() / WINDOW_MINUTES) * WINDOW_MINUTES;
+        return hourStart.plusMinutes(minuteBucket);
     }
 }

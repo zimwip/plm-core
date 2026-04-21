@@ -16,16 +16,19 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Collapses revision history when entering a state marked with a specific
- * metadata key (default: "released").
+ * Collapses revision iteration history when entering a state marked with a
+ * specific metadata key (default: "released").
  *
  * Parameterized via {@code meta_key} — the action checks that the target
  * state has this metadata key set to "true" before proceeding. This makes
  * the action reusable across different lifecycle configurations.
  *
- * Deletes ALL committed versions of the previous revision. Versions pinned
- * by a baseline or VERSION_TO_VERSION link are preserved. The new version's
- * iteration is set to 0 (displayed as just the revision letter, e.g. "B").
+ * Deletes ALL committed versions of the CURRENT revision except the one
+ * entering the release state. Versions pinned by a baseline or
+ * VERSION_TO_VERSION link are preserved. The surviving version's iteration
+ * is set to 0 (displayed as just the revision letter, e.g. "A").
+ *
+ * Revision bump (A -> B) happens later at Revise, not at Release.
  */
 @Metadata(key = "released", target = "LIFECYCLE_STATE",
     description = "Release milestone — boundary for history collapse")
@@ -56,24 +59,26 @@ public class CollapseHistoryAction implements StateAction {
             return;
         }
 
-        collapseRevisionHistory(ctx.nodeId(), ctx.revision());
+        // Collapse iteration history of the CURRENT revision (no revision bump at Release)
+        collapseRevisionHistory(ctx.nodeId(), ctx.revision(), ctx.versionId());
 
-        // Truncate the new version's iteration (e.g. B.1 -> B)
+        // Truncate iteration (e.g. A.3 -> A displayed as just "A")
         dsl.execute(
             "UPDATE node_version SET iteration = 0 WHERE id = ?",
             ctx.versionId()
         );
     }
 
-    private void collapseRevisionHistory(String nodeId, String oldRevision) {
-        // All committed versions of the old revision
+    private void collapseRevisionHistory(String nodeId, String revision, String currentVersionId) {
+        // All committed versions of this revision EXCEPT the current one
         List<String> toDelete = dsl
             .select(DSL.field("nv.id").as("nv_id"))
             .from("node_version nv")
             .join("plm_transaction tx")
             .on("tx.id = nv.tx_id")
             .where("nv.node_id = ?", nodeId)
-            .and("nv.revision = ?", oldRevision)
+            .and("nv.revision = ?", revision)
+            .and("nv.id <> ?", currentVersionId)
             .and("tx.status = 'COMMITTED'")
             .fetch()
             .map(r -> r.get("nv_id", String.class))
@@ -96,13 +101,27 @@ public class CollapseHistoryAction implements StateAction {
         String ph = String.join(",", Collections.nCopies(toDelete.size(), "?"));
         Object[] p = toDelete.toArray();
 
-        dsl.execute("DELETE FROM node_signature WHERE node_version_id IN (" + ph + ")", p);
+        // Move signatures from deleted versions to the current version
+        dsl.execute("UPDATE node_signature SET node_version_id = ? WHERE node_version_id IN (" + ph + ")",
+            prepend(currentVersionId, p));
+
+        // Move comments from deleted versions to the current version
+        dsl.execute("UPDATE node_version_comment SET node_version_id = ? WHERE node_version_id IN (" + ph + ")",
+            prepend(currentVersionId, p));
+
         dsl.execute("DELETE FROM node_version_link WHERE source_node_version_id IN (" + ph + ")", p);
         dsl.execute("DELETE FROM node_version_attribute WHERE node_version_id IN (" + ph + ")", p);
         // NULL out any previous_version_id chains pointing into deleted versions
         dsl.execute("UPDATE node_version SET previous_version_id = NULL WHERE previous_version_id IN (" + ph + ")", p);
         dsl.execute("DELETE FROM node_version WHERE id IN (" + ph + ")", p);
 
-        log.info("Collapsed revision: node={} revision={} removed={}", nodeId, oldRevision, toDelete.size());
+        log.info("Collapsed revision: node={} revision={} removed={}", nodeId, revision, toDelete.size());
+    }
+
+    private Object[] prepend(Object first, Object[] rest) {
+        Object[] result = new Object[rest.length + 1];
+        result[0] = first;
+        System.arraycopy(rest, 0, result, 1, rest.length);
+        return result;
     }
 }

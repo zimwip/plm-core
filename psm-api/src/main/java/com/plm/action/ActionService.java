@@ -3,6 +3,9 @@ package com.plm.action;
 
 import com.plm.action.guard.ActionGuardContext;
 import com.plm.action.guard.ActionGuardService;
+import com.plm.shared.authorization.PermissionCatalogPort;
+import com.plm.shared.authorization.PermissionScope;
+import com.plm.shared.authorization.PolicyPort;
 import com.plm.shared.guard.GuardEvaluation;
 import com.plm.algorithm.AlgorithmRegistry;
 import com.plm.shared.action.ActionHandler;
@@ -22,7 +25,7 @@ import java.util.Map;
 /**
  * Builds the enriched actions list for the server-driven UI payload.
  *
- * Drives from the {@code action} catalog and {@code action_permission} as the
+ * Drives from the {@code action} catalog and {@code authorization_policy} as the
  * sole bridge between actions and node types. For LIFECYCLE-scope actions,
  * emits one entry per lifecycle transition wired for the node type.
  */
@@ -32,8 +35,9 @@ import java.util.Map;
 public class ActionService {
 
     private final DSLContext              dsl;
-    private final ActionPermissionService permissionService;
-    private final ActionGuardService       actionGuardService;
+    private final PolicyPort              policyService;
+    private final PermissionCatalogPort   permissionCatalog;
+    private final ActionGuardService      actionGuardService;
     private final SecurityContextPort     secCtx;
     private final AlgorithmRegistry       algorithmRegistry;
 
@@ -47,10 +51,10 @@ public class ActionService {
             .where("id = ?", nodeTypeId)
             .fetchOne(DSL.field("lifecycle_id"), String.class);
 
-        // NODE-scope actions: one row per action (permission checked later by canExecute)
+        // NODE-scope actions: one row per action
         List<Record> nodeActions = dsl.fetch(
             "SELECT a.id AS action_id, a.action_code, a.scope, " +
-            "       a.display_name, a.display_category, a.display_order, a.managed_with " +
+            "       a.display_name, a.display_category, a.display_order " +
             "FROM action a " +
             "WHERE a.scope = 'NODE' " +
             "ORDER BY a.display_order, a.display_category");
@@ -65,7 +69,7 @@ public class ActionService {
         if (lifecycleId != null) {
             List<Record> lifecycleActions = dsl.fetch(
                 "SELECT a.id AS action_id, a.action_code, a.scope, " +
-                "       a.display_name, a.display_category, a.display_order, a.managed_with, " +
+                "       a.display_name, a.display_category, a.display_order, " +
                 "       lt.id AS transition_id, lt.name AS transition_name " +
                 "FROM action a " +
                 "CROSS JOIN lifecycle_transition lt " +
@@ -95,12 +99,8 @@ public class ActionService {
         String actionCode      = row.get("action_code",     String.class);
         String scope           = row.get("scope",           String.class);
         String displayCategory = row.get("display_category", String.class);
-        String managedWith     = row.get("managed_with",    String.class);
 
         if ("STRUCTURAL".equals(displayCategory)) return null;
-
-        // Resolve effective action ID for permission lookups (follows managed_with)
-        String effectiveId = managedWith != null ? managedWith : actionId;
 
         // Always evaluate guards — HIDE guards are structural (e.g. wrong-state transitions)
         // and must filter even when authorization fails.
@@ -109,17 +109,13 @@ public class ActionService {
             actionCode, transitionId, isLocked, isLockedByCurrentUser,
             secCtx.currentUser().getUserId(), Map.of());
 
-        // Managee: HIDE from manager, BLOCK from self
-        GuardEvaluation guardEval;
-        if (managedWith != null) {
-            guardEval = actionGuardService.evaluate(managedWith, actionId, nodeTypeId, transitionId, isAdmin, gCtx);
-        } else {
-            guardEval = actionGuardService.evaluate(actionId, nodeTypeId, transitionId, isAdmin, gCtx);
-        }
+        GuardEvaluation guardEval = actionGuardService.evaluate(
+            actionId, nodeTypeId, transitionId, isAdmin, gCtx);
 
         if (guardEval.hidden()) return null;
 
-        boolean authorized = permissionService.canExecute(effectiveId, scope, nodeTypeId, transitionId);
+        // Check required permissions via action_required_permission table
+        boolean authorized = checkRequiredPermissions(actionId, nodeTypeId, transitionId);
 
         List<Map<String, Object>> guardViolations;
         if (!authorized) {
@@ -152,7 +148,6 @@ public class ActionService {
         action.put("name",            displayName != null ? displayName : actionCode);
         action.put("displayCategory", displayCategory);
         action.put("authorized",      authorized);
-        if (managedWith != null) action.put("managedWith", managedWith);
         if (transitionId != null) action.put("transitionId", transitionId);
         action.put("parameters",      parameters);
         action.put("guardViolations", guardViolations);
@@ -177,6 +172,41 @@ public class ActionService {
      */
     private String buildActionKey(String actionCode, String transitionId) {
         return transitionId != null ? actionCode + "|" + transitionId : actionCode;
+    }
+
+    /**
+     * Checks all required permissions for an action via {@code action_required_permission}.
+     * Returns true only if ALL required permissions pass.
+     */
+    private boolean checkRequiredPermissions(String actionId,
+                                             String nodeTypeId, String transitionId) {
+        if (secCtx.currentUser().isAdmin()) return true;
+
+        List<String> permCodes = dsl.select(DSL.field("permission_code"))
+            .from("action_required_permission")
+            .where("action_id = ?", actionId)
+            .fetch(DSL.field("permission_code"), String.class);
+
+        if (permCodes.isEmpty()) {
+            // No required permissions configured — fall back to direct permission check
+            // using action_code as permission_code, resolving scope from permission catalog
+            String actionCode = dsl.select(DSL.field("action_code")).from("action")
+                .where("id = ?", actionId)
+                .fetchOne(DSL.field("action_code"), String.class);
+            PermissionScope fallbackScope = permissionCatalog.scopeFor(actionCode);
+            String scopeName = fallbackScope != null ? fallbackScope.name() : "GLOBAL";
+            return policyService.canExecute(actionCode, scopeName, nodeTypeId, transitionId);
+        }
+
+        for (String permCode : permCodes) {
+            PermissionScope permScope = permissionCatalog.scopeFor(permCode);
+            if (permScope == null) continue;
+
+            if (!policyService.canExecute(permCode, permScope.name(), nodeTypeId, transitionId)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Builds the parameter schema list for an action, applying per-node-type overrides. */

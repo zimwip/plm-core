@@ -1,11 +1,15 @@
 package com.plm.action;
 
-import com.plm.shared.authorization.PlmAction;
+import com.plm.shared.action.PlmAction;
+import com.plm.shared.authorization.PermissionCatalogPort;
+import com.plm.shared.authorization.PermissionScope;
+import com.plm.shared.authorization.PolicyPort;
 import com.plm.shared.exception.UnauthenticatedException;
 import com.plm.action.guard.ActionGuardContext;
 import com.plm.action.guard.ActionGuardService;
 import com.plm.shared.security.PlmUserContext;
 import com.plm.shared.security.SecurityContextPort;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -14,51 +18,82 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
+import org.springframework.core.annotation.Order;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
- * AOP aspect enforcing {@link PlmAction} authorization on service methods.
+ * AOP aspect for {@link PlmAction}-annotated service methods.
  *
- * <h2>Check flow</h2>
+ * <p>Fires at {@code @Order(2)} — after {@link PlmPermissionAspect} which handles
+ * pure-permission checks at {@code @Order(1)}.
+ *
+ * <h2>Responsibilities</h2>
  * <ol>
- *   <li>Read {@link PlmSecurityContext} — throw {@link UnauthenticatedException} (401) if absent.</li>
- *   <li>Admin users ({@link PlmUserContext#isAdmin()}) bypass all checks.</li>
- *   <li>Dispatch to the right enforcement path based on which SpEL attribute is set:
- *     <ul>
- *       <li>{@code nodeIdExpr} — resolves nodeId → nodeTypeId →
- *           {@link ActionPermissionService#assertNodeType} or {@link ActionPermissionService#assertLifecycle}</li>
- *       <li>{@code nodeTypeIdExpr} — resolves nodeTypeId directly (createNode) →
- *           {@link ActionPermissionService#assertNodeType}</li>
- *       <li>{@code linkIdExpr} — resolves linkId → source nodeId → nodeTypeId →
- *           {@link ActionPermissionService#assertNodeType}</li>
- *       <li>none of the above — {@link ActionPermissionService#assertGlobal}</li>
- *     </ul>
- *   </li>
+ *   <li>Resolve user context — throw 401 if absent.</li>
+ *   <li>Admin bypass (for guards only — permission bypass is in PlmPermissionAspect).</li>
+ *   <li>Auto-resolve required permissions from {@code action_required_permission} table
+ *       and check each via {@link PolicyPort}.</li>
+ *   <li>Evaluate action guards via {@link ActionGuardService}.</li>
  * </ol>
  *
- * <h2>Action codes</h2>
- * Values in {@link PlmAction#value()} must match {@code action.action_code} or
- * {@code action.action_code} exactly (e.g. {@code "CHECKOUT"}, not {@code "act-checkout"}).
- *
- * <h2>Proxy rule</h2>
- * Spring AOP only intercepts calls through the Spring proxy. Use
- * {@code @Lazy @Autowired} self-injection for recursive/cascade calls within the same class.
+ * <p>Permission checking uses the {@code action_required_permission} table,
+ * cached at startup. The scope for each permission is resolved from the
+ * {@code permission} table via {@link PermissionCatalogPort}.
  */
 @Slf4j
 @Aspect
 @Component
+@Order(2)
 @RequiredArgsConstructor
 public class PlmActionAspect {
 
-    private final ActionPermissionService actionPermissionService;
-    private final ActionGuardService       actionGuardService;
+    private final PolicyPort              policyService;
+    private final PermissionCatalogPort   permissionCatalog;
+    private final ActionGuardService      actionGuardService;
     private final SecurityContextPort     secCtx;
     private final DSLContext              dsl;
 
     private static final ExpressionParser SPEL = new SpelExpressionParser();
+
+    /** actionCode → list of permission codes required. Loaded at startup. */
+    private Map<String, List<String>> permissionCache;
+
+    /** actionCode → actionId. Loaded at startup. */
+    private Map<String, String> actionIdCache;
+
+    @PostConstruct
+    void loadPermissionMappings() {
+        permissionCache = new HashMap<>();
+        actionIdCache   = new HashMap<>();
+
+        // Load action_required_permission mappings
+        dsl.fetch("""
+            SELECT a.action_code, arp.permission_code
+            FROM action_required_permission arp
+            JOIN action a ON a.id = arp.action_id
+            """)
+            .forEach(r -> {
+                String actionCode = r.get("action_code", String.class);
+                String permCode   = r.get("permission_code", String.class);
+                permissionCache.computeIfAbsent(actionCode, k -> new ArrayList<>()).add(permCode);
+            });
+
+        // Load action IDs
+        dsl.fetch("SELECT id, action_code FROM action")
+            .forEach(r -> actionIdCache.put(
+                r.get("action_code", String.class),
+                r.get("id", String.class)));
+
+        log.info("PlmActionAspect: loaded {} action→permission mappings", permissionCache.size());
+    }
 
     @Around("@annotation(plmAction)")
     public Object enforce(ProceedingJoinPoint pjp, PlmAction plmAction) throws Throwable {
@@ -75,98 +110,89 @@ public class PlmActionAspect {
             return pjp.proceed();
         }
 
-        String actionCode      = plmAction.value();
-        String nodeIdExpr      = plmAction.nodeIdExpr();
-        String nodeTypeExpr    = plmAction.nodeTypeIdExpr();
-        String linkIdExpr      = plmAction.linkIdExpr();
-        String transitionExpr  = plmAction.transitionIdExpr();
+        String actionCode     = plmAction.value();
+        String nodeIdExpr     = plmAction.nodeIdExpr();
+        String nodeTypeExpr   = plmAction.nodeTypeIdExpr();
+        String linkIdExpr     = plmAction.linkIdExpr();
+        String transitionExpr = plmAction.transitionIdExpr();
 
-        // 3. Dispatch to the right enforcement path
+        // 3. Resolve node context
+        String nodeId       = null;
+        String nodeTypeId   = null;
+        String transitionId = transitionExpr.isEmpty() ? null : resolveSpel(transitionExpr, pjp);
+
         if (!nodeIdExpr.isEmpty()) {
-            // Standard node-scoped: resolve nodeId → nodeTypeId + currentStateId
-            // Optional transitionIdExpr narrows the check to a specific transition.
-            String nodeId = resolveSpel(nodeIdExpr, pjp);
-            String transitionId = transitionExpr.isEmpty() ? null : resolveSpel(transitionExpr, pjp);
-            enforceByNodeId(actionCode, nodeId, transitionId, user);
+            nodeId = resolveSpel(nodeIdExpr, pjp);
+            nodeTypeId = resolveNodeTypeId(nodeId, user.getUserId());
+            if (nodeTypeId == null) {
+                log.debug("PlmActionAspect: node {} not found, skipping checks", nodeId);
+                return pjp.proceed();
+            }
         } else if (!nodeTypeExpr.isEmpty()) {
-            // NodeType-scoped (createNode): nodeId doesn't exist yet
-            String nodeTypeId = resolveSpel(nodeTypeExpr, pjp);
-            enforceByNodeType(actionCode, nodeTypeId, user);
+            nodeTypeId = resolveSpel(nodeTypeExpr, pjp);
         } else if (!linkIdExpr.isEmpty()) {
-            // Link-scoped (deleteLink, updateLink): resolve source nodeId from linkId
             String linkId = resolveSpel(linkIdExpr, pjp);
-            enforceByLinkId(actionCode, linkId, user);
-        } else {
-            // Global action: checked via action_permission (GLOBAL scope)
-            enforceGlobal(actionCode, user);
+            nodeId = resolveSourceNodeId(linkId);
+            if (nodeId == null) {
+                log.debug("PlmActionAspect: link {} source not found, skipping checks", linkId);
+                return pjp.proceed();
+            }
+            nodeTypeId = resolveNodeTypeId(nodeId, user.getUserId());
+        }
+
+        // 4. Check required permissions (auto-resolved from action_required_permission)
+        checkRequiredPermissions(actionCode, nodeTypeId, transitionId);
+
+        // 5. Evaluate guards (node-scoped actions only — need nodeId for state/lock context)
+        if (nodeId != null) {
+            evaluateGuards(actionCode, nodeId, nodeTypeId, transitionId, user);
         }
 
         return pjp.proceed();
     }
 
-    // ── Node-scoped (nodeId known) ─────────────────────────────────────────
+    // ── Permission checking (auto-resolved from table) ──────────────────
 
-    private void enforceByNodeId(String actionCode, String nodeId,
-                                 String transitionId, PlmUserContext user) {
-        String nodeTypeId = resolveNodeTypeId(nodeId, user.getUserId());
-        if (nodeTypeId == null) {
-            log.debug("PlmActionAspect: node {} not found or not accessible, skipping check", nodeId);
-            return; // let the service produce the 404
+    private void checkRequiredPermissions(String actionCode, String nodeTypeId, String transitionId) {
+        List<String> requiredPerms = permissionCache.get(actionCode);
+        if (requiredPerms == null || requiredPerms.isEmpty()) return;
+
+        for (String permCode : requiredPerms) {
+            PermissionScope permScope = permissionCatalog.scopeFor(permCode);
+            if (permScope == null) {
+                log.warn("PlmActionAspect: permission code '{}' not found in permission table", permCode);
+                continue;
+            }
+
+            try {
+                switch (permScope) {
+                    case GLOBAL -> policyService.assertGlobal(permCode);
+                    case NODE -> {
+                        if (nodeTypeId != null) {
+                            policyService.assertNodeType(permCode, nodeTypeId);
+                        }
+                    }
+                    case LIFECYCLE -> {
+                        if (nodeTypeId != null) {
+                            policyService.assertLifecycle(permCode, nodeTypeId, transitionId);
+                        }
+                    }
+                }
+            } catch (com.plm.shared.exception.AccessDeniedException e) {
+                String userId = secCtx.currentUser().getUserId();
+                throw new com.plm.shared.exception.AccessDeniedException(
+                    "User " + userId + " cannot execute '" + actionCode
+                    + "' — required permission '" + permCode + "' is missing");
+            }
         }
-
-        // Access rights check
-        if (transitionId != null) {
-            actionPermissionService.assertLifecycle(actionCode, nodeTypeId, transitionId);
-        } else {
-            actionPermissionService.assertNodeType(actionCode, nodeTypeId);
-        }
-
-        // Guard evaluation — resolve node state + lock for context
-        evaluateGuards(actionCode, nodeId, nodeTypeId, transitionId, user);
-    }
-
-    // ── NodeType-scoped (createNode — no nodeId yet) ──────────────────────
-
-    private void enforceByNodeType(String actionCode, String nodeTypeId, PlmUserContext user) {
-        actionPermissionService.assertNodeType(actionCode, nodeTypeId);
-        // No guard evaluation for node creation — node doesn't exist yet
-    }
-
-    // ── Link-scoped (deleteLink, updateLink) ──────────────────────────────
-
-    private void enforceByLinkId(String actionCode, String linkId, PlmUserContext user) {
-        // Resolve source nodeId from node_version_link
-        String sourceNodeId = dsl.select(DSL.field("nv.node_id").as("node_id"))
-            .from("node_version_link nvl")
-            .join("node_version nv").on("nv.id = nvl.source_node_version_id")
-            .where("nvl.id = ?", linkId)
-            .limit(1)
-            .fetchOne(DSL.field("node_id"), String.class);
-
-        if (sourceNodeId == null) {
-            log.debug("PlmActionAspect: link {} source node not found, skipping check", linkId);
-            return; // let the service handle the missing link
-        }
-        enforceByNodeId(actionCode, sourceNodeId, null, user);
-    }
-
-    // ── Global action (GLOBAL scope in action catalog) ───────────────────
-
-    private void enforceGlobal(String actionCode, PlmUserContext user) {
-        // Delegate to the unified action_permission check (nodeTypeId=null, transitionId=null)
-        actionPermissionService.assertGlobal(actionCode);
     }
 
     // ── Guard evaluation ────────────────────────────────────────────────
 
-    /**
-     * Evaluates guards for a node-scoped action at execution time.
-     * Resolves current state and lock info, then delegates to GuardService.
-     */
     private void evaluateGuards(String actionCode, String nodeId,
                                 String nodeTypeId, String transitionId, PlmUserContext user) {
-        ActionIds ids = resolveActionIds(actionCode);
-        if (ids == null) return;
+        String actionId = actionIdCache.get(actionCode);
+        if (actionId == null) return;
 
         var stateRow = dsl.fetchOne(
             "SELECT nv.lifecycle_state_id FROM node_version nv " +
@@ -183,30 +209,22 @@ public class PlmActionAspect {
 
         ActionGuardContext gCtx = new ActionGuardContext(nodeId, nodeTypeId, currentStateId,
             actionCode, transitionId, isLocked, isLockedByCurrentUser,
-            user.getUserId(), java.util.Map.of());
+            user.getUserId(), Map.of());
 
-        if (ids.managedWith != null) {
-            actionGuardService.assertGuards(ids.managedWith, ids.actionId, nodeTypeId, transitionId, user.isAdmin(), gCtx);
-        } else {
-            actionGuardService.assertGuards(ids.actionId, nodeTypeId, transitionId, user.isAdmin(), gCtx);
-        }
-    }
-
-    private record ActionIds(String actionId, String managedWith) {}
-
-    private ActionIds resolveActionIds(String actionCode) {
-        var row = dsl.select(DSL.field("id"), DSL.field("managed_with")).from("action")
-            .where("action_code = ?", actionCode).fetchOne();
-        if (row == null) return null;
-        return new ActionIds(row.get("id", String.class), row.get("managed_with", String.class));
+        actionGuardService.assertGuards(actionId, nodeTypeId, transitionId, user.isAdmin(), gCtx);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    /**
-     * Resolves the nodeTypeId for a node visible to the given user.
-     * Returns null if the node does not exist or is not accessible.
-     */
+    private String resolveSourceNodeId(String linkId) {
+        return dsl.select(DSL.field("nv.node_id").as("node_id"))
+            .from("node_version_link nvl")
+            .join("node_version nv").on("nv.id = nvl.source_node_version_id")
+            .where("nvl.id = ?", linkId)
+            .limit(1)
+            .fetchOne(DSL.field("node_id"), String.class);
+    }
+
     private String resolveNodeTypeId(String nodeId, String userId) {
         return dsl.select(DSL.field("n.node_type_id").as("node_type_id"))
             .from("node n")
@@ -230,5 +248,4 @@ public class PlmActionAspect {
         }
         return SPEL.parseExpression(expr).getValue(ctx, String.class);
     }
-
 }

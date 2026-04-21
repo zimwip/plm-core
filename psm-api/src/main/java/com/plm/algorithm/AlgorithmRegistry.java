@@ -129,6 +129,8 @@ public class AlgorithmRegistry {
             long start = System.nanoTime();
             try {
                 return method.invoke(target, args);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                throw e.getCause();
             } finally {
                 long duration = System.nanoTime() - start;
                 AlgorithmStats.forCode(code).record(duration);

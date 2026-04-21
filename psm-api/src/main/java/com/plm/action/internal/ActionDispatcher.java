@@ -88,7 +88,25 @@ public class ActionDispatcher {
 
         // Build chain: wrappers[0] → wrappers[1] → ... → handler
         ActionWrapper.Chain chain = buildChain(wrappers, handler);
-        return chain.proceed(ctx, params);
+        try {
+            return chain.proceed(ctx, params);
+        } catch (com.plm.shared.exception.AccessDeniedException e) {
+            // Enrich with action context if not already present
+            String msg = e.getMessage();
+            if (msg != null && !msg.contains(actionCode)) {
+                // Extract permission code from original message (e.g. "cannot execute 'UPDATE'")
+                String permHint = "";
+                int qi = msg.indexOf('\'');
+                if (qi >= 0) {
+                    int qe = msg.indexOf('\'', qi + 1);
+                    if (qe > qi) permHint = msg.substring(qi + 1, qe);
+                }
+                throw new com.plm.shared.exception.AccessDeniedException(
+                    "User " + userId + " cannot execute '" + actionCode
+                    + "' — required permission '" + permHint + "' is missing");
+            }
+            throw e;
+        }
     }
 
     /**

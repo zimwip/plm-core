@@ -1,8 +1,8 @@
 package com.plm.node.metamodel.internal;
 
-import com.plm.shared.authorization.ActionPermissionPort;
+import com.plm.shared.authorization.PolicyPort;
 import com.plm.node.metamodel.internal.ActionRegistrationService;
-import com.plm.shared.authorization.PlmAction;
+import com.plm.shared.authorization.PlmPermission;
 import com.plm.shared.metadata.MetadataService;
 import com.plm.shared.model.ResolvedAttribute;
 import com.plm.shared.security.SecurityContextPort;
@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
 public class MetaModelService {
 
     private final DSLContext                dsl;
-    private final ActionPermissionPort   actionPermissionService;
+    private final PolicyPort   policyService;
     private final MetaModelCache            metaModelCache;
     private final PlmEventPublisher         eventPublisher;
     private final ActionRegistrationService actionRegistrationService;
@@ -49,7 +49,7 @@ public class MetaModelService {
     // LIFECYCLE
     // ================================================================
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String createLifecycle(String name, String description) {
         String id = UUID.randomUUID().toString();
@@ -63,7 +63,7 @@ public class MetaModelService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String addState(String lifecycleId, String name,
                            boolean isInitial, Map<String, String> metadata,
@@ -96,7 +96,7 @@ public class MetaModelService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String addTransition(String lifecycleId, String name,
                                 String fromStateId, String toStateId,
@@ -126,7 +126,7 @@ public class MetaModelService {
         return dsl.select().from("lifecycle").where("id = ?", lifecycleId).fetchOne();
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateState(String stateId, String name, boolean isInitial,
                             Map<String, String> metadata, int displayOrder, String color) {
@@ -160,7 +160,7 @@ public class MetaModelService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateTransition(String transitionId, String name, String fromStateId, String toStateId,
                                  String guardExpr, String actionType, String versionStrategy) {
@@ -221,7 +221,7 @@ public class MetaModelService {
         }).collect(Collectors.toList());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String addSignatureRequirement(String transitionId, String roleId, int displayOrder) {
         String id = UUID.randomUUID().toString();
@@ -234,7 +234,7 @@ public class MetaModelService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void removeSignatureRequirement(String reqId) {
         dsl.execute("DELETE FROM signature_requirement WHERE id = ?", reqId);
@@ -247,20 +247,20 @@ public class MetaModelService {
     // NODE TYPE
     // ================================================================
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String createNodeType(String name, String description, String lifecycleId) {
         return createNodeType(name, description, lifecycleId, null, null);
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String createNodeType(String name, String description, String lifecycleId,
                                  String numberingScheme) {
         return createNodeType(name, description, lifecycleId, numberingScheme, null);
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String createNodeType(String name, String description, String lifecycleId,
                                  String numberingScheme, String versionPolicy) {
@@ -300,7 +300,7 @@ public class MetaModelService {
             LocalDateTime.now()
         );
 
-        // Inherit access rights from parent: action_permission rows alone define which
+        // Inherit access rights from parent: authorization_policy rows alone define which
         // actions are wired for this type. Copy the parent's rows so the child starts
         // with the same access rights. New types without a parent have no permissions
         // until admin grants them.
@@ -318,7 +318,7 @@ public class MetaModelService {
      * Updates the parent node type. Pass null to clear inheritance.
      * Validates that no cycle would be created.
      */
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateNodeTypeParent(String nodeTypeId, String parentNodeTypeId) {
         if (parentNodeTypeId != null && !parentNodeTypeId.isBlank()) {
@@ -361,7 +361,7 @@ public class MetaModelService {
         }
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateNodeTypeNumberingScheme(String nodeTypeId, String numberingScheme) {
         NumberingScheme.valueOf(numberingScheme); // throws IllegalArgumentException if unknown
@@ -374,7 +374,7 @@ public class MetaModelService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateNodeTypeVersionPolicy(String nodeTypeId, String versionPolicy) {
         VersionPolicy.valueOf(versionPolicy); // throws IllegalArgumentException if unknown
@@ -387,7 +387,7 @@ public class MetaModelService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateNodeTypeCollapseHistory(String nodeTypeId, boolean collapseHistory) {
         dsl.execute(
@@ -399,7 +399,7 @@ public class MetaModelService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateNodeTypeAppearance(String nodeTypeId, String color, String icon) {
         dsl.execute(
@@ -438,7 +438,7 @@ public class MetaModelService {
      */
     public List<Record> getCreatableNodeTypes() {
         return getAllNodeTypes().stream()
-            .filter(nt -> actionPermissionService.canOnNodeType("CHECKOUT", nt.get("id", String.class)))
+            .filter(nt -> policyService.canOnNodeType("CREATE_NODE", nt.get("id", String.class)))
             .collect(Collectors.toList());
     }
 
@@ -446,7 +446,7 @@ public class MetaModelService {
     // ATTRIBUTE DEFINITION
     // ================================================================
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String createAttributeDefinition(String nodeTypeId, Map<String, Object> params) {
         boolean asName = Boolean.TRUE.equals(params.get("asName"));
@@ -530,7 +530,7 @@ public class MetaModelService {
      * inherited from a parent type for the same attribute.
      * If nodeTypeId is null, it is looked up from the attribute_definition.
      */
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String setAttributeStateRule(String nodeTypeId, String attributeDefId, String stateId,
                                         boolean required, boolean editable, boolean visible) {
@@ -584,7 +584,7 @@ public class MetaModelService {
     // LINK TYPE
     // ================================================================
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String createLinkType(String name, String description,
                                  String sourceNodeTypeId, String targetNodeTypeId,
@@ -636,7 +636,7 @@ public class MetaModelService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateLinkTypeIdentity(String linkTypeId, String linkLogicalIdLabel, String linkLogicalIdPattern) {
         dsl.execute("""
@@ -693,7 +693,7 @@ public class MetaModelService {
 
     /**
      * Returns the effective actions for a node type, derived from the {@code action}
-     * catalog + {@code action_permission} rows. Delegates to
+     * catalog + {@code authorization_policy} rows. Delegates to
      * {@link ActionRegistrationService#getActionsForNodeType}.
      */
     public List<Map<String, Object>> getEffectiveActions(String nodeTypeId) {
@@ -704,7 +704,7 @@ public class MetaModelService {
     // ATTRIBUTE DEFINITION — UPDATE
     // ================================================================
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateAttributeDefinition(String attrId, Map<String, Object> params) {
         boolean asName = Boolean.TRUE.equals(params.get("asName"));
@@ -756,7 +756,7 @@ public class MetaModelService {
     // LINK TYPE — UPDATE
     // ================================================================
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateLinkType(String linkTypeId, Map<String, Object> params) {
         String policy = (String) params.getOrDefault("linkPolicy", "VERSION_TO_MASTER");
@@ -793,7 +793,7 @@ public class MetaModelService {
     // LINK TYPE ATTRIBUTES
     // ================================================================
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String createLinkTypeAttribute(String linkTypeId, Map<String, Object> params) {
         String id = UUID.randomUUID().toString();
@@ -841,7 +841,7 @@ public class MetaModelService {
         return max != null ? max + 1 : 0;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateLinkTypeAttribute(String attrId, Map<String, Object> params) {
         dsl.execute("""
@@ -868,7 +868,7 @@ public class MetaModelService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void deleteLinkTypeAttribute(String attrId) {
         dsl.execute("DELETE FROM link_type_attribute WHERE id = ?", attrId);
@@ -901,7 +901,7 @@ public class MetaModelService {
             .fetchMaps();
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public String createLinkTypeCascade(String linkTypeId, String parentTransitionId,
                                         String childFromStateId, String childTransitionId) {
@@ -923,7 +923,7 @@ public class MetaModelService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void deleteLinkTypeCascade(String cascadeId) {
         dsl.execute("DELETE FROM link_type_cascade WHERE id = ?", cascadeId);
@@ -934,7 +934,7 @@ public class MetaModelService {
     // NODE TYPE — IDENTITY UPDATE
     // ================================================================
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void updateNodeTypeIdentity(String nodeTypeId, String label, String pattern) {
         dsl.execute(
@@ -950,7 +950,7 @@ public class MetaModelService {
     // DELETE OPERATIONS
     // ================================================================
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void deleteLifecycle(String lifecycleId) {
         int used = dsl.fetchCount(
@@ -966,8 +966,8 @@ public class MetaModelService {
         );
         // Remove TRANSITION permissions scoped to transitions of this lifecycle
         dsl.execute(
-            "DELETE FROM action_permission " +
-            "WHERE action_id = 'act-transition' " +
+            "DELETE FROM authorization_policy " +
+            "WHERE permission_code = 'TRANSITION' " +
             "AND node_type_id IN (SELECT id FROM node_type WHERE lifecycle_id = ?) " +
             "AND transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)",
             lifecycleId, lifecycleId
@@ -986,7 +986,7 @@ public class MetaModelService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void deleteState(String stateId) {
         int inTransitions = dsl.fetchCount(
@@ -1009,7 +1009,7 @@ public class MetaModelService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void deleteTransition(String transitionId) {
         // Get from_state_id to locate the TRANSITION permission rows
@@ -1018,7 +1018,7 @@ public class MetaModelService {
             .fetchOne(DSL.field("from_state_id"), String.class);
         // Remove LIFECYCLE-scope permissions for this specific transition
         dsl.execute(
-            "DELETE FROM action_permission WHERE action_id = 'act-transition' AND transition_id = ?",
+            "DELETE FROM authorization_policy WHERE permission_code = 'TRANSITION' AND transition_id = ?",
             transitionId
         );
         dsl.execute("DELETE FROM signature_requirement WHERE lifecycle_transition_id = ?", transitionId);
@@ -1030,7 +1030,7 @@ public class MetaModelService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void deleteNodeType(String nodeTypeId) {
         int used = dsl.fetchCount(
@@ -1050,7 +1050,7 @@ public class MetaModelService {
             nodeTypeId, nodeTypeId
         );
         // Cascade action permissions + per-type param overrides + per-type guards
-        dsl.execute("DELETE FROM action_permission WHERE node_type_id = ?", nodeTypeId);
+        dsl.execute("DELETE FROM authorization_policy WHERE node_type_id = ?", nodeTypeId);
         dsl.execute("DELETE FROM action_param_override WHERE node_type_id = ?", nodeTypeId);
         dsl.execute("DELETE FROM node_action_guard WHERE node_type_id = ?", nodeTypeId);
         // Block deletion if any child type references this as parent
@@ -1066,7 +1066,7 @@ public class MetaModelService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void deleteAttribute(String attrId) {
         int used = dsl.fetchCount(
@@ -1082,7 +1082,7 @@ public class MetaModelService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     @Transactional
     public void deleteLinkType(String linkTypeId) {
         int used = dsl.fetchCount(
@@ -1151,7 +1151,7 @@ public class MetaModelService {
     // ================================================================
 
     /**
-     * Copies all node-scoped action_permission rows from parentNodeTypeId to childNodeTypeId.
+     * Copies all node-scoped authorization_policy rows from parentNodeTypeId to childNodeTypeId.
      * Delegates to ActionRegistrationService.
      */
     private void copyActionPermissionsFromParent(String childNodeTypeId, String parentNodeTypeId) {

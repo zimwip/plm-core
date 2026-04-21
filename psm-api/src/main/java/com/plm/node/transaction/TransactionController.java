@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -90,36 +89,6 @@ public class TransactionController {
     @GetMapping("/{txId}/nodes")
     public ResponseEntity<?> getTransactionNodes(@PathVariable String txId) {
         return ResponseEntity.ok(txService.getTransactionNodes(txId));
-    }
-
-    // ── Commit ────────────────────────────────────────────────────────
-
-    @SuppressWarnings("unchecked")
-    @PostMapping("/{txId}/commit")
-    public ResponseEntity<Map<String, String>> commit(
-        @PathVariable String txId,
-        @RequestBody  Map<String, Object> body
-    ) {
-        String userId  = secCtx.currentUser().getUserId();
-        String comment = (String) body.get("comment");
-        List<String> nodeIds = (List<String>) body.get("nodeIds");
-        String continuationTxId = txService.commitTransaction(txId, userId, comment, nodeIds);
-        Map<String, String> response = new HashMap<>();
-        response.put("status", "COMMITTED");
-        response.put("txId", txId);
-        if (continuationTxId != null) response.put("continuationTxId", continuationTxId);
-        return ResponseEntity.ok(response);
-    }
-
-    // ── Rollback ──────────────────────────────────────────────────────
-
-    @PostMapping("/{txId}/rollback")
-    public ResponseEntity<Map<String, String>> rollback(
-        @PathVariable String txId
-    ) {
-        String userId = secCtx.currentUser().getUserId();
-        txService.rollbackTransaction(txId, userId);
-        return ResponseEntity.ok(Map.of("status", "ROLLEDBACK", "txId", txId));
     }
 
     // ── Release specific nodes from an open transaction ───────────────

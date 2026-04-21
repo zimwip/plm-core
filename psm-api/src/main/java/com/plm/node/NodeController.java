@@ -174,7 +174,7 @@ public class NodeController {
 
     @GetMapping("/{nodeId}/signatures/history")
     public ResponseEntity<?> getSignatureHistory(@PathVariable String nodeId) {
-        return ResponseEntity.ok(signatureService.getFullSignatureHistory(nodeId));
+        return Response/{nodeId}/liEntity.ok(signatureService.getFullSignatureHistory(nodeId));
     }
 
     // ── Comments ─────────────────────────────────────────────────────

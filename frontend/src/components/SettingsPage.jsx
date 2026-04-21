@@ -2244,150 +2244,67 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
   );
 }
 
-/* ── Action permissions for one project space ────────────────────── */
+/* ── Scope-driven permission matrix for one role ─────────────────── */
 /**
- * Node types × actions permission matrix for a fixed role + project space.
- * Rows = node types, columns = action codes (union across all node types).
- * Horizontally scrollable when the table exceeds the container width.
+ * Renders NODE and LIFECYCLE scope permission tables for a single role.
+ * Fully introspection-driven: permissions, node types, and transitions
+ * are loaded from backend; the UI adapts to any configuration change.
  */
-function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast }) {
-  const [types,   setTypes]   = useState([]);
-  const [actions, setActions] = useState({});  // ntId → action[]
-  const [perms,   setPerms]   = useState({});  // "ntId|actionCode|transitionId" → roleId[]
-  const [loading, setLoading] = useState(true);
-
-  const permKey = (ntId, actionCode, transitionId) =>
-    `${ntId}|${actionCode}|${transitionId || ''}`;
+function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast,
+                                nodePerms, lcPerms, nodeTypes, transitions }) {
+  // Bulk policies loaded per role — Set of "permCode|ntId|transId" keys
+  const [policies, setPolicies] = useState(null);
 
   useEffect(() => {
-    api.getNodeTypes(userId).then(async ntList => {
-      const types = Array.isArray(ntList) ? ntList : [];
-      setTypes(types);
+    setPolicies(null);
+    api.getRolePolicies(userId, roleId).then(rows => {
+      const set = new Set();
+      (Array.isArray(rows) ? rows : []).forEach(r => {
+        const pc = r.permissionCode || r.permission_code;
+        const nt = r.nodeTypeId     || r.node_type_id || '';
+        const tr = r.transitionId   || r.transition_id || '';
+        set.add(`${pc}|${nt}|${tr}`);
+      });
+      setPolicies(set);
+    }).catch(() => setPolicies(new Set()));
+  }, [userId, roleId, projectSpaceId]);
 
-      const actionMap = {};
-      const permMap   = {};
+  const pKey = (permCode, ntId, transId) => `${permCode}|${ntId || ''}|${transId || ''}`;
 
-      await Promise.all(types.map(async nt => {
-        const ntId = nt.id || nt.ID;
-        const raw  = await api.getActionsForNodeType(userId, ntId).catch(() => []);
-        actionMap[ntId] = Array.isArray(raw) ? raw : [];
-
-        await Promise.all(actionMap[ntId].map(async a => {
-          const actionCode  = a.action_code  || a.ACTION_CODE;
-          const transitionId = a.transition_id || a.TRANSITION_ID || null;
-          const p = await api.getActionPermissionsForSpace(
-            userId, projectSpaceId, ntId, actionCode, transitionId).catch(() => []);
-          permMap[permKey(ntId, actionCode, transitionId)] =
-            (Array.isArray(p) ? p : []).map(r => r.role_id || r.ROLE_ID);
-        }));
-      }));
-
-      setActions(actionMap);
-      setPerms(permMap);
-    }).finally(() => setLoading(false));
-  }, [userId, projectSpaceId, roleId]);
-
-  async function togglePerm(nodeTypeId, action) {
-    const actionCode   = action.action_code   || action.ACTION_CODE;
-    const transitionId = action.transition_id || action.TRANSITION_ID || null;
-    const key = permKey(nodeTypeId, actionCode, transitionId);
-    const current   = perms[key] || [];
-    const isGranted = current.includes(roleId);
+  async function togglePerm(permCode, ntId, transId) {
+    if (!canWrite || !policies) return;
+    const key = pKey(permCode, ntId, transId);
+    const isGranted = policies.has(key);
+    setPolicies(s => { const n = new Set(s); isGranted ? n.delete(key) : n.add(key); return n; });
     try {
       if (isGranted) {
-        await api.removeActionPermissionForSpace(
-          userId, projectSpaceId, nodeTypeId, actionCode, roleId, transitionId);
-        setPerms(s => ({ ...s, [key]: (s[key] || []).filter(r => r !== roleId) }));
+        await api.removeActionPermissionForSpace(userId, projectSpaceId, ntId, permCode, roleId, transId || null);
       } else {
-        await api.addActionPermissionForSpace(
-          userId, projectSpaceId, nodeTypeId, actionCode, roleId, transitionId);
-        setPerms(s => ({ ...s, [key]: [...(s[key] || []), roleId] }));
+        await api.addActionPermissionForSpace(userId, projectSpaceId, ntId, permCode, roleId, transId || null);
       }
-    } catch (err) { toast(err, 'error'); }
+    } catch (err) {
+      setPolicies(s => { const n = new Set(s); isGranted ? n.add(key) : n.delete(key); return n; });
+      toast(err, 'error');
+    }
   }
 
-  if (loading) return <div style={{ padding: '4px 0', color: 'var(--muted)', fontSize: 11 }}>Loading…</div>;
-  if (types.length === 0) return <div className="settings-empty-row">No node types defined.</div>;
+  if (!policies) return <div style={{ padding: '4px 0', color: 'var(--muted)', fontSize: 11 }}>Loading policies…</div>;
+  if (nodeTypes.length === 0) return <div className="settings-empty-row">No node types defined.</div>;
 
-  // ── Derive column sets from backend data ──────────────────────────
-  // NODE scope columns: unique action codes where scope === 'NODE' (or no transition_id)
-  const nodeColMap = new Map(); // actionCode → { actionCode, displayName, order }
-  // LIFECYCLE scope columns: unique transitions where scope === 'LIFECYCLE'
-  const lcColMap   = new Map(); // transitionId → { transitionId, label, order }
+  const thStyle = { padding: '4px 8px', textAlign: 'center', borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)', background: 'var(--bg2, var(--bg))', whiteSpace: 'nowrap', verticalAlign: 'bottom' };
+  const tdStyle = { padding: '3px 6px', textAlign: 'center', borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)' };
 
-  Object.values(actions).flat().forEach(a => {
-    const scope   = a.scope           || a.SCOPE           || '';
-    const tranId  = a.transition_id   || a.TRANSITION_ID;
-    const code    = a.action_code     || a.ACTION_CODE;
-    const name    = a.display_name    || a.DISPLAY_NAME    || code;
-    const order   = a.display_order   || a.DISPLAY_ORDER   || 0;
-    const managedWith    = a.managed_with    || a.MANAGED_WITH    || null;
-    const managedActions = a.managed_actions || a.MANAGED_ACTIONS || [];
-
-    // Skip managed actions — they inherit permissions from their manager
-    if (managedWith) return;
-
-    if (scope === 'LIFECYCLE' || tranId) {
-      if (tranId && !lcColMap.has(tranId)) {
-        const fromState  = a.from_state_name || a.FROM_STATE_NAME || '';
-        const tranName   = a.transition_name  || a.TRANSITION_NAME  || tranId;
-        const label      = fromState ? `${fromState} → ${tranName}` : tranName;
-        lcColMap.set(tranId, { transitionId: tranId, label, order });
-      }
-    } else {
-      if (code && !nodeColMap.has(code)) {
-        nodeColMap.set(code, { actionCode: code, displayName: name, order, managedActions });
-      }
-    }
-  });
-
-  const nodeColumns = [...nodeColMap.values()].sort((a, b) => a.order - b.order);
-  const lcColumns   = [...lcColMap.values()].sort((a, b) => a.order - b.order);
-
-  const thStyle = {
-    padding: '4px 8px',
-    textAlign: 'center',
-    borderBottom: '1px solid var(--border)',
-    borderRight: '1px solid var(--border)',
-    background: 'var(--bg2, var(--bg))',
-    whiteSpace: 'nowrap',
-    verticalAlign: 'bottom',
-  };
-  const tdStyle = {
-    padding: '3px 6px',
-    textAlign: 'center',
-    borderBottom: '1px solid var(--border)',
-    borderRight: '1px solid var(--border)',
-  };
-
-  function PermCell({ nodeTypeId, action }) {
-    if (!action) return (
-      <td style={tdStyle}>
-        <span style={{ color: 'var(--border)', fontSize: 11, userSelect: 'none' }}>—</span>
-      </td>
-    );
-    const actionCode   = action.action_code   || action.ACTION_CODE;
-    const transitionId = action.transition_id || action.TRANSITION_ID || null;
-    const key = permKey(nodeTypeId, actionCode, transitionId);
-    const rowPerms  = perms[key];
-    const isPending = rowPerms === undefined;
-    const isGranted = !isPending && rowPerms.includes(roleId);
+  function CheckCell({ permCode, ntId, transId }) {
+    const isGranted = policies.has(pKey(permCode, ntId, transId));
     return (
       <td style={tdStyle}>
-        <button
-          className="panel-icon-btn"
-          disabled={isPending || !canWrite}
+        <button className="panel-icon-btn" disabled={!canWrite}
           title={!canWrite ? 'Requires MANAGE_ROLES' : isGranted ? 'Revoke' : 'Grant'}
-          onClick={() => togglePerm(nodeTypeId, action)}
-          style={{ margin: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                   width: 22, height: 22, cursor: canWrite && !isPending ? 'pointer' : 'default' }}
-        >
-          {isPending
-            ? <span style={{ color: 'var(--muted)', fontSize: 9 }}>…</span>
-            : isGranted
-              ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
-              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--border)"   strokeWidth="2"  ><circle cx="12" cy="12" r="9"/></svg>
-          }
+          onClick={() => togglePerm(permCode, ntId, transId)}
+          style={{ margin: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, cursor: canWrite ? 'pointer' : 'default' }}>
+          {isGranted
+            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
+            : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="2"><circle cx="12" cy="12" r="9"/></svg>}
         </button>
       </td>
     );
@@ -2402,64 +2319,31 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
     );
   }
 
-  const hint = (
-    <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6 }}>
-      Zero grants = action open to all roles.
-    </div>
-  );
-
   return (
     <div>
-      {/* ── NODE scope table ── */}
-      {nodeColumns.length > 0 && (
+      {/* ── NODE scope permissions ── */}
+      {nodePerms.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
-            Node Actions
-          </div>
-          {hint}
+          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Node Scope Permissions</div>
+          <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6 }}>Role + node type check.</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
-              <thead>
-                <tr>
-                  <th style={{ ...thStyle, textAlign: 'left', minWidth: 120, position: 'sticky', left: 0, zIndex: 1 }}>
-                    Node Type
+              <thead><tr>
+                <th style={{ ...thStyle, textAlign: 'left', minWidth: 120, position: 'sticky', left: 0, zIndex: 1 }}>Node Type</th>
+                {nodePerms.map(p => (
+                  <th key={p.permissionCode} style={{ ...thStyle, minWidth: 72 }}>
+                    <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--accent)', marginBottom: 1 }}>{p.permissionCode}</div>
+                    <div style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400 }}>{p.displayName}</div>
                   </th>
-                  {nodeColumns.map(col => (
-                    <th key={col.actionCode} style={{ ...thStyle, minWidth: 72 }}
-                        title={col.managedActions?.length ? `Also controls: ${col.managedActions.join(', ')}` : undefined}>
-                      <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--accent)', marginBottom: 1 }}>
-                        {col.actionCode}
-                      </div>
-                      <div style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400 }}>
-                        {col.displayName}
-                      </div>
-                      {col.managedActions?.length > 0 && (
-                        <div style={{ fontSize: 8, color: 'var(--warning, orange)', fontStyle: 'italic', marginTop: 1 }}>
-                          + {col.managedActions.join(', ')}
-                        </div>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+                ))}
+              </tr></thead>
               <tbody>
-                {types.map(nt => {
-                  const ntId   = nt.id   || nt.ID;
-                  const ntName = nt.name || nt.NAME || ntId;
-                  const ntaByCode = {};
-                  (actions[ntId] || [])
-                    .filter(a => {
-                      const s = a.scope || a.SCOPE || '';
-                      const t = a.transition_id || a.TRANSITION_ID;
-                      return s !== 'LIFECYCLE' && !t;
-                    })
-                    .forEach(a => { ntaByCode[a.action_code || a.ACTION_CODE] = a; });
+                {nodeTypes.map(nt => {
+                  const ntId = nt.id || nt.ID, ntName = nt.name || nt.NAME || ntId;
                   return (
                     <tr key={ntId}>
                       <StickyNtCell ntId={ntId} ntName={ntName} />
-                      {nodeColumns.map(col => (
-                        <PermCell key={col.actionCode} nodeTypeId={ntId} action={ntaByCode[col.actionCode]} />
-                      ))}
+                      {nodePerms.map(p => <CheckCell key={p.permissionCode} permCode={p.permissionCode} ntId={ntId} transId={null} />)}
                     </tr>
                   );
                 })}
@@ -2469,52 +2353,32 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
         </div>
       )}
 
-      {/* ── LIFECYCLE scope table ── */}
-      {lcColumns.length > 0 && (
+      {/* ── LIFECYCLE scope permissions ── */}
+      {lcPerms.length > 0 && transitions.length > 0 && (
         <div>
-          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
-            Lifecycle Transitions
-          </div>
-          {hint}
+          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Lifecycle Scope Permissions</div>
+          <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6 }}>Role + node type + transition check.</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
-              <thead>
-                <tr>
-                  <th style={{ ...thStyle, textAlign: 'left', minWidth: 120, position: 'sticky', left: 0, zIndex: 1 }}>
-                    Node Type
+              <thead><tr>
+                <th style={{ ...thStyle, textAlign: 'left', minWidth: 120, position: 'sticky', left: 0, zIndex: 1 }}>Node Type</th>
+                {transitions.map(t => (
+                  <th key={t.id} style={{ ...thStyle, minWidth: 100 }}>
+                    <div style={{ fontSize: 9, color: 'var(--text)', fontWeight: 500 }}>{t.label}</div>
                   </th>
-                  {lcColumns.map(col => (
-                    <th key={col.transitionId} style={{ ...thStyle, minWidth: 100 }}>
-                      <div style={{ fontSize: 9, color: 'var(--text)', fontWeight: 500 }}>
-                        {col.label}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+                ))}
+              </tr></thead>
               <tbody>
-                {types.map(nt => {
-                  const ntId   = nt.id   || nt.ID;
-                  const ntName = nt.name || nt.NAME || ntId;
-                  const ntaByTran = {};
-                  (actions[ntId] || [])
-                    .filter(a => {
-                      const s = a.scope || a.SCOPE || '';
-                      const t = a.transition_id || a.TRANSITION_ID;
-                      return s === 'LIFECYCLE' || !!t;
-                    })
-                    .forEach(a => {
-                      const t = a.transition_id || a.TRANSITION_ID;
-                      if (t) ntaByTran[t] = a;
-                    });
-                  // Skip rows where this node type has no lifecycle actions at all
-                  if (Object.keys(ntaByTran).length === 0) return null;
+                {nodeTypes.filter(nt => nt.lifecycle_id || nt.lifecycleId).map(nt => {
+                  const ntId = nt.id || nt.ID, ntName = nt.name || nt.NAME || ntId;
+                  const lcId = nt.lifecycle_id || nt.lifecycleId;
                   return (
                     <tr key={ntId}>
                       <StickyNtCell ntId={ntId} ntName={ntName} />
-                      {lcColumns.map(col => (
-                        <PermCell key={col.transitionId} nodeTypeId={ntId} action={ntaByTran[col.transitionId]} />
-                      ))}
+                      {transitions.map(t => {
+                        if (t.lifecycleId !== lcId) return <td key={t.id} style={tdStyle}><span style={{ color: 'var(--border)', fontSize: 11 }}>—</span></td>;
+                        return <CheckCell key={t.id} permCode={lcPerms[0].permissionCode} ntId={ntId} transId={t.id} />;
+                      })}
                     </tr>
                   );
                 })}
@@ -2524,8 +2388,8 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast 
         </div>
       )}
 
-      {nodeColumns.length === 0 && lcColumns.length === 0 && (
-        <div className="settings-empty-row">No actions registered on any node type.</div>
+      {nodePerms.length === 0 && lcPerms.length === 0 && (
+        <div className="settings-empty-row">No permissions configured.</div>
       )}
     </div>
   );
@@ -2928,27 +2792,186 @@ export function UsersRolesSection({ userId, canWrite, toast }) {
   );
 }
 
+/* ── Permission Catalog (inside Access Rights) ─────────────────────── */
+function PermissionCatalog({ permissions, userId, canWrite, toast, onReload }) {
+  const [expanded, setExpanded]     = useState(false);
+  const [modal, setModal]           = useState(null); // null | 'create' | permissionCode (edit)
+  const [saving, setSaving]         = useState(false);
+  const [form, setForm]             = useState({ code: '', scope: 'GLOBAL', displayName: '', description: '', displayOrder: 0 });
+
+  function openCreate() {
+    setForm({ code: '', scope: 'GLOBAL', displayName: '', description: '', displayOrder: 0 });
+    setModal('create');
+  }
+  function openEdit(p) {
+    setForm({ code: p.permissionCode, scope: p.scope, displayName: p.displayName, description: p.description || '', displayOrder: 0 });
+    setModal(p.permissionCode);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      if (modal === 'create') {
+        if (!form.code.trim() || !form.displayName.trim()) { toast('Code and label required', 'error'); setSaving(false); return; }
+        await api.createPermission(userId, form.code.trim().toUpperCase(), form.scope, form.displayName.trim(), form.description.trim() || null, form.displayOrder);
+        toast('Permission created');
+      } else {
+        await api.updatePermission(userId, modal, form.displayName.trim(), form.description.trim() || null, form.displayOrder);
+        toast('Permission updated');
+      }
+      setModal(null);
+      onReload();
+    } catch (e) { toast(e, 'error'); }
+    setSaving(false);
+  }
+
+  const grouped = { GLOBAL: [], NODE: [], LIFECYCLE: [] };
+  permissions.forEach(p => { if (grouped[p.scope]) grouped[p.scope].push(p); });
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', marginBottom: 4 }}
+        onClick={() => setExpanded(!expanded)}>
+        {expanded ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" />
+                   : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
+        <ShieldIcon size={13} color="var(--accent)" strokeWidth={1.5} />
+        <span style={{ fontSize: 13, fontWeight: 700 }}>Permission Catalog</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>({permissions.length})</span>
+        {canWrite && expanded && (
+          <button className="btn btn-sm" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
+            onClick={e => { e.stopPropagation(); openCreate(); }}>
+            <PlusIcon size={11} /> Add
+          </button>
+        )}
+      </div>
+
+      {expanded && (
+        <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', marginBottom: 8 }}>
+          {['GLOBAL', 'NODE', 'LIFECYCLE'].map(scope => {
+            const items = grouped[scope] || [];
+            if (items.length === 0) return null;
+            return (
+              <div key={scope}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em',
+                  color: 'var(--muted)', padding: '6px 10px', background: 'rgba(0,0,0,.03)', borderBottom: '1px solid var(--border)' }}>
+                  {scope} scope
+                </div>
+                {items.map(p => (
+                  <div key={p.permissionCode} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px',
+                    borderBottom: '1px solid var(--border)', fontSize: 12 }}>
+                    <code style={{ fontSize: 11, color: 'var(--accent)', minWidth: 180, fontWeight: 500 }}>{p.permissionCode}</code>
+                    <span style={{ flex: 1, color: 'var(--text)' }}>{p.displayName}</span>
+                    {p.description && (
+                      <span style={{ fontSize: 10, color: 'var(--muted)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.description}
+                      </span>
+                    )}
+                    {canWrite && (
+                      <button className="panel-icon-btn" title="Edit" onClick={() => openEdit(p)}
+                        style={{ flexShrink: 0, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <EditIcon size={12} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {modal && (
+        <MetaModal title={modal === 'create' ? 'New Permission' : `Edit ${modal}`}
+          onClose={() => setModal(null)} onSave={handleSave} saving={saving}
+          saveLabel={modal === 'create' ? 'Create' : 'Save'}>
+          {modal === 'create' && (
+            <>
+              <Field label="Permission Code">
+                <input className="field-input" value={form.code}
+                  onChange={e => setForm(f => ({ ...f, code: e.target.value }))}
+                  placeholder="e.g. MANAGE_EXPORTS" style={{ textTransform: 'uppercase', fontFamily: 'monospace' }} />
+              </Field>
+              <Field label="Scope">
+                <select className="field-input" value={form.scope}
+                  onChange={e => setForm(f => ({ ...f, scope: e.target.value }))}>
+                  <option value="GLOBAL">GLOBAL</option>
+                  <option value="NODE">NODE</option>
+                  <option value="LIFECYCLE">LIFECYCLE</option>
+                </select>
+              </Field>
+            </>
+          )}
+          <Field label="Display Name">
+            <input className="field-input" value={form.displayName}
+              onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))}
+              placeholder="e.g. Manage Exports" />
+          </Field>
+          <Field label="Description">
+            <textarea className="field-input" rows={2} value={form.description}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              placeholder="Optional description" />
+          </Field>
+        </MetaModal>
+      )}
+    </div>
+  );
+}
+
 /* ── Access Rights section ──────────────────────────────────────────── */
 export function AccessRightsSection({ userId, canWrite, toast }) {
-  const [roles,         setRoles]         = useState(null);
-  const [globalActions, setGlobalActions] = useState([]);
-  const [spaces,        setSpaces]        = useState([]);
-  const [expandedRole,  setExpandedRole]  = useState(null);
-  const [expandedSpace, setExpandedSpace] = useState(null); // spaceId within the expanded role
-  // globalPerms: roleId → Set<actionId>
+  const [roles,       setRoles]       = useState(null);
+  const [permissions, setPermissions] = useState([]); // full catalog {permissionCode, scope, displayName}
+  const [nodeTypes,   setNodeTypes]   = useState([]);
+  const [transitions, setTransitions] = useState([]); // {id, label, lifecycleId}
+  const [spaces,      setSpaces]      = useState([]);
+  const [expandedRole, setExpandedRole] = useState(null);
+  const [expandedSpace, setExpandedSpace] = useState(null);
+  // globalPerms: roleId → Set<permissionCode>
   const [globalPerms, setGlobalPerms] = useState({});
 
+  // ── Load everything from backend introspection ──────────────────
   useEffect(() => {
     Promise.all([
       api.getRoles(userId),
-      api.listGlobalActions(userId),
+      api.listPermissions(userId),
+      api.getNodeTypes(userId),
+      api.getLifecycles(userId),
       api.listProjectSpaces(userId),
-    ]).then(([roleList, actionList, spaceList]) => {
-      setRoles(Array.isArray(roleList)   ? roleList   : []);
-      setGlobalActions(Array.isArray(actionList) ? actionList : []);
-      setSpaces(Array.isArray(spaceList) ? spaceList  : []);
-    }).catch(() => { setRoles([]); setGlobalActions([]); setSpaces([]); });
+    ]).then(async ([roleList, permList, ntList, lcList, spaceList]) => {
+      setRoles(Array.isArray(roleList) ? roleList : []);
+      setPermissions(Array.isArray(permList) ? permList : []);
+      setNodeTypes(Array.isArray(ntList) ? ntList : []);
+      setSpaces(Array.isArray(spaceList) ? spaceList : []);
+
+      // Load transitions for each lifecycle
+      const lcs = Array.isArray(lcList) ? lcList : [];
+      const allTrans = [];
+      await Promise.all(lcs.map(async lc => {
+        const lcId = lc.id || lc.ID;
+        const trans = await api.getLifecycleTransitions(userId, lcId).catch(() => []);
+        (Array.isArray(trans) ? trans : []).forEach(t => {
+          const fromState = t.from_state_name || t.fromStateName || '';
+          const name = t.name || t.NAME || t.id;
+          allTrans.push({
+            id: t.id || t.ID,
+            label: fromState ? `${fromState} → ${name}` : name,
+            lifecycleId: lcId,
+          });
+        });
+      }));
+      setTransitions(allTrans);
+    }).catch(() => { setRoles([]); });
   }, [userId]);
+
+  async function reloadPermissions() {
+    const permList = await api.listPermissions(userId).catch(() => []);
+    setPermissions(Array.isArray(permList) ? permList : []);
+  }
+
+  // Split permissions by scope
+  const globalPermsSet = permissions.filter(p => p.scope === 'GLOBAL');
+  const nodePerms      = permissions.filter(p => p.scope === 'NODE');
+  const lcPerms        = permissions.filter(p => p.scope === 'LIFECYCLE');
 
   async function toggleRole(roleId) {
     if (expandedRole === roleId) { setExpandedRole(null); setExpandedSpace(null); return; }
@@ -2956,20 +2979,20 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
     setExpandedSpace(null);
     if (globalPerms[roleId] === undefined) {
       const rows = await api.getRoleGlobalPermissions(userId, roleId).catch(() => []);
-      const granted = new Set((Array.isArray(rows) ? rows : []).map(r => r.actionId || r.action_id));
+      const granted = new Set((Array.isArray(rows) ? rows : []).map(r => r.permissionCode || r.permission_code));
       setGlobalPerms(s => ({ ...s, [roleId]: granted }));
     }
   }
 
-  async function toggleGlobalPerm(roleId, actionId) {
+  async function toggleGlobalPerm(roleId, permissionCode) {
     if (!canWrite) return;
-    const isGranted = (globalPerms[roleId] || new Set()).has(actionId);
-    setGlobalPerms(s => { const n = new Set(s[roleId] || []); isGranted ? n.delete(actionId) : n.add(actionId); return { ...s, [roleId]: n }; });
+    const isGranted = (globalPerms[roleId] || new Set()).has(permissionCode);
+    setGlobalPerms(s => { const n = new Set(s[roleId] || []); isGranted ? n.delete(permissionCode) : n.add(permissionCode); return { ...s, [roleId]: n }; });
     try {
-      if (isGranted) await api.removeRoleGlobalPermission(userId, roleId, actionId);
-      else           await api.addRoleGlobalPermission(userId, roleId, actionId);
+      if (isGranted) await api.removeRoleGlobalPermission(userId, roleId, permissionCode);
+      else           await api.addRoleGlobalPermission(userId, roleId, permissionCode);
     } catch (e) {
-      setGlobalPerms(s => { const n = new Set(s[roleId] || []); isGranted ? n.add(actionId) : n.delete(actionId); return { ...s, [roleId]: n }; });
+      setGlobalPerms(s => { const n = new Set(s[roleId] || []); isGranted ? n.add(permissionCode) : n.delete(permissionCode); return { ...s, [roleId]: n }; });
       toast(e, 'error');
     }
   }
@@ -2984,22 +3007,22 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
           Read-only — requires <code>MANAGE_ROLES</code>
         </div>
       )}
+
+      <PermissionCatalog permissions={permissions} userId={userId}
+        canWrite={canWrite} toast={toast} onReload={reloadPermissions} />
+
+      <div className="settings-sub-label" style={{ marginBottom: 6 }}>Role Grants</div>
       {roles.map(role => {
-        const isExp        = expandedRole === role.id;
+        const isExp = expandedRole === role.id;
         const roleGlobPerms = globalPerms[role.id];
 
         return (
           <div key={role.id} className="settings-card">
-            <div
-              className="settings-card-hd"
-              onClick={() => toggleRole(role.id)}
-              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
-            >
+            <div className="settings-card-hd" onClick={() => toggleRole(role.id)}
+              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
               <span className="settings-card-chevron">
-                {isExp
-                  ? <ChevronDownIcon  size={13} strokeWidth={2} color="var(--muted)" />
-                  : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />
-                }
+                {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" />
+                       : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
               </span>
               <ShieldIcon size={13} color="var(--accent)" strokeWidth={1.5} />
               <span className="settings-card-name" style={{ marginLeft: 4 }}>{role.name}</span>
@@ -3014,60 +3037,51 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
             {isExp && (
               <div className="settings-card-body">
 
-                {/* ── Global permissions ─────────────────────────── */}
-                {globalActions.length > 0 && (
+                {/* ── GLOBAL scope permissions ─────────────────── */}
+                {globalPermsSet.length > 0 && (
                   <div style={{ marginBottom: 14 }}>
-                    <div className="settings-sub-label">Global Permissions</div>
+                    <div className="settings-sub-label">Global Scope Permissions</div>
                     <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6 }}>
-                      Zero grants = action open to all roles.
+                      Role-only check — no node type context.
                     </div>
-                    {globalActions.map(a => {
-                      const actionId  = a.id || a.ID;
+                    {globalPermsSet.map(p => {
                       const isPending = roleGlobPerms === undefined;
-                      const isGranted = !isPending && roleGlobPerms.has(actionId);
+                      const isGranted = !isPending && roleGlobPerms.has(p.permissionCode);
                       return (
-                        <div key={actionId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
-                          <button
-                            className="panel-icon-btn"
-                            disabled={isPending || !canWrite}
+                        <div key={p.permissionCode} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+                          <button className="panel-icon-btn" disabled={isPending || !canWrite}
                             title={!canWrite ? 'Requires MANAGE_ROLES' : isGranted ? `Revoke from ${role.name}` : `Grant to ${role.name}`}
-                            onClick={() => toggleGlobalPerm(role.id, actionId)}
-                            style={{ flexShrink: 0, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          >
+                            onClick={() => toggleGlobalPerm(role.id, p.permissionCode)}
+                            style={{ flexShrink: 0, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {isPending
                               ? <span style={{ color: 'var(--muted)', fontSize: 10 }}>…</span>
                               : isGranted
                                 ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
-                                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="2"><circle cx="12" cy="12" r="9"/></svg>
-                            }
+                                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="2"><circle cx="12" cy="12" r="9"/></svg>}
                           </button>
-                          <code style={{ fontSize: 11, color: 'var(--accent)', minWidth: 168 }}>{a.actionCode || a.action_code}</code>
-                          <span style={{ fontSize: 11, color: 'var(--text)', flex: 1 }}>{a.displayName || a.display_name}</span>
+                          <code style={{ fontSize: 11, color: 'var(--accent)', minWidth: 168 }}>{p.permissionCode}</code>
+                          <span style={{ fontSize: 11, color: 'var(--text)', flex: 1 }}>{p.displayName}</span>
                         </div>
                       );
                     })}
                   </div>
                 )}
 
-                {/* ── Action permissions by project space ────────── */}
-                {spaces.length > 0 && (
+                {/* ── NODE + LIFECYCLE scope permissions by project space ── */}
+                {(nodePerms.length > 0 || lcPerms.length > 0) && spaces.length > 0 && (
                   <div>
-                    <div className="settings-sub-label">Action Permissions by Project Space</div>
+                    <div className="settings-sub-label">Node &amp; Lifecycle Scope Permissions</div>
                     {spaces.map(ps => {
-                      const psId    = ps.id   || ps.ID;
-                      const psName  = ps.name || ps.NAME || psId;
+                      const psId = ps.id || ps.ID;
+                      const psName = ps.name || ps.NAME || psId;
                       const isExpSp = expandedSpace === psId;
                       return (
                         <div key={psId} style={{ marginBottom: 4, border: '1px solid var(--border)', borderRadius: 5, overflow: 'hidden' }}>
-                          <div
-                            onClick={() => setExpandedSpace(isExpSp ? null : psId)}
+                          <div onClick={() => setExpandedSpace(isExpSp ? null : psId)}
                             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', cursor: 'pointer',
-                                     background: isExpSp ? 'rgba(99,102,241,.06)' : 'transparent' }}
-                          >
-                            {isExpSp
-                              ? <ChevronDownIcon  size={11} strokeWidth={2} color="var(--muted)" />
-                              : <ChevronRightIcon size={11} strokeWidth={2} color="var(--muted)" />
-                            }
+                                     background: isExpSp ? 'rgba(99,102,241,.06)' : 'transparent' }}>
+                            {isExpSp ? <ChevronDownIcon size={11} strokeWidth={2} color="var(--muted)" />
+                                     : <ChevronRightIcon size={11} strokeWidth={2} color="var(--muted)" />}
                             <HexIcon size={11} color="var(--accent)" strokeWidth={1.5} />
                             <span style={{ fontSize: 12, fontWeight: 600 }}>{psName}</span>
                             <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>{psId}</span>
@@ -3075,11 +3089,10 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
                           {isExpSp && (
                             <div style={{ padding: '6px 10px', background: 'rgba(0,0,0,.02)' }}>
                               <NodeTypeActionsPanel
-                                userId={userId}
-                                projectSpaceId={psId}
-                                roleId={role.id}
-                                canWrite={canWrite}
-                                toast={toast}
+                                userId={userId} projectSpaceId={psId} roleId={role.id}
+                                canWrite={canWrite} toast={toast}
+                                nodePerms={nodePerms} lcPerms={lcPerms}
+                                nodeTypes={nodeTypes} transitions={transitions}
                               />
                             </div>
                           )}
@@ -3267,6 +3280,8 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
   const [algorithms, setAlgorithms] = useState(null);
   const [instances, setInstances]   = useState(null);
   const [stats, setStats]           = useState(null);
+  const [timeseries, setTimeseries] = useState(null);
+  const [tsHours, setTsHours]       = useState(24);
   const [expandedAlgo, setExpandedAlgo] = useState(null);
   const [newInstName, setNewInstName] = useState('');
   const [algoParams, setAlgoParams]   = useState({});  // algorithmId → param[]
@@ -3287,6 +3302,12 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
     api.getAlgorithmStats(userId)
       .then(s => setStats(Array.isArray(s) ? s : []))
       .catch(() => setStats([]));
+  }, [userId]);
+
+  const loadTimeseries = useCallback((hours) => {
+    api.getAlgorithmTimeseries(userId, hours)
+      .then(ts => setTimeseries(Array.isArray(ts) ? ts : []))
+      .catch(() => setTimeseries([]));
   }, [userId]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -3334,60 +3355,196 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
       )}
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: 12 }}>
-        {[['catalog', 'Catalog'], ['stats', 'Execution Stats']].map(([key, label]) => (
-          <button key={key} onClick={() => { setTab(key); if (key === 'stats' && !stats) loadStats(); }} style={tabStyle(key)}>{label}</button>
+        {[['catalog', 'Catalog'], ['stats', 'Execution Stats'], ['graph', 'Usage Graph']].map(([key, label]) => (
+          <button key={key} onClick={() => { setTab(key); if (key === 'stats' && !stats) loadStats(); if (key === 'graph' && !timeseries) loadTimeseries(tsHours); }} style={tabStyle(key)}>{label}</button>
         ))}
       </div>
 
       {/* ── Stats tab ── */}
-      {tab === 'stats' && (
-        <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button className="btn btn-xs btn-primary" onClick={loadStats}>Refresh</button>
-            <button className="btn btn-xs btn-danger" onClick={async () => {
-              await api.resetAlgorithmStats(userId).catch(() => {});
-              setStats([]);
-              toast('Stats reset', 'success');
-            }}>Reset</button>
+      {tab === 'stats' && (() => {
+        // Build code → typeName lookup from algorithms list
+        const codeToType = {};
+        (algorithms || []).forEach(a => { codeToType[a.code] = a.typeName || 'Unknown'; });
+        // Group stats by algorithm type
+        const statsByType = {};
+        (stats || []).forEach(s => {
+          const t = codeToType[s.algorithmCode] || 'Unknown';
+          if (!statsByType[t]) statsByType[t] = [];
+          statsByType[t].push(s);
+        });
+        // Sort each group by callCount desc
+        Object.values(statsByType).forEach(arr => arr.sort((a, b) => (b.callCount || 0) - (a.callCount || 0)));
+
+        return (
+          <div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button className="btn btn-xs btn-primary" onClick={loadStats}>Refresh</button>
+              <button className="btn btn-xs btn-danger" onClick={async () => {
+                await api.resetAlgorithmStats(userId).catch(() => {});
+                setStats([]);
+                toast('Stats reset', 'success');
+              }}>Reset</button>
+            </div>
+            {stats === null && (
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading stats…</div>
+            )}
+            {stats && stats.length === 0 && (
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>No algorithm executions recorded yet</div>
+            )}
+            {stats && stats.length > 0 && Object.entries(statsByType).map(([typeName, typeStats]) => (
+              <div key={typeName} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
+                  {typeName}
+                </div>
+                <table className="settings-table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>Algorithm</th>
+                      <th style={{ textAlign: 'right' }}>Calls</th>
+                      <th style={{ textAlign: 'right' }}>Min (ms)</th>
+                      <th style={{ textAlign: 'right' }}>Avg (ms)</th>
+                      <th style={{ textAlign: 'right' }}>Max (ms)</th>
+                      <th style={{ textAlign: 'right' }}>Total (ms)</th>
+                      <th style={{ textAlign: 'right' }}>Pending</th>
+                      <th>Last Flush</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {typeStats.map(s => (
+                      <tr key={s.algorithmCode}>
+                        <td><code>{s.algorithmCode}</code></td>
+                        <td style={{ textAlign: 'right' }}>{s.callCount}</td>
+                        <td style={{ textAlign: 'right' }}>{typeof s.minMs === 'number' ? s.minMs.toFixed(3) : '—'}</td>
+                        <td style={{ textAlign: 'right' }}>{typeof s.avgMs === 'number' ? s.avgMs.toFixed(3) : '—'}</td>
+                        <td style={{ textAlign: 'right' }}>{typeof s.maxMs === 'number' ? s.maxMs.toFixed(3) : '—'}</td>
+                        <td style={{ textAlign: 'right' }}>{typeof s.totalMs === 'number' ? s.totalMs.toFixed(1) : '—'}</td>
+                        <td style={{ textAlign: 'right', color: s.pendingFlush > 0 ? 'var(--warn)' : 'var(--muted)' }}>{s.pendingFlush || 0}</td>
+                        <td style={{ fontSize: 10, color: 'var(--muted)' }}>{s.lastFlushed || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
           </div>
-          {stats === null && (
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading stats…</div>
-          )}
-          {stats && stats.length === 0 && (
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>No algorithm executions recorded yet</div>
-          )}
-          {stats && stats.length > 0 && (
-            <table className="settings-table" style={{ width: '100%' }}>
-              <thead>
-                <tr>
-                  <th>Algorithm</th>
-                  <th style={{ textAlign: 'right' }}>Calls</th>
-                  <th style={{ textAlign: 'right' }}>Min (ms)</th>
-                  <th style={{ textAlign: 'right' }}>Avg (ms)</th>
-                  <th style={{ textAlign: 'right' }}>Max (ms)</th>
-                  <th style={{ textAlign: 'right' }}>Total (ms)</th>
-                  <th style={{ textAlign: 'right' }}>Pending</th>
-                  <th>Last Flush</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.sort((a, b) => (b.callCount || 0) - (a.callCount || 0)).map(s => (
-                  <tr key={s.algorithmCode}>
-                    <td><code>{s.algorithmCode}</code></td>
-                    <td style={{ textAlign: 'right' }}>{s.callCount}</td>
-                    <td style={{ textAlign: 'right' }}>{typeof s.minMs === 'number' ? s.minMs.toFixed(3) : '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{typeof s.avgMs === 'number' ? s.avgMs.toFixed(3) : '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{typeof s.maxMs === 'number' ? s.maxMs.toFixed(3) : '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{typeof s.totalMs === 'number' ? s.totalMs.toFixed(1) : '—'}</td>
-                    <td style={{ textAlign: 'right', color: s.pendingFlush > 0 ? 'var(--warn)' : 'var(--muted)' }}>{s.pendingFlush || 0}</td>
-                    <td style={{ fontSize: 10, color: 'var(--muted)' }}>{s.lastFlushed || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+        );
+      })()}
+
+      {/* ── Graph tab ── */}
+      {tab === 'graph' && (() => {
+        const codeToType = {};
+        (algorithms || []).forEach(a => { codeToType[a.code] = a.typeName || 'Unknown'; });
+
+        // Build per-type aggregated timeseries: { typeName → [ { windowStart, calls, totalMs } ] }
+        const windowMap = {}; // windowStart → { typeName → { calls, totalMs } }
+        (timeseries || []).forEach(p => {
+          const t = codeToType[p.algorithmCode] || 'Unknown';
+          if (!windowMap[p.windowStart]) windowMap[p.windowStart] = {};
+          if (!windowMap[p.windowStart][t]) windowMap[p.windowStart][t] = { calls: 0, totalMs: 0 };
+          windowMap[p.windowStart][t].calls += p.callCount || 0;
+          windowMap[p.windowStart][t].totalMs += p.totalMs || 0;
+        });
+
+        const windows = Object.keys(windowMap).sort();
+        const types = [...new Set(Object.values(codeToType))].sort();
+
+        // Also build global aggregated (all types combined)
+        const globalSeries = windows.map(w => {
+          let calls = 0, totalMs = 0;
+          Object.values(windowMap[w] || {}).forEach(v => { calls += v.calls; totalMs += v.totalMs; });
+          return { windowStart: w, calls, totalMs };
+        });
+
+        // Color palette for types
+        const TYPE_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
+        const typeColor = (i) => TYPE_COLORS[i % TYPE_COLORS.length];
+
+        const SVG_W = 800, SVG_H = 200, PAD = { t: 20, r: 20, b: 40, l: 50 };
+        const plotW = SVG_W - PAD.l - PAD.r;
+        const plotH = SVG_H - PAD.t - PAD.b;
+
+        function renderChart(series, label, color) {
+          if (series.length === 0) return <div style={{ fontSize: 11, color: 'var(--muted)' }}>No data</div>;
+          const maxCalls = Math.max(...series.map(s => s.calls), 1);
+
+          return (
+            <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: '100%', height: 200, display: 'block' }}>
+              {/* Grid lines */}
+              {[0, 0.25, 0.5, 0.75, 1].map(f => {
+                const y = PAD.t + plotH * (1 - f);
+                return (
+                  <g key={f}>
+                    <line x1={PAD.l} x2={SVG_W - PAD.r} y1={y} y2={y} stroke="var(--border)" strokeWidth={0.5} />
+                    <text x={PAD.l - 4} y={y + 3} textAnchor="end" fill="var(--muted)" fontSize={9}>{Math.round(maxCalls * f)}</text>
+                  </g>
+                );
+              })}
+              {/* Bars */}
+              {series.map((s, i) => {
+                const barW = Math.max(plotW / series.length - 1, 2);
+                const x = PAD.l + (i / series.length) * plotW;
+                const h = (s.calls / maxCalls) * plotH;
+                const y = PAD.t + plotH - h;
+                // Show time labels at intervals
+                const showLabel = series.length < 20 || i % Math.ceil(series.length / 12) === 0;
+                const timeStr = s.windowStart.replace('T', ' ').slice(11, 16);
+                return (
+                  <g key={i}>
+                    <rect x={x} y={y} width={barW} height={h} fill={color} opacity={0.8} rx={1}>
+                      <title>{s.windowStart.replace('T', ' ').slice(0, 16)} — {s.calls} calls, {s.totalMs.toFixed(1)}ms</title>
+                    </rect>
+                    {showLabel && (
+                      <text x={x + barW / 2} y={SVG_H - PAD.b + 14} textAnchor="middle" fill="var(--muted)" fontSize={8} transform={`rotate(-45, ${x + barW / 2}, ${SVG_H - PAD.b + 14})`}>{timeStr}</text>
+                    )}
+                  </g>
+                );
+              })}
+              {/* Y axis label */}
+              <text x={12} y={PAD.t + plotH / 2} textAnchor="middle" fill="var(--muted)" fontSize={9} transform={`rotate(-90, 12, ${PAD.t + plotH / 2})`}>Calls</text>
+              {/* Title */}
+              <text x={PAD.l} y={12} fill="var(--text)" fontSize={11} fontWeight={600}>{label}</text>
+            </svg>
+          );
+        }
+
+        return (
+          <div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+              <button className="btn btn-xs btn-primary" onClick={() => loadTimeseries(tsHours)}>Refresh</button>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Window:</span>
+              {[6, 12, 24, 48].map(h => (
+                <button key={h} className="btn btn-xs" onClick={() => { setTsHours(h); loadTimeseries(h); }}
+                  style={{ background: tsHours === h ? 'var(--accent)' : undefined, color: tsHours === h ? '#fff' : undefined }}>{h}h</button>
+              ))}
+            </div>
+            {timeseries === null && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading…</div>}
+            {timeseries && timeseries.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No windowed data yet. Stats are bucketed every 15 minutes on flush.</div>}
+            {timeseries && timeseries.length > 0 && (
+              <div>
+                {/* Global aggregate */}
+                <div style={{ marginBottom: 20, background: 'var(--bg2)', borderRadius: 6, padding: 12 }}>
+                  {renderChart(globalSeries, 'All Algorithms (aggregate)', '#3b82f6')}
+                </div>
+                {/* Per-type breakdown */}
+                {types.map((typeName, ti) => {
+                  const typeSeries = windows.map(w => ({
+                    windowStart: w,
+                    calls: windowMap[w]?.[typeName]?.calls || 0,
+                    totalMs: windowMap[w]?.[typeName]?.totalMs || 0,
+                  }));
+                  const hasCalls = typeSeries.some(s => s.calls > 0);
+                  if (!hasCalls) return null;
+                  return (
+                    <div key={typeName} style={{ marginBottom: 16, background: 'var(--bg2)', borderRadius: 6, padding: 12 }}>
+                      {renderChart(typeSeries, typeName, typeColor(ti))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Catalog tab ── */}
       {tab === 'catalog' && <div className="settings-list">
@@ -3580,7 +3737,7 @@ export function GuardsSection({ userId, canWrite, toast }) {
       )}
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: 12 }}>
-        {[['action-guards', 'Action Guards'], ['nta-guards', 'Per Node Type']].map(([key, label]) => (
+        {[['action-guards', 'Action Guards'], ['nta-guards', 'Per Node Type'], ['nta-state-actions', 'State Action Overrides']].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={tabStyle(key)}>{label}</button>
         ))}
       </div>
@@ -3794,6 +3951,12 @@ export function GuardsSection({ userId, canWrite, toast }) {
         <NodeActionGuardsSubSection userId={userId} canWrite={canWrite} toast={toast}
           nodeTypes={nodeTypes} instances={instances} />
       )}
+
+      {/* ── State Action Overrides tab ── */}
+      {tab === 'nta-state-actions' && (
+        <NodeTypeStateActionOverridesSubSection userId={userId} canWrite={canWrite} toast={toast}
+          nodeTypes={nodeTypes} instances={instances} />
+      )}
     </div>
   );
 }
@@ -3918,6 +4081,163 @@ function NodeActionGuardsSubSection({ userId, canWrite, toast, nodeTypes, instan
                       <button className="btn btn-xs btn-primary" onClick={() => {
                         const sel = document.getElementById(`add-nag-${k}`);
                         if (sel?.value) handleAttach(code, tran, sel.value);
+                      }}>
+                        <PlusIcon size={10} /> Attach
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Per-node-type state action overrides (tier 2).
+ * Select a node type → shows lifecycle states → shows overrides (ADD/DISABLE) for each.
+ */
+function NodeTypeStateActionOverridesSubSection({ userId, canWrite, toast, nodeTypes, instances }) {
+  const [selectedNt, setSelectedNt] = useState(null);
+  const [states, setStates] = useState([]);
+  const [expanded, setExpanded] = useState(null);
+  const [overrides, setOverrides] = useState({}); // stateId → override[]
+
+  // Load lifecycle states when node type changes
+  useEffect(() => {
+    if (!selectedNt) { setStates([]); setOverrides({}); return; }
+    const nt = (nodeTypes || []).find(n => n.id === selectedNt);
+    const lcId = nt?.lifecycle_id || nt?.lifecycleId;
+    if (!lcId) { setStates([]); return; }
+    api.getLifecycleStates(userId, lcId)
+      .then(s => setStates(Array.isArray(s) ? s : []))
+      .catch(() => setStates([]));
+  }, [userId, selectedNt, nodeTypes]);
+
+  async function loadOverrides(stateId) {
+    const list = await api.listNodeTypeStateActions(userId, selectedNt, stateId).catch(() => []);
+    setOverrides(s => ({ ...s, [stateId]: Array.isArray(list) ? list : [] }));
+  }
+
+  function toggle(stateId) {
+    if (expanded === stateId) { setExpanded(null); return; }
+    setExpanded(stateId);
+    if (!overrides[stateId]) loadOverrides(stateId);
+  }
+
+  async function handleAttach(stateId, instanceId, trigger, mode, overrideAction) {
+    try {
+      await api.attachNodeTypeStateAction(userId, selectedNt, stateId, instanceId, trigger, mode, overrideAction, 0);
+      loadOverrides(stateId);
+      toast('State action override attached', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function handleDetach(stateId, attachmentId) {
+    try {
+      await api.detachNodeTypeStateAction(userId, attachmentId);
+      loadOverrides(stateId);
+      toast('Override removed', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  const stateActionInstances = (instances || []).filter(i => i.typeName === 'State Action');
+
+  return (
+    <div>
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Node Type:</span>
+        <select className="field-input" style={{ fontSize: 12, flex: 1, maxWidth: 300 }}
+          value={selectedNt || ''} onChange={e => setSelectedNt(e.target.value || null)}>
+          <option value="">Select a node type…</option>
+          {(nodeTypes || []).map(nt => (
+            <option key={nt.id} value={nt.id}>{nt.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {selectedNt && states.length === 0 && (
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>No lifecycle states found</div>
+      )}
+
+      <div className="settings-list">
+        {states.map(st => {
+          const sid = st.id || st.ID;
+          const sName = st.name || st.NAME || sid;
+          const isExp = expanded === sid;
+          const rows = overrides[sid] || [];
+          return (
+            <div key={sid} className="settings-card" style={{ marginBottom: 4 }}>
+              <div className="settings-card-hd" onClick={() => toggle(sid)}
+                style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                <span className="settings-card-chevron">
+                  {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
+                </span>
+                <span className="settings-card-name">{sName}</span>
+                {rows.length > 0 && <span className="settings-badge" style={{ marginLeft: 6 }}>{rows.length}</span>}
+              </div>
+
+              {isExp && (
+                <div className="settings-card-body" style={{ padding: '8px 12px 12px 28px' }}>
+                  {rows.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No overrides — inherits lifecycle-level state actions</div>}
+                  {rows.length > 0 && (
+                    <table className="settings-table" style={{ width: '100%', marginBottom: 8 }}>
+                      <thead>
+                        <tr><th>Action</th><th>Trigger</th><th>Mode</th><th>Override</th><th></th></tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(o => (
+                          <tr key={o.id}>
+                            <td>{o.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({o.algorithmCode})</span></td>
+                            <td><span className="settings-badge" style={{
+                              background: o.trigger === 'ON_ENTER' ? 'rgba(52,211,153,.15)' : 'rgba(248,113,113,.15)',
+                              color: o.trigger === 'ON_ENTER' ? '#34d399' : '#f87171', fontSize: 9,
+                            }}>{o.trigger}</span></td>
+                            <td><span className="settings-badge" style={{
+                              background: o.executionMode === 'TRANSACTIONAL' ? 'rgba(167,139,250,.15)' : 'rgba(250,204,21,.15)',
+                              color: o.executionMode === 'TRANSACTIONAL' ? '#a78bfa' : '#facc15', fontSize: 9,
+                            }}>{o.executionMode}</span></td>
+                            <td><span className={`settings-badge ${o.overrideAction === 'DISABLE' ? 'badge-danger' : ''}`}>{o.overrideAction}</span></td>
+                            <td style={{ textAlign: 'right' }}>
+                              {canWrite && (
+                                <button className="btn btn-xs btn-danger" onClick={() => handleDetach(sid, o.id)}>
+                                  <TrashIcon size={10} />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {canWrite && stateActionInstances.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <select id={`sa-override-inst-${sid}`} className="field-input" style={{ fontSize: 11, flex: 1, minWidth: 150 }}>
+                        {stateActionInstances.map(i => (
+                          <option key={i.id} value={i.id}>{i.algorithmName || i.name} — {i.name}</option>
+                        ))}
+                      </select>
+                      <select id={`sa-override-trigger-${sid}`} className="field-input" style={{ width: 90, fontSize: 11 }} defaultValue="ON_ENTER">
+                        <option value="ON_ENTER">ON_ENTER</option>
+                        <option value="ON_EXIT">ON_EXIT</option>
+                      </select>
+                      <select id={`sa-override-mode-${sid}`} className="field-input" style={{ width: 130, fontSize: 11 }} defaultValue="TRANSACTIONAL">
+                        <option value="TRANSACTIONAL">TRANSACTIONAL</option>
+                        <option value="POST_COMMIT">POST_COMMIT</option>
+                      </select>
+                      <select id={`sa-override-action-${sid}`} className="field-input" style={{ width: 90, fontSize: 11 }} defaultValue="ADD">
+                        <option value="ADD">ADD</option>
+                        <option value="DISABLE">DISABLE</option>
+                      </select>
+                      <button className="btn btn-xs btn-primary" onClick={() => {
+                        const inst = document.getElementById(`sa-override-inst-${sid}`)?.value;
+                        const trig = document.getElementById(`sa-override-trigger-${sid}`)?.value;
+                        const mode = document.getElementById(`sa-override-mode-${sid}`)?.value;
+                        const act  = document.getElementById(`sa-override-action-${sid}`)?.value;
+                        if (inst) handleAttach(sid, inst, trig, mode, act);
                       }}>
                         <PlusIcon size={10} /> Attach
                       </button>

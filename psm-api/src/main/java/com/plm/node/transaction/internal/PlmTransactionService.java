@@ -3,6 +3,7 @@ import com.plm.node.metamodel.internal.ValidationService;
 import com.plm.node.version.internal.FingerPrintService;
 import com.plm.node.version.internal.VersionService;
 
+import com.plm.shared.authorization.PlmPermission;
 import com.plm.shared.exception.AccessDeniedException;
 import com.plm.shared.hook.*;
 import com.plm.shared.security.PlmUserContext;
@@ -145,6 +146,7 @@ public class PlmTransactionService {
      * Ouvre une transaction explicitement.
      * Échoue si l'utilisateur a déjà une transaction OPEN.
      */
+    @PlmPermission("UPDATE")
     @Transactional
     public String openTransaction(String userId) {
         String txId = UUID.randomUUID().toString();
@@ -170,6 +172,7 @@ public class PlmTransactionService {
      * @return l'id de la transaction de continuation si un commit partiel a créé une nouvelle tx,
      *         null pour un commit total.
      */
+    @PlmPermission("UPDATE")
     @Transactional
     public String commitTransaction(
         String txId,
@@ -477,6 +480,7 @@ public class PlmTransactionService {
      *
      * Après rollback, le noeud retrouve exactement son état avant le checkin.
      */
+    @PlmPermission("UPDATE")
     @Transactional
     public void rollbackTransaction(String txId, String userId) {
         loadAndVerifyOwnership(txId, userId);

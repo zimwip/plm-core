@@ -14,10 +14,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Lifecycle Guard: all required signatures must be collected.
+ * Lifecycle Guard: all required signatures must be collected on the current version.
  *
- * Checks signature_requirement rows for the transition and compares
- * with distinct committed signatories on the current revision.iteration.
+ * Signatures are valid only for the current (frozen) version — not aggregated
+ * across iterations. After release (new revision), the slate resets.
  */
 @AlgorithmBean(code = "all_signatures_done", name = "All Signatures Done", description = "All required signatures must be collected")
 @RequiredArgsConstructor
@@ -42,15 +42,12 @@ public class AllSignaturesDoneGuard implements LifecycleGuard {
         if (current == null) return List.of(new GuardViolation(code(),
             "No current version found", GuardEffect.BLOCK));
 
-        String revision  = current.get("revision",  String.class);
-        int    iteration = current.get("iteration", Integer.class);
+        String currentVersionId = current.get("id", String.class);
 
         Record signedRow = dsl.fetchOne(
             "SELECT COUNT(DISTINCT ns.signed_by) AS cnt FROM node_signature ns " +
-            "JOIN node_version nv ON ns.node_version_id = nv.id " +
-            "JOIN plm_transaction pt ON pt.id = nv.tx_id " +
-            "WHERE ns.node_id = ? AND nv.revision = ? AND nv.iteration = ? AND pt.status = 'COMMITTED'",
-            ctx.nodeId(), revision, iteration);
+            "WHERE ns.node_version_id = ?",
+            currentVersionId);
         long signed = signedRow != null ? signedRow.get("cnt", Long.class) : 0L;
 
         if (signed < required) {

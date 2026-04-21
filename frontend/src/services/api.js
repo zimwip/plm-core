@@ -153,6 +153,8 @@ export const api = {
   // Signatures — lecture
   getSignatures: (userId, nodeId) =>
     request('GET', `/nodes/${nodeId}/signatures`, userId),
+  getSignatureHistory: (userId, nodeId) =>
+    request('GET', `/nodes/${nodeId}/signatures/history`, userId),
 
   // Comments
   getComments: (userId, nodeId) =>
@@ -411,7 +413,23 @@ export const api = {
   getDashboardWorkItems: (userId) =>
     request('GET', '/dashboard/workitems', userId),
 
-  // ── Global action permissions (Access Rights section) ──────────────
+  // ── Permissions & Policies (Access Rights section) ──────────────────
+
+  /** Returns full permission catalog: code, scope, displayName. */
+  listPermissions: (userId) =>
+    request('GET', '/admin/permissions', userId),
+
+  /** Creates a new permission. */
+  createPermission: (userId, permissionCode, scope, displayName, description, displayOrder) =>
+    request('POST', '/admin/permissions', userId, { permissionCode, scope, displayName, description, displayOrder }),
+
+  /** Updates permission display metadata. */
+  updatePermission: (userId, permissionCode, displayName, description, displayOrder) =>
+    request('PUT', `/admin/permissions/${permissionCode}`, userId, { displayName, description, displayOrder }),
+
+  /** Returns ALL authorization_policy rows for a role (all scopes, bulk). */
+  getRolePolicies: (userId, roleId) =>
+    request('GET', `/admin/roles/${roleId}/policies`, userId),
 
   /** Returns all GLOBAL actions from the action catalog. */
   listGlobalActions: (userId) =>
@@ -425,13 +443,13 @@ export const api = {
   getRoleGlobalPermissions: (userId, roleId) =>
     request('GET', `/admin/roles/${roleId}/global-permissions`, userId),
 
-  /** Grants a GLOBAL action to a role. Requires MANAGE_ROLES. */
-  addRoleGlobalPermission: (userId, roleId, actionId) =>
-    request('POST', `/admin/roles/${roleId}/global-permissions`, userId, { actionId }),
+  /** Grants a GLOBAL permission to a role. Requires MANAGE_ROLES. */
+  addRoleGlobalPermission: (userId, roleId, permissionCode) =>
+    request('POST', `/admin/roles/${roleId}/global-permissions`, userId, { permissionCode }),
 
-  /** Revokes a GLOBAL action from a role. Requires MANAGE_ROLES. */
-  removeRoleGlobalPermission: (userId, roleId, actionId) =>
-    request('DELETE', `/admin/roles/${roleId}/global-permissions/${actionId}`, userId),
+  /** Revokes a GLOBAL permission from a role. Requires MANAGE_ROLES. */
+  removeRoleGlobalPermission: (userId, roleId, permissionCode) =>
+    request('DELETE', `/admin/roles/${roleId}/global-permissions/${permissionCode}`, userId),
 
   // ── Algorithms & Guards ─────────────────────────────────────────────
 
@@ -509,6 +527,18 @@ export const api = {
   detachNodeActionGuard: (userId, guardId) =>
     request('DELETE', `/algorithms/node-actions/guards/${guardId}`, userId),
 
+  // ── Node-type state action overrides (tier 2) ──
+
+  listNodeTypeStateActions: (userId, nodeTypeId, stateId) =>
+    request('GET', `/algorithms/node-types/${nodeTypeId}/states/${stateId}/actions`, userId),
+
+  attachNodeTypeStateAction: (userId, nodeTypeId, stateId, instanceId, trigger, executionMode, overrideAction, displayOrder = 0) =>
+    request('POST', `/algorithms/node-types/${nodeTypeId}/states/${stateId}/actions`, userId,
+      { instanceId, trigger, executionMode, overrideAction, displayOrder }),
+
+  detachNodeTypeStateAction: (userId, attachmentId) =>
+    request('DELETE', `/algorithms/node-type-state-actions/${attachmentId}`, userId),
+
   // ── Managed-with ──
 
   setManagedWith: (userId, actionId, managedWith) =>
@@ -520,6 +550,10 @@ export const api = {
   /** Returns persisted + in-memory merged stats. */
   getAlgorithmStats: (userId) =>
     request('GET', '/algorithms/stats', userId),
+
+  /** Returns time-series stats in 15-min windows. */
+  getAlgorithmTimeseries: (userId, hours = 24) =>
+    request('GET', `/algorithms/stats/timeseries?hours=${hours}`, userId),
 
   /** Resets all stats (memory + DB). */
   resetAlgorithmStats: (userId) =>
@@ -539,8 +573,8 @@ export const txApi = {
 
   /** Commite avec un commentaire. nodeIds optionnel : si fourni, seuls ces noeuds sont commités. */
   commit: (userId, txId, comment, nodeIds) =>
-    request('POST', `/transactions/${txId}/commit`, userId,
-      { comment, ...(nodeIds ? { nodeIds } : {}) }),
+    request('POST', `/transactions/${txId}/actions/COMMIT`, userId,
+      { parameters: { comment, ...(nodeIds ? { nodeIds: nodeIds.join(',') } : {}) } }),
 
   /** Libère une liste de noeuds d'une transaction (rollback partiel). */
   release: (userId, txId, nodeIds) =>
@@ -548,7 +582,7 @@ export const txApi = {
 
   /** Annule et supprime la transaction. */
   rollback: (userId, txId) =>
-    request('POST', `/transactions/${txId}/rollback`, userId, null),
+    request('POST', `/transactions/${txId}/actions/ROLLBACK`, userId, { parameters: {} }),
 
   /** Détail d'une transaction. */
   get: (userId, txId) =>

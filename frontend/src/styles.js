@@ -689,6 +689,40 @@ select.field-input{cursor:pointer;appearance:none;-webkit-appearance:none}
   padding:10px 14px;margin-bottom:14px;
   background:rgba(77,212,160,.05);border:1px solid rgba(77,212,160,.15);border-radius:var(--r);
 }
+/* Signature modal */
+.signature-modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;
+  display:flex;align-items:center;justify-content:center;
+}
+.signature-modal{
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--r);
+  width:520px;max-height:80vh;display:flex;flex-direction:column;
+  box-shadow:0 8px 32px rgba(0,0,0,.3);
+}
+.signature-modal-header{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:12px 16px;border-bottom:1px solid var(--border);
+  font-family:var(--sans);font-weight:700;font-size:14px;
+}
+.signature-modal-body{flex:1;overflow-y:auto;padding:12px 16px}
+.signature-modal-form{padding:12px 16px;border-top:1px solid var(--border)}
+.sig-group{margin-bottom:14px}
+.sig-group-header{
+  font-family:var(--sans);font-size:10px;font-weight:700;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:6px;
+}
+.sig-entry{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border2);font-size:12px}
+.sig-entry:last-child{border-bottom:none}
+.sig-meaning-badge{
+  font-family:var(--sans);font-weight:700;font-size:10px;
+  padding:2px 8px;border-radius:10px;
+}
+.sig-approved{background:rgba(86,209,142,.15);color:var(--success)}
+.sig-rejected{background:rgba(239,68,68,.15);color:var(--danger)}
+.sig-by{font-size:11px;color:var(--text)}
+.sig-comment-text{flex:1;font-size:11px;color:var(--muted2);font-style:italic}
+.sig-date{font-size:10px;color:var(--muted);margin-left:auto}
+.history-sig-section{display:flex;align-items:center;gap:10px;padding:8px 0}
 
 /* History + lifecycle merged tab */
 .history-lc-section{padding-bottom:4px}

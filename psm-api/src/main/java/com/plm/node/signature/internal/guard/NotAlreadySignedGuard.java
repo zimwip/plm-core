@@ -13,10 +13,10 @@ import org.jooq.Record;
 import java.util.List;
 
 /**
- * Action Guard: user must not have already signed current revision.iteration.
- * Attached to SIGN by default.
+ * Action Guard: user must not have already signed the current version.
+ * Signatures are per-version — not aggregated across iterations.
  */
-@AlgorithmBean(code = "not_already_signed", name = "Not Already Signed", description = "User must not have already signed current revision.iteration")
+@AlgorithmBean(code = "not_already_signed", name = "Not Already Signed", description = "User must not have already signed current version")
 @RequiredArgsConstructor
 public class NotAlreadySignedGuard implements ActionGuard {
 
@@ -33,22 +33,18 @@ public class NotAlreadySignedGuard implements ActionGuard {
         Record current = versionService.getCurrentVersion(ctx.nodeId());
         if (current == null) return List.of();
 
+        String currentVersionId = current.get("id", String.class);
+
         boolean alreadySigned = dsl.fetchCount(dsl.selectOne()
             .from("node_signature ns")
-            .join("node_version nv").on("ns.node_version_id = nv.id")
-            .join("plm_transaction pt").on("pt.id = nv.tx_id")
             .where("ns.node_id   = ?", ctx.nodeId())
             .and  ("ns.signed_by = ?", ctx.currentUserId())
-            .and  ("pt.status    = 'COMMITTED'")
-            .and  ("nv.version_number = (" +
-                   "SELECT MAX(nv2.version_number) FROM node_version nv2 " +
-                   "JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id " +
-                   "WHERE nv2.node_id = ? AND pt2.status = 'COMMITTED')", ctx.nodeId())
+            .and  ("ns.node_version_id = ?", currentVersionId)
         ) > 0;
 
         if (alreadySigned) {
             return List.of(new GuardViolation(code(),
-                "You have already signed the current revision",
+                "You have already signed the current version",
                 GuardEffect.HIDE));
         }
         return List.of();

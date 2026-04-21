@@ -2,7 +2,7 @@ package com.plm.node.baseline.internal;
 import com.plm.node.NodeService;
 import com.plm.node.version.internal.VersionService;
 
-import com.plm.shared.authorization.PlmAction;
+import com.plm.shared.authorization.PlmPermission;
 import com.plm.shared.metadata.Metadata;
 import com.plm.shared.metadata.MetadataService;
 import com.plm.shared.event.PlmEventPublisher;
@@ -55,7 +55,7 @@ public class BaselineService {
      * @param description description optionnelle
      * @param userId      créateur
      */
-    @PlmAction("MANAGE_BASELINES")
+    @PlmPermission("MANAGE_BASELINES")
     @Transactional
     public String createBaseline(String rootNodeId, String name, String description, String userId) {
 

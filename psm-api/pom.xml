@@ -152,7 +152,8 @@
                                 <name>org.jooq.codegen.JavaGenerator</name>
                                 <database>
                                     <name>org.jooq.meta.h2.H2Database</name>
-                                    <!-- Schéma H2 par défaut = PUBLIC -->
+                                    <!-- Afterlife
+Schéma H2 par défaut = PUBLIC -->
                                     <inputSchema>PUBLIC</inputSchema>
                                     <!-- Exclure les tables internes Flyway -->
                                     <excludes>flyway_schema_history</excludes>

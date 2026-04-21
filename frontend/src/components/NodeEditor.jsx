@@ -5,7 +5,8 @@ import { getDraggedNode, clearDraggedNode } from '../services/dragState';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { usePlmStore } from '../store/usePlmStore';
 import LifecycleDiagram from './LifecycleDiagram';
-import { NODE_ICONS } from './Icons';
+import SignaturePanel from './SignaturePanel';
+import { NODE_ICONS, SignIcon } from './Icons';
 
 function stateLabel(s) {
   return { 'st-draft': 'Draft', 'st-inreview': 'In Review', 'st-released': 'Released', 'st-frozen': 'Frozen', 'st-obsolete': 'Obsolete' }[s] || s;
@@ -35,7 +36,6 @@ export default function NodeEditor({
   onCommentAttribute,
 }) {
   // desc lives in the store — subscribed below; all other state is local UI state
-  const [sigs,                setSigs]               = useState([]);
   const [history,             setHistory]            = useState([]);
   const [versionCommentCounts,setVersionCommentCounts] = useState({});
   const [edits,          setEdits]         = useState({});
@@ -67,6 +67,8 @@ export default function NodeEditor({
   const [viewVersionNum, setViewVersionNum] = useState(null);
   const [historicalDesc, setHistoricalDesc] = useState(null);
   const [histLoading,    setHistLoading]    = useState(false);
+  const [sigPanelOpen,   setSigPanelOpen]   = useState(null); // null | versionId
+  const [versionSigCounts, setVersionSigCounts] = useState({});
 
   const saveTimer     = useRef(null);
   const savedTimer    = useRef(null);
@@ -101,13 +103,26 @@ export default function NodeEditor({
    */
   const load = useCallback(async () => {
     try {
-      const [s, h, c] = await Promise.all([
-        api.getSignatures(userId, nodeId).catch(() => []),
+      const [h, c, sigs] = await Promise.all([
         api.getVersionHistory(userId, nodeId).catch(() => []),
         api.getComments(userId, nodeId).catch(() => []),
+        api.getSignatureHistory(userId, nodeId).catch(() => []),
       ]);
-      setSigs(Array.isArray(s) ? s : []);
       setHistory(Array.isArray(h) ? h : []);
+      // Build per-version signature counts + rejected flag for history tab badges
+      const sigCounts = {};
+      if (Array.isArray(sigs)) {
+        sigs.forEach(s => {
+          const vid = s.node_version_id || s.NODE_VERSION_ID;
+          if (vid) {
+            if (!sigCounts[vid]) sigCounts[vid] = { count: 0, hasRejected: false };
+            sigCounts[vid].count += 1;
+            const meaning = (s.meaning || s.MEANING || '').toUpperCase();
+            if (meaning === 'REJECTED') sigCounts[vid].hasRejected = true;
+          }
+        });
+      }
+      setVersionSigCounts(sigCounts);
       // Build per-version comment counts for history tab badges
       const counts = {};
       if (Array.isArray(c)) {
@@ -660,7 +675,6 @@ export default function NodeEditor({
         {[
           { key: 'attributes',  label: 'Properties' },
           { key: 'pbs',         label: 'PBS',        count: pbsLoaded ? children.length + parents.length : undefined },
-          { key: 'signatures',  label: 'Signatures',  count: sigs.length },
           { key: 'history',     label: 'History',     count: history.length },
         ].map(({ key, label, count }) => (
           <div
@@ -671,8 +685,8 @@ export default function NodeEditor({
             {label}
             {count > 0 && (
               <span className="subtab-badge" style={{
-                background: key === 'signatures' ? 'rgba(86,209,142,.15)' : 'rgba(91,156,246,.15)',
-                color: key === 'signatures' ? 'var(--success)' : 'var(--accent)',
+                background: 'rgba(91,156,246,.15)',
+                color: 'var(--accent)',
               }}>
                 {count}
               </span>
@@ -1135,25 +1149,6 @@ export default function NodeEditor({
         </div>
       )}
 
-      {/* ── Signatures ───────────────────────────────── */}
-      {activeSubTab === 'signatures' && (
-        <div>
-          {sigs.length === 0 ? (
-            <div className="empty">
-              <div className="empty-icon">✦</div>
-              <div className="empty-text">No signatures on this revision</div>
-            </div>
-          ) : sigs.map((s, i) => (
-            <div key={i} className="sig-item">
-              <span className="sig-meaning">{s.meaning || s.MEANING}</span>
-              <span className="sig-by">{s.signed_by || s.SIGNED_BY || s.signedBy}</span>
-              <span className="sig-comment">{s.comment || s.COMMENT || ''}</span>
-            </div>
-          ))}
-
-        </div>
-      )}
-
       {/* ── History + Lifecycle ───────────────────────── */}
       {activeSubTab === 'history' && (
         <div>
@@ -1283,7 +1278,7 @@ export default function NodeEditor({
                       <td style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                         {/* Left group: diff + comment indicators */}
                         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                          {!isFirst && (isPending || (v.change_type || v.CHANGE_TYPE) === 'CONTENT') && (
+                          {!isFirst && (
                             <button
                               className="btn-diff"
                               title={`Diff v${arr[i + 1]?.version_number || arr[i + 1]?.VERSION_NUMBER} → v${vNum}${isPending ? ' (pending)' : ''}`}
@@ -1304,6 +1299,22 @@ export default function NodeEditor({
                                 style={{ color: 'var(--accent)' }}
                               >
                                 💬 {cnt}
+                              </button>
+                            ) : null;
+                          })()}
+                          {(() => {
+                            const vid = v.id || v.ID;
+                            const sigInfo = vid ? versionSigCounts[vid] : null;
+                            const sigCnt = sigInfo ? sigInfo.count : 0;
+                            const hasRejected = sigInfo ? sigInfo.hasRejected : false;
+                            return sigCnt > 0 ? (
+                              <button
+                                className="btn-diff"
+                                title={`${sigCnt} signature${sigCnt > 1 ? 's' : ''} on this version${hasRejected ? ' (rejected)' : ''}`}
+                                onClick={() => setSigPanelOpen(vid)}
+                                style={{ color: hasRejected ? 'var(--danger)' : 'var(--success)', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                              >
+                                <SignIcon size={12} /> {sigCnt}
                               </button>
                             ) : null;
                           })()}
@@ -1347,6 +1358,16 @@ export default function NodeEditor({
           v2Num={diff.v2Num}
           onClose={() => setDiff(null)}
           stateColorMap={stateColorMap}
+        />
+      )}
+
+      {/* ── Signature modal ──────────────────────────── */}
+      {sigPanelOpen && (
+        <SignaturePanel
+          nodeId={nodeId}
+          userId={userId}
+          filterVersionId={sigPanelOpen}
+          onClose={() => setSigPanelOpen(null)}
         />
       )}
     </div>

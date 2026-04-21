@@ -1,5 +1,5 @@
 package com.plm.action;
-import com.plm.shared.authorization.PlmAction;
+import com.plm.shared.action.PlmAction;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,26 +12,17 @@ import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Set;
 
 /**
- * Startup introspection: validates every {@link PlmAction}-annotated service method
- * against the {@code action} table to catch configuration drift early.
+ * Startup validation for {@link PlmAction}-annotated service methods.
  *
- * <h2>What is checked</h2>
- * For each {@code @PlmAction(value = "CODE")} found in any Spring bean:
- * <ul>
- *   <li>A row exists in {@code action} with {@code action_code = 'CODE'}.</li>
- *   <li>The action's {@code action_kind = 'BUILTIN'} (we only validate built-in codes;
- *       CUSTOM codes are registered at runtime and may not exist at boot).</li>
- * </ul>
+ * <p>Validates that each {@code @PlmAction} code exists in the {@code action} table
+ * and is a dispatchable action (has a handler). Permission-only codes should use
+ * {@code @PlmPermission} instead — those are validated by {@link PlmPermissionValidator}.
  *
- * <h2>Behaviour on failure</h2>
- * Unknown BUILTIN action codes are logged as <b>ERROR</b>. The application still
- * starts — missing permission configuration is a degraded-mode scenario, not a
- * fatal crash (the permissive-default model keeps the app usable). If you want
- * hard failure, change the log call to throw {@link IllegalStateException}.
+ * <p>Also validates that {@code action_required_permission} codes reference
+ * known permission codes in the permission table.
  */
 @Slf4j
 @Component
@@ -43,13 +34,14 @@ public class PlmActionValidator {
 
     @EventListener(ContextRefreshedEvent.class)
     public void validate() {
-        Set<String> unknown = new LinkedHashSet<>();
-        Set<String> checked = new LinkedHashSet<>();
+        Set<String> unknown        = new LinkedHashSet<>();
+        Set<String> notDispatchable = new LinkedHashSet<>();
+        Set<String> checked        = new LinkedHashSet<>();
 
         for (String beanName : ctx.getBeanDefinitionNames()) {
             Object bean;
             try { bean = ctx.getBean(beanName); }
-            catch (Exception e) { continue; } // skip non-instantiable beans
+            catch (Exception e) { continue; }
 
             Class<?> targetClass = AopUtils.getTargetClass(bean);
             for (Method m : targetClass.getDeclaredMethods()) {
@@ -60,25 +52,53 @@ public class PlmActionValidator {
                 if (checked.contains(code)) continue;
                 checked.add(code);
 
-                // Verify the action_code exists in the action catalog
-                Integer count = dsl.fetchCount(
-                    dsl.selectOne().from("action")
-                       .where("action_code = ?", code));
+                var row = dsl.select(
+                        org.jooq.impl.DSL.field("action_code"),
+                        org.jooq.impl.DSL.field("handler_instance_id"))
+                    .from("action")
+                    .where("action_code = ?", code)
+                    .fetchOne();
 
-                if (count == 0) {
+                if (row == null) {
                     unknown.add(code + " (on " + targetClass.getSimpleName() + "." + m.getName() + ")");
+                } else if (row.get("handler_instance_id") == null) {
+                    notDispatchable.add(code + " (on " + targetClass.getSimpleName() + "." + m.getName() +
+                        ") — use @PlmPermission instead");
                 }
             }
         }
 
-        if (unknown.isEmpty()) {
-            log.info("PlmActionValidator: all {} @PlmAction codes validated ✓", checked.size());
-        } else {
-            log.error("PlmActionValidator: {} unknown @PlmAction code(s) — not found in action table:",
-                unknown.size());
+        // Validate action_required_permission codes against permission table
+        Set<String> unknownPerms = new LinkedHashSet<>();
+        dsl.select(org.jooq.impl.DSL.field("permission_code"))
+            .from("action_required_permission")
+            .fetchSet(org.jooq.impl.DSL.field("permission_code"), String.class)
+            .forEach(permCode -> {
+                Integer count = dsl.fetchCount(
+                    dsl.selectOne().from("permission")
+                       .where("permission_code = ?", permCode));
+                if (count == 0) {
+                    unknownPerms.add(permCode);
+                }
+            });
+
+        // Report results
+        int total = checked.size();
+        if (unknown.isEmpty() && notDispatchable.isEmpty() && unknownPerms.isEmpty()) {
+            log.info("PlmActionValidator: all {} @PlmAction codes validated ✓", total);
+        }
+        if (!unknown.isEmpty()) {
+            log.error("PlmActionValidator: {} unknown @PlmAction code(s):", unknown.size());
             unknown.forEach(entry -> log.error("  ✗ {}", entry));
-            log.error("Ensure action_code values match the `action` table. " +
-                      "Affected methods will use the permissive default (no permission check).");
+        }
+        if (!notDispatchable.isEmpty()) {
+            log.warn("PlmActionValidator: {} @PlmAction code(s) have no handler:", notDispatchable.size());
+            notDispatchable.forEach(entry -> log.warn("  ⚠ {}", entry));
+        }
+        if (!unknownPerms.isEmpty()) {
+            log.error("PlmActionValidator: {} unknown permission code(s) in action_required_permission:",
+                unknownPerms.size());
+            unknownPerms.forEach(entry -> log.error("  ✗ {}", entry));
         }
     }
 }

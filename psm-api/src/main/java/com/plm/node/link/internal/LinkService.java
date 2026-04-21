@@ -6,7 +6,7 @@ import com.plm.node.transaction.internal.LockService;
 
 import com.plm.shared.model.Enums.ChangeType;
 import com.plm.shared.model.Enums.VersionStrategy;
-import com.plm.shared.authorization.PlmAction;
+import com.plm.shared.action.PlmAction;
 import com.plm.shared.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

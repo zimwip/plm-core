@@ -6,6 +6,7 @@ import com.plm.node.lifecycle.internal.LifecycleService;
 import com.plm.node.transaction.internal.LockService;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import com.plm.node.version.internal.VersionService;
+import com.plm.shared.security.PlmProjectSpaceContext;
 import com.plm.shared.security.PlmSecurityContext;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -56,6 +57,7 @@ class PlmIntegrationTest {
     // Admin bypasses all role-based permission checks (no node_type_permission in test meta-model)
     private void asAdmin() {
         PlmSecurityContext.set(new PlmUserContext("admin", "admin", Set.of(), true));
+        PlmProjectSpaceContext.set("ps-default");
     }
 
     @BeforeEach
@@ -73,36 +75,34 @@ class PlmIntegrationTest {
 
         dsl.execute("INSERT INTO LIFECYCLE (ID, NAME) VALUES (?, ?)", lifecycleId, "Standard");
 
-        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, IS_FROZEN, IS_RELEASED, DISPLAY_ORDER) VALUES (?,?,?,1,0,0,1)", stateDraftId,    lifecycleId, "Draft");
-        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, IS_FROZEN, IS_RELEASED, DISPLAY_ORDER) VALUES (?,?,?,0,0,0,2)", stateInReviewId, lifecycleId, "InReview");
-        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, IS_FROZEN, IS_RELEASED, DISPLAY_ORDER) VALUES (?,?,?,0,0,1,3)", stateReleasedId, lifecycleId, "Released");
-        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, IS_FROZEN, IS_RELEASED, DISPLAY_ORDER) VALUES (?,?,?,0,1,0,4)", stateFrozenId,   lifecycleId, "Frozen");
+        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, DISPLAY_ORDER) VALUES (?,?,?,1,1)", stateDraftId,    lifecycleId, "Draft");
+        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, DISPLAY_ORDER) VALUES (?,?,?,0,2)", stateInReviewId, lifecycleId, "InReview");
+        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, DISPLAY_ORDER) VALUES (?,?,?,0,3)", stateReleasedId, lifecycleId, "Released");
+        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, DISPLAY_ORDER) VALUES (?,?,?,0,4)", stateFrozenId,   lifecycleId, "Frozen");
 
         dsl.execute("INSERT INTO LIFECYCLE_TRANSITION (ID, LIFECYCLE_ID, NAME, FROM_STATE_ID, TO_STATE_ID, GUARD_EXPR) VALUES (?,?,?,?,?,?)",
             transitionToReviewId, lifecycleId, "Submit for Review", stateDraftId, stateInReviewId, "all_required_filled");
         dsl.execute("INSERT INTO LIFECYCLE_TRANSITION (ID, LIFECYCLE_ID, NAME, FROM_STATE_ID, TO_STATE_ID, VERSION_STRATEGY) VALUES (?,?,?,?,?,?)",
-            transitionToReleasedId, lifecycleId, "Release", stateInReviewId, stateReleasedId, "REVISE");
+            transitionToReleasedId, lifecycleId, "Release", stateInReviewId, stateReleasedId, "NONE");
 
         // -- NodeType
         nodeTypeId = uid();
         dsl.execute("INSERT INTO NODE_TYPE (ID, NAME, LIFECYCLE_ID) VALUES (?,?,?)", nodeTypeId, "Document", lifecycleId);
 
-        // action_permission rows wire actions to this node type. A role-less "wired"
-        // permission is not representable, so grant baseline perms to ROLE_DESIGNER
-        // (the default role used in the role/view tests).
+        // authorization_policy rows grant permissions for this node type.
         String roleDesigner = "role-designer";
-        String[][] nodeActions = { {"act-checkout"}, {"act-sign"}, {"act-update-node"}, {"act-checkin"} };
-        for (String[] row : nodeActions) {
+        String[][] nodePerms = { {"UPDATE_NODE", "NODE"}, {"SIGN", "NODE"} };
+        for (String[] row : nodePerms) {
             dsl.execute(
-                "INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,NULL)",
-                uid(), row[0], PS_DEFAULT, roleDesigner, nodeTypeId);
+                "INSERT INTO authorization_policy (id, permission_code, scope, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?,NULL)",
+                uid(), row[0], row[1], PS_DEFAULT, roleDesigner, nodeTypeId);
         }
         dsl.execute(
-            "INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?)",
-            uid(), "act-transition", PS_DEFAULT, roleDesigner, nodeTypeId, transitionToReviewId);
+            "INSERT INTO authorization_policy (id, permission_code, scope, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?,?)",
+            uid(), "TRANSITION", "LIFECYCLE", PS_DEFAULT, roleDesigner, nodeTypeId, transitionToReviewId);
         dsl.execute(
-            "INSERT INTO action_permission (id, action_id, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?)",
-            uid(), "act-transition", PS_DEFAULT, roleDesigner, nodeTypeId, transitionToReleasedId);
+            "INSERT INTO authorization_policy (id, permission_code, scope, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?,?)",
+            uid(), "TRANSITION", "LIFECYCLE", PS_DEFAULT, roleDesigner, nodeTypeId, transitionToReleasedId);
 
         // -- Attributs
         attrNameId = uid();
@@ -167,21 +167,39 @@ class PlmIntegrationTest {
     }
 
     @Test
-    @DisplayName("Passage Released → nouvelle révision B, itération 1")
-    void testReleaseIncrementsRevision() {
+    @DisplayName("Release → même révision A (pas de bump), Revise → nouvelle révision B.1")
+    void testReviseIncrementsRevision() {
         String nodeId = setupNode(Map.of(attrNameId, "Doc"));
 
+        // Submit for review
         String tx1 = txService.openTransaction(ALICE);
         lifecycleService.applyTransition(nodeId, transitionToReviewId, ALICE, tx1);
         txService.commitTransaction(tx1, ALICE, "Submitted", null);
 
+        // Release (NONE strategy — same revision)
         String tx2 = txService.openTransaction(ALICE);
         lifecycleService.applyTransition(nodeId, transitionToReleasedId, ALICE, tx2);
         txService.commitTransaction(tx2, ALICE, "Released", null);
 
-        var version = versionService.getCurrentVersion(nodeId);
-        assertThat(version.get("revision", String.class)).isEqualTo("B");
-        assertThat(version.get("iteration", Integer.class)).isEqualTo(1);
+        var releasedVer = versionService.getCurrentVersion(nodeId);
+        assertThat(releasedVer.get("revision", String.class)).isEqualTo("A");
+
+        // Add a Revise transition (Released → Draft, REVISE strategy)
+        String transitionReviseId = uid();
+        dsl.execute("INSERT INTO LIFECYCLE_TRANSITION (ID, LIFECYCLE_ID, NAME, FROM_STATE_ID, TO_STATE_ID, VERSION_STRATEGY) VALUES (?,?,?,?,?,?)",
+            transitionReviseId, lifecycleId, "Revise", stateReleasedId, stateDraftId, "REVISE");
+        dsl.execute(
+            "INSERT INTO authorization_policy (id, permission_code, scope, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?,?)",
+            uid(), "TRANSITION", "LIFECYCLE", PS_DEFAULT, "role-designer", nodeTypeId, transitionReviseId);
+
+        // Revise (REVISE strategy — A → B.1)
+        String tx3 = txService.openTransaction(ALICE);
+        lifecycleService.applyTransition(nodeId, transitionReviseId, ALICE, tx3);
+        txService.commitTransaction(tx3, ALICE, "Revising", null);
+
+        var revisedVer = versionService.getCurrentVersion(nodeId);
+        assertThat(revisedVer.get("revision", String.class)).isEqualTo("B");
+        assertThat(revisedVer.get("iteration", Integer.class)).isEqualTo(1);
     }
 
     @Test

@@ -7,7 +7,8 @@ import com.plm.node.lifecycle.internal.LifecycleService;
 import com.plm.node.signature.internal.SignatureService;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import com.plm.node.version.internal.VersionService;
-import com.plm.shared.authorization.ActionPermissionPort;
+import com.plm.shared.authorization.PolicyPort;
+import com.plm.shared.security.PlmProjectSpaceContext;
 import com.plm.shared.security.PlmSecurityContext;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.*;
@@ -33,7 +34,7 @@ class PlmRoleAndViewTest {
 
     @Autowired DSLContext            dsl;
     @Autowired NodeService           nodeService;
-    @Autowired com.plm.shared.authorization.ActionPermissionPort actionPermissionService;
+    @Autowired com.plm.shared.authorization.PolicyPort policyService;
     @Autowired LifecycleService      lifecycleService;
     @Autowired SignatureService      signatureService;
     @Autowired VersionService        versionService;
@@ -70,6 +71,7 @@ class PlmRoleAndViewTest {
     @AfterEach
     void clearContext() {
         PlmSecurityContext.clear();
+        PlmProjectSpaceContext.clear();
     }
 
     // ================================================================
@@ -135,7 +137,7 @@ class PlmRoleAndViewTest {
 
         // Tester directement la permission reviewer
         asReviewer();
-        assertThatThrownBy(() -> actionPermissionService.assertTransition(TR_FREEZE))
+        assertThatThrownBy(() -> policyService.assertTransition(TR_FREEZE))
             .isInstanceOf(AccessDeniedException.class);
     }
 
@@ -152,12 +154,12 @@ class PlmRoleAndViewTest {
 
         // Alice (designer) ne peut pas releaser
         asDesigner();
-        assertThatThrownBy(() -> actionPermissionService.assertTransition(TR_RELEASE))
+        assertThatThrownBy(() -> policyService.assertTransition(TR_RELEASE))
             .isInstanceOf(AccessDeniedException.class);
 
         // Bob (reviewer) peut releaser
         asReviewer();
-        assertThatCode(() -> actionPermissionService.assertTransition(TR_RELEASE))
+        assertThatCode(() -> policyService.assertTransition(TR_RELEASE))
             .doesNotThrowAnyException();
     }
 
@@ -173,13 +175,12 @@ class PlmRoleAndViewTest {
 
         // Bob (reviewer) peut signer
         asReviewer();
-        String bobTx = txService.openTransaction(USER_BOB);
-        assertThatCode(() -> signatureService.sign(nodeId, USER_BOB, bobTx, "Reviewed", null))
+        assertThatCode(() -> signatureService.sign(nodeId, USER_BOB, "Reviewed", null))
             .doesNotThrowAnyException();
 
-        // Charlie (reader) ne peut pas signer — permission denied before txId check
+        // Charlie (reader) ne peut pas signer — permission denied
         asReader();
-        assertThatThrownBy(() -> signatureService.sign(nodeId, USER_CHARLIE, null, "Reviewed", null))
+        assertThatThrownBy(() -> signatureService.sign(nodeId, USER_CHARLIE, "Reviewed", null))
             .isInstanceOf(AccessDeniedException.class);
     }
 
@@ -315,7 +316,7 @@ class PlmRoleAndViewTest {
             .doesNotThrowAnyException();
 
         // Admin peut déclencher n'importe quelle transition
-        assertThatCode(() -> actionPermissionService.assertTransition(TR_RELEASE))
+        assertThatCode(() -> policyService.assertTransition(TR_RELEASE))
             .doesNotThrowAnyException();
     }
 
@@ -337,20 +338,24 @@ class PlmRoleAndViewTest {
     private void asAdmin() {
         PlmSecurityContext.set(new PlmUserContext(
             USER_ADMIN, "admin", Set.of(ROLE_ADMIN), true));
+        PlmProjectSpaceContext.set("ps-default");
     }
 
     private void asDesigner() {
         PlmSecurityContext.set(new PlmUserContext(
             USER_ALICE, "alice", Set.of(ROLE_DESIGNER), false));
+        PlmProjectSpaceContext.set("ps-default");
     }
 
     private void asReviewer() {
         PlmSecurityContext.set(new PlmUserContext(
             USER_BOB, "bob", Set.of(ROLE_REVIEWER), false));
+        PlmProjectSpaceContext.set("ps-default");
     }
 
     private void asReader() {
         PlmSecurityContext.set(new PlmUserContext(
             USER_CHARLIE, "charlie", Set.of(ROLE_READER), false));
+        PlmProjectSpaceContext.set("ps-default");
     }
 }

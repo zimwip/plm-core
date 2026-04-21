@@ -310,6 +310,16 @@ public class AlgorithmController {
         return ResponseEntity.ok(statsService.getPersistedStats());
     }
 
+    /**
+     * Returns time-series stats in 15-minute windows.
+     * @param hours lookback period (default 24, max 48)
+     */
+    @GetMapping("/stats/timeseries")
+    public ResponseEntity<List<Map<String, Object>>> getTimeseries(
+            @RequestParam(defaultValue = "24") int hours) {
+        return ResponseEntity.ok(statsService.getTimeseries(Math.min(hours, 48)));
+    }
+
     /** Resets all algorithm execution stats (both in-memory and DB). */
     @DeleteMapping("/stats")
     public ResponseEntity<Void> resetStats() {

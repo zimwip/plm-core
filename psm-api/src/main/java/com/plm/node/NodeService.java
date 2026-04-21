@@ -1,5 +1,5 @@
 package com.plm.node;
-import com.plm.shared.authorization.ActionPermissionPort;
+import com.plm.shared.authorization.PolicyPort;
 import com.plm.permission.ViewService;
 import com.plm.node.link.internal.GraphValidationService;
 import com.plm.node.link.internal.LinkService;
@@ -17,7 +17,8 @@ import com.plm.shared.metadata.MetadataService;
 import com.plm.shared.model.Enums.ChangeType;
 import com.plm.shared.model.Enums.VersionStrategy;
 import com.plm.shared.model.ResolvedAttribute;
-import com.plm.shared.authorization.PlmAction;
+import com.plm.shared.action.PlmAction;
+import com.plm.shared.authorization.PlmPermission;
 import com.plm.shared.security.SecurityContextPort;
 import com.plm.shared.event.PlmEventPublisher;
 import java.time.LocalDateTime;
@@ -63,7 +64,7 @@ public class NodeService {
     private final LockService                     lockService;
     private final VersionService                  versionService;
     private final PlmTransactionService           txService;
-    private final com.plm.shared.authorization.ActionPermissionPort actionPermissionService;
+    private final com.plm.shared.authorization.PolicyPort policyService;
     private final ViewService                     viewService;
     private final ValidationService               validationService;
     private final FingerPrintService              fingerPrintService;
@@ -78,7 +79,7 @@ public class NodeService {
     // CRÉATION (pas de txId — version initiale directement COMMITTED)
     // ================================================================
 
-    @PlmAction(value = "CHECKOUT", nodeTypeIdExpr = "#nodeTypeId")
+    @PlmPermission(value = "CREATE_NODE", nodeTypeIdExpr = "#nodeTypeId")
     @Transactional
     public String createNode(
         String projectSpaceId,
@@ -125,7 +126,7 @@ public class NodeService {
         );
 
         // Lock the node immediately so it behaves like a checked-out node:
-        // the UI shows Checkin/Cancel instead of Checkout.
+        // the UI shows Checkin/Abort instead of Checkout.
         lockService.tryLock(nodeId, userId);
 
         // Find or auto-create an OPEN transaction for this user.
@@ -262,9 +263,9 @@ public class NodeService {
             .map(r -> r.get("node_type_id", String.class))
             .filter(Objects::nonNull)
             .collect(java.util.stream.Collectors.toSet());
-        // Direct call instead of @PlmAction: batch permission check filters a list of node types,
+        // Direct call instead of @PlmPermission: batch permission check filters a list of node types,
         // not a single node — cannot be expressed as a method-level annotation.
-        Map<String, Boolean> readableByNodeType = actionPermissionService.canOnNodeTypes("READ", allNodeTypeIds);
+        Map<String, Boolean> readableByNodeType = policyService.canOnNodeTypes("READ_NODE", allNodeTypeIds);
 
         List<Record> filtered = rows.stream()
             .filter(r -> {
@@ -287,14 +288,15 @@ public class NodeService {
     // HISTORIQUE — toutes les versions d'un noeud
     // ================================================================
 
-    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
     public List<Record> getVersionHistory(String nodeId) {
         return dsl.fetch(
             """
             SELECT nv.id, nv.version_number, nv.revision, nv.iteration,
                    nv.lifecycle_state_id, ls.name AS state_name,
                    nv.change_type, nv.change_description,
-                   nv.version_reason, nv.previous_version_id, nv.created_by,
+                   nv.version_reason, nv.previous_version_id,
+                   nv.previous_version_fingerprint, nv.branch, nv.created_by,
                    nv.fingerprint, nv.tx_id,
                    pt.commit_comment AS tx_comment,
                    pt.owner_id       AS tx_owner,
@@ -315,7 +317,7 @@ public class NodeService {
     // DIFF — comparaison de deux versions
     // ================================================================
 
-    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
     public Map<String, Object> getVersionDiff(
         String nodeId,
         int v1Num,
@@ -713,7 +715,7 @@ public class NodeService {
      * Pipeline : règle d'état → override de vue → can_write → filtrage des actions par rôle.
      */
     /** Backward-compatible overload — no historical version pinning. */
-    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
     public Map<String, Object> buildObjectDescription(
         String nodeId,
         String userId,
@@ -728,7 +730,7 @@ public class NodeService {
      * @param versionNumber when non-null, pins the view to that specific historical version
      *                      (all attributes are forced read-only, actions list is empty).
      */
-    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
     public Map<String, Object> buildObjectDescription(
         String nodeId,
         String userId,
@@ -1003,7 +1005,7 @@ public class NodeService {
     /**
      * Retourne les liens sortants du noeud (BOM / enfants).
      */
-    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
     public List<Map<String, Object>> getChildLinks(String nodeId) {
         return linkService.getChildLinks(nodeId);
     }
@@ -1011,7 +1013,7 @@ public class NodeService {
     /**
      * Retourne les liens entrants vers ce noeud (Where Used / parents).
      */
-    @PlmAction(value = "READ", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
     public List<Map<String, Object>> getParentLinks(String nodeId) {
         return linkService.getParentLinks(nodeId);
     }

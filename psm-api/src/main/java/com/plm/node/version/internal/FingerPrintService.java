@@ -14,15 +14,22 @@ import java.util.List;
 /**
  * Computes a canonical SHA-256 fingerprint for a node_version.
  *
- * The fingerprint captures the full observable content of a version:
+ * The fingerprint captures the CONTENT of a version:
  *
- *   state=<lifecycle_state_id>
- *   |attrs=<attr_def_id>:<value>;<attr_def_id>:<value>;...   (sorted by attr_def_id)
- *   |sigs=<user_id>:<meaning>;<user_id>:<meaning>;...        (sorted by user_id, meaning)
- *   |links=<link_type_id>:<target_node_id>:<pinned_ver|>;... (sorted by link_type_id, target_node_id)
+ *   state={lifecycle_state_id}
+ *   |attrs={attr_def_id}:{value};...   (sorted by attr_def_id)
+ *   |links={link_type_id}:{target_node_id}:{pinned_ver|};... (sorted)
  *
- * Consistent ordering ensures two versions with identical content produce identical
- * fingerprints regardless of insertion order.
+ * Previous version fingerprint is NOT included — it would make every version
+ * unique even with identical content, breaking the no-change guard.
+ * The previous_version_fingerprint column on node_version provides chain
+ * integrity verification separately.
+ *
+ * Signatures are NOT included — they reference the fingerprint
+ * (signed_version_fingerprint), not the other way around.
+ *
+ * Consistent ordering ensures two versions with identical content produce
+ * identical fingerprints regardless of insertion order.
  *
  * Two versions are considered identical (no-op) when their fingerprints match.
  * The fingerprint is stored on node_version.fingerprint at commit time.
@@ -36,6 +43,9 @@ public class FingerPrintService {
     /**
      * Computes the fingerprint for a given node version.
      *
+     * Content-only: two versions with identical state, attributes, and links
+     * produce the same fingerprint, enabling no-change detection at checkin.
+     *
      * @param nodeId        the stable node identifier (for link lookup)
      * @param nodeVersionId the specific version to fingerprint
      * @return 64-character lowercase hex SHA-256 digest
@@ -43,16 +53,16 @@ public class FingerPrintService {
     public String compute(String nodeId, String nodeVersionId) {
         StringBuilder sb = new StringBuilder(512);
 
-        // ── 1. Lifecycle state ────────────────────────────────────────────
         Record version = dsl.select()
             .from("node_version")
             .where("id = ?", nodeVersionId)
             .fetchOne();
         if (version == null) throw new IllegalArgumentException("Version not found: " + nodeVersionId);
 
+        // 1. Lifecycle state
         sb.append("state=").append(nvl(version.get("lifecycle_state_id", String.class)));
 
-        // ── 2. Attribute values (sorted by attribute_def_id) ─────────────
+        // 2. Attribute values (sorted by attribute_def_id)
         List<Record> attrs = dsl.select()
             .from("node_version_attribute")
             .where("node_version_id = ?", nodeVersionId)
@@ -66,25 +76,7 @@ public class FingerPrintService {
               .append(';');
         }
 
-        // ── 3. Signatures (sorted by signed_by, meaning) ─────────────────
-        List<Record> sigs = dsl.select()
-            .from("node_signature")
-            .where("node_version_id = ?", nodeVersionId)
-            .orderBy(DSL.field("signed_by").asc(), DSL.field("meaning").asc())
-            .fetch();
-
-        sb.append("|sigs=");
-        for (Record s : sigs) {
-            sb.append(s.get("signed_by", String.class))
-              .append(':').append(s.get("meaning", String.class))
-              .append(';');
-        }
-
-        // ── 4. Outgoing links (sorted by link_type_id, target_node_id) ───
-        // Include links whose source_node_version_id chains back to this version or before:
-        //   - committed links whose source version_number <= this version's version_number
-        //   - links created in this exact version (OPEN, being committed now)
-        // Legacy links (source_node_version_id IS NULL) are included for backward compat.
+        // 3. Outgoing links (sorted by link_type_id, target_node_id)
         List<Record> links = dsl.fetch("""
             SELECT nl.link_type_id, nl.target_node_id, nl.pinned_version_id
             FROM node_version_link nl
@@ -107,8 +99,6 @@ public class FingerPrintService {
 
         return sha256(sb.toString());
     }
-
-    // ── Helpers ──────────────────────────────────────────────────────────
 
     private static String nvl(String s) { return s != null ? s : ""; }
 

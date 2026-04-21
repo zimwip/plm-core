@@ -14,7 +14,8 @@ import com.plm.node.lifecycle.internal.stateaction.StateActionContext;
 import com.plm.node.lifecycle.internal.stateaction.StateActionService;
 import com.plm.node.lifecycle.internal.stateaction.StateActionTrigger;
 import com.plm.shared.event.PlmEventPublisher;
-import com.plm.shared.authorization.PlmAction;
+import com.plm.shared.action.PlmAction;
+import com.plm.shared.authorization.PlmPermission;
 import com.plm.shared.security.PlmUserContext;
 import com.plm.shared.security.SecurityContextPort;
 import java.util.ArrayList;
@@ -134,7 +135,7 @@ public class LifecycleService {
     // LIFECYCLE AUTHORING — CRUD for lifecycles, states, transitions
     // ================================================================
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public String createLifecycle(String name, String description) {
         String id = java.util.UUID.randomUUID().toString();
@@ -146,7 +147,7 @@ public class LifecycleService {
         return id;
     }
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public String duplicateLifecycle(String sourceId, String newName) {
         Record src = dsl.select().from("lifecycle").where("id = ?", sourceId).fetchOne();
@@ -246,7 +247,7 @@ public class LifecycleService {
         return dsl.select().from("lifecycle").where("id = ?", lifecycleId).fetchOne();
     }
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public String addState(String lifecycleId, String name,
                            boolean isInitial, Map<String, String> metadata,
@@ -270,7 +271,7 @@ public class LifecycleService {
         return id;
     }
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public void updateState(String stateId, String name, boolean isInitial,
                             Map<String, String> metadata, int displayOrder, String color) {
@@ -303,7 +304,7 @@ public class LifecycleService {
         }).collect(Collectors.toList());
     }
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public String addTransition(String lifecycleId, String name,
                                 String fromStateId, String toStateId,
@@ -321,7 +322,7 @@ public class LifecycleService {
         return id;
     }
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public void updateTransition(String transitionId, String name, String fromStateId, String toStateId,
                                  String guardExpr, String actionType, String versionStrategy) {
@@ -364,7 +365,7 @@ public class LifecycleService {
         }).collect(java.util.stream.Collectors.toList());
     }
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public String addSignatureRequirement(String transitionId, String roleId, int displayOrder) {
         String id = java.util.UUID.randomUUID().toString();
@@ -376,7 +377,7 @@ public class LifecycleService {
         return id;
     }
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public void removeSignatureRequirement(String reqId) {
         dsl.execute("DELETE FROM signature_requirement WHERE id = ?", reqId);
@@ -385,7 +386,7 @@ public class LifecycleService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public void deleteLifecycle(String lifecycleId) {
         int used = dsl.fetchCount(dsl.selectOne().from("node_type").where("lifecycle_id = ?", lifecycleId));
@@ -394,7 +395,7 @@ public class LifecycleService {
         dsl.execute("DELETE FROM lifecycle_state_action WHERE lifecycle_state_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM entity_metadata WHERE target_type = 'LIFECYCLE_STATE' AND target_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM attribute_state_rule WHERE lifecycle_state_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
-        dsl.execute("DELETE FROM action_permission WHERE action_id = 'act-transition' AND node_type_id IN (SELECT id FROM node_type WHERE lifecycle_id = ?) AND transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId, lifecycleId);
+        dsl.execute("DELETE FROM authorization_policy WHERE permission_code = 'TRANSITION' AND node_type_id IN (SELECT id FROM node_type WHERE lifecycle_id = ?) AND transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId, lifecycleId);
         dsl.execute("DELETE FROM signature_requirement WHERE lifecycle_transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM lifecycle_transition_guard WHERE lifecycle_transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM node_action_guard WHERE transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
@@ -406,7 +407,7 @@ public class LifecycleService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public void deleteState(String stateId) {
         int inTransitions = dsl.fetchCount(
@@ -424,10 +425,10 @@ public class LifecycleService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmAction("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_LIFECYCLE")
     @Transactional
     public void deleteTransition(String transitionId) {
-        dsl.execute("DELETE FROM action_permission WHERE action_id = 'act-transition' AND transition_id = ?", transitionId);
+        dsl.execute("DELETE FROM authorization_policy WHERE permission_code = 'TRANSITION' AND transition_id = ?", transitionId);
         dsl.execute("DELETE FROM signature_requirement WHERE lifecycle_transition_id = ?", transitionId);
         dsl.execute("DELETE FROM lifecycle_transition_guard WHERE lifecycle_transition_id = ?", transitionId);
         dsl.execute("DELETE FROM node_action_guard WHERE transition_id = ?", transitionId);
@@ -455,6 +456,8 @@ public class LifecycleService {
 
     /**
      * Applique une transition de lifecycle.
+     * Guards (action + lifecycle) are evaluated by PlmActionAspect via ActionGuardService
+     * before this method proceeds — including TransitionLifecycleGuard bridge.
      *
      * @param txId  transaction PLM ouverte — OBLIGATOIRE
      */
@@ -465,6 +468,19 @@ public class LifecycleService {
     )
     @Transactional
     public String applyTransition(
+        String nodeId,
+        String transitionId,
+        String userId,
+        String txId
+    ) {
+        return applyTransitionInternal(nodeId, transitionId, userId, txId);
+    }
+
+    /**
+     * Internal transition logic — no guard evaluation, no @PlmAction.
+     * Called by the public guarded version.
+     */
+    String applyTransitionInternal(
         String nodeId,
         String transitionId,
         String userId,
@@ -507,9 +523,6 @@ public class LifecycleService {
 
         // Vérifier permission transition
         // (délégué à permissionService dans NodeController — ici on fait confiance à l'appelant)
-
-        // Action-level guards (action_guard + node_action_guard) are evaluated upstream
-        // by PlmActionAspect before dispatch — not duplicated here.
 
         String nodeTypeId = dsl.select(DSL.field("node_type_id")).from("node")
             .where("id = ?", nodeId).fetchOne(DSL.field("node_type_id"), String.class);
@@ -599,13 +612,6 @@ public class LifecycleService {
             )
             .fetch();
     }
-
-    // ================================================================
-    // Guards
-    // ================================================================
-
-    // Action-level guard evaluation (evaluateAllGuards) removed —
-    // handled by PlmActionAspect before dispatch, not duplicated in service.
 
     // ================================================================
     // Actions

@@ -1,6 +1,5 @@
 package com.plm.permission;
 
-import com.plm.shared.authorization.ActionPermissionPort;
 import com.plm.permission.internal.PermissionAdminService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -15,7 +14,7 @@ import java.util.Map;
  * Les rôles et utilisateurs sont gérés par pno-api (/api/pno/...).
  * Ce contrôleur gère :
  *   - les vues d'attributs PSM (attribute_view + view_attribute_override)
- *   - les droits globaux (MANAGE_METAMODEL, MANAGE_ROLES, MANAGE_BASELINES)
+ *   - les droits globaux (MANAGE_METAMODEL, MANAGE_ROLES, MANAGE_BASELINES, READ)
  *     pour la section "Access Rights" du frontend
  */
 @RestController
@@ -23,30 +22,92 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class RoleController {
 
-    private final PermissionAdminService   permissionAdminService;
-    private final ActionPermissionPort actionPermissionService;
+    private final PermissionAdminService permissionAdminService;
 
     // ================================================================
-    // GLOBAL ACTIONS — catalog & current-user introspection
+    // GLOBAL PERMISSIONS — catalog & current-user introspection
     // ================================================================
 
     /**
-     * Returns all actions with scope=GLOBAL from the action catalog.
-     * Open to all authenticated users (read-only).
+     * Returns all permissions with scope=GLOBAL from the permission catalog.
      */
     @GetMapping("/global-actions")
-    public ResponseEntity<List<Map<String, Object>>> listGlobalActions() {
-        return ResponseEntity.ok(actionPermissionService.listGlobalActions());
+    public ResponseEntity<List<Map<String, Object>>> listGlobalPermissions() {
+        return ResponseEntity.ok(permissionAdminService.listGlobalPermissions());
     }
 
     /**
-     * Returns the GLOBAL action codes the current user can execute in the
-     * active project space.  Used by the frontend to decide which write
-     * buttons to show.  Admin users get all global actions.
+     * Returns the GLOBAL permission codes the current user can execute.
      */
     @GetMapping("/my-global-permissions")
     public ResponseEntity<List<String>> getMyGlobalPermissions() {
-        return ResponseEntity.ok(actionPermissionService.getExecutableGlobalActionCodes());
+        return ResponseEntity.ok(permissionAdminService.getExecutableGlobalPermissions());
+    }
+
+    // ================================================================
+    // PERMISSION CATALOG — introspection for Access Rights UI
+    // ================================================================
+
+    /**
+     * Returns the full permission catalog grouped by scope.
+     * Used by the Access Rights section to dynamically build the UI.
+     */
+    @GetMapping("/permissions")
+    public ResponseEntity<List<Map<String, Object>>> listPermissions() {
+        return ResponseEntity.ok(permissionAdminService.listPermissions());
+    }
+
+    // ================================================================
+    // PERMISSION CATALOG CRUD
+    // ================================================================
+
+    /**
+     * Creates a new permission.
+     * Body: { "permissionCode": "...", "scope": "GLOBAL|NODE|LIFECYCLE", "displayName": "...", "description": "...", "displayOrder": 0 }
+     */
+    @PostMapping("/permissions")
+    public ResponseEntity<Void> createPermission(@RequestBody Map<String, Object> body) {
+        permissionAdminService.createPermission(
+            (String) body.get("permissionCode"),
+            (String) body.get("scope"),
+            (String) body.get("displayName"),
+            (String) body.get("description"),
+            body.get("displayOrder") != null ? ((Number) body.get("displayOrder")).intValue() : 0
+        );
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Updates permission display metadata.
+     * Body: { "displayName": "...", "description": "...", "displayOrder": 0 }
+     */
+    @PutMapping("/permissions/{permissionCode}")
+    public ResponseEntity<Void> updatePermission(
+        @PathVariable String permissionCode,
+        @RequestBody Map<String, Object> body
+    ) {
+        permissionAdminService.updatePermission(
+            permissionCode,
+            (String) body.get("displayName"),
+            (String) body.get("description"),
+            body.get("displayOrder") != null ? ((Number) body.get("displayOrder")).intValue() : null
+        );
+        return ResponseEntity.ok().build();
+    }
+
+    // ================================================================
+    // BULK POLICIES — all grants for a role in one call
+    // ================================================================
+
+    /**
+     * Returns ALL authorization_policy rows for a role in the active project space.
+     * Frontend slices by scope locally.
+     */
+    @GetMapping("/roles/{roleId}/policies")
+    public ResponseEntity<List<Map<String, Object>>> getRolePolicies(
+        @PathVariable String roleId
+    ) {
+        return ResponseEntity.ok(permissionAdminService.getRolePolicies(roleId));
     }
 
     // ================================================================
@@ -54,8 +115,7 @@ public class RoleController {
     // ================================================================
 
     /**
-     * Lists the GLOBAL action permissions held by a role in the active
-     * project space.  Open to all authenticated users (read-only).
+     * Lists the GLOBAL permission grants held by a role.
      */
     @GetMapping("/roles/{roleId}/global-permissions")
     public ResponseEntity<List<Map<String, Object>>> getRoleGlobalPermissions(
@@ -65,27 +125,28 @@ public class RoleController {
     }
 
     /**
-     * Grants a GLOBAL action to a role.  Requires MANAGE_ROLES.
-     * Body: { "actionId": "act-manage-metamodel" }
+     * Grants a GLOBAL permission to a role.
+     * Body: { "permissionCode": "MANAGE_METAMODEL" }
      */
     @PostMapping("/roles/{roleId}/global-permissions")
     public ResponseEntity<Void> addRoleGlobalPermission(
         @PathVariable String roleId,
         @RequestBody  Map<String, String> body
     ) {
-        permissionAdminService.addRoleGlobalPermission(roleId, body.get("actionId"));
+        String permCode = body.getOrDefault("permissionCode", body.get("actionId"));
+        permissionAdminService.addRoleGlobalPermission(roleId, permCode);
         return ResponseEntity.ok().build();
     }
 
     /**
-     * Revokes a GLOBAL action from a role.  Requires MANAGE_ROLES.
+     * Revokes a GLOBAL permission from a role.
      */
-    @DeleteMapping("/roles/{roleId}/global-permissions/{actionId}")
+    @DeleteMapping("/roles/{roleId}/global-permissions/{permissionCode}")
     public ResponseEntity<Void> removeRoleGlobalPermission(
         @PathVariable String roleId,
-        @PathVariable String actionId
+        @PathVariable String permissionCode
     ) {
-        permissionAdminService.removeRoleGlobalPermission(roleId, actionId);
+        permissionAdminService.removeRoleGlobalPermission(roleId, permissionCode);
         return ResponseEntity.noContent().build();
     }
 

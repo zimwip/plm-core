@@ -1,6 +1,6 @@
 package com.plm.algorithm.internal;
 
-import com.plm.shared.authorization.PlmAction;
+import com.plm.shared.authorization.PlmPermission;
 import com.plm.action.guard.ActionGuardService;
 import com.plm.node.lifecycle.internal.guard.LifecycleGuardService;
 import com.plm.shared.security.SecurityContextPort;
@@ -129,7 +129,7 @@ public class AlgorithmService {
             });
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public String createInstance(String algorithmId, String name) {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("Instance name is required");
@@ -145,7 +145,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public void updateInstance(String instanceId, String name) {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("Instance name is required");
@@ -169,7 +169,7 @@ public class AlgorithmService {
         }
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public void deleteInstance(String instanceId) {
         dsl.execute("DELETE FROM node_type_state_action WHERE algorithm_instance_id = ?", instanceId);
         dsl.execute("DELETE FROM lifecycle_state_action WHERE algorithm_instance_id = ?", instanceId);
@@ -199,7 +199,7 @@ public class AlgorithmService {
             """, instanceId).map(r -> mapOf(r, "id", "param_name", "param_label", "data_type", "value"));
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public void setInstanceParamValue(String instanceId, String parameterId, String value) {
         dsl.execute(
             "DELETE FROM algorithm_instance_param_value WHERE algorithm_instance_id = ? AND algorithm_parameter_id = ?",
@@ -241,7 +241,7 @@ public class AlgorithmService {
             });
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public String attachActionGuard(String actionId, String instanceId, String effect, int displayOrder) {
         assertNotManagedForHide(actionId, effect);
         String id = UUID.randomUUID().toString();
@@ -254,7 +254,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public void detachActionGuard(String guardId) {
         dsl.execute("DELETE FROM action_guard WHERE id = ?", guardId);
         actionGuardService.evictCache();
@@ -290,7 +290,7 @@ public class AlgorithmService {
             });
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public String attachActionWrapper(String actionId, String instanceId, int executionOrder) {
         String id = java.util.UUID.randomUUID().toString();
         dsl.execute(
@@ -300,7 +300,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public void detachActionWrapper(String wrapperId) {
         dsl.execute("DELETE FROM action_wrapper WHERE id = ?", wrapperId);
         log.info("Action wrapper detached: id={}", wrapperId);
@@ -337,7 +337,7 @@ public class AlgorithmService {
             });
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public String attachTransitionGuard(String transitionId, String instanceId,
                                         String effect, int displayOrder) {
         String id = UUID.randomUUID().toString();
@@ -351,7 +351,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public void detachTransitionGuard(String guardId) {
         dsl.execute("DELETE FROM lifecycle_transition_guard WHERE id = ?", guardId);
         actionGuardService.evictCache();
@@ -391,7 +391,7 @@ public class AlgorithmService {
             JOIN algorithm_instance ai ON ai.id = nag.algorithm_instance_id
             JOIN algorithm a ON a.id = ai.algorithm_id
             JOIN algorithm_type at ON at.id = a.algorithm_type_id
-            WHERE """ + where + " ORDER BY nag.display_order",
+            WHERE\s""" + where + " ORDER BY nag.display_order",
             args.toArray()).map(r -> {
                 var m = new LinkedHashMap<String, Object>();
                 m.put("id",             r.get("id",              String.class));
@@ -408,7 +408,7 @@ public class AlgorithmService {
             });
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public String attachNodeActionGuard(String nodeTypeId, String actionCode, String transitionId,
                                         String instanceId, String effect,
                                         String overrideAction, int displayOrder) {
@@ -425,7 +425,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public void detachNodeActionGuard(String guardId) {
         dsl.execute("DELETE FROM node_action_guard WHERE id = ?", guardId);
         actionGuardService.evictCache();
@@ -465,7 +465,7 @@ public class AlgorithmService {
             });
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public String attachStateAction(String stateId, String instanceId,
                                     String trigger, String executionMode, int displayOrder) {
         String id = UUID.randomUUID().toString();
@@ -478,7 +478,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public void detachStateAction(String attachmentId) {
         dsl.execute("DELETE FROM lifecycle_state_action WHERE id = ?", attachmentId);
         stateActionService.evictCache();
@@ -518,7 +518,7 @@ public class AlgorithmService {
             });
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public String attachNodeTypeStateAction(String nodeTypeId, String stateId, String instanceId,
                                             String trigger, String executionMode,
                                             String overrideAction, int displayOrder) {
@@ -532,7 +532,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmAction("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_METAMODEL")
     public void detachNodeTypeStateAction(String attachmentId) {
         dsl.execute("DELETE FROM node_type_state_action WHERE id = ?", attachmentId);
         stateActionService.evictCache();

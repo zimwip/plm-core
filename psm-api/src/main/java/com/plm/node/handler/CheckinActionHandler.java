@@ -27,7 +27,7 @@ public class CheckinActionHandler implements ActionHandler {
 
         // Commit only the current node — other nodes in the tx (if any) are moved
         // to a new continuation transaction automatically.
-        String comment = params != null ? params.get("_description") : null;
+        String comment = params != null ? params.getOrDefault("comment", params.get("_description")) : null;
         if (comment == null || comment.isBlank()) comment = "checked-in";
         String continuationTxId = txService.commitTransaction(
             ctx.txId(), ctx.userId(), comment, List.of(ctx.nodeId()));

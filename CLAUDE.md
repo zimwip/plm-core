@@ -66,7 +66,8 @@ plm-api
 Règles de numérotation :
 - `CONTENT` → itération +1 (A.1 → A.2)
 - `LIFECYCLE` ou `SIGNATURE` → même révision.itération (traçabilité pure)
-- Passage `Released` → nouvelle révision + itération reset (A → B.1)
+- `Release` → même révision, itération tronquée à 0 (A.3 → A), collapse historique itérations
+- `Revise` (Released → In Work) → nouvelle révision + itération reset (A → B.1)
 
 ### 3. Liens typés
 - `VERSION_TO_MASTER` → pointe toujours version courante → lock récursif requis
@@ -129,17 +130,17 @@ node          → algorithm, permission, shared
 dashboard     → action, node, shared
 ```
 
-**Aucun cycle.** `action` ne dépend pas de `node`. Les wrappers (TransactionWrapper, LockWrapper) vivent dans `node` et sont découverts par `AlgorithmRegistry` comme beans d'algorithme. `ActionPermissionPort` (interface dans `shared`) rompt le couplage.
+**Aucun cycle.** `action` ne dépend pas de `node`. Les wrappers (TransactionWrapper, LockWrapper) vivent dans `node` et sont découverts par `AlgorithmRegistry` comme beans d'algorithme. `PolicyPort` (interface dans `shared`) rompt le couplage.
 
 ### Modules
 
 | Module | Package | Rôle |
 |--------|---------|------|
-| **shared** | `com.plm.shared` (OPEN) | Cross-cutting : security, PlmAction annotation, ActionPermissionPort, ActionHandler interface, events, metadata, model, hooks, guard types, config, exceptions |
+| **shared** | `com.plm.shared` (OPEN) | Cross-cutting : security, PlmPermission/PlmAction/PermissionScope annotations, PolicyPort, PermissionCatalogPort, ActionHandler interface, events, metadata, model, hooks, guard types, config, exceptions |
 | **node** | `com.plm.node` | Domaine principal : noeuds, versions, liens, lifecycle, metamodel, transactions, baselines, signatures, guard impls, action handlers, wrappers |
-| **action** | `com.plm.action` | ActionDispatcher, ActionService, ActionPermissionService, PlmActionAspect, ActionGuardService |
+| **action** | `com.plm.action` | ActionDispatcher, ActionService, PlmActionAspect(@Order 2), PlmActionValidator, ActionGuardService |
 | **algorithm** | `com.plm.algorithm` | AlgorithmRegistry, types, discovery, exécution |
-| **permission** | `com.plm.permission` | ViewService, PermissionAdminService, RoleController |
+| **permission** | `com.plm.permission` | PermissionRegistry (implements PermissionCatalogPort), PolicyService (implements PolicyPort), PlmPermissionAspect(@Order 1), PlmPermissionValidator, ViewService, PermissionAdminService, RoleController |
 | **dashboard** | `com.plm.dashboard` | Agrégations dashboard |
 
 ### Structure psm-api (com.plm)
@@ -150,7 +151,7 @@ com.plm/
 │
 ├── shared/                          # @ApplicationModule(type = OPEN)
 │   ├── security/                    # SecurityContextPort, PlmUserContext, PlmAuthFilter, PnoApiClient
-│   ├── authorization/               # PlmAction (annotation), ActionPermissionPort (interface)
+│   ├── authorization/               # PlmPermission, PermissionScope, PermissionCatalogPort, PolicyPort
 │   ├── action/                      # ActionHandler (@AlgorithmType interface), ActionContext, ActionResult
 │   ├── hook/                        # PreCommitValidator, AtCommitHook, PostCommitHook
 │   ├── event/                       # PlmEventPublisher, OutboxPoller
@@ -188,10 +189,9 @@ com.plm/
 │
 ├── action/                          # @ApplicationModule(allowedDependencies = {algorithm, shared})
 │   ├── ActionService.java           # API publique
-│   ├── ActionPermissionService.java # Implémente ActionPermissionPort (shared)
 │   ├── ActionWrapper.java           # @AlgorithmType interface — middleware pipeline
-│   ├── PlmActionAspect.java         # AOP cross-cutting pour @PlmAction
-│   ├── PlmActionValidator.java      # Startup validation
+│   ├── PlmActionAspect.java         # @Order(2) — @PlmAction auto-resolve perms + guards
+│   ├── PlmActionValidator.java      # Startup: validate @PlmAction codes (dispatchable)
 │   ├── guard/                       # ActionGuardService, ActionGuard, ActionGuardContext
 │   └── internal/                    # ActionDispatcher, ActionParameterValidator
 │
@@ -202,9 +202,11 @@ com.plm/
 │   └── internal/                    # AlgorithmService, AlgorithmStartupValidator
 │
 ├── permission/                      # @ApplicationModule(allowedDependencies = {shared})
+│   ├── PermissionRegistry.java      # API publique, implements PermissionCatalogPort (DB-loaded cache)
 │   ├── ViewService.java             # API publique
 │   ├── RoleController.java          # /api/psm/admin
-│   └── internal/                    # PermissionAdminService
+│   └── internal/                    # PolicyService (implements PolicyPort), PlmPermissionAspect (@Order 1),
+│                                    # PlmPermissionValidator, PermissionAdminService
 │
 └── dashboard/                       # @ApplicationModule(allowedDependencies = {action, node, shared})
     ├── DashboardController.java
@@ -232,9 +234,6 @@ Tout comportement pluggable = **algorithm bean**. Trois types d'algorithmes :
 ```
 Request POST /nodes/{id}/actions/{code}
   │
-  ├─ PlmActionAspect (@PlmAction AOP)    → permission check (ActionPermissionService)
-  │                                       → action guard evaluation (ActionGuardService)
-  │
   └─ ActionDispatcher.dispatch()
        │
        ├─ Resolve handler via AlgorithmRegistry (code → ActionHandler)
@@ -246,9 +245,21 @@ Request POST /nodes/{id}/actions/{code}
             ├─ LockWrapper.wrap()         → tryLock/unlock (si configuré)
             │   └─ TransactionWrapper.wrap() → open/commit/rollback tx
             │       └─ handler.execute()     → logique métier
+            │           │
+            │           └─ service.method()  → @PlmPermission (@Order 1) : permission check
+            │                                → @PlmAction    (@Order 2) : auto-resolve perms
+            │                                                              + guard evaluation
             │
             └─ ActionResult returned
 ```
+
+**Permission séparée de l'action :**
+- `permission` : table dédiée, source de vérité pour les codes permission, scope, displayName. Indépendante de la table `action`.
+- `@PlmPermission` : annotation dans shared.authorization (pas de scope — scope vient de la table `permission`), aspect dans permission module (@Order 1). Vérifie permissions via `authorization_policy`.
+- `@PlmAction` : aspect dans action (@Order 2). Auto-résout les permissions requises depuis `action_required_permission` table, scope via `PermissionCatalogPort`, puis évalue les guards.
+- `PermissionRegistry` : cache in-memory de la table `permission`, implémente `PermissionCatalogPort` (shared). Chargé au startup.
+- `action_required_permission` : table N:M reliant action → permission_code(s). FK vers `permission`. Ex: ABORT requiert UPDATE_NODE.
+- `authorization_policy` : table de grants role × permission_code × nodeType × transition. FK vers `permission`.
 
 **Wrappers configurés par action** via table `action_wrapper` :
 - `ISOLATED` actions (TRANSITION, SIGN) : LockWrapper(order=10) → TransactionWrapper(ISOLATED, order=20)
@@ -265,9 +276,12 @@ Request POST /nodes/{id}/actions/{code}
 - **shared est OPEN** : tout module peut en dépendre sans déclaration explicite
 - **Action handlers** : `@AlgorithmBean` dans `node.handler`, implémentent `ActionHandler` (shared), découverts par `AlgorithmRegistry`
 - **Guard impls** : distribués dans le sous-module de leur contexte métier (lock guards dans `node.transaction`, state guards dans `node.lifecycle`, etc.)
-- **ActionPermissionPort** : interface dans shared, implémentation dans action. Node dépend du port, pas d'action.
+- **PolicyPort** : interface dans shared, implémentation dans permission module. Node et action dépendent du port.
+- **PermissionCatalogPort** : interface dans shared, implémenté par `PermissionRegistry` (permission module). Action module utilise pour lookup scope.
 - **AlgorithmRegistry.getInstance(appCtx)** : accesseur lazy pour éviter les cycles de dépendance. Utilisé par guard/state services au lieu d'injection constructeur.
-- **@PlmAction** : annotation dans shared.authorization, aspect AOP dans action
+- **@PlmPermission** : annotation dans shared.authorization (scope résolu depuis table `permission`, pas dans l'annotation), aspect dans permission module (@Order 1). Pour méthodes pure-permission (READ_NODE, MANAGE_*).
+- **@PlmAction** : annotation dans shared.action, aspect dans action module (@Order 2). Pour actions dispatchables (CHECKOUT, TRANSITION, etc.). Auto-résout permissions via `action_required_permission`.
+- **`managed_with`** : déprécié, remplacé par `action_required_permission` (ex: ABORT → CHECKIN)
 - **ModularArchitectureTest** : `ApplicationModules.of(PlmApplication.class).verify()` — vérifie les frontières à chaque build
 
 ### pno-api (inchangé)

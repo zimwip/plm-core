@@ -117,6 +117,9 @@ public class VersionService {
 
         // 6. Créer la version, en chaînant vers la version précédente
         String prevVersionId = current != null ? current.get("id", String.class) : null;
+        String prevFingerprint = current != null ? current.get("fingerprint", String.class) : null;
+        String branch = current != null ? current.get("branch", String.class) : "main";
+        if (branch == null) branch = "main";
         String versionId = UUID.randomUUID().toString();
         LocalDateTime now = LocalDateTime.now();
         // locked_by / locked_at are intentionally NULL here — LockService.lock() writes
@@ -125,15 +128,17 @@ public class VersionService {
             INSERT INTO node_version
               (ID, NODE_ID, VERSION_NUMBER, REVISION, ITERATION,
                LIFECYCLE_STATE_ID, CHANGE_TYPE, CHANGE_DESCRIPTION,
-               TX_ID, PREVIOUS_VERSION_ID, VERSION_REASON,
+               TX_ID, PREVIOUS_VERSION_ID, PREVIOUS_VERSION_FINGERPRINT,
+               BRANCH, VERSION_REASON,
                CREATED_AT, CREATED_BY)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'REVISE', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'REVISE', ?, ?)
             """,
             versionId, nodeId, currentVersionNumber + 1,
             newRevision, newIteration,
             newStateId != null ? newStateId : currentStateId,
             changeType.name(), description,
-            txId, prevVersionId,
+            txId, prevVersionId, prevFingerprint,
+            branch,
             now, userId
         );
 

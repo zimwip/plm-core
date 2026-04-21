@@ -9,6 +9,7 @@ import com.plm.node.signature.internal.SignatureService;
 import com.plm.node.transaction.internal.LockService;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import com.plm.node.version.internal.VersionService;
+import com.plm.shared.security.PlmProjectSpaceContext;
 import com.plm.shared.security.PlmSecurityContext;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +52,7 @@ class PlmExtendedTest {
     void setup() {
         // Admin context so createNode bypasses role checks
         PlmSecurityContext.set(new PlmUserContext("admin", "admin", Set.of(), true));
+        PlmProjectSpaceContext.set("ps-default");
 
         lifecycleId     = uid();
         stateDraftId    = uid();
@@ -59,10 +61,10 @@ class PlmExtendedTest {
         stateFrozenId   = uid();
 
         dsl.execute("INSERT INTO LIFECYCLE (ID, NAME) VALUES (?,?)", lifecycleId, "Standard");
-        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, IS_FROZEN, IS_RELEASED, DISPLAY_ORDER) VALUES (?,?,?,1,0,0,1)", stateDraftId, lifecycleId, "Draft");
-        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, IS_FROZEN, IS_RELEASED, DISPLAY_ORDER) VALUES (?,?,?,0,0,0,2)", stateInReviewId, lifecycleId, "InReview");
-        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, IS_FROZEN, IS_RELEASED, DISPLAY_ORDER) VALUES (?,?,?,0,0,1,3)", stateReleasedId, lifecycleId, "Released");
-        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, IS_FROZEN, IS_RELEASED, DISPLAY_ORDER) VALUES (?,?,?,0,1,0,4)", stateFrozenId, lifecycleId, "Frozen");
+        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, DISPLAY_ORDER) VALUES (?,?,?,1,1)", stateDraftId, lifecycleId, "Draft");
+        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, DISPLAY_ORDER) VALUES (?,?,?,0,2)", stateInReviewId, lifecycleId, "InReview");
+        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, DISPLAY_ORDER) VALUES (?,?,?,0,3)", stateReleasedId, lifecycleId, "Released");
+        dsl.execute("INSERT INTO LIFECYCLE_STATE (ID, LIFECYCLE_ID, NAME, IS_INITIAL, DISPLAY_ORDER) VALUES (?,?,?,0,4)", stateFrozenId, lifecycleId, "Frozen");
 
         transitionToReviewId   = uid();
         transitionToReleasedId = uid();
@@ -71,6 +73,12 @@ class PlmExtendedTest {
         dsl.execute("INSERT INTO LIFECYCLE_TRANSITION (ID, LIFECYCLE_ID, NAME, FROM_STATE_ID, TO_STATE_ID) VALUES (?,?,?,?,?)", transitionToReviewId, lifecycleId, "To Review", stateDraftId, stateInReviewId);
         dsl.execute("INSERT INTO LIFECYCLE_TRANSITION (ID, LIFECYCLE_ID, NAME, FROM_STATE_ID, TO_STATE_ID) VALUES (?,?,?,?,?)", transitionToReleasedId, lifecycleId, "Release", stateInReviewId, stateReleasedId);
         dsl.execute("INSERT INTO LIFECYCLE_TRANSITION (ID, LIFECYCLE_ID, NAME, FROM_STATE_ID, TO_STATE_ID, ACTION_TYPE) VALUES (?,?,?,?,?,?)", transitionToFrozenId, lifecycleId, "Freeze", stateDraftId, stateFrozenId, "CASCADE_FROZEN");
+
+        // Entity metadata for frozen/released states (used by guards and baseline)
+        dsl.execute("INSERT INTO ENTITY_METADATA (ID, TARGET_TYPE, TARGET_ID, META_KEY, META_VALUE) VALUES (?,?,?,?,?)",
+            uid(), "LIFECYCLE_STATE", stateFrozenId, "frozen", "true");
+        dsl.execute("INSERT INTO ENTITY_METADATA (ID, TARGET_TYPE, TARGET_ID, META_KEY, META_VALUE) VALUES (?,?,?,?,?)",
+            uid(), "LIFECYCLE_STATE", stateReleasedId, "released", "true");
 
         nodeTypeId = uid();
         dsl.execute("INSERT INTO NODE_TYPE (ID, NAME, LIFECYCLE_ID) VALUES (?,?,?)", nodeTypeId, "Part", lifecycleId);
@@ -89,23 +97,24 @@ class PlmExtendedTest {
     // ================================================================
 
     @Test
-    @DisplayName("Signature : crée une version technique SIGNATURE sans changer révision.itération")
+    @DisplayName("Signature : écrite sur la version courante sans nouvelle version")
     void testSignaturePreservesIteration() {
         String nodeId = setupNode("alice", Map.of(attrNameId, "Part A"));
 
-        String txId = txService.openTransaction("bob");
-        signatureService.sign(nodeId, "bob", txId, "Reviewed", "Looks good");
-        txService.commitTransaction(txId, "bob", "Signed", null);
+        signatureService.sign(nodeId, "bob", "Reviewed", "Looks good");
 
         var latest = versionService.getCurrentVersion(nodeId);
         // Révision et itération inchangées
         assertThat(latest.get("revision", String.class)).isEqualTo("A");
         assertThat(latest.get("iteration", Integer.class)).isEqualTo(1);
-        assertThat(latest.get("change_type", String.class)).isEqualTo("SIGNATURE");
 
-        // 2 versions techniques : création + signature
+        // Signature recorded on existing version (no new version created)
         int count = dsl.fetchCount(dsl.selectOne().from("NODE_VERSION").where("NODE_ID = ?", nodeId));
-        assertThat(count).isEqualTo(2);
+        assertThat(count).isEqualTo(1);
+
+        // Signature exists
+        int sigCount = dsl.fetchCount(dsl.selectOne().from("NODE_SIGNATURE").where("NODE_ID = ?", nodeId));
+        assertThat(sigCount).isEqualTo(1);
     }
 
     @Test
@@ -113,12 +122,9 @@ class PlmExtendedTest {
     void testDuplicateSignatureRejected() {
         String nodeId = setupNode("alice", Map.of(attrNameId, "Part A"));
 
-        String txId = txService.openTransaction("bob");
-        signatureService.sign(nodeId, "bob", txId, "Reviewed", null);
-        txService.commitTransaction(txId, "bob", "Signed", null);
+        signatureService.sign(nodeId, "bob", "Reviewed", null);
 
-        String txId2 = txService.openTransaction("bob");
-        assertThatThrownBy(() -> signatureService.sign(nodeId, "bob", txId2, "Reviewed", null))
+        assertThatThrownBy(() -> signatureService.sign(nodeId, "bob", "Reviewed", null))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("already signed");
     }
@@ -128,9 +134,7 @@ class PlmExtendedTest {
     void testSignatureAfterContentChange() {
         String nodeId = setupNode("alice", Map.of(attrNameId, "Part A"));
 
-        String signTx1 = txService.openTransaction("bob");
-        signatureService.sign(nodeId, "bob", signTx1, "Reviewed", null);
-        txService.commitTransaction(signTx1, "bob", "Signed", null);
+        signatureService.sign(nodeId, "bob", "Reviewed", null);
 
         // Modification de contenu → nouvelle itération
         String modTx = txService.openTransaction("alice");
@@ -138,8 +142,7 @@ class PlmExtendedTest {
         txService.commitTransaction(modTx, "alice", "Content update", null);
 
         // Bob peut signer à nouveau car c'est une nouvelle itération
-        String signTx2 = txService.openTransaction("bob");
-        assertThatCode(() -> signatureService.sign(nodeId, "bob", signTx2, "Reviewed", "Re-checked"))
+        assertThatCode(() -> signatureService.sign(nodeId, "bob", "Reviewed", "Re-checked"))
             .doesNotThrowAnyException();
     }
 
@@ -148,13 +151,8 @@ class PlmExtendedTest {
     void testSignatureHistory() {
         String nodeId = setupNode("alice", Map.of(attrNameId, "Part"));
 
-        String txBob = txService.openTransaction("bob");
-        signatureService.sign(nodeId, "bob", txBob, "Reviewed", null);
-        txService.commitTransaction(txBob, "bob", "Reviewed by bob", null);
-
-        String txCharlie = txService.openTransaction("charlie");
-        signatureService.sign(nodeId, "charlie", txCharlie, "Approved", null);
-        txService.commitTransaction(txCharlie, "charlie", "Approved by charlie", null);
+        signatureService.sign(nodeId, "bob", "Reviewed", null);
+        signatureService.sign(nodeId, "charlie", "Approved", null);
 
         var history = signatureService.getFullSignatureHistory(nodeId);
         assertThat(history).hasSize(2);

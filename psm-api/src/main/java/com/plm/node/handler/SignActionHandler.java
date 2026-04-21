@@ -21,7 +21,7 @@ public class SignActionHandler implements ActionHandler {
     @Override
     public ActionResult execute(ActionContext ctx, Map<String, String> params) {
         String sigId = signatureService.sign(
-            ctx.nodeId(), ctx.userId(), ctx.txId(),
+            ctx.nodeId(), ctx.userId(),
             params.get("meaning"),
             params.get("comment"));
         return ActionResult.ok("signatureId", sigId);
