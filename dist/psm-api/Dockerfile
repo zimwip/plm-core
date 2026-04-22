@@ -1,5 +1,4 @@
 FROM eclipse-temurin:21-jre-alpine
-RUN apk add --no-cache wget
 RUN addgroup -S app && adduser -S app -G app
 USER app
 WORKDIR /app

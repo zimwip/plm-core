@@ -1,0 +1,153 @@
+package com.plm.platform.spe.client;
+
+import com.plm.platform.spe.SpeRegistrationProperties;
+import com.plm.platform.spe.dto.ServiceInstanceInfo;
+import com.plm.platform.spe.registry.LocalServiceRegistry;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.retry.Retry;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.*;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+/**
+ * Registry-aware HTTP client for direct service-to-service calls.
+ * Resolves target URLs from {@link LocalServiceRegistry}, applies
+ * Resilience4j circuit breaker + retry, and auto-injects X-Service-Secret.
+ *
+ * <p>Usage:
+ * <pre>
+ * // Simple GET
+ * List&lt;String&gt; ids = serviceClient.get("pno-api",
+ *     "/api/pno/project-spaces/{id}/descendants",
+ *     new ParameterizedTypeReference&lt;List&lt;String&gt;&gt;() {}, psId);
+ *
+ * // POST with body
+ * Result r = serviceClient.post("psm-api", "/api/psm/nodes", body, Result.class);
+ * </pre>
+ */
+@Slf4j
+public class ServiceClient {
+
+    private static final long REGISTRY_WAIT_SECONDS = 15;
+
+    private final LocalServiceRegistry registry;
+    private final ServiceClientResilience resilience;
+    private final SpeRegistrationProperties props;
+    private final RestTemplate restTemplate;
+
+    public ServiceClient(LocalServiceRegistry registry,
+                         ServiceClientResilience resilience,
+                         SpeRegistrationProperties props,
+                         RestTemplate restTemplate) {
+        this.registry = registry;
+        this.resilience = resilience;
+        this.props = props;
+        this.restTemplate = restTemplate;
+    }
+
+    /**
+     * GET with a simple response type.
+     */
+    public <T> T get(String serviceCode, String path, Class<T> responseType, Object... uriVars) {
+        return exchange(serviceCode, path, HttpMethod.GET, null, responseType, uriVars);
+    }
+
+    /**
+     * GET with a parameterized response type (generics like List&lt;String&gt;).
+     */
+    public <T> T get(String serviceCode, String path, ParameterizedTypeReference<T> responseType, Object... uriVars) {
+        return exchangeParameterized(serviceCode, path, HttpMethod.GET, null, responseType, uriVars);
+    }
+
+    /**
+     * POST with body and simple response type.
+     */
+    public <T> T post(String serviceCode, String path, Object body, Class<T> responseType) {
+        return exchange(serviceCode, path, HttpMethod.POST, body, responseType);
+    }
+
+    /**
+     * POST with body and parameterized response type.
+     */
+    public <T> T post(String serviceCode, String path, Object body, ParameterizedTypeReference<T> responseType) {
+        return exchangeParameterized(serviceCode, path, HttpMethod.POST, body, responseType);
+    }
+
+    /**
+     * Full exchange with simple response type.
+     */
+    public <T> T exchange(String serviceCode, String path, HttpMethod method,
+                          Object body, Class<T> responseType, Object... uriVars) {
+        ensureRegistryPopulated();
+        CircuitBreaker cb = resilience.breakerFor(serviceCode);
+        Retry retry = resilience.retryFor(serviceCode);
+
+        Supplier<T> call = () -> {
+            ServiceInstanceInfo instance = pickOrThrow(serviceCode);
+            String url = instance.baseUrl() + path;
+            HttpEntity<?> entity = buildEntity(body);
+            ResponseEntity<T> resp = restTemplate.exchange(url, method, entity, responseType, uriVars);
+            return resp.getBody();
+        };
+
+        return Retry.decorateSupplier(retry, CircuitBreaker.decorateSupplier(cb, call)).get();
+    }
+
+    /**
+     * Full exchange with parameterized response type.
+     */
+    public <T> T exchangeParameterized(String serviceCode, String path, HttpMethod method,
+                                       Object body, ParameterizedTypeReference<T> responseType,
+                                       Object... uriVars) {
+        ensureRegistryPopulated();
+        CircuitBreaker cb = resilience.breakerFor(serviceCode);
+        Retry retry = resilience.retryFor(serviceCode);
+
+        Supplier<T> call = () -> {
+            ServiceInstanceInfo instance = pickOrThrow(serviceCode);
+            String url = instance.baseUrl() + path;
+            HttpEntity<?> entity = buildEntity(body);
+            ResponseEntity<T> resp = restTemplate.exchange(url, method, entity, responseType, uriVars);
+            return resp.getBody();
+        };
+
+        return Retry.decorateSupplier(retry, CircuitBreaker.decorateSupplier(cb, call)).get();
+    }
+
+    /**
+     * Resolve a base URL for the given service (for edge cases needing raw URL).
+     */
+    public String resolveBaseUrl(String serviceCode) {
+        ensureRegistryPopulated();
+        return pickOrThrow(serviceCode).baseUrl();
+    }
+
+    private ServiceInstanceInfo pickOrThrow(String serviceCode) {
+        return registry.pickInstance(serviceCode)
+            .orElseThrow(() -> new ServiceUnavailableException(serviceCode));
+    }
+
+    private HttpEntity<?> buildEntity(Object body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Service-Secret", props.serviceSecret());
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return body != null ? new HttpEntity<>(body, headers) : new HttpEntity<>(headers);
+    }
+
+    private void ensureRegistryPopulated() {
+        if (registry.isPopulated()) return;
+        try {
+            log.info("Waiting for local registry to be populated...");
+            if (!registry.awaitPopulated(REGISTRY_WAIT_SECONDS, TimeUnit.SECONDS)) {
+                throw new ServiceUnavailableException("(registry not yet populated)");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceUnavailableException("(interrupted waiting for registry)");
+        }
+    }
+}

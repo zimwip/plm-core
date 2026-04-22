@@ -223,9 +223,16 @@ public class ServiceRegistry {
         ConcurrentHashMap<String, ServiceRegistration> pool = byService.get(serviceCode);
         if (pool == null) return;
         pool.computeIfPresent(instanceId, (k, reg) -> {
+            boolean wasHealthy = reg.consecutiveFailures() == 0;
             int failures = ok ? 0 : reg.consecutiveFailures() + 1;
             Instant last  = ok ? Instant.now() : reg.lastHeartbeatOk();
-            return reg.withHeartbeat(last, failures);
+            ServiceRegistration updated = reg.withHeartbeat(last, failures);
+            boolean isHealthy = failures == 0;
+            if (wasHealthy != isHealthy) {
+                publisher.publishEvent(new RegistryEvents.HealthStatusChangedEvent(
+                    this, serviceCode, instanceId, isHealthy));
+            }
+            return updated;
         });
     }
 

@@ -1,1 +1,2 @@
 com.plm.platform.spe.SpeRegistrationAutoConfiguration
+com.plm.platform.spe.client.ServiceClientAutoConfiguration

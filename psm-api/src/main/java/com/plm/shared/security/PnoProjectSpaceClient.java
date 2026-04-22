@@ -2,36 +2,31 @@ package com.plm.shared.security;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.plm.platform.spe.client.ServiceClient;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
 import java.util.List;
 
 /**
  * Lightweight client to resolve project space descendants from PNO.
+ * Uses the registry-aware ServiceClient for direct service-to-service calls.
  * Cached 60s — hierarchy changes are rare.
  */
 @Slf4j
 @Component
 public class PnoProjectSpaceClient {
 
-    private final String pnoApiUrl;
-    private final RestTemplate restTemplate;
+    private final ServiceClient serviceClient;
     private final Cache<String, List<String>> cache = Caffeine.newBuilder()
         .maximumSize(200)
         .expireAfterWrite(Duration.ofSeconds(60))
         .build();
 
-    public PnoProjectSpaceClient(@Value("${pno.api.url}") String pnoApiUrl,
-                                 RestTemplateBuilder restTemplateBuilder) {
-        this.pnoApiUrl = pnoApiUrl;
-        this.restTemplate = restTemplateBuilder.build();
+    public PnoProjectSpaceClient(ServiceClient serviceClient) {
+        this.serviceClient = serviceClient;
     }
 
     /**
@@ -43,9 +38,9 @@ public class PnoProjectSpaceClient {
         if (cached != null) return cached;
 
         try {
-            String url = pnoApiUrl + "/api/pno/project-spaces/" + projectSpaceId + "/descendants";
-            List<String> result = restTemplate.exchange(url, HttpMethod.GET, null,
-                new ParameterizedTypeReference<List<String>>() {}).getBody();
+            List<String> result = serviceClient.get("pno-api",
+                "/api/pno/project-spaces/" + projectSpaceId + "/descendants",
+                new ParameterizedTypeReference<List<String>>() {});
             if (result == null) result = List.of(projectSpaceId);
             cache.put(projectSpaceId, result);
             return result;

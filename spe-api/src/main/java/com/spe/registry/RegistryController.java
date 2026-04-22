@@ -4,6 +4,8 @@ import com.plm.platform.spe.dto.RegisterRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.plm.platform.spe.dto.RegistrySnapshot;
+
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -14,9 +16,11 @@ import java.util.Map;
 public class RegistryController {
 
     private final ServiceRegistry registry;
+    private final RegistryPushService pushService;
 
-    public RegistryController(ServiceRegistry registry) {
+    public RegistryController(ServiceRegistry registry, RegistryPushService pushService) {
         this.registry = registry;
+        this.pushService = pushService;
     }
 
     @PostMapping
@@ -62,6 +66,12 @@ public class RegistryController {
     @GetMapping("/tags")
     public Map<String, List<String>> tags() {
         return registry.tagsByService();
+    }
+
+    /** Full registry snapshot for service-side bootstrapping. */
+    @GetMapping("/snapshot")
+    public RegistrySnapshot snapshot() {
+        return pushService.buildSnapshot();
     }
 
     /** Instances of one service. */

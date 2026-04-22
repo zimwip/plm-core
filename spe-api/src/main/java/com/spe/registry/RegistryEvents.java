@@ -41,5 +41,21 @@ public class RegistryEvents {
         public String reason() { return reason; }
     }
 
+    /** An instance's health status transitioned (healthy ↔ unhealthy). */
+    public static class HealthStatusChangedEvent extends ApplicationEvent {
+        private final String serviceCode;
+        private final String instanceId;
+        private final boolean healthy;
+        public HealthStatusChangedEvent(Object source, String code, String instanceId, boolean healthy) {
+            super(source);
+            this.serviceCode = code;
+            this.instanceId = instanceId;
+            this.healthy = healthy;
+        }
+        public String serviceCode() { return serviceCode; }
+        public String instanceId() { return instanceId; }
+        public boolean healthy() { return healthy; }
+    }
+
     private RegistryEvents() {}
 }

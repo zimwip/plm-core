@@ -454,7 +454,6 @@ write_jvm_dockerfile() {
     local out=$1 port=$2
     cat > "$out" <<EOF
 FROM eclipse-temurin:21-jre-alpine
-RUN apk add --no-cache wget
 RUN addgroup -S app && adduser -S app -G app
 USER app
 WORKDIR /app
@@ -475,7 +474,6 @@ write_native_dockerfile() {
     local out=$1 port=$2
     cat > "$out" <<EOF
 FROM alpine:3.21
-RUN apk add --no-cache wget
 RUN addgroup -S app && adduser -S app -G app
 USER app
 WORKDIR /app
