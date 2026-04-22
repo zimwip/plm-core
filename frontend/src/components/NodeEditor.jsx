@@ -406,12 +406,42 @@ export default function NodeEditor({
   // When in historical view, use historicalDesc for rendering; otherwise use store desc
   const activeDesc = (viewVersionNum && historicalDesc) ? historicalDesc : desc;
 
-  const bySection = useMemo(() => (activeDesc?.attributes || []).reduce((acc, a) => {
+  // Split attributes: node_type attrs (rendered grouped by section) vs domain attrs (rendered as tabs below)
+  const attrPartition = useMemo(() => {
+    const base = [];
+    const byDomain = new Map();
+    (activeDesc?.attributes || []).forEach(a => {
+      if (a.sourceDomainId) {
+        if (!byDomain.has(a.sourceDomainId)) {
+          byDomain.set(a.sourceDomainId, {
+            id: a.sourceDomainId,
+            name: a.sourceDomainName || a.sourceDomainId,
+            attrs: [],
+          });
+        }
+        byDomain.get(a.sourceDomainId).attrs.push(a);
+      } else {
+        base.push(a);
+      }
+    });
+    const domains = Array.from(byDomain.values())
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { base, domains };
+  }, [activeDesc?.attributes]);
+
+  const bySection = useMemo(() => attrPartition.base.reduce((acc, a) => {
     const s = a.section || 'General';
     if (!acc[s]) acc[s] = [];
     acc[s].push(a);
     return acc;
-  }, {}), [activeDesc?.attributes]);
+  }, {}), [attrPartition.base]);
+
+  const [activeDomainTab, setActiveDomainTab] = useState(null);
+  useEffect(() => {
+    const doms = attrPartition.domains;
+    if (doms.length === 0) { setActiveDomainTab(null); return; }
+    setActiveDomainTab(prev => (prev && doms.some(d => d.id === prev)) ? prev : doms[0].id);
+  }, [attrPartition.domains]);
 
   if (!desc) return (
     <div className="empty" style={{ padding: '60px 24px' }}>
@@ -429,7 +459,10 @@ export default function NodeEditor({
   const updateNodeAction = allActions.find(a => a.actionCode === 'update_node' && a.authorized !== false);
   // Visible header actions: authorized, non-internal, non-structural
   const headerActions = allActions.filter(a =>
-    a.authorized !== false && !INTERNAL_ACTIONS.has(a.actionCode) && a.displayCategory !== 'STRUCTURAL'
+    a.authorized !== false && !INTERNAL_ACTIONS.has(a.actionCode) && a.displayCategory !== 'STRUCTURAL' && a.displayCategory !== 'PROPERTY'
+  );
+  const propertyActions = allActions.filter(a =>
+    a.authorized !== false && a.displayCategory === 'PROPERTY'
   );
   // Guard violation helpers
   const guardBlocked = (action) => action?.guardViolations?.length > 0;
@@ -719,84 +752,140 @@ export default function NodeEditor({
       )}
 
       {/* ── Attributes ───────────────────────────────── */}
-      {activeSubTab === 'attributes' && (
-        <div>
-          {Object.entries(bySection).map(([section, attrs]) => (
+      {activeSubTab === 'attributes' && (() => {
+        const renderAttrField = (attr) => {
+          const currentVal = edits[attr.id] !== undefined ? edits[attr.id] : (attr.value || '');
+          const isEditable = attr.editable && !!txId && isOpenVersion;
+          const enumValues = attr.type === 'ENUM' && attr.allowedValues
+            ? (() => { try { return JSON.parse(attr.allowedValues); } catch { return []; } })()
+            : null;
+          const regexViolation = attr.namingRegex && edits[attr.id] != null &&
+            edits[attr.id] !== '' && !new RegExp(attr.namingRegex).test(edits[attr.id]);
+          const requiredViolation = attr.required && edits[attr.id] === '';
+          const enumViolation = enumValues && edits[attr.id] != null &&
+            edits[attr.id] !== '' && !enumValues.includes(edits[attr.id]);
+          return (
+            <div
+              className="field"
+              key={attr.id}
+              onContextMenu={e => {
+                e.preventDefault();
+                setAttrCtxMenu({ attrId: attr.id, attrLabel: attr.label, x: e.clientX, y: e.clientY });
+              }}
+            >
+              <label className="field-label">
+                {attr.label}
+                {attr.required && <span className="field-req">*</span>}
+              </label>
+              {enumValues && isEditable ? (
+                <select
+                  className="field-input"
+                  title={attr.tooltip || undefined}
+                  value={currentVal}
+                  onChange={e => {
+                    const newEdits = { ...edits, [attr.id]: e.target.value };
+                    setEdits(newEdits);
+                    scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
+                  }}
+                >
+                  <option value="">—</option>
+                  {enumValues.map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              ) : (
+                <input
+                  className={`field-input${requiredViolation || enumViolation ? ' error' : ''}`}
+                  readOnly={!isEditable}
+                  title={attr.tooltip || undefined}
+                  value={currentVal}
+                  onChange={e => {
+                    if (!isEditable) return;
+                    const newEdits = { ...edits, [attr.id]: e.target.value };
+                    setEdits(newEdits);
+                    scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
+                  }}
+                />
+              )}
+              {regexViolation && (
+                <span className="field-hint warn">Format: {attr.namingRegex}</span>
+              )}
+              {requiredViolation && (
+                <span className="field-hint error">Required</span>
+              )}
+              {enumViolation && (
+                <span className="field-hint error">Value not in allowed list</span>
+              )}
+            </div>
+          );
+        };
+
+        const renderSections = (attrs) => {
+          const sections = attrs.reduce((acc, a) => {
+            const s = a.section || 'General';
+            if (!acc[s]) acc[s] = [];
+            acc[s].push(a);
+            return acc;
+          }, {});
+          return Object.entries(sections).map(([section, sAttrs]) => (
             <div key={section}>
               <div className="section-label">{section}</div>
               <div className="attr-grid">
-                {[...attrs].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)).map(attr => {
-                  const currentVal = edits[attr.id] !== undefined ? edits[attr.id] : (attr.value || '');
-                  const isEditable = attr.editable && !!txId && isOpenVersion;
-                  const enumValues = attr.type === 'ENUM' && attr.allowedValues
-                    ? (() => { try { return JSON.parse(attr.allowedValues); } catch { return []; } })()
-                    : null;
-
-                  // Inline validation state
-                  const regexViolation = attr.namingRegex && edits[attr.id] != null &&
-                    edits[attr.id] !== '' && !new RegExp(attr.namingRegex).test(edits[attr.id]);
-                  const requiredViolation = attr.required && edits[attr.id] === '';
-                  const enumViolation = enumValues && edits[attr.id] != null &&
-                    edits[attr.id] !== '' && !enumValues.includes(edits[attr.id]);
-
-                  return (
-                    <div
-                      className="field"
-                      key={attr.id}
-                      onContextMenu={e => {
-                        e.preventDefault();
-                        setAttrCtxMenu({ attrId: attr.id, attrLabel: attr.label, x: e.clientX, y: e.clientY });
-                      }}
-                    >
-                      <label className="field-label">
-                        {attr.label}
-                        {attr.required && <span className="field-req">*</span>}
-                      </label>
-                      {enumValues && isEditable ? (
-                        <select
-                          className="field-input"
-                          title={attr.tooltip || undefined}
-                          value={currentVal}
-                          onChange={e => {
-                            const newEdits = { ...edits, [attr.id]: e.target.value };
-                            setEdits(newEdits);
-                            scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
-                          }}
-                        >
-                          <option value="">—</option>
-                          {enumValues.map(v => <option key={v} value={v}>{v}</option>)}
-                        </select>
-                      ) : (
-                        <input
-                          className={`field-input${requiredViolation || enumViolation ? ' error' : ''}`}
-                          readOnly={!isEditable}
-                          title={attr.tooltip || undefined}
-                          value={currentVal}
-                          onChange={e => {
-                            if (!isEditable) return;
-                            const newEdits = { ...edits, [attr.id]: e.target.value };
-                            setEdits(newEdits);
-                            scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
-                          }}
-                        />
-                      )}
-                      {regexViolation && (
-                        <span className="field-hint warn">Format: {attr.namingRegex}</span>
-                      )}
-                      {requiredViolation && (
-                        <span className="field-hint error">Required</span>
-                      )}
-                      {enumViolation && (
-                        <span className="field-hint error">Value not in allowed list</span>
-                      )}
-                    </div>
-                  );
-                })}
+                {[...sAttrs].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)).map(renderAttrField)}
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          ));
+        };
+
+        const activeDomain = attrPartition.domains.find(d => d.id === activeDomainTab);
+        return (
+          <div>
+            {renderSections(attrPartition.base)}
+
+            {(attrPartition.domains.length > 0 || propertyActions.length > 0) && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <div className="section-label" style={{ marginBottom: 0 }}>Domains</div>
+                  {attrPartition.domains.length > 0 && (
+                    <div className="subtabs" style={{ marginBottom: 0, flex: 1 }}>
+                      {attrPartition.domains.map(d => (
+                        <div
+                          key={d.id}
+                          className={`subtab ${activeDomainTab === d.id ? 'active' : ''}`}
+                          onClick={() => setActiveDomainTab(d.id)}
+                        >
+                          {d.name}
+                          <span className="subtab-badge" style={{
+                            background: 'rgba(91,156,246,.15)',
+                            color: 'var(--accent)',
+                          }}>
+                            {d.attrs.length}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {propertyActions.length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', flexShrink: 0 }}>
+                      {propertyActions.map(a => {
+                        const blocked = guardBlocked(a);
+                        const label = a.name || a.displayName || a.actionCode;
+                        return (
+                          <button key={a.ntaId || a.actionCode}
+                            className={`btn btn-sm${blocked ? ' btn-disabled' : ''}`}
+                            disabled={blocked}
+                            title={blocked ? guardTooltip(a) : (a.description || label)}
+                            onClick={() => triggerAction(a)}
+                          >{label}</button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                {activeDomain && renderSections(activeDomain.attrs)}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── PBS ─────────────────────────────────────── */}
       {activeSubTab === 'pbs' && (

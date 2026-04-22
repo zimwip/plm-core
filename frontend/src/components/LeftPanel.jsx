@@ -175,7 +175,7 @@ function LeftPanel({
           <div
             className={`ni-link-row${tgtId === activeNodeId ? ' active' : ''}`}
             style={{ paddingLeft }}
-            onClick={() => onNavigate(tgtId)}
+            onClick={() => onNavigate(tgtId, link.targetLogicalId || undefined)}
             title={`${link.linkLogicalId || link.linkId} → ${link.targetLogicalId || tgtId} ${link.targetRevision}.${link.targetIteration}`}
           >
             {/* Expand toggle */}
@@ -353,7 +353,7 @@ function LeftPanel({
                           setDraggedNode(payload);
                         }}
                         onDragEnd={() => clearDraggedNode()}
-                        onClick={() => onNavigate(id)}
+                        onClick={() => onNavigate(id, logicalId || undefined)}
                         title={lockedByOther ? `Locked by ${lockedBy}` : (isPending ? `${iter === 0 ? rev : rev + '.' + iter} — pending changes` : (logicalId || id))}
                       >
                         {/* Expand toggle — hidden when node is known to have no children */}
@@ -475,7 +475,7 @@ function LeftPanel({
                 <button className="btn btn-xs" onClick={() => setReleaseConfirmId(null)}>No</button>
               </div>
             ) : (
-              <div key={i} className={`tx-item${isActive ? ' active' : ''}`} onClick={() => onNavigate(nid)}>
+              <div key={i} className={`tx-item${isActive ? ' active' : ''}`} onClick={() => onNavigate(nid, logicalId || undefined)}>
                 <span className="tx-dot" style={{ background: stateColorMap?.[state] || '#6b7280' }} />
                 <div className="tx-item-body">
                   <div className="tx-item-main">

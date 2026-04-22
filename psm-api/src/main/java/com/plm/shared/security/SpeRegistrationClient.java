@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.info.BuildProperties;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -34,7 +35,7 @@ public class SpeRegistrationClient {
     private final String serviceSecret;
     private final String selfBaseUrl;
     private final String version;
-    private final RestTemplate rest = new RestTemplate();
+    private final RestTemplate rest;
 
     private volatile boolean registered = false;
 
@@ -42,12 +43,14 @@ public class SpeRegistrationClient {
         @Value("${spe.api.url:http://spe-api:8082}") String speUrl,
         @Value("${plm.service.secret}") String serviceSecret,
         @Value("${spe.self.base-url:http://psm-api:8080}") String selfBaseUrl,
-        @Autowired(required = false) BuildProperties buildProperties
+        @Autowired(required = false) BuildProperties buildProperties,
+        RestTemplateBuilder restTemplateBuilder
     ) {
         this.speUrl = speUrl;
         this.serviceSecret = serviceSecret;
         this.selfBaseUrl = selfBaseUrl;
         this.version = buildProperties != null ? buildProperties.getVersion() : "unknown";
+        this.rest = restTemplateBuilder.build();
     }
 
     @EventListener(ApplicationReadyEvent.class)

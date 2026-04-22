@@ -421,6 +421,24 @@ docker exec pno-api mvn test -f /app/pom.xml
 
 ## Points d'attention techniques
 
+### HTTP clients : tracing obligatoire
+**Règle : jamais `new RestTemplate()` ni `new WebClient()` direct.**
+
+Micrometer Tracing (bridge OTel) instrumente seulement les clients construits via `RestTemplateBuilder` / `WebClient.Builder` — Spring Boot y applique `ObservationRestTemplateCustomizer`. Un `new RestTemplate()` manuel échappe au customizer : aucun span émis, aucun header `traceparent` propagé, lien inter-service absent dans Jaeger.
+
+Pattern correct :
+```java
+@Component
+public class MyClient {
+    private final RestTemplate rest;
+    public MyClient(RestTemplateBuilder builder) {
+        this.rest = builder.build();
+    }
+}
+```
+
+S'applique à tout appel HTTP sortant : psm-api → pno-api, psm-api → spe-api, pno-api → spe-api, etc.
+
 ### Podman vs Docker
 Projet tourne sous **Podman**, pas Docker. `127.0.0.11` (DNS embarqué Docker) n'existe pas.
 nginx utilise `proxy_pass` simple sans directive `resolver`. Ordre démarrage garanti par `depends_on: condition: service_healthy` dans docker-compose.

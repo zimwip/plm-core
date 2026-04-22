@@ -377,9 +377,12 @@ export default function App() {
 
   const onDescriptionLoaded = useCallback((desc) => {
     if (desc?.nodeId === activeNodeId) setSelectedDesc(desc);
-    // Enrich the matching tab with nodeTypeId for color/icon display
-    if (desc?.nodeId && desc.nodeTypeId) {
-      setTabs(ts => ts.map(t => t.nodeId === desc.nodeId ? { ...t, nodeTypeId: desc.nodeTypeId } : t));
+    // Enrich the matching tab with nodeTypeId and logical ID for display
+    if (desc?.nodeId) {
+      const tabLabel = desc.logicalId || desc.identity || undefined;
+      setTabs(ts => ts.map(t => t.nodeId === desc.nodeId
+        ? { ...t, ...(desc.nodeTypeId && { nodeTypeId: desc.nodeTypeId }), ...(tabLabel && { label: tabLabel }) }
+        : t));
     }
   }, [activeNodeId]);
 

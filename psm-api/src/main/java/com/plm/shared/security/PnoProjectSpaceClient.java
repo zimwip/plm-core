@@ -4,6 +4,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
@@ -21,14 +22,16 @@ import java.util.List;
 public class PnoProjectSpaceClient {
 
     private final String pnoApiUrl;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
     private final Cache<String, List<String>> cache = Caffeine.newBuilder()
         .maximumSize(200)
         .expireAfterWrite(Duration.ofSeconds(60))
         .build();
 
-    public PnoProjectSpaceClient(@Value("${pno.api.url}") String pnoApiUrl) {
+    public PnoProjectSpaceClient(@Value("${pno.api.url}") String pnoApiUrl,
+                                 RestTemplateBuilder restTemplateBuilder) {
         this.pnoApiUrl = pnoApiUrl;
+        this.restTemplate = restTemplateBuilder.build();
     }
 
     /**
