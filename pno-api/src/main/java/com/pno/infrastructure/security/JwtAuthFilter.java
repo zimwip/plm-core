@@ -70,8 +70,9 @@ public class JwtAuthFilter implements Filter {
             return;
         }
 
-        // S2S context endpoint: let PnoAuthFilter's secret check handle it
-        if (uri.matches("/api/pno/users/[^/]+/context")) {
+        // S2S endpoints: let PnoAuthFilter's secret check handle them
+        if (uri.matches("/api/pno/users/[^/]+/context")
+            || uri.matches("/api/pno/project-spaces/[^/]+/effective-service-tags")) {
             chain.doFilter(request, response);
             return;
         }

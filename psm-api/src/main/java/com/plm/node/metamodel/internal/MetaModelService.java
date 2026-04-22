@@ -462,11 +462,15 @@ public class MetaModelService {
             }
         }
         String id = UUID.randomUUID().toString();
+        String enumDefId = (String) params.get("enumDefinitionId");
+        // Resolve allowed_values from enum_definition if provided
+        String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         dsl.execute("""
             INSERT INTO attribute_definition
               (ID, NODE_TYPE_ID, NAME, LABEL, DATA_TYPE, REQUIRED, DEFAULT_VALUE,
-               NAMING_REGEX, ALLOWED_VALUES, WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP, AS_NAME, CREATED_AT)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               NAMING_REGEX, ALLOWED_VALUES, WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP, AS_NAME,
+               ENUM_DEFINITION_ID, CREATED_AT)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             id,
             nodeTypeId,
@@ -476,12 +480,13 @@ public class MetaModelService {
             toIntFlag(params.get("required")),
             params.get("defaultValue"),
             params.get("namingRegex"),
-            params.get("allowedValues"),
+            allowedValues,
             params.getOrDefault("widgetType", "TEXT"),
             toInt(params.get("displayOrder"), 0),
             params.get("displaySection"),
             params.get("tooltip"),
             asName ? 1 : 0,
+            enumDefId,
             LocalDateTime.now()
         );
         log.info("AttributeDefinition '{}' created on nodeType {}", params.get("name"), nodeTypeId);
@@ -510,6 +515,7 @@ public class MetaModelService {
             m.put("default_value",   a.defaultValue());
             m.put("naming_regex",    a.namingRegex());
             m.put("allowed_values",  a.allowedValues());
+            m.put("enum_definition_id", a.enumDefinitionId());
             m.put("display_order",   a.displayOrder());
             m.put("display_section", a.displaySection());
             m.put("tooltip",         a.tooltip());
@@ -727,11 +733,14 @@ public class MetaModelService {
                 }
             }
         }
+        String enumDefId = (String) params.get("enumDefinitionId");
+        String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         dsl.execute("""
             UPDATE attribute_definition SET
               LABEL = ?, DATA_TYPE = ?, REQUIRED = ?, DEFAULT_VALUE = ?,
               NAMING_REGEX = ?, ALLOWED_VALUES = ?, WIDGET_TYPE = ?,
-              DISPLAY_ORDER = ?, DISPLAY_SECTION = ?, TOOLTIP = ?, AS_NAME = ?
+              DISPLAY_ORDER = ?, DISPLAY_SECTION = ?, TOOLTIP = ?, AS_NAME = ?,
+              ENUM_DEFINITION_ID = ?
             WHERE ID = ?
             """,
             params.get("label"),
@@ -739,12 +748,13 @@ public class MetaModelService {
             toIntFlag(params.get("required")),
             params.get("defaultValue"),
             params.get("namingRegex"),
-            params.get("allowedValues"),
+            allowedValues,
             params.getOrDefault("widgetType", "TEXT"),
             toInt(params.get("displayOrder"), 0),
             params.get("displaySection"),
             params.get("tooltip"),
             asName ? 1 : 0,
+            enumDefId,
             attrId
         );
         log.info("AttributeDefinition {} updated", attrId);
@@ -800,11 +810,14 @@ public class MetaModelService {
         int displayOrder = params.get("displayOrder") instanceof Number n
             ? n.intValue()
             : nextLinkTypeAttrOrder(linkTypeId);
+        String enumDefId = (String) params.get("enumDefinitionId");
+        String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         dsl.execute("""
             INSERT INTO link_type_attribute
               (ID, LINK_TYPE_ID, NAME, LABEL, DATA_TYPE, REQUIRED, DEFAULT_VALUE,
-               NAMING_REGEX, ALLOWED_VALUES, WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP, CREATED_AT)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               NAMING_REGEX, ALLOWED_VALUES, WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP,
+               ENUM_DEFINITION_ID, CREATED_AT)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             id,
             linkTypeId,
@@ -814,11 +827,12 @@ public class MetaModelService {
             toIntFlag(params.get("required")),
             params.get("defaultValue"),
             params.get("namingRegex"),
-            params.get("allowedValues"),
+            allowedValues,
             params.getOrDefault("widgetType", "TEXT"),
             displayOrder,
             params.get("displaySection"),
             params.get("tooltip"),
+            enumDefId,
             LocalDateTime.now()
         );
         log.info("LinkTypeAttribute '{}' created on linkType {}", params.get("name"), linkTypeId);
@@ -844,11 +858,14 @@ public class MetaModelService {
     @PlmPermission("MANAGE_PSM")
     @Transactional
     public void updateLinkTypeAttribute(String attrId, Map<String, Object> params) {
+        String enumDefId = (String) params.get("enumDefinitionId");
+        String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         dsl.execute("""
             UPDATE link_type_attribute SET
               LABEL = ?, DATA_TYPE = ?, REQUIRED = ?, DEFAULT_VALUE = ?,
               NAMING_REGEX = ?, ALLOWED_VALUES = ?, WIDGET_TYPE = ?,
-              DISPLAY_ORDER = ?, DISPLAY_SECTION = ?, TOOLTIP = ?
+              DISPLAY_ORDER = ?, DISPLAY_SECTION = ?, TOOLTIP = ?,
+              ENUM_DEFINITION_ID = ?
             WHERE ID = ?
             """,
             params.get("label"),
@@ -856,11 +873,12 @@ public class MetaModelService {
             toIntFlag(params.get("required")),
             params.get("defaultValue"),
             params.get("namingRegex"),
-            params.get("allowedValues"),
+            allowedValues,
             params.getOrDefault("widgetType", "TEXT"),
             toInt(params.get("displayOrder"), 0),
             params.get("displaySection"),
             params.get("tooltip"),
+            enumDefId,
             attrId
         );
         log.info("LinkTypeAttribute {} updated", attrId);
@@ -1156,6 +1174,37 @@ public class MetaModelService {
      */
     private void copyActionPermissionsFromParent(String childNodeTypeId, String parentNodeTypeId) {
         actionRegistrationService.copyActionPermissionsFromParent(childNodeTypeId, parentNodeTypeId);
+    }
+
+    /**
+     * Resolves allowed_values: if enumDefId is set, builds a JSON array of objects
+     * {@code [{"value":"X","label":"Y"}, ...]} from enum_value rows.
+     * Otherwise falls back to the explicitly provided allowedValues string.
+     */
+    private String resolveAllowedValues(String enumDefId, String explicitAllowedValues) {
+        if (enumDefId != null && !enumDefId.isBlank()) {
+            var rows = dsl.select(DSL.field("value"), DSL.field("label"))
+                .from("enum_value")
+                .where("enum_definition_id = ?", enumDefId)
+                .orderBy(DSL.field("display_order"))
+                .fetch();
+            if (!rows.isEmpty()) {
+                StringBuilder sb = new StringBuilder("[");
+                for (int i = 0; i < rows.size(); i++) {
+                    if (i > 0) sb.append(",");
+                    String val = rows.get(i).get("value", String.class);
+                    String lbl = rows.get(i).get("label", String.class);
+                    sb.append("{\"value\":\"").append(val.replace("\"", "\\\"")).append("\"");
+                    if (lbl != null && !lbl.isBlank()) {
+                        sb.append(",\"label\":\"").append(lbl.replace("\"", "\\\"")).append("\"");
+                    }
+                    sb.append("}");
+                }
+                sb.append("]");
+                return sb.toString();
+            }
+        }
+        return explicitAllowedValues;
     }
 
     /** Converts a flag value (Boolean true/false or Integer 1/0) to SMALLINT-safe int. */

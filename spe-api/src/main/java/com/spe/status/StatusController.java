@@ -20,9 +20,12 @@ import java.util.Map;
  * Platform status — public (no auth). Summarises registry + heartbeat health.
  *
  * overall:
- *   - "up"        : all expected services present and healthy
- *   - "degraded"  : some services missing or unhealthy
- *   - "down"      : no services registered
+ *   - "up"        : every expected service has at least one healthy instance.
+ *   - "degraded"  : some expected services healthy but not all.
+ *   - "down"      : no expected service has any healthy instance (platform unusable).
+ *
+ * Failing instances are ignored for overall status — SPE cannot know the
+ * expected instance count, so a failing instance is treated as transient.
  */
 @RestController
 @RequestMapping("/api/spe/status")
@@ -50,55 +53,87 @@ public class StatusController {
 
     @GetMapping
     public Map<String, Object> status() {
-        Collection<ServiceRegistration> all = registry.all();
         Instant now = Instant.now();
 
         List<Map<String, Object>> services = new ArrayList<>();
-        int healthy = 0;
-        for (String expected : EXPECTED) {
-            ServiceRegistration reg = all.stream()
-                .filter(r -> expected.equals(r.serviceCode()))
-                .findFirst().orElse(null);
+        int servicesWithHealthy = 0;
+        int totalInstances = 0;
+        int totalHealthyInstances = 0;
+        int totalFailingInstances = 0;
 
+        for (String expected : EXPECTED) {
+            Collection<ServiceRegistration> instances = registry.instancesOf(expected);
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("serviceCode", expected);
-            if (reg == null) {
+
+            if (instances.isEmpty()) {
                 entry.put("registered", false);
                 entry.put("healthy", false);
                 entry.put("status", "missing");
+                entry.put("instanceCount", 0);
+                entry.put("healthyInstances", 0);
+                entry.put("instances", List.of());
                 entry.put("version", null);
             } else {
-                boolean healthyFlag = reg.consecutiveFailures() <= HEALTHY_MAX_FAILURES;
+                int healthyInstances = 0;
+                List<Map<String, Object>> instanceEntries = new ArrayList<>();
+                ServiceRegistration representative = instances.iterator().next();
+                for (ServiceRegistration inst : instances) {
+                    boolean healthyFlag = inst.consecutiveFailures() <= HEALTHY_MAX_FAILURES;
+                    if (healthyFlag) healthyInstances++;
+                    totalInstances++;
+                    if (healthyFlag) totalHealthyInstances++; else totalFailingInstances++;
+
+                    Map<String, Object> ie = new LinkedHashMap<>();
+                    ie.put("instanceId", inst.instanceId());
+                    ie.put("version", inst.version());
+                    ie.put("healthy", healthyFlag);
+                    ie.put("status", healthyFlag ? "up" : "degraded");
+                    ie.put("registeredAt", inst.registeredAt().toString());
+                    ie.put("lastHeartbeatOk", inst.lastHeartbeatOk() != null ? inst.lastHeartbeatOk().toString() : null);
+                    ie.put("consecutiveFailures", inst.consecutiveFailures());
+                    ie.put("ageSeconds",
+                        inst.lastHeartbeatOk() != null
+                            ? Duration.between(inst.lastHeartbeatOk(), now).toSeconds()
+                            : null);
+                    ie.put("spaceTag", inst.spaceTag());
+                    ie.put("untagged", inst.isUntagged());
+                    // Internal baseUrl intentionally hidden from public status.
+                    instanceEntries.add(ie);
+                }
+                boolean anyHealthy = healthyInstances > 0;
+                boolean allHealthy = healthyInstances == instances.size();
+                String serviceStatus = !anyHealthy ? "down" : (allHealthy ? "up" : "degraded");
+
                 entry.put("registered", true);
-                entry.put("healthy", healthyFlag);
-                entry.put("version", reg.version());
-                // External path the gateway exposes — internal baseUrl is intentionally hidden.
-                entry.put("path", externalPath(reg.routePrefix()));
-                entry.put("registeredAt", reg.registeredAt().toString());
-                entry.put("lastHeartbeatOk", reg.lastHeartbeatOk() != null ? reg.lastHeartbeatOk().toString() : null);
-                entry.put("consecutiveFailures", reg.consecutiveFailures());
-                entry.put("ageSeconds",
-                    reg.lastHeartbeatOk() != null
-                        ? Duration.between(reg.lastHeartbeatOk(), now).toSeconds()
-                        : null);
-                entry.put("status", healthyFlag ? "up" : "degraded");
-                if (healthyFlag) healthy++;
+                entry.put("healthy", anyHealthy);
+                entry.put("status", serviceStatus);
+                entry.put("instanceCount", instances.size());
+                entry.put("healthyInstances", healthyInstances);
+                entry.put("instances", instanceEntries);
+                entry.put("version", representative.version());
+                entry.put("path", externalPath(representative.routePrefix()));
+
+                if (anyHealthy) servicesWithHealthy++;
             }
             services.add(entry);
         }
 
+        // Failing instances are transient (shutdown, restart) — SPE can't know
+        // expected instance count. Only service-level health matters.
         String overall;
-        if (healthy == EXPECTED.size())      overall = "up";
-        else if (healthy == 0)               overall = "down";
-        else                                 overall = "degraded";
+        if (servicesWithHealthy == 0)                      overall = "down";
+        else if (servicesWithHealthy < EXPECTED.size())    overall = "degraded";
+        else                                               overall = "up";
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("overall", overall);
-        // (helper below)
         out.put("timestamp", now.toString());
         out.put("gatewayVersion", gatewayVersion);
         out.put("gatewayUptimeSeconds", Duration.between(bootTime, now).toSeconds());
         out.put("expectedServices", EXPECTED);
+        out.put("totalInstances", totalInstances);
+        out.put("totalHealthyInstances", totalHealthyInstances);
         out.put("services", services);
         return out;
     }

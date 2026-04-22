@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { api } from '../services/api';
+import { api, speApi } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { getTheme, setTheme as applyTheme } from '../theme';
 
@@ -172,6 +172,49 @@ const WIDGET_TYPES   = ['TEXT', 'TEXTAREA', 'DROPDOWN', 'DATE_PICKER', 'CHECKBOX
 const ACTION_TYPES   = ['NONE', 'REQUIRE_SIGNATURE'];
 const VERSION_STRATS = ['NONE', 'ITERATE', 'REVISE'];
 
+/* ── Enum definition picker (fetches list, shows dropdown + value preview) ── */
+function EnumPicker({ userId, enumDefinitionId, onChange }) {
+  const [enums, setEnums] = useState(null);
+  const [preview, setPreview] = useState(null);
+
+  useEffect(() => {
+    api.getEnums(userId).then(d => setEnums(Array.isArray(d) ? d : [])).catch(() => setEnums([]));
+  }, [userId]);
+
+  useEffect(() => {
+    if (!enumDefinitionId) { setPreview(null); return; }
+    api.getEnumValues(userId, enumDefinitionId)
+      .then(d => setPreview(Array.isArray(d) ? d : []))
+      .catch(() => setPreview([]));
+  }, [userId, enumDefinitionId]);
+
+  if (enums === null) return <Field label="Enumeration"><span style={{ fontSize: 12, color: 'var(--muted)' }}>Loading…</span></Field>;
+
+  return (
+    <>
+      <Field label="Enumeration *">
+        <select className="field-input" value={enumDefinitionId || ''} onChange={e => onChange(e.target.value || null)}>
+          <option value="">Select an enumeration…</option>
+          {enums.map(en => (
+            <option key={en.id} value={en.id}>{en.name} ({en.valueCount} value{en.valueCount !== 1 ? 's' : ''})</option>
+          ))}
+        </select>
+      </Field>
+      {preview && preview.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {preview.map(v => (
+            <span key={v.id} style={{
+              display: 'inline-block',
+              background: 'var(--accent-dim, #e0e7ff)', color: 'var(--fg)',
+              padding: '2px 8px', borderRadius: 4, fontSize: 11,
+            }}>{v.label || v.value}</span>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ── Shared modal shell ──────────────────────────────────────────── */
 function MetaModal({ title, onClose, onSave, saving, saveLabel = 'Save', children, width = 480 }) {
   return (
@@ -307,7 +350,7 @@ function ModalSection({ label, action }) {
 }
 
 /* ── Reusable attribute form fields ─────────────────────────────── */
-function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false }) {
+function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false, userId }) {
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -350,6 +393,10 @@ function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false })
           </label>
         )}
       </div>
+      {(form.dataType === 'ENUM') && userId && (
+        <EnumPicker userId={userId} enumDefinitionId={form.enumDefinitionId || null}
+          onChange={v => setForm(f => ({ ...f, enumDefinitionId: v }))} />
+      )}
     </>
   );
 }
@@ -376,6 +423,7 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
       dataType:       a.data_type      || a.DATA_TYPE      || 'STRING',
       widgetType:     a.widget_type    || a.WIDGET_TYPE    || 'TEXT',
       required:       !!(a.required    || a.REQUIRED),
+      enumDefinitionId: a.enum_definition_id || a.ENUM_DEFINITION_ID || null,
       displaySection: a.display_section || a.DISPLAY_SECTION || '',
       displayOrder:   a.display_order  ?? a.DISPLAY_ORDER  ?? '',
     });
@@ -390,6 +438,7 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
         dataType:       editForm.dataType,
         widgetType:     editForm.widgetType,
         required:       !!editForm.required,
+        enumDefinitionId: editForm.dataType === 'ENUM' ? (editForm.enumDefinitionId || null) : null,
         displaySection: editForm.displaySection || null,
         displayOrder:   editForm.displayOrder !== '' ? Number(editForm.displayOrder) : 0,
       });
@@ -409,6 +458,7 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
         dataType:       addingForm.dataType || 'STRING',
         widgetType:     addingForm.widgetType || 'TEXT',
         required:       !!addingForm.required,
+        enumDefinitionId: addingForm.dataType === 'ENUM' ? (addingForm.enumDefinitionId || null) : null,
         displaySection: addingForm.displaySection || null,
         displayOrder:   addingForm.displayOrder !== '' ? Number(addingForm.displayOrder) : 0,
       });
@@ -454,6 +504,10 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
               </select>
             </Field>
           </div>
+          {(editForm.dataType === 'ENUM') && (
+            <EnumPicker userId={userId} enumDefinitionId={editForm.enumDefinitionId || null}
+              onChange={v => setEditForm(f => ({ ...f, enumDefinitionId: v }))} />
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 12 }}>
             <Field label="Section">
               <input className="field-input" value={editForm.displaySection || ''} onChange={e => setEditForm(f => ({ ...f, displaySection: e.target.value }))} />
@@ -526,6 +580,10 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
             </select>
             <input className="field-input" type="number" min="0" placeholder="Order" value={addingForm.displayOrder ?? ''} onChange={e => setAddingForm(f => ({ ...f, displayOrder: e.target.value }))} />
           </div>
+          {(addingForm.dataType === 'ENUM') && (
+            <EnumPicker userId={userId} enumDefinitionId={addingForm.enumDefinitionId || null}
+              onChange={v => setAddingForm(f => ({ ...f, enumDefinitionId: v }))} />
+          )}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
               <input type="checkbox" checked={!!addingForm.required} onChange={e => setAddingForm(f => ({ ...f, required: e.target.checked }))} />
@@ -802,6 +860,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
           widgetType:     form.widgetType || 'TEXT',
           required:       !!form.required,
           asName:         !!form.asName,
+          enumDefinitionId: form.dataType === 'ENUM' ? (form.enumDefinitionId || null) : null,
           displaySection: form.displaySection?.trim() || null,
           displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
         });
@@ -815,6 +874,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
           widgetType:     form.widgetType || 'TEXT',
           required:       !!form.required,
           asName:         !!form.asName,
+          enumDefinitionId: form.dataType === 'ENUM' ? (form.enumDefinitionId || null) : null,
           displaySection: form.displaySection?.trim() || null,
           displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
         });
@@ -1042,7 +1102,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
 
           {/* ── Create attribute ── */}
           {modal.type === 'create-attr' && (
-            <AttrFields form={form} setForm={setForm} />
+            <AttrFields form={form} setForm={setForm} userId={userId} />
           )}
 
           {/* ── Edit attribute ── */}
@@ -1062,6 +1122,10 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                 </select>
               </Field>
             </div>
+            {(form.dataType === 'ENUM') && (
+              <EnumPicker userId={userId} enumDefinitionId={form.enumDefinitionId || null}
+                onChange={v => setForm(f => ({ ...f, enumDefinitionId: v }))} />
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 12 }}>
               <Field label="Section">
                 <input className="field-input" value={form.displaySection || ''} onChange={e => setForm(f => ({ ...f, displaySection: e.target.value }))} />
@@ -1399,6 +1463,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                                       widgetType:     a.widget_type    || a.WIDGET_TYPE    || 'TEXT',
                                       required:       areq,
                                       asName:         aAsNm,
+                                      enumDefinitionId: a.enum_definition_id || a.ENUM_DEFINITION_ID || null,
                                       displaySection: a.display_section || a.DISPLAY_SECTION || '',
                                       displayOrder:   a.display_order  ?? a.DISPLAY_ORDER  ?? '',
                                     })}>
@@ -1712,6 +1777,7 @@ export function DomainsSection({ userId, canWrite, toast }) {
           dataType:       form.dataType || 'STRING',
           widgetType:     form.widgetType || 'TEXT',
           required:       !!form.required,
+          enumDefinitionId: form.dataType === 'ENUM' ? (form.enumDefinitionId || null) : null,
           displaySection: form.displaySection?.trim() || null,
           displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
         });
@@ -1725,6 +1791,7 @@ export function DomainsSection({ userId, canWrite, toast }) {
           dataType:       form.dataType || 'STRING',
           widgetType:     form.widgetType || 'TEXT',
           required:       !!form.required,
+          enumDefinitionId: form.dataType === 'ENUM' ? (form.enumDefinitionId || null) : null,
           displaySection: form.displaySection?.trim() || null,
           displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
         });
@@ -1802,7 +1869,7 @@ export function DomainsSection({ userId, canWrite, toast }) {
           </>}
 
           {modal.type === 'create-attr' && (
-            <AttrFields form={form} setForm={setForm} hideName={false} hideAsName={true} />
+            <AttrFields form={form} setForm={setForm} hideName={false} hideAsName={true} userId={userId} />
           )}
 
           {modal.type === 'edit-attr' && <>
@@ -1824,6 +1891,10 @@ export function DomainsSection({ userId, canWrite, toast }) {
                 </select>
               </Field>
             </div>
+            {(form.dataType === 'ENUM') && (
+              <EnumPicker userId={userId} enumDefinitionId={form.enumDefinitionId || null}
+                onChange={v => setForm(f => ({ ...f, enumDefinitionId: v }))} />
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 12 }}>
               <Field label="Section">
                 <input className="field-input" value={form.displaySection || ''} onChange={e => setForm(f => ({ ...f, displaySection: e.target.value }))} />
@@ -1933,6 +2004,7 @@ export function DomainsSection({ userId, canWrite, toast }) {
                                       dataType:       a.data_type || 'STRING',
                                       widgetType:     a.widget_type || 'TEXT',
                                       required:       areq,
+                                      enumDefinitionId: a.enum_definition_id || null,
                                       displaySection: a.display_section || '',
                                       displayOrder:   a.display_order ?? '',
                                     })}>
@@ -1959,6 +2031,285 @@ export function DomainsSection({ userId, canWrite, toast }) {
       })}
 
       {domains.length === 0 && <div className="settings-empty-row">No domains defined yet</div>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ENUMS SECTION
+   ═══════════════════════════════════════════════════════════════ */
+
+export function EnumsSection({ userId, canWrite, toast }) {
+  const [enums,      setEnums]      = useState([]);
+  const [expanded,   setExpanded]   = useState(null);
+  const [values,     setValues]     = useState({}); // { enumId: [...] }
+  const [modal,      setModal]      = useState(null);
+  const [form,       setForm]       = useState({});
+  const [saving,     setSaving]     = useState(false);
+  const [addingValue, setAddingValue] = useState(null); // { enumId, value, label }
+  const [editingValue, setEditingValue] = useState(null); // { id, enumId, value, label }
+
+  const loadEnums = useCallback(() =>
+    api.getEnums(userId).then(d => setEnums(Array.isArray(d) ? d : [])).catch(() => setEnums([])),
+  [userId]);
+
+  useEffect(() => { loadEnums(); }, [loadEnums]);
+
+  function loadValues(enumId) {
+    api.getEnumValues(userId, enumId)
+      .then(d => setValues(s => ({ ...s, [enumId]: Array.isArray(d) ? d : [] })))
+      .catch(() => setValues(s => ({ ...s, [enumId]: [] })));
+  }
+
+  function toggle(id) {
+    if (expanded === id) { setExpanded(null); return; }
+    setExpanded(id);
+    if (!values[id]) loadValues(id);
+  }
+
+  function openModal(type, ctx, init) {
+    setModal({ type, ctx });
+    setForm(init || {});
+  }
+  function closeModal() { setModal(null); setForm({}); }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const { type, ctx } = modal;
+      if (type === 'create-enum') {
+        await api.createEnum(userId, { name: form.name?.trim(), description: form.description?.trim() || null });
+        await loadEnums();
+      } else if (type === 'edit-enum') {
+        await api.updateEnum(userId, ctx.enumId, { name: form.name?.trim(), description: form.description?.trim() || null });
+        await loadEnums();
+      }
+      closeModal();
+    } catch (e) { toast(e, 'error'); }
+    finally { setSaving(false); }
+  }
+
+  async function deleteEnum(e, en) {
+    e.stopPropagation();
+    if (!window.confirm(`Delete enumeration "${en.name}"?\n\nThis also deletes all its values. Cannot be undone.`)) return;
+    try {
+      await api.deleteEnum(userId, en.id);
+      await loadEnums();
+      if (expanded === en.id) setExpanded(null);
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function addValue(enumId) {
+    if (!addingValue?.value?.trim()) return;
+    setSaving(true);
+    try {
+      await api.addEnumValue(userId, enumId, { value: addingValue.value.trim(), label: addingValue.label?.trim() || null });
+      loadValues(enumId);
+      setAddingValue(null);
+    } catch (e) { toast(e, 'error'); }
+    finally { setSaving(false); }
+  }
+
+  async function deleteValue(enumId, v) {
+    if (!window.confirm(`Delete value "${v.value}"?`)) return;
+    try {
+      await api.deleteEnumValue(userId, enumId, v.id);
+      loadValues(enumId);
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function saveEditValue() {
+    if (!editingValue) return;
+    setSaving(true);
+    try {
+      await api.updateEnumValue(userId, editingValue.enumId, editingValue.id, {
+        value: editingValue.value?.trim(),
+        label: editingValue.label?.trim() || null,
+        displayOrder: editingValue.displayOrder ?? 0,
+      });
+      loadValues(editingValue.enumId);
+      setEditingValue(null);
+    } catch (e) { toast(e, 'error'); }
+    finally { setSaving(false); }
+  }
+
+  async function moveValue(enumId, idx, dir) {
+    const vals = values[enumId];
+    if (!vals) return;
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= vals.length) return;
+    const reordered = [...vals];
+    [reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]];
+    setValues(s => ({ ...s, [enumId]: reordered }));
+    try {
+      await api.reorderEnumValues(userId, enumId, reordered.map(v => v.id));
+    } catch (e) { toast(e, 'error'); loadValues(enumId); }
+  }
+
+  const saveDisabled = () => {
+    if (!modal || saving) return true;
+    if (modal.type === 'create-enum' || modal.type === 'edit-enum') return !form.name?.trim();
+    return false;
+  };
+
+  return (
+    <div className="settings-section">
+      {modal && (
+        <MetaModal
+          title={modal.type === 'create-enum' ? 'New Enumeration' : 'Edit Enumeration'}
+          width={420}
+          onClose={closeModal}
+          onSave={handleSave}
+          saving={saving}
+          saveDisabled={saveDisabled()}
+          saveLabel={modal.type === 'edit-enum' ? 'Update' : 'Create'}
+        >
+          <Field label="Name *">
+            <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Materials" />
+          </Field>
+          <Field label="Description">
+            <input className="field-input" value={form.description || ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional description" />
+          </Field>
+        </MetaModal>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        {canWrite && (
+          <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+            onClick={() => openModal('create-enum', {}, {})}>
+            <PlusIcon size={11} strokeWidth={2.5} />
+            New enumeration
+          </button>
+        )}
+      </div>
+
+      {enums.map(en => {
+        const isExp = expanded === en.id;
+        const vals = values[en.id] || [];
+        return (
+          <div key={en.id} className="settings-card">
+            <div className="settings-card-hd" onClick={() => toggle(en.id)} style={{ display: 'flex', alignItems: 'center' }}>
+              <span className="settings-card-chevron">
+                {isExp
+                  ? <ChevronDownIcon  size={13} strokeWidth={2} color="var(--muted)" />
+                  : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />
+                }
+              </span>
+              <span className="settings-card-name">{en.name}</span>
+              <span className="settings-badge" style={{ marginLeft: 6 }}>{en.valueCount} value{en.valueCount !== 1 ? 's' : ''}</span>
+              {en.description && <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>{en.description}</span>}
+              <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                {canWrite && (
+                  <button className="panel-icon-btn" title="Edit" onClick={e => { e.stopPropagation(); openModal('edit-enum', { enumId: en.id }, { name: en.name, description: en.description || '' }); }}>
+                    <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
+                  </button>
+                )}
+                {canWrite && (
+                  <button className="panel-icon-btn" title="Delete" onClick={e => deleteEnum(e, en)}>
+                    <TrashIcon size={12} strokeWidth={2} color="var(--danger, #f87171)" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {isExp && (
+              <div className="settings-card-body" style={{ padding: '8px 16px 12px' }}>
+                {vals.length > 0 && (
+                  <table className="settings-table" style={{ marginBottom: 8 }}>
+                    <thead>
+                      <tr><th style={{ width: 40 }}>#</th><th>Value</th><th>Label</th><th style={{ width: 1 }}></th></tr>
+                    </thead>
+                    <tbody>
+                      {vals.map((v, idx) => {
+                        const isEditing = editingValue?.id === v.id;
+                        return isEditing ? (
+                          <tr key={v.id}>
+                            <td style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 11 }}>{idx}</td>
+                            <td>
+                              <input className="field-input" autoFocus value={editingValue.value || ''}
+                                onChange={e => setEditingValue(ev => ({ ...ev, value: e.target.value }))}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveEditValue(); } if (e.key === 'Escape') setEditingValue(null); }}
+                                style={{ fontSize: 12, padding: '2px 6px' }} />
+                            </td>
+                            <td>
+                              <input className="field-input" value={editingValue.label || ''}
+                                onChange={e => setEditingValue(ev => ({ ...ev, label: e.target.value }))}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveEditValue(); } if (e.key === 'Escape') setEditingValue(null); }}
+                                placeholder="(optional)"
+                                style={{ fontSize: 12, padding: '2px 6px' }} />
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
+                                <button className="btn btn-primary btn-sm" onClick={saveEditValue} disabled={saving || !editingValue.value?.trim()}
+                                  style={{ fontSize: 11, padding: '2px 8px' }}>Save</button>
+                                <button className="btn btn-sm" onClick={() => setEditingValue(null)}
+                                  style={{ fontSize: 11, padding: '2px 8px' }}>Cancel</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={v.id}>
+                            <td style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 11 }}>{idx}</td>
+                            <td className="settings-td-mono">{v.value}</td>
+                            <td style={{ color: v.label ? 'var(--fg)' : 'var(--muted)' }}>{v.label || '—'}</td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
+                                {canWrite && idx > 0 && (
+                                  <button className="panel-icon-btn" title="Move up" onClick={() => moveValue(en.id, idx, -1)}
+                                    style={{ fontSize: 10 }}>▲</button>
+                                )}
+                                {canWrite && idx < vals.length - 1 && (
+                                  <button className="panel-icon-btn" title="Move down" onClick={() => moveValue(en.id, idx, 1)}
+                                    style={{ fontSize: 10 }}>▼</button>
+                                )}
+                                {canWrite && (
+                                  <button className="panel-icon-btn" title="Edit" onClick={() => setEditingValue({ id: v.id, enumId: en.id, value: v.value, label: v.label || '', displayOrder: idx })}>
+                                    <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
+                                  </button>
+                                )}
+                                {canWrite && (
+                                  <button className="panel-icon-btn" title="Delete" onClick={() => deleteValue(en.id, v)}>
+                                    <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+                {vals.length === 0 && <div className="settings-empty-row">No values yet</div>}
+
+                {canWrite && addingValue?.enumId === en.id ? (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
+                    <input className="field-input" autoFocus placeholder="Value *" value={addingValue.value || ''}
+                      onChange={e => setAddingValue(a => ({ ...a, value: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addValue(en.id); } }}
+                      style={{ flex: 1 }} />
+                    <input className="field-input" placeholder="Label (optional)" value={addingValue.label || ''}
+                      onChange={e => setAddingValue(a => ({ ...a, label: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addValue(en.id); } }}
+                      style={{ flex: 1 }} />
+                    <button className="btn btn-primary btn-sm" onClick={() => addValue(en.id)}
+                      disabled={saving || !addingValue.value?.trim()}>Add</button>
+                    <button className="btn btn-sm" onClick={() => setAddingValue(null)}>Cancel</button>
+                  </div>
+                ) : canWrite ? (
+                  <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}
+                    onClick={() => setAddingValue({ enumId: en.id, value: '', label: '' })}>
+                    <PlusIcon size={11} strokeWidth={2.5} />
+                    Add value
+                  </button>
+                ) : null}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {enums.length === 0 && <div className="settings-empty-row">No enumerations defined yet</div>}
     </div>
   );
 }
@@ -2869,11 +3220,20 @@ export function ProjectSpacesSection({ userId, canWrite, toast }) {
   const [modal,   setModal]   = useState(false);
   const [form,    setForm]    = useState({ name: '', description: '' });
   const [saving,  setSaving]  = useState(false);
+  const [expanded, setExpanded] = useState(null); // expanded space id
+  const [tagCatalog, setTagCatalog] = useState({}); // { serviceCode: [tag1, tag2] }
+  const [spaceTags, setSpaceTags] = useState({}); // { serviceCode: [tag1] }
+  const [tagSaving, setTagSaving] = useState(false);
 
   function load() {
     return api.listProjectSpaces(userId).then(d => setSpaces(Array.isArray(d) ? d : []));
   }
   useEffect(() => { load().finally(() => setLoading(false)); }, [userId]);
+
+  // Load tag catalog from SPE when component mounts
+  useEffect(() => {
+    speApi.getRegistryTags().then(setTagCatalog).catch(() => {});
+  }, []);
 
   async function submit() {
     if (!form.name.trim()) return;
@@ -2886,6 +3246,37 @@ export function ProjectSpacesSection({ userId, canWrite, toast }) {
     } catch (e) {
       toast(e, 'error');
     } finally { setSaving(false); }
+  }
+
+  async function toggleExpand(spaceId) {
+    if (expanded === spaceId) { setExpanded(null); return; }
+    setExpanded(spaceId);
+    try {
+      const tags = await api.getProjectSpaceServiceTags(userId, spaceId);
+      setSpaceTags(tags || {});
+    } catch (e) { setSpaceTags({}); }
+  }
+
+  async function toggleIsolated(ps) {
+    const id = ps.id || ps.ID;
+    const currentIsolated = ps.isolated === true;
+    try {
+      await api.setProjectSpaceIsolated(userId, id, !currentIsolated);
+      await load();
+      toast(!currentIsolated ? 'Isolation enabled' : 'Isolation disabled');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function saveTag(spaceId, serviceCode, tags) {
+    setTagSaving(true);
+    try {
+      await api.setProjectSpaceServiceTags(userId, spaceId, serviceCode, tags);
+      const updated = await api.getProjectSpaceServiceTags(userId, spaceId);
+      setSpaceTags(updated || {});
+      toast('Tags updated');
+    } catch (e) {
+      toast(e, 'error');
+    } finally { setTagSaving(false); }
   }
 
   if (loading) return <div className="settings-loading">Loading…</div>;
@@ -2912,19 +3303,107 @@ export function ProjectSpacesSection({ userId, canWrite, toast }) {
       </div>
       {spaces.length === 0 && <div className="settings-empty-row">No project spaces yet.</div>}
       {spaces.map(ps => {
-        const id     = ps.id          || ps.ID;
-        const name   = ps.name        || ps.NAME || id;
-        const desc   = ps.description || ps.DESCRIPTION || '';
-        const active = ps.active !== false && ps.ACTIVE !== false;
+        const id       = ps.id          || ps.ID;
+        const name     = ps.name        || ps.NAME || id;
+        const desc     = ps.description || ps.DESCRIPTION || '';
+        const active   = ps.active !== false && ps.ACTIVE !== false;
+        const isolated = ps.isolated === true;
+        const parentId = ps.parentId    || ps.PARENT_ID || null;
+        const isExpanded = expanded === id;
+
         return (
           <div key={id} className="settings-card" style={{ padding: '10px 14px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }} onClick={() => toggleExpand(id)}>
+              {isExpanded ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
               <HexIcon size={13} color={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth={1.5} />
               <span className="settings-card-name" style={{ marginLeft: 4 }}>{name}</span>
               <span className="settings-card-id">{id}</span>
+              {parentId && <span className="settings-badge" title={`Child of ${parentId}`}>child</span>}
+              {isolated && <span className="settings-badge settings-badge--warn">Isolated</span>}
               {!active && <span className="settings-badge settings-badge--warn">Inactive</span>}
             </div>
             {desc && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, paddingLeft: 19 }}>{desc}</div>}
+
+            {isExpanded && (
+              <div style={{ marginTop: 10, paddingLeft: 19, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                {/* Isolated toggle */}
+                {canWrite && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={isolated} onChange={() => toggleIsolated(ps)} />
+                      <span>Isolated</span>
+                    </label>
+                    <span className="muted" style={{ fontSize: 10 }}>Exclusive tag ownership, no untagged routing</span>
+                  </div>
+                )}
+
+                {/* Service tag configuration */}
+                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>Service Tags</div>
+                {Object.keys(tagCatalog).length === 0 ? (
+                  <div className="muted" style={{ fontSize: 11 }}>No services registered with tags.</div>
+                ) : (
+                  <table className="status-table" style={{ fontSize: 11 }}>
+                    <thead>
+                      <tr>
+                        <th>Service</th>
+                        <th>Available Tags</th>
+                        <th>Assigned</th>
+                        {canWrite && <th></th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(tagCatalog).map(([svc, available]) => {
+                        const assigned = spaceTags[svc] || [];
+                        return (
+                          <tr key={svc}>
+                            <td><code>{svc}</code></td>
+                            <td>
+                              {available.length === 0
+                                ? <span className="muted">none</span>
+                                : available.map(t => (
+                                    <span key={t} style={{
+                                      display: 'inline-block', padding: '1px 6px', margin: '1px 2px',
+                                      borderRadius: 3, fontSize: 10,
+                                      background: assigned.includes(t) ? 'var(--accent-bg)' : 'var(--bg2)',
+                                      color: assigned.includes(t) ? 'var(--accent)' : 'var(--muted)',
+                                      border: `1px solid ${assigned.includes(t) ? 'var(--accent)' : 'var(--border)'}`,
+                                      cursor: canWrite ? 'pointer' : 'default',
+                                    }}
+                                    onClick={canWrite ? () => {
+                                      const next = assigned.includes(t)
+                                        ? assigned.filter(x => x !== t)
+                                        : [...assigned, t];
+                                      saveTag(id, svc, next);
+                                    } : undefined}
+                                    title={canWrite ? (assigned.includes(t) ? 'Click to remove' : 'Click to assign') : ''}
+                                    >{t}</span>
+                                  ))
+                              }
+                            </td>
+                            <td>
+                              {assigned.length === 0
+                                ? <span className="muted">—</span>
+                                : assigned.join(', ')
+                              }
+                            </td>
+                            {canWrite && (
+                              <td>
+                                {assigned.length > 0 && (
+                                  <button className="btn btn-sm btn-ghost" style={{ fontSize: 10, padding: '1px 6px' }}
+                                    onClick={() => saveTag(id, svc, [])}
+                                    disabled={tagSaving}
+                                  >clear</button>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
@@ -4754,6 +5233,229 @@ function NodeTypeStateActionOverridesSubSection({ userId, canWrite, toast, nodeT
   );
 }
 
+/* ── Secrets Section (Vault-backed, Platform group) ──────────────── */
+export function SecretsSection({ userId, canWrite, toast }) {
+  const [keys, setKeys]             = useState(null);
+  const [revealed, setRevealed]     = useState({});   // { key: plaintext | null(loading) }
+  const [editing, setEditing]       = useState({});   // { key: draftValue }
+  const [addForm, setAddForm]       = useState(null); // null | { key, value }
+  const [busy, setBusy]             = useState(false);
+
+  async function refresh() {
+    try {
+      const rows = await api.listSecrets(userId);
+      setKeys(Array.isArray(rows) ? rows.map(r => r.key).sort() : []);
+    } catch (e) {
+      toast(e?.message || String(e), 'error');
+      setKeys([]);
+    }
+  }
+
+  useEffect(() => { refresh(); }, [userId]);
+
+  async function toggleReveal(key) {
+    if (revealed[key] !== undefined) {
+      setRevealed(r => { const c = { ...r }; delete c[key]; return c; });
+      return;
+    }
+    setRevealed(r => ({ ...r, [key]: null }));
+    try {
+      const dto = await api.revealSecret(userId, key);
+      setRevealed(r => ({ ...r, [key]: dto?.value ?? '' }));
+    } catch (e) {
+      toast(e?.message || String(e), 'error');
+      setRevealed(r => { const c = { ...r }; delete c[key]; return c; });
+    }
+  }
+
+  function startEdit(key) {
+    setEditing(m => ({ ...m, [key]: revealed[key] ?? '' }));
+  }
+
+  function cancelEdit(key) {
+    setEditing(m => { const c = { ...m }; delete c[key]; return c; });
+  }
+
+  async function saveEdit(key) {
+    setBusy(true);
+    try {
+      await api.updateSecret(userId, key, editing[key]);
+      toast(`Updated '${key}'`, 'success');
+      cancelEdit(key);
+      // Refresh revealed value if it was showing
+      if (revealed[key] !== undefined) {
+        setRevealed(r => ({ ...r, [key]: editing[key] }));
+      }
+    } catch (e) { toast(e?.message || String(e), 'error'); }
+    finally { setBusy(false); }
+  }
+
+  async function removeKey(key) {
+    if (!window.confirm(`Delete secret '${key}'? This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      await api.deleteSecret(userId, key);
+      toast(`Deleted '${key}'`, 'success');
+      setRevealed(r => { const c = { ...r }; delete c[key]; return c; });
+      refresh();
+    } catch (e) { toast(e?.message || String(e), 'error'); }
+    finally { setBusy(false); }
+  }
+
+  async function createKey() {
+    if (!addForm?.key?.trim()) { toast('Key required', 'error'); return; }
+    setBusy(true);
+    try {
+      await api.createSecret(userId, addForm.key.trim(), addForm.value ?? '');
+      toast(`Created '${addForm.key}'`, 'success');
+      setAddForm(null);
+      refresh();
+    } catch (e) {
+      const msg = (e?.message || String(e)).includes('409') ? 'Key already exists' : (e?.message || String(e));
+      toast(msg, 'error');
+    }
+    finally { setBusy(false); }
+  }
+
+  if (keys === null) return <div className="settings-loading">Loading…</div>;
+
+  return (
+    <div className="settings-section">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <h2 style={{ margin: 0 }}>Secrets</h2>
+        <span style={{ fontSize: 12, color: 'var(--muted2)' }}>Vault path: <code>secret/plm</code></span>
+        <div style={{ marginLeft: 'auto' }}>
+          {canWrite && !addForm && (
+            <button
+              className="btn btn-xs btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              onClick={() => setAddForm({ key: '', value: '' })}
+            >
+              <PlusIcon size={11} strokeWidth={2} />
+              Add secret
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!canWrite && (
+        <div className="settings-banner" style={{ marginBottom: 12 }}>
+          Read-only — MANAGE_SECRETS not granted to your role.
+        </div>
+      )}
+
+      {addForm && (
+        <div style={{ border: '1px solid var(--border)', padding: 12, borderRadius: 6, marginBottom: 12, background: 'var(--bg-alt, rgba(255,255,255,0.02))' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <input
+              className="field-input"
+              placeholder="key (e.g. plm.s3.access-key)"
+              value={addForm.key}
+              onChange={e => setAddForm(f => ({ ...f, key: e.target.value }))}
+              style={{ flex: 1 }}
+            />
+            <input
+              className="field-input"
+              placeholder="value"
+              value={addForm.value}
+              onChange={e => setAddForm(f => ({ ...f, value: e.target.value }))}
+              style={{ flex: 2 }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <button className="btn btn-xs" onClick={() => setAddForm(null)} disabled={busy}>Cancel</button>
+            <button className="btn btn-xs btn-primary" onClick={createKey} disabled={busy}>Create</button>
+          </div>
+        </div>
+      )}
+
+      <table className="settings-table">
+        <thead>
+          <tr>
+            <th style={{ width: '40%' }}>Key</th>
+            <th>Value</th>
+            <th style={{ width: 220, textAlign: 'right' }}>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {keys.length === 0 && (
+            <tr><td colSpan={3} style={{ color: 'var(--muted2)' }}>No secrets yet.</td></tr>
+          )}
+          {keys.map(key => {
+            const revealedVal = revealed[key];
+            const isEditing   = editing[key] !== undefined;
+            const isRevealed  = revealedVal !== undefined;
+            return (
+              <tr key={key}>
+                <td><code>{key}</code></td>
+                <td>
+                  {isEditing ? (
+                    <input
+                      className="field-input"
+                      value={editing[key]}
+                      onChange={e => setEditing(m => ({ ...m, [key]: e.target.value }))}
+                      style={{ width: '100%' }}
+                      autoFocus
+                    />
+                  ) : isRevealed ? (
+                    revealedVal === null
+                      ? <span style={{ color: 'var(--muted2)' }}>loading…</span>
+                      : <code>{revealedVal}</code>
+                  ) : (
+                    <span style={{ letterSpacing: 2, color: 'var(--muted2)' }}>••••••••</span>
+                  )}
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  <div style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
+                    {isEditing ? (
+                      <>
+                        <button className="btn btn-xs btn-primary" onClick={() => saveEdit(key)} disabled={busy}>Save</button>
+                        <button className="btn btn-xs" onClick={() => cancelEdit(key)} disabled={busy}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="btn btn-xs"
+                          onClick={() => toggleReveal(key)}
+                          title={isRevealed ? 'Hide value' : 'Reveal value'}
+                        >
+                          {isRevealed ? 'Hide' : 'Reveal'}
+                        </button>
+                        {canWrite && (
+                          <>
+                            <button
+                              className="btn btn-xs"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                              onClick={() => startEdit(key)}
+                              disabled={!isRevealed}
+                              title={isRevealed ? 'Edit value' : 'Reveal first to edit'}
+                            >
+                              <EditIcon size={10} strokeWidth={2} />
+                              Edit
+                            </button>
+                            <button
+                              className="btn btn-xs btn-danger"
+                              onClick={() => removeKey(key)}
+                              disabled={busy}
+                              title="Delete secret"
+                            >
+                              <TrashIcon size={10} strokeWidth={2} />
+                            </button>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* ── Main SettingsPage ───────────────────────────────────────────── */
 export default function SettingsPage({ userId, projectSpaceId, activeSection, onSectionChange, settingsSections, toast }) {
 
@@ -4794,12 +5496,14 @@ export default function SettingsPage({ userId, projectSpaceId, activeSection, on
           {activeSection === 'my-profile'    && <MyProfileSection    userId={userId} canWrite={canWrite('my-profile')} toast={toast} />}
           {activeSection === 'node-types'    && <NodeTypesSection    userId={userId} canWrite={canWrite('node-types')} toast={toast} />}
           {activeSection === 'domains'       && <DomainsSection      userId={userId} canWrite={canWrite('domains')} toast={toast} />}
+          {activeSection === 'enums'         && <EnumsSection        userId={userId} canWrite={canWrite('enums')} toast={toast} />}
           {activeSection === 'lifecycles'    && <LifecyclesSection   userId={userId} canWrite={canWrite('lifecycles')} toast={toast} />}
           {activeSection === 'proj-spaces'   && <ProjectSpacesSection userId={userId} canWrite={canWrite('proj-spaces')} toast={toast} />}
           {activeSection === 'users-roles'   && <UsersRolesSection   userId={userId} canWrite={canWrite('users-roles')} toast={toast} />}
           {activeSection === 'access-rights' && <AccessRightsSection userId={userId} canWrite={canWrite('access-rights')} toast={toast} />}
           {activeSection === 'algorithms'    && <AlgorithmsSection    userId={userId} canWrite={canWrite('algorithms')} toast={toast} />}
           {activeSection === 'guards'        && <GuardsSection        userId={userId} canWrite={canWrite('guards')} toast={toast} />}
+          {activeSection === 'secrets'       && <SecretsSection       userId={userId} canWrite={canWrite('secrets')} toast={toast} />}
         </div>
       )}
     </div>

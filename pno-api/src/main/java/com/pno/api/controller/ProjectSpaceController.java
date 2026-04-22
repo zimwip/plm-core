@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -39,6 +40,40 @@ public class ProjectSpaceController {
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deactivate(@PathVariable String id) {
         projectSpaceService.deactivateProjectSpace(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ── Service tag configuration ──────────────────────────────────
+
+    /** Own tags for a project space, grouped by service code. */
+    @GetMapping("/{id}/service-tags")
+    public ResponseEntity<?> serviceTags(@PathVariable String id) {
+        return ResponseEntity.ok(projectSpaceService.getServiceTags(id));
+    }
+
+    /** Effective tags (with hierarchy inheritance) + isolated flag. Used by SPE for routing. */
+    @GetMapping("/{id}/effective-service-tags")
+    public ResponseEntity<?> effectiveServiceTags(@PathVariable String id) {
+        return ResponseEntity.ok(projectSpaceService.getEffectiveServiceTags(id));
+    }
+
+    /** Set tags for a specific service on a project space. */
+    @SuppressWarnings("unchecked")
+    @PutMapping("/{id}/service-tags/{serviceCode}")
+    public ResponseEntity<?> setServiceTags(@PathVariable String id,
+                                            @PathVariable String serviceCode,
+                                            @RequestBody Map<String, Object> body) {
+        List<String> tags = (List<String>) body.get("tags");
+        projectSpaceService.setServiceTags(id, serviceCode, tags);
+        return ResponseEntity.ok(projectSpaceService.getServiceTags(id));
+    }
+
+    /** Toggle isolated flag. */
+    @PutMapping("/{id}/isolated")
+    public ResponseEntity<?> setIsolated(@PathVariable String id,
+                                         @RequestBody Map<String, Object> body) {
+        boolean isolated = Boolean.TRUE.equals(body.get("isolated"));
+        projectSpaceService.setIsolated(id, isolated);
         return ResponseEntity.noContent().build();
     }
 }

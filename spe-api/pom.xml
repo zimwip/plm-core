@@ -33,6 +33,13 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- Platform library: shared SPE registration DTO (auto-config disabled via property) -->
+        <dependency>
+            <groupId>com.plm.platform</groupId>
+            <artifactId>platform-lib</artifactId>
+            <version>0.1.0-SNAPSHOT</version>
+        </dependency>
+
         <!-- Gateway (reactive) -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

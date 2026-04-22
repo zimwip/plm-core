@@ -13,18 +13,20 @@ import {
   CpuIcon as SCpuIcon, WorkflowIcon as SWorkflowIcon, TerminalIcon as STerminalIcon,
   BookIcon as SBookIcon, UserIcon as SUserIcon,
 } from './Icons';
-import { Database as SDatabaseIcon } from 'lucide-react';
+import { Database as SDatabaseIcon, List as SListIcon, KeyRound as SKeyIcon } from 'lucide-react';
 
 const SECTION_ICONS = {
   'my-profile':     SUserIcon,
   'node-types':     SLayersIcon,
   'domains':        SDatabaseIcon,
+  'enums':          SListIcon,
   'lifecycles':     SLifecycleIcon,
   'proj-spaces':    SHexIcon,
   'users-roles':    SUsersIcon,
   'access-rights':  SShieldIcon,
   'algorithms':     SCpuIcon,
   'guards':         SWorkflowIcon,
+  'secrets':        SKeyIcon,
   'api-playground': STerminalIcon,
   'user-manual':    SBookIcon,
 };

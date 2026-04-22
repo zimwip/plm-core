@@ -130,11 +130,14 @@ public class DomainService {
             throw new IllegalArgumentException("Domain attributes cannot be marked as 'as_name'");
         }
         String id = UUID.randomUUID().toString();
+        String enumDefId = (String) params.get("enumDefinitionId");
+        String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         dsl.execute("""
             INSERT INTO attribute_definition
               (id, node_type_id, domain_id, name, label, data_type, required, default_value,
-               naming_regex, allowed_values, widget_type, display_order, display_section, tooltip, as_name, created_at)
-            VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+               naming_regex, allowed_values, widget_type, display_order, display_section, tooltip, as_name,
+               enum_definition_id, created_at)
+            VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
             """,
             id, domainId,
             params.get("name"),
@@ -143,11 +146,12 @@ public class DomainService {
             toIntFlag(params.get("required")),
             params.get("defaultValue"),
             params.get("namingRegex"),
-            params.get("allowedValues"),
+            allowedValues,
             params.getOrDefault("widgetType", "TEXT"),
             toInt(params.get("displayOrder"), 0),
             params.get("displaySection"),
             params.get("tooltip"),
+            enumDefId,
             LocalDateTime.now()
         );
         log.info("Domain attribute '{}' created on domain {}", params.get("name"), domainId);
@@ -159,11 +163,14 @@ public class DomainService {
     @PlmPermission("MANAGE_PSM")
     @Transactional
     public void updateDomainAttribute(String domainId, String attrId, Map<String, Object> params) {
+        String enumDefId = (String) params.get("enumDefinitionId");
+        String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         dsl.execute("""
             UPDATE attribute_definition
             SET name = ?, label = ?, data_type = ?, required = ?, default_value = ?,
                 naming_regex = ?, allowed_values = ?, widget_type = ?,
-                display_order = ?, display_section = ?, tooltip = ?
+                display_order = ?, display_section = ?, tooltip = ?,
+                enum_definition_id = ?
             WHERE id = ? AND domain_id = ?
             """,
             params.get("name"),
@@ -172,11 +179,12 @@ public class DomainService {
             toIntFlag(params.get("required")),
             params.get("defaultValue"),
             params.get("namingRegex"),
-            params.get("allowedValues"),
+            allowedValues,
             params.getOrDefault("widgetType", "TEXT"),
             toInt(params.get("displayOrder"), 0),
             params.get("displaySection"),
             params.get("tooltip"),
+            enumDefId,
             attrId, domainId
         );
         log.info("Domain attribute '{}' updated", attrId);
@@ -216,6 +224,7 @@ public class DomainService {
             m.put("default_value", a.defaultValue());
             m.put("naming_regex", a.namingRegex());
             m.put("allowed_values", a.allowedValues());
+            m.put("enum_definition_id", a.enumDefinitionId());
             m.put("display_order", a.displayOrder());
             m.put("display_section", a.displaySection());
             m.put("tooltip", a.tooltip());
@@ -397,6 +406,32 @@ public class DomainService {
     // ================================================================
     // Helpers
     // ================================================================
+
+    private String resolveAllowedValues(String enumDefId, String explicitAllowedValues) {
+        if (enumDefId != null && !enumDefId.isBlank()) {
+            var rows = dsl.select(DSL.field("value"), DSL.field("label"))
+                .from("enum_value")
+                .where("enum_definition_id = ?", enumDefId)
+                .orderBy(DSL.field("display_order"))
+                .fetch();
+            if (!rows.isEmpty()) {
+                StringBuilder sb = new StringBuilder("[");
+                for (int i = 0; i < rows.size(); i++) {
+                    if (i > 0) sb.append(",");
+                    String val = rows.get(i).get("value", String.class);
+                    String lbl = rows.get(i).get("label", String.class);
+                    sb.append("{\"value\":\"").append(val.replace("\"", "\\\"")).append("\"");
+                    if (lbl != null && !lbl.isBlank()) {
+                        sb.append(",\"label\":\"").append(lbl.replace("\"", "\\\"")).append("\"");
+                    }
+                    sb.append("}");
+                }
+                sb.append("]");
+                return sb.toString();
+            }
+        }
+        return explicitAllowedValues;
+    }
 
     private static int toIntFlag(Object val) {
         if (val == null) return 0;

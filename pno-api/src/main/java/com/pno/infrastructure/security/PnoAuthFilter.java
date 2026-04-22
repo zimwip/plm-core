@@ -39,7 +39,9 @@ public class PnoAuthFilter implements Filter {
         HttpServletResponse resp = (HttpServletResponse) response;
         String uri = req.getRequestURI();
 
-        if (uri.matches("/api/pno/users/[^/]+/context")) {
+        // S2S endpoints: validated by X-Service-Secret (no JWT required)
+        if (uri.matches("/api/pno/users/[^/]+/context")
+            || uri.matches("/api/pno/project-spaces/[^/]+/effective-service-tags")) {
             String secret = req.getHeader("X-Service-Secret");
             if (!serviceSecret.equals(secret)) {
                 resp.setStatus(403);

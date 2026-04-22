@@ -756,14 +756,21 @@ export default function NodeEditor({
         const renderAttrField = (attr) => {
           const currentVal = edits[attr.id] !== undefined ? edits[attr.id] : (attr.value || '');
           const isEditable = attr.editable && !!txId && isOpenVersion;
-          const enumValues = attr.type === 'ENUM' && attr.allowedValues
+          const rawEnum = attr.type === 'ENUM' && attr.allowedValues
             ? (() => { try { return JSON.parse(attr.allowedValues); } catch { return []; } })()
             : null;
+          // Normalize: support both ["val"] (legacy) and [{value, label}] (enum_definition)
+          const enumValues = rawEnum
+            ? rawEnum.map(v => typeof v === 'object' && v !== null
+                ? { value: v.value, label: v.label || v.value }
+                : { value: v, label: v })
+            : null;
+          const enumCodes = enumValues ? enumValues.map(e => e.value) : null;
           const regexViolation = attr.namingRegex && edits[attr.id] != null &&
             edits[attr.id] !== '' && !new RegExp(attr.namingRegex).test(edits[attr.id]);
           const requiredViolation = attr.required && edits[attr.id] === '';
-          const enumViolation = enumValues && edits[attr.id] != null &&
-            edits[attr.id] !== '' && !enumValues.includes(edits[attr.id]);
+          const enumViolation = enumCodes && edits[attr.id] != null &&
+            edits[attr.id] !== '' && !enumCodes.includes(edits[attr.id]);
           return (
             <div
               className="field"
@@ -777,19 +784,21 @@ export default function NodeEditor({
                 {attr.label}
                 {attr.required && <span className="field-req">*</span>}
               </label>
-              {enumValues && isEditable ? (
+              {enumValues ? (
                 <select
                   className="field-input"
                   title={attr.tooltip || undefined}
                   value={currentVal}
+                  disabled={!isEditable}
                   onChange={e => {
+                    if (!isEditable) return;
                     const newEdits = { ...edits, [attr.id]: e.target.value };
                     setEdits(newEdits);
                     scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
                   }}
                 >
                   <option value="">—</option>
-                  {enumValues.map(v => <option key={v} value={v}>{v}</option>)}
+                  {enumValues.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
                 </select>
               ) : (
                 <input

@@ -34,6 +34,18 @@ BACKEND_SVC_ROWS=(
     "spe-api|8082||true|SPE"
 )
 
+# ── Infrastructure services (emitted as-is in dist compose) ─
+# Columns (^-separated — pipe avoided because healthcheck commands contain ||):
+#   name      : docker compose service name
+#   image     : Docker image
+#   ports     : published ports (comma-separated, empty = none)
+#   env       : KEY=VAL pairs (comma-separated, empty = none)
+#   healthcheck : health check command (empty = none)
+#   hc_start  : healthcheck start_period (default 20s)
+INFRA_SVC_ROWS=(
+    "jaeger^jaegertracing/all-in-one:1.62.0^16686,4318,4317^COLLECTOR_OTLP_ENABLED=true^wget -qO- http://localhost:14269/ || exit 1^20s"
+)
+
 SVC_NAMES=()
 declare -A SVC_PORT SVC_SCHEMA SVC_EXPOSED SVC_LOGPKG
 for row in "${BACKEND_SVC_ROWS[@]}"; do
@@ -45,10 +57,22 @@ for row in "${BACKEND_SVC_ROWS[@]}"; do
     SVC_LOGPKG[$name]=$logpkg
 done
 
+INFRA_NAMES=()
+declare -A INFRA_IMAGE INFRA_PORTS INFRA_ENV INFRA_HC INFRA_HC_START
+for row in "${INFRA_SVC_ROWS[@]}"; do
+    IFS='^' read -r name image ports env hc hc_start <<<"$row"
+    INFRA_NAMES+=("$name")
+    INFRA_IMAGE[$name]=$image
+    INFRA_PORTS[$name]=$ports
+    INFRA_ENV[$name]=$env
+    INFRA_HC[$name]=$hc
+    INFRA_HC_START[$name]=${hc_start:-20s}
+done
+
 FRONTEND_WATCH="frontend/src frontend/index.html frontend/vite.config.js frontend/package.json frontend/Dockerfile frontend/nginx.conf"
 
 build_backend_watch() {
-    local out=""
+    local out="platform-lib/src platform-lib/pom.xml"
     for svc in "${SVC_NAMES[@]}"; do
         out="$out $svc/src $svc/pom.xml $svc/Dockerfile"
     done
@@ -66,6 +90,7 @@ marker_for() { echo "/tmp/plm-need-$1-$$"; }
 all_markers() {
     local out=()
     out+=("$(marker_for plm-frontend)")
+    out+=("$(marker_for platform-lib)")
     for svc in "${SVC_NAMES[@]}"; do
         out+=("$(marker_for "$svc")")
     done
@@ -125,6 +150,26 @@ rebuild() {
     fi
     mkdir "$REBUILD_LOCK"
 
+    if [[ "$target" == "platform-lib" ]]; then
+        log "▶  platform-lib changed — rebuilding all backends…"
+        local compose_services=()
+        for svc in "${SVC_NAMES[@]}"; do
+            # Expand multi-replica services (psm-api → psm-api-1, psm-api-2) via compose ps
+            while IFS= read -r cs; do
+                [[ -n "$cs" ]] && compose_services+=("$cs")
+            done < <(docker compose config --services 2>/dev/null | grep -E "^${svc}(-[0-9]+)?$" || echo "$svc")
+        done
+        if ! docker compose build "${compose_services[@]}"; then
+            err "Build failed during platform-lib cascade"
+            rmdir "$REBUILD_LOCK" 2>/dev/null || true
+            return 1
+        fi
+        docker compose up -d --no-deps --force-recreate "${compose_services[@]}"
+        ok "All backends rebuilt"
+        rmdir "$REBUILD_LOCK" 2>/dev/null || true
+        return 0
+    fi
+
     local service
     service=$(compose_service_for "$target")
 
@@ -173,6 +218,10 @@ classify_change() {
         touch "$(marker_for plm-frontend)"
         return
     fi
+    if [[ "$changed" == platform-lib/* || "$changed" == */platform-lib/* ]]; then
+        touch "$(marker_for platform-lib)"
+        return
+    fi
     for svc in "${SVC_NAMES[@]}"; do
         if [[ "$changed" == "$svc"/* || "$changed" == */"$svc"/* ]]; then
             touch "$(marker_for "$svc")"
@@ -185,7 +234,7 @@ classify_change() {
 dispatch_rebuilds() {
     local rebuild_fn=$1
     local now; now=$(date +%s)
-    for target in "plm-frontend" "${SVC_NAMES[@]}"; do
+    for target in "platform-lib" "plm-frontend" "${SVC_NAMES[@]}"; do
         local marker; marker=$(marker_for "$target")
         [[ -f "$marker" ]] || continue
         local mtime
@@ -297,7 +346,17 @@ local_rebuild() {
     mkdir "$REBUILD_LOCK"
     log "▶  $target changed — restarting…"
 
-    if [[ "$target" == "plm-frontend" ]]; then
+    if [[ "$target" == "platform-lib" ]]; then
+        log "   Reinstalling platform-lib to local ~/.m2…"
+        if ./psm-api/mvnw -f platform-lib/pom.xml -q install -DskipTests; then
+            ok "platform-lib installed"
+            for svc in "${SVC_NAMES[@]}"; do
+                local_start_backend "$svc"
+            done
+        else
+            err "platform-lib install failed — backends NOT restarted"
+        fi
+    elif [[ "$target" == "plm-frontend" ]]; then
         local_start_frontend
         ok "Frontend (Vite) restarted"
     elif [[ -n "${SVC_PORT[$target]:-}" ]]; then
@@ -319,6 +378,14 @@ run_local() {
     log "mvnw  : per-service mvnw (downloads Maven 3.9.9 if needed)"
 
     log "Starting all services locally (H2 in-memory, no Docker required)…"
+    echo ""
+
+    log "Installing platform-lib to local ~/.m2…"
+    if ! ./psm-api/mvnw -f platform-lib/pom.xml -q install -DskipTests; then
+        err "Failed to install platform-lib — aborting local mode"
+        exit 1
+    fi
+    ok "platform-lib installed"
     echo ""
 
     for svc in "${SVC_NAMES[@]}"; do
@@ -368,11 +435,11 @@ run_local() {
 
 extract_from_builder() {
     local service=$1 ctx=$2 tag=$3 src_path=$4 dest=$5
-    local build_args="${6:-}" dockerfile="${7:-Dockerfile}"
+    local build_args="${6:-}" dockerfile="${7:-Dockerfile}" extra_ctx="${8:-}"
 
     log "[$service] Building builder stage (${dockerfile})…"
     # shellcheck disable=SC2086
-    docker build --target builder $build_args --file "$ctx/$dockerfile" -t "$tag" "$ctx"
+    docker build --target builder $build_args $extra_ctx --file "$ctx/$dockerfile" -t "$tag" "$ctx"
 
     log "[$service] Extracting artifacts…"
     local cid
@@ -432,6 +499,98 @@ ENTRYPOINT ["/docker-entrypoint.sh"]
 EOF
 }
 
+# Emit one infrastructure service block for dist docker-compose.yml
+emit_infra_compose_block() {
+    local svc=$1
+    local image="${INFRA_IMAGE[$svc]}"
+    local ports="${INFRA_PORTS[$svc]}"
+    local env="${INFRA_ENV[$svc]}"
+    local hc="${INFRA_HC[$svc]}"
+    local hc_start="${INFRA_HC_START[$svc]}"
+
+    echo ""
+    echo "  $svc:"
+    echo "    image: $image"
+    echo "    container_name: $svc"
+    if [[ -n "$ports" ]]; then
+        echo "    ports:"
+        IFS=',' read -ra port_list <<<"$ports"
+        for p in "${port_list[@]}"; do
+            echo "      - \"$p:$p\""
+        done
+    fi
+    if [[ -n "$env" ]]; then
+        echo "    environment:"
+        IFS=',' read -ra env_list <<<"$env"
+        for e in "${env_list[@]}"; do
+            echo "      ${e%%=*}: \"${e#*=}\""
+        done
+    fi
+    if [[ -n "$hc" ]]; then
+        cat <<EOF
+    healthcheck:
+      test: ["CMD-SHELL", "$hc"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: $hc_start
+EOF
+    fi
+    echo "    restart: unless-stopped"
+    echo "    networks:"
+    echo "      - plm-net"
+}
+
+# Emit Vault + Vault-bootstrap blocks for dist docker-compose.yml
+# (Not modelled via INFRA_SVC_ROWS because those only handle simple services —
+#  vault needs volumes, a config file, and a sibling one-shot bootstrap.)
+emit_vault_compose_blocks() {
+    cat <<'EOF'
+
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: vault
+    cap_add: [IPC_LOCK]
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+    volumes:
+      - plm-vault-file:/vault/file
+      - plm-vault-init:/vault/init
+      - ./vault/config.hcl:/vault/config/config.hcl:ro
+    entrypoint: vault server -config=/vault/config/config.hcl
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8200/v1/sys/health?sealedcode=200&uninitcode=200' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  vault-bootstrap:
+    image: hashicorp/vault:1.17
+    container_name: vault-bootstrap
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      PLM_SERVICE_SECRET: ${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (must be >= 32 bytes)}
+      PG_PASSWORD: ${PG_PASSWORD:?Set PG_PASSWORD in .env}
+    volumes:
+      - plm-vault-init:/vault/init
+      - ./vault/bootstrap.sh:/bootstrap.sh:ro
+    entrypoint: /bin/sh
+    command: ["/bootstrap.sh"]
+    restart: "no"
+    networks:
+      - plm-net
+EOF
+}
+
 # Emit one backend service block for dist docker-compose.yml
 emit_backend_compose_block() {
     local svc=$1 tag=$2
@@ -454,7 +613,6 @@ emit_backend_compose_block() {
         cat <<EOF
       SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
       SPRING_DATASOURCE_USERNAME:          plm
-      SPRING_DATASOURCE_PASSWORD:          \${PG_PASSWORD:-changeme}
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_DATASOURCE_HIKARI_SCHEMA:     $schema
       SPRING_JOOQ_SQL_DIALECT:             POSTGRES
@@ -464,20 +622,42 @@ emit_backend_compose_block() {
 EOF
     fi
     cat <<EOF
-      PLM_SERVICE_SECRET:                  \${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (must be >= 32 bytes)}
+      # Secrets (PLM_SERVICE_SECRET, PG_PASSWORD, JWT tuning) come from Vault at bootstrap.
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
       SPE_API_URL:                         http://spe-api:${SVC_PORT[spe-api]}
       SPE_SELF_BASE_URL:                   http://$svc:$port
       PNO_API_URL:                         http://pno-api:${SVC_PORT[pno-api]}
       LOGGING_LEVEL_ROOT:                  INFO
       LOGGING_LEVEL_COM_$logpkg:               INFO
 EOF
+    # OTLP tracing (if any infra service named "jaeger" exists)
+    if [[ -n "${INFRA_IMAGE[jaeger]:-}" ]]; then
+        cat <<EOF
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+EOF
+    fi
+    # depends_on: vault-bootstrap (always) + postgres + infra services with healthchecks
+    echo "    depends_on:"
+    cat <<'EOF'
+      vault-bootstrap:
+        condition: service_completed_successfully
+EOF
     if [[ -n "$schema" ]]; then
         cat <<EOF
-    depends_on:
       postgres:
         condition: service_healthy
 EOF
     fi
+    for infra in "${INFRA_NAMES[@]}"; do
+        if [[ -n "${INFRA_HC[$infra]}" ]]; then
+            cat <<EOF
+      $infra:
+        condition: service_healthy
+EOF
+        fi
+    done
     cat <<EOF
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:$port/actuator/health || exit 1"]
@@ -550,6 +730,12 @@ EOF
 EOF
         fi
 
+        for infra in "${INFRA_NAMES[@]}"; do
+            emit_infra_compose_block "$infra"
+        done
+
+        emit_vault_compose_blocks
+
         for svc in "${SVC_NAMES[@]}"; do
             emit_backend_compose_block "$svc" "$tag"
         done
@@ -574,14 +760,17 @@ networks:
     driver: bridge
 EOF
 
+        # Always emit volumes (vault volumes are unconditional; pgdata conditional)
+        echo ""
+        echo "volumes:"
         if $any_db; then
-            cat <<'EOF'
-
-volumes:
-  plm-pgdata:
-    driver: local
-EOF
+            echo "  plm-pgdata:"
+            echo "    driver: local"
         fi
+        echo "  plm-vault-file:"
+        echo "    driver: local"
+        echo "  plm-vault-init:"
+        echo "    driver: local"
     } > "$out"
 }
 
@@ -609,6 +798,13 @@ run_package() {
     mkdir -p "$DIST/frontend/html"
     for svc in "${SVC_NAMES[@]}"; do mkdir -p "$DIST/$svc"; done
 
+    # Vault config + bootstrap script (demo-only — consumed by vault + vault-bootstrap
+    # services in dist/docker-compose.yml)
+    mkdir -p "$DIST/vault"
+    cp vault/config.hcl   "$DIST/vault/config.hcl"
+    cp vault/bootstrap.sh "$DIST/vault/bootstrap.sh"
+    chmod +x "$DIST/vault/bootstrap.sh"
+
     if $NATIVE_MODE; then
         log "=== PLM Core — package (native) ==="
         log "GraalVM static binaries — this takes ~5–10 min per service"
@@ -628,9 +824,9 @@ run_package() {
                 rm -rf "${DIST:?}/$svc"
                 continue
             fi
-            extract_from_builder "$svc" "$svc" "plm-$svc-native-builder" \
+            extract_from_builder "$svc" "." "plm-$svc-native-builder" \
                 "/build/target/server" "$DIST/$svc/server" \
-                "" "Dockerfile.native"
+                "" "$svc/Dockerfile.native"
             chmod +x "$DIST/$svc/server"
             BUILT_SVCS+=("$svc")
             echo ""
@@ -642,9 +838,9 @@ run_package() {
             if grep -q '<id>dist</id>' "$svc/pom.xml" 2>/dev/null; then
                 build_args="--build-arg MAVEN_EXTRA_OPTS=-Pdist"
             fi
-            extract_from_builder "$svc" "$svc" "plm-$svc-pkg-builder" \
+            extract_from_builder "$svc" "." "plm-$svc-pkg-builder" \
                 "/build/target" "$DIST/$svc/_target" \
-                "$build_args"
+                "$build_args" "$svc/Dockerfile"
             local jar
             jar=$(ls "$DIST/$svc/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1 || true)
             if [[ -z "$jar" ]]; then

@@ -35,6 +35,10 @@ public class ServiceSecretFilter implements WebFilter {
         if (!path.startsWith(PROTECTED_PREFIX)) {
             return chain.filter(exchange);
         }
+        // /tags is a read-only catalog endpoint, accessible without service secret
+        if (path.equals(PROTECTED_PREFIX + "/tags")) {
+            return chain.filter(exchange);
+        }
 
         String provided = exchange.getRequest().getHeaders().getFirst("X-Service-Secret");
         if (provided == null || !expectedSecret.equals(provided)) {

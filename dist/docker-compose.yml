@@ -32,6 +32,67 @@ services:
     networks:
       - plm-net
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: jaeger
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+      - "4317:4317"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:14269/ || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: vault
+    cap_add: [IPC_LOCK]
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+    volumes:
+      - plm-vault-file:/vault/file
+      - plm-vault-init:/vault/init
+      - ./vault/config.hcl:/vault/config/config.hcl:ro
+    entrypoint: vault server -config=/vault/config/config.hcl
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8200/v1/sys/health?sealedcode=200&uninitcode=200' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  vault-bootstrap:
+    image: hashicorp/vault:1.17
+    container_name: vault-bootstrap
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      PLM_SERVICE_SECRET: ${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (must be >= 32 bytes)}
+      PG_PASSWORD: ${PG_PASSWORD:?Set PG_PASSWORD in .env}
+    volumes:
+      - plm-vault-init:/vault/init
+      - ./vault/bootstrap.sh:/bootstrap.sh:ro
+    entrypoint: /bin/sh
+    command: ["/bootstrap.sh"]
+    restart: "no"
+    networks:
+      - plm-net
+
   pno-api:
     build: ./pno-api
     image: pno-api:dist
@@ -39,21 +100,28 @@ services:
     environment:
       SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
       SPRING_DATASOURCE_USERNAME:          plm
-      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:-changeme}
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_DATASOURCE_HIKARI_SCHEMA:     pno
       SPRING_JOOQ_SQL_DIALECT:             POSTGRES
       SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
       SPRING_FLYWAY_DEFAULT_SCHEMA:        pno
       SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
-      PLM_SERVICE_SECRET:                  ${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (must be >= 32 bytes)}
+      # Secrets (PLM_SERVICE_SECRET, PG_PASSWORD, JWT tuning) come from Vault at bootstrap.
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
       SPE_API_URL:                         http://spe-api:8082
       SPE_SELF_BASE_URL:                   http://pno-api:8081
       PNO_API_URL:                         http://pno-api:8081
       LOGGING_LEVEL_ROOT:                  INFO
       LOGGING_LEVEL_COM_PNO:               INFO
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
     depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
       postgres:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
@@ -72,21 +140,28 @@ services:
     environment:
       SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
       SPRING_DATASOURCE_USERNAME:          plm
-      SPRING_DATASOURCE_PASSWORD:          ${PG_PASSWORD:-changeme}
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_DATASOURCE_HIKARI_SCHEMA:     psm
       SPRING_JOOQ_SQL_DIALECT:             POSTGRES
       SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
       SPRING_FLYWAY_DEFAULT_SCHEMA:        psm
       SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
-      PLM_SERVICE_SECRET:                  ${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (must be >= 32 bytes)}
+      # Secrets (PLM_SERVICE_SECRET, PG_PASSWORD, JWT tuning) come from Vault at bootstrap.
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
       SPE_API_URL:                         http://spe-api:8082
       SPE_SELF_BASE_URL:                   http://psm-api:8080
       PNO_API_URL:                         http://pno-api:8081
       LOGGING_LEVEL_ROOT:                  INFO
       LOGGING_LEVEL_COM_PLM:               INFO
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
     depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
       postgres:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
@@ -105,12 +180,21 @@ services:
     ports:
       - "8082:8082"
     environment:
-      PLM_SERVICE_SECRET:                  ${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (must be >= 32 bytes)}
+      # Secrets (PLM_SERVICE_SECRET, PG_PASSWORD, JWT tuning) come from Vault at bootstrap.
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
       SPE_API_URL:                         http://spe-api:8082
       SPE_SELF_BASE_URL:                   http://spe-api:8082
       PNO_API_URL:                         http://pno-api:8081
       LOGGING_LEVEL_ROOT:                  INFO
       LOGGING_LEVEL_COM_SPE:               INFO
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+    depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
       interval: 20s
@@ -140,4 +224,8 @@ networks:
 
 volumes:
   plm-pgdata:
+    driver: local
+  plm-vault-file:
+    driver: local
+  plm-vault-init:
     driver: local

@@ -1,32 +1,37 @@
 # ============================================================
 # PNO API - Dockerfile (multi-stage)
 #
-# Stage 1 (builder) : Maven compile → Spring Boot layered JAR
-# Stage 2 (runtime) : Eclipse Temurin JRE + layered app
+# Build context is the repo root (see docker-compose.yml).
+# Stage 0 (lib-builder) : mvn install platform-lib into ~/.m2
+# Stage 1 (builder)     : Maven compile pno-api → Spring Boot layered JAR
+# Stage 2 (runtime)     : Eclipse Temurin JRE + layered app
 # ============================================================
 
-# ── Stage 1: build ───────────────────────────────────────────
-FROM maven:3.9-eclipse-temurin-21-alpine AS builder
+# ── Stage 0: install platform-lib ────────────────────────────
+FROM maven:3.9-eclipse-temurin-21-alpine AS lib-builder
+WORKDIR /lib
+COPY platform-lib/pom.xml .
+COPY platform-lib/src ./src
+RUN mvn -q install -DskipTests --no-transfer-progress
 
+# ── Stage 1: build pno-api ───────────────────────────────────
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /build
 
-COPY pom.xml .
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn dependency:go-offline --no-transfer-progress 2>/dev/null || true
+COPY --from=lib-builder /root/.m2 /root/.m2
 
-COPY src ./src
+COPY pno-api/pom.xml .
+RUN mvn dependency:go-offline --no-transfer-progress 2>/dev/null || true
+
+COPY pno-api/src ./src
 ARG MAVEN_EXTRA_OPTS=""
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn clean package -Dmaven.test.skip=true --no-transfer-progress $MAVEN_EXTRA_OPTS
+RUN mvn clean package -Dmaven.test.skip=true --no-transfer-progress $MAVEN_EXTRA_OPTS
 
-# Extract Spring Boot layered JAR
 RUN JAR=$(find target -name '*.jar' ! -name '*original*' | head -1) && \
     java -Djarmode=layertools -jar "$JAR" extract --destination target/extracted
 
 # ── Stage 2: runtime ─────────────────────────────────────────
 FROM eclipse-temurin:21-jre-alpine AS runtime
-
-RUN apk add --no-cache wget
 
 RUN addgroup -S pno && adduser -S pno -G pno
 USER pno

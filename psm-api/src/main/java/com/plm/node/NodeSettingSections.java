@@ -20,6 +20,11 @@ class NodeSettingSections {
     }
 
     @Bean
+    SettingSection enumsSection() {
+        return new SimpleSettingSection("enums", "Enumerations", SettingGroup.APPLICATION, 18, "MANAGE_PSM");
+    }
+
+    @Bean
     SettingSection lifecyclesSection() {
         return new SimpleSettingSection("lifecycles", "Lifecycles", SettingGroup.APPLICATION, 20, "MANAGE_PSM");
     }

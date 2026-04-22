@@ -1596,6 +1596,15 @@ select.field-input{cursor:pointer;appearance:none;-webkit-appearance:none}
   font-family:var(--mono);color:var(--muted);font-size:10px;
 }
 .status-table .muted{color:var(--muted2)}
+.status-row-service td{background:rgba(255,255,255,0.02)}
+.status-row-instance td{padding-top:4px;padding-bottom:4px;font-size:10px}
+.status-row-instance td:first-child{padding-left:24px}
+.status-inst-leaf{color:var(--muted2);margin-right:4px}
+.status-inst-badge{
+  margin-left:8px;padding:2px 6px;border-radius:3px;
+  background:var(--border);color:var(--muted);
+  font-family:var(--mono);font-size:9px;letter-spacing:.04em;
+}
 .status-modal-timestamp{
   margin-top:12px;font-size:10px;color:var(--muted2);
   font-family:var(--mono);text-align:right;

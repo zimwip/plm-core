@@ -220,7 +220,10 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
         <span className="status-value" style={{ color: color.dot }}>{color.label}</span>
         {status?.services && (
           <span className="status-count">
-            {status.services.filter(s => s.healthy).length}/{status.services.length} up
+            {status.services.filter(s => s.healthy).length}/{status.services.length} svc
+            {status.totalInstances != null && (
+              <> · {status.totalHealthyInstances}/{status.totalInstances} inst</>
+            )}
           </span>
         )}
         <span
@@ -291,31 +294,74 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
                 <table className="status-table">
                   <thead>
                     <tr>
-                      <th>Service</th>
+                      <th>Service / Instance</th>
                       <th>Version</th>
                       <th>Status</th>
                       <th>Path</th>
+                      <th>Affinity</th>
                       <th>Last HB</th>
                       <th>Failures</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(status?.services || []).map(svc => {
+                    {(status?.services || []).flatMap(svc => {
                       const st = svc.status || (svc.healthy ? 'up' : 'down');
                       const c  = COLOR[st] || COLOR.unknown;
-                      return (
-                        <tr key={svc.serviceCode}>
-                          <td><code>{svc.serviceCode}</code></td>
+                      const headerRow = (
+                        <tr key={svc.serviceCode} className="status-row-service">
+                          <td>
+                            <code>{svc.serviceCode}</code>
+                            {svc.instanceCount != null && (
+                              <span className="status-inst-badge" title="healthy / total instances">
+                                {svc.healthyInstances}/{svc.instanceCount} inst
+                              </span>
+                            )}
+                          </td>
                           <td>{svc.version ? <code>{svc.version}</code> : <span className="muted">—</span>}</td>
                           <td>
                             <span className="status-dot status-dot-sm" style={{ background: c.dot }} />
                             <span style={{ color: c.dot }}>{c.label}</span>
                           </td>
                           <td>{svc.path ? <code>{svc.path}</code> : <span className="muted">—</span>}</td>
-                          <td>{svc.registered ? fmtAge(svc.ageSeconds) + ' ago' : <span className="muted">never</span>}</td>
-                          <td>{svc.consecutiveFailures ?? '—'}</td>
+                          <td>
+                            {svc.instances && svc.instances.length > 0 && (() => {
+                              const tagged = svc.instances.filter(i => !i.untagged);
+                              const untagged = svc.instances.filter(i => i.untagged);
+                              if (tagged.length === 0) return <span className="muted">all untagged</span>;
+                              const tags = [...new Set(tagged.map(i => i.spaceTag))].sort().join(', ');
+                              return <span className="muted">{tags}{untagged.length ? ` + ${untagged.length} untagged` : ''}</span>;
+                            })()}
+                          </td>
+                          <td colSpan="2">
+                            {svc.registered
+                              ? <span className="muted">pool of {svc.instanceCount}</span>
+                              : <span className="muted">no instances registered</span>}
+                          </td>
                         </tr>
                       );
+                      const instanceRows = (svc.instances || []).map(inst => {
+                        const ist = inst.status || (inst.healthy ? 'up' : 'down');
+                        const ic  = COLOR[ist] || COLOR.unknown;
+                        return (
+                          <tr key={svc.serviceCode + '/' + inst.instanceId} className="status-row-instance">
+                            <td><span className="status-inst-leaf">↳</span> <code className="muted">{inst.instanceId}</code></td>
+                            <td>{inst.version ? <code>{inst.version}</code> : <span className="muted">—</span>}</td>
+                            <td>
+                              <span className="status-dot status-dot-sm" style={{ background: ic.dot }} />
+                              <span style={{ color: ic.dot }}>{ic.label}</span>
+                            </td>
+                            <td>
+                              {inst.untagged
+                                ? <span className="muted">—</span>
+                                : <code style={{ fontSize: '0.85em' }}>{inst.spaceTag}</code>
+                              }
+                            </td>
+                            <td>{inst.lastHeartbeatOk ? fmtAge(inst.ageSeconds) + ' ago' : <span className="muted">never</span>}</td>
+                            <td>{inst.consecutiveFailures ?? 0}</td>
+                          </tr>
+                        );
+                      });
+                      return [headerRow, ...instanceRows];
                     })}
                   </tbody>
                 </table>

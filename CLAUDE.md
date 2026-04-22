@@ -12,6 +12,29 @@ Fichier contexte PLM Core — reprend conversation avec décisions de conception
 
 Objectif : base solide avant ajout fonctionnalités métier.
 
+### Modules Maven
+
+| Module | Rôle |
+|--------|------|
+| **platform-lib** | Librairie partagée. Contient le client d'auto-enregistrement SPE (auto-config Spring Boot) et le DTO `RegisterRequest` (source de vérité consommée par spe-api côté serveur). Toute nouvelle fonction cross-service va ici. |
+| **pno-api** | Service PNO |
+| **psm-api** | Service PSM |
+| **spe-api** | Gateway + registry |
+
+`platform-lib` se construit comme un JAR Maven standalone (pas d'aggregator pom). Les Dockerfiles de service ajoutent une stage 0 `lib-builder` qui compile et installe `platform-lib` via l'`additional_contexts: platform-lib: ./platform-lib` de docker-compose, puis la stage 1 le résout depuis le cache BuildKit partagé (`--mount=type=cache,id=plm-m2`). `run.sh local` fait l'install natif via `./psm-api/mvnw -f platform-lib/pom.xml install` au démarrage.
+
+### Vault (démo, pas production)
+
+HashiCorp Vault est intégré pour stocker les secrets runtime (`plm.service.secret`, `spring.datasource.password`, `plm.jwt.*`). Conteneur `vault:1.17` + one-shot `vault-bootstrap` qui initialise/déscelle/seed. Services résolvent via Spring Cloud Vault (`spring.config.import=optional:vault://`). Token service statique `plm-demo-services` (policy RW sur `secret/data/plm/*`). UI d'administration : **Settings → Platform → Secrets** (permission `MANAGE_SECRETS`, CRUD complet). Données persistées via volumes `plm-vault-file` + `plm-vault-init`.
+
+**DÉMO SEULEMENT.** Unseal key + root token stockés en clair sur le volume `plm-vault-init`. Pas de TLS, pas d'audit device, pas de rotation. Pour production : remplacer par vault-agent sidecars + AppRole + TLS + auto-unseal KMS. Voir `vault/bootstrap.sh` pour le détail du flux init.
+
+Pour consommer `platform-lib` dans un nouveau service :
+1. Ajouter `<dependency>com.plm.platform:platform-lib:0.1.0-SNAPSHOT</dependency>` au pom
+2. Configurer `spe.registration.*` dans `application.properties` (service-code, route-prefix, extra-paths, self-base-url, spe-url, service-secret)
+3. Ajouter `additional_contexts: platform-lib: ./platform-lib` au bloc `build:` dans docker-compose.yml
+4. Copier le template de Dockerfile (stage 0 lib-builder + `id=plm-m2` sur les cache mounts des deux stages)
+
 ---
 
 ## Stack technique
@@ -36,19 +59,43 @@ Objectif : base solide avant ajout fonctionnalités métier.
 Browser
   │
   └─► nginx (port 3000)
-        ├── /api/psm/  ──────────────► plm-api (port 8080)  [schéma psm]
-        ├── /api/pno/  ──────────────► pno-api (port 8081)  [schéma pno]
-        ├── /actuator/ ──────────────► plm-api (port 8080)
-        └── /ws        ──────────────► plm-api (port 8080)
+        └── /api/spe/auth          ──► spe-api (port 8082) — login, JWT
+            /api/psm/*             ──► spe-api ─── svc://psm-api ─┬─► psm-api-1:8080
+                                                                  └─► psm-api-2:8080
+            /api/pno/*             ──► spe-api ─── svc://pno-api ──► pno-api:8081
+            /actuator/             ──► spe-api
+            /ws                    ──► spe-api ─── svc://psm-api (WebSocket)
 
-plm-api
-  └── PlmAuthFilter → PnoApiClient ──► GET /api/pno/users/{id}/context
-                      (Caffeine 30s)
+spe-api : ServiceRegistry (pool par serviceCode) + SvcLoadBalancerFilter
+          (round-robin entre instances saines) + HeartbeatScheduler
+          (éviction instance par instance au seuil d'échecs)
+
+plm-api (chaque instance)
+  └── PlmAuthFilter → PnoProjectSpaceClient ──► GET /api/pno/project-spaces/{id}/descendants
+                      (Caffeine 60s)
 ```
 
 **Règle d'URL :** tout nouveau controller PSM → `@RequestMapping("/api/psm/...")`, PNO → `@RequestMapping("/api/pno/...")`.
 
 **Auth inter-services :** `PlmAuthFilter` n'accède plus à la base. Appelle `pno-api` via HTTP (cache Caffeine 30 s, 500 entrées). Endpoint `/api/pno/users/{id}/context` exempt d'auth dans `PnoAuthFilter` (appelé avant établissement du contexte utilisateur).
+
+### Registry multi-instances & load-balancing (spe-api)
+
+Chaque `serviceCode` gère un **pool d'instances**. Un service peut avoir 1..N instances enregistrées simultanément (réplicas). Le gateway route en **round-robin** entre les instances saines.
+
+- `ServiceRegistry` : `Map<serviceCode, Map<instanceId, ServiceRegistration>>` + `AtomicInteger` par service pour le compteur RR.
+- `instanceId` = SHA-1(baseUrl) tronqué à 10 hex chars → **déterministe**, donc un pod qui se ré-enregistre remplace son entrée au lieu d'en créer une nouvelle.
+- **Route dynamique** : une seule route par `serviceCode`, URI `svc://<code>`. `SvcLoadBalancerFilter` (GlobalFilter, ordre 10150, avant `NettyRoutingFilter`) résout le scheme `svc` en pickant un instance round-robin et réécrit `GATEWAY_REQUEST_URL_ATTR` par requête.
+- **Refresh routes** : uniquement à l'apparition/disparition d'un `serviceCode` (premier/dernier instance). Le churn d'instance ne recompute pas les routes.
+- **Heartbeat** : `HeartbeatScheduler` ping chaque instance individuellement. `failure-threshold` (défaut 3) → eviction **au niveau instance**, pas du service entier. Quand la dernière instance d'un service disparaît, le `serviceCode` lui-même disparaît du registry.
+- **Endpoints** :
+  - `POST /api/spe/registry` — enregistre un instance (la réponse contient `instanceId` que le client doit mémoriser)
+  - `DELETE /api/spe/registry/{serviceCode}/instances/{instanceId}` — désenregistre un instance (appelé en `@PreDestroy` par le client)
+  - `DELETE /api/spe/registry/{serviceCode}` — purge tout le pool (admin)
+  - `GET /api/spe/registry` / `/grouped` / `/{code}/instances`
+- **Status public** (`GET /api/spe/status`) : remonte `instanceCount`, `healthyInstances`, et tableau `instances[]` avec id/version/healthy/age/failures par instance. Le chip frontend affiche `X/Y svc · X/Y inst`.
+- **Client side** (`SpeRegistrationClient` dans psm/pno) : parse `instanceId` retourné par POST, l'utilise pour le DELETE en shutdown. Valeur de `SPE_SELF_BASE_URL` doit être **unique par instance** (sinon même `instanceId` → écrasement mutuel).
+- **docker-compose** : pour scaler psm-api, répliquer le service (`psm-api-1`, `psm-api-2`) avec des `SPE_SELF_BASE_URL` distincts. Tous les réplicas partagent la même base Postgres (schéma `psm`).
 
 ---
 

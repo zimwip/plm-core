@@ -1,56 +1,41 @@
-package com.plm.shared.security;
+package com.plm.platform.spe;
 
+import com.plm.platform.spe.dto.RegisterRequest;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.info.BuildProperties;
-import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
 import java.util.Map;
 
 /**
- * Registers this service with spe-api on startup (retry with backoff) and
- * re-registers periodically so spe restarts don't leave us unrouted.
+ * Registers this service instance with spe-api on startup (retry with
+ * backoff) and re-registers periodically so an spe restart never leaves
+ * us unrouted. On shutdown, best-effort deregister by instanceId.
  */
 @Slf4j
-@Component
 public class SpeRegistrationClient {
 
-    private static final String SERVICE_CODE = "psm-api";
-    private static final String ROUTE_PREFIX = "/api/psm/**";
-    private static final List<String> EXTRA_PATHS = List.of("/ws", "/v3/api-docs/**", "/swagger-ui/**");
-
-    private final String speUrl;
-    private final String serviceSecret;
-    private final String selfBaseUrl;
-    private final String version;
+    private final SpeRegistrationProperties props;
     private final RestTemplate rest;
+    private final String version;
 
     private volatile boolean registered = false;
+    private volatile String instanceId = null;
 
-    public SpeRegistrationClient(
-        @Value("${spe.api.url:http://spe-api:8082}") String speUrl,
-        @Value("${plm.service.secret}") String serviceSecret,
-        @Value("${spe.self.base-url:http://psm-api:8080}") String selfBaseUrl,
-        @Autowired(required = false) BuildProperties buildProperties,
-        RestTemplateBuilder restTemplateBuilder
-    ) {
-        this.speUrl = speUrl;
-        this.serviceSecret = serviceSecret;
-        this.selfBaseUrl = selfBaseUrl;
+    public SpeRegistrationClient(SpeRegistrationProperties props, RestTemplate rest, BuildProperties buildProperties) {
+        this.props = props;
+        this.rest = rest;
         this.version = buildProperties != null ? buildProperties.getVersion() : "unknown";
-        this.rest = restTemplateBuilder.build();
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -78,21 +63,32 @@ public class SpeRegistrationClient {
     private boolean postRegistration(int attempt) {
         try {
             HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Service-Secret", serviceSecret);
+            headers.set("X-Service-Secret", props.serviceSecret());
             headers.set("Content-Type", "application/json");
 
-            Map<String, Object> body = Map.of(
-                "serviceCode", SERVICE_CODE,
-                "baseUrl", selfBaseUrl,
-                "healthUrl", selfBaseUrl + "/actuator/health",
-                "routePrefix", ROUTE_PREFIX,
-                "extraPaths", EXTRA_PATHS,
-                "version", version
+            RegisterRequest body = new RegisterRequest(
+                props.serviceCode(),
+                props.selfBaseUrl(),
+                props.selfBaseUrl() + "/actuator/health",
+                props.routePrefix(),
+                props.extraPaths(),
+                version,
+                props.spaceTag()
             );
 
-            rest.exchange(speUrl + "/api/spe/registry", HttpMethod.POST,
-                new HttpEntity<>(body, headers), String.class);
-            if (!registered) log.info("Registered with spe-api at {} (attempt {})", speUrl, attempt);
+            ResponseEntity<Map<String, Object>> resp = rest.exchange(
+                props.speUrl() + "/api/spe/registry", HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                new ParameterizedTypeReference<Map<String, Object>>() {});
+            Map<String, Object> respBody = resp.getBody();
+            String returnedId = respBody != null ? (String) respBody.get("instanceId") : null;
+            if (returnedId != null) this.instanceId = returnedId;
+            if (!registered) {
+                String tag = props.spaceTag();
+                String tagLabel = (tag == null || tag.isBlank()) ? "untagged" : tag;
+                log.info("Registered with spe-api at {} as instance {} (attempt {}, tag: {})",
+                    props.speUrl(), this.instanceId, attempt, tagLabel);
+            }
             registered = true;
             return true;
         } catch (RestClientException e) {
@@ -105,12 +101,13 @@ public class SpeRegistrationClient {
 
     @PreDestroy
     public void onShutdown() {
+        if (instanceId == null) return;
         try {
             HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Service-Secret", serviceSecret);
-            rest.exchange(speUrl + "/api/spe/registry/" + SERVICE_CODE,
+            headers.set("X-Service-Secret", props.serviceSecret());
+            rest.exchange(props.speUrl() + "/api/spe/registry/" + props.serviceCode() + "/instances/" + instanceId,
                 HttpMethod.DELETE, new HttpEntity<>(headers), Void.class);
-            log.info("Deregistered from spe-api");
+            log.info("Deregistered instance {} from spe-api", instanceId);
         } catch (Exception e) {
             log.debug("Deregistration best-effort: {}", e.getMessage());
         }

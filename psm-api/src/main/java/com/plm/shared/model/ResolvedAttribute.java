@@ -21,6 +21,7 @@ public record ResolvedAttribute(
     String defaultValue,
     String namingRegex,
     String allowedValues,
+    String enumDefinitionId,
     int displayOrder,
     String displaySection,
     String tooltip,

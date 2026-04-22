@@ -164,6 +164,11 @@ export const speApi = {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   },
+  getRegistryTags: async () => {
+    const res = await timedFetch('/api/spe/registry/tags', { cache: 'no-store' }, 'GET');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  },
 };
 
 // ── Nodes ──────────────────────────────────────────────────────────
@@ -417,6 +422,37 @@ export const api = {
   deleteDomainAttribute: (userId, domainId, attrId) =>
     request('DELETE', `/domains/${domainId}/attributes/${attrId}`, userId),
 
+  // Enums
+  getEnums: (userId) =>
+    request('GET', '/enums', userId),
+
+  getEnumDetail: (userId, enumId) =>
+    request('GET', `/enums/${enumId}`, userId),
+
+  createEnum: (userId, body) =>
+    request('POST', '/enums', userId, body),
+
+  updateEnum: (userId, enumId, body) =>
+    request('PUT', `/enums/${enumId}`, userId, body),
+
+  deleteEnum: (userId, enumId) =>
+    request('DELETE', `/enums/${enumId}`, userId),
+
+  getEnumValues: (userId, enumId) =>
+    request('GET', `/enums/${enumId}/values`, userId),
+
+  addEnumValue: (userId, enumId, body) =>
+    request('POST', `/enums/${enumId}/values`, userId, body),
+
+  updateEnumValue: (userId, enumId, valueId, body) =>
+    request('PUT', `/enums/${enumId}/values/${valueId}`, userId, body),
+
+  deleteEnumValue: (userId, enumId, valueId) =>
+    request('DELETE', `/enums/${enumId}/values/${valueId}`, userId),
+
+  reorderEnumValues: (userId, enumId, valueIds) =>
+    request('PUT', `/enums/${enumId}/values/reorder`, userId, valueIds),
+
   // Baselines
   listBaselines: (userId) =>
     request('GET', '/baselines', userId),
@@ -450,6 +486,15 @@ export const api = {
 
   deactivateProjectSpace: (userId, id) =>
     pnoRequest('DELETE', `/project-spaces/${id}`, userId),
+
+  getProjectSpaceServiceTags: (userId, id) =>
+    pnoRequest('GET', `/project-spaces/${id}/service-tags`, userId),
+
+  setProjectSpaceServiceTags: (userId, id, serviceCode, tags) =>
+    pnoRequest('PUT', `/project-spaces/${id}/service-tags/${serviceCode}`, userId, { tags }),
+
+  setProjectSpaceIsolated: (userId, id, isolated) =>
+    pnoRequest('PUT', `/project-spaces/${id}/isolated`, userId, { isolated }),
 
   // Users — served by pno-api
   listUsers: (userId) =>
@@ -533,6 +578,23 @@ export const api = {
   /** Revokes a GLOBAL permission from a role. Requires MANAGE_ROLES. */
   removeRoleGlobalPermission: (userId, roleId, permissionCode) =>
     request('DELETE', `/admin/roles/${roleId}/global-permissions/${permissionCode}`, userId),
+
+  // ── Secrets (Vault-backed) ──────────────────────────────────────────
+
+  listSecrets: (userId) =>
+    request('GET', '/admin/secrets', userId),
+
+  revealSecret: (userId, key) =>
+    request('GET', `/admin/secrets/${encodeURIComponent(key)}`, userId),
+
+  createSecret: (userId, key, value) =>
+    request('POST', '/admin/secrets', userId, { key, value }),
+
+  updateSecret: (userId, key, value) =>
+    request('PUT', `/admin/secrets/${encodeURIComponent(key)}`, userId, { value }),
+
+  deleteSecret: (userId, key) =>
+    request('DELETE', `/admin/secrets/${encodeURIComponent(key)}`, userId),
 
   // ── Algorithms & Guards ─────────────────────────────────────────────
 

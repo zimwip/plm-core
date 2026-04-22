@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ChevronRightIcon, ChevronDownIcon } from './Icons';
+import { getSessionToken } from '../services/api';
+
+function authHeader() {
+  const t = getSessionToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
 
 // ── Method badge ─────────────────────────────────────────────────────
 const METHOD_STYLE = {
@@ -85,8 +91,7 @@ function EndpointRow({ method, path, operation, userId, projectSpaceId }) {
     const qs = qp.toString();
     if (qs) url += '?' + qs;
 
-    const hdrs = { 'Content-Type': 'application/json' };
-    if (plmUser)  hdrs['X-PLM-User']         = plmUser;
+    const hdrs = { 'Content-Type': 'application/json', ...authHeader() };
     if (plmSpace) hdrs['X-PLM-ProjectSpace']  = plmSpace;
     parameters.filter(p => p.in === 'header').forEach(p => {
       if (params[p.name]) hdrs[p.name] = params[p.name];
@@ -251,9 +256,16 @@ export default function ApiPlayground({ userId, projectSpaceId }) {
   const loadSpec = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch('/v3/api-docs')
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status} — is the backend running?`);
+    fetch('/v3/api-docs', { headers: authHeader() })
+      .then(async r => {
+        if (!r.ok) {
+          const body = await r.text().catch(() => '');
+          throw new Error(`HTTP ${r.status}${body ? ' — ' + body.slice(0, 200) : ''}`);
+        }
+        const ct = r.headers.get('content-type') || '';
+        if (!ct.includes('json')) {
+          throw new Error(`Expected JSON spec, got ${ct || 'unknown'} — check nginx /v3/api-docs proxy.`);
+        }
         return r.json();
       })
       .then(data => { setSpec(data); setLoading(false); })

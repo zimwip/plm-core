@@ -6,6 +6,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+/**
+ * Route set changes only when a service appears / disappears (first instance in,
+ * last instance out). Individual instance churn is handled by
+ * {@link SvcLoadBalancerFilter} without a route refresh.
+ */
 @Component
 public class RegistryRouteRefresher {
 
@@ -15,13 +20,13 @@ public class RegistryRouteRefresher {
         this.publisher = publisher;
     }
 
-    @EventListener(RegistryEvents.ServiceRegisteredEvent.class)
-    public void onRegistered(RegistryEvents.ServiceRegisteredEvent ev) {
+    @EventListener(RegistryEvents.ServiceAppearedEvent.class)
+    public void onAppeared(RegistryEvents.ServiceAppearedEvent ev) {
         publisher.publishEvent(new RefreshRoutesEvent(this));
     }
 
-    @EventListener(RegistryEvents.ServiceDeregisteredEvent.class)
-    public void onDeregistered(RegistryEvents.ServiceDeregisteredEvent ev) {
+    @EventListener(RegistryEvents.ServiceDisappearedEvent.class)
+    public void onDisappeared(RegistryEvents.ServiceDisappearedEvent ev) {
         publisher.publishEvent(new RefreshRoutesEvent(this));
     }
 }
