@@ -26,7 +26,7 @@ set -euo pipefail
 #   name    : directory / docker compose service name
 #   port    : actuator/health port
 #   schema  : Flyway schema (empty = no DB dependency)
-#   exposed : "true" if port must be published in dist compose (gateway)
+#   (unused): reserved (keep empty or any value)
 #   logpkg  : Java package suffix for LOGGING_LEVEL_COM_* (e.g. PLM, PNO, SPE)
 BACKEND_SVC_ROWS=(
     "pno-api|8081|pno||PNO"
@@ -34,39 +34,14 @@ BACKEND_SVC_ROWS=(
     "spe-api|8082||true|SPE"
 )
 
-# ── Infrastructure services (emitted as-is in dist compose) ─
-# Columns (^-separated — pipe avoided because healthcheck commands contain ||):
-#   name      : docker compose service name
-#   image     : Docker image
-#   ports     : published ports (comma-separated, empty = none)
-#   env       : KEY=VAL pairs (comma-separated, empty = none)
-#   healthcheck : health check command (empty = none)
-#   hc_start  : healthcheck start_period (default 20s)
-INFRA_SVC_ROWS=(
-    "jaeger^jaegertracing/all-in-one:1.62.0^16686,4318,4317^COLLECTOR_OTLP_ENABLED=true^wget -qO- http://localhost:14269/ || exit 1^20s"
-)
-
 SVC_NAMES=()
-declare -A SVC_PORT SVC_SCHEMA SVC_EXPOSED SVC_LOGPKG
+declare -A SVC_PORT SVC_SCHEMA SVC_LOGPKG
 for row in "${BACKEND_SVC_ROWS[@]}"; do
-    IFS='|' read -r name port schema exposed logpkg <<<"$row"
+    IFS='|' read -r name port schema _exposed logpkg <<<"$row"
     SVC_NAMES+=("$name")
     SVC_PORT[$name]=$port
     SVC_SCHEMA[$name]=$schema
-    SVC_EXPOSED[$name]=$exposed
     SVC_LOGPKG[$name]=$logpkg
-done
-
-INFRA_NAMES=()
-declare -A INFRA_IMAGE INFRA_PORTS INFRA_ENV INFRA_HC INFRA_HC_START
-for row in "${INFRA_SVC_ROWS[@]}"; do
-    IFS='^' read -r name image ports env hc hc_start <<<"$row"
-    INFRA_NAMES+=("$name")
-    INFRA_IMAGE[$name]=$image
-    INFRA_PORTS[$name]=$ports
-    INFRA_ENV[$name]=$env
-    INFRA_HC[$name]=$hc
-    INFRA_HC_START[$name]=${hc_start:-20s}
 done
 
 FRONTEND_WATCH="frontend/src frontend/index.html frontend/vite.config.js frontend/package.json frontend/Dockerfile frontend/nginx.conf"
@@ -497,279 +472,18 @@ ENTRYPOINT ["/docker-entrypoint.sh"]
 EOF
 }
 
-# Emit one infrastructure service block for dist docker-compose.yml
-emit_infra_compose_block() {
-    local svc=$1
-    local image="${INFRA_IMAGE[$svc]}"
-    local ports="${INFRA_PORTS[$svc]}"
-    local env="${INFRA_ENV[$svc]}"
-    local hc="${INFRA_HC[$svc]}"
-    local hc_start="${INFRA_HC_START[$svc]}"
-
-    echo ""
-    echo "  $svc:"
-    echo "    image: $image"
-    echo "    container_name: $svc"
-    if [[ -n "$ports" ]]; then
-        echo "    ports:"
-        IFS=',' read -ra port_list <<<"$ports"
-        for p in "${port_list[@]}"; do
-            echo "      - \"$p:$p\""
-        done
-    fi
-    if [[ -n "$env" ]]; then
-        echo "    environment:"
-        IFS=',' read -ra env_list <<<"$env"
-        for e in "${env_list[@]}"; do
-            echo "      ${e%%=*}: \"${e#*=}\""
-        done
-    fi
-    if [[ -n "$hc" ]]; then
-        cat <<EOF
-    healthcheck:
-      test: ["CMD-SHELL", "$hc"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: $hc_start
-EOF
-    fi
-    echo "    restart: unless-stopped"
-    echo "    networks:"
-    echo "      - plm-net"
-}
-
-# Emit Vault + Vault-bootstrap blocks for dist docker-compose.yml
-# (Not modelled via INFRA_SVC_ROWS because those only handle simple services —
-#  vault needs volumes, a config file, and a sibling one-shot bootstrap.)
-emit_vault_compose_blocks() {
-    cat <<'EOF'
-
-  vault:
-    image: hashicorp/vault:1.17
-    container_name: vault
-    cap_add: [IPC_LOCK]
-    ports:
-      - "8200:8200"
-    environment:
-      VAULT_ADDR: http://127.0.0.1:8200
-    volumes:
-      - plm-vault-file:/vault/file
-      - plm-vault-init:/vault/init
-      - ./vault/config.hcl:/vault/config/config.hcl:ro
-    entrypoint: vault server -config=/vault/config/config.hcl
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8200/v1/sys/health?sealedcode=200&uninitcode=200' || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-    networks:
-      - plm-net
-
-  vault-bootstrap:
-    image: hashicorp/vault:1.17
-    container_name: vault-bootstrap
-    depends_on:
-      vault:
-        condition: service_healthy
-    environment:
-      VAULT_ADDR: http://vault:8200
-      PLM_SERVICE_SECRET: ${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (must be >= 32 bytes)}
-      PG_PASSWORD: ${PG_PASSWORD:?Set PG_PASSWORD in .env}
-    volumes:
-      - plm-vault-init:/vault/init
-      - ./vault/bootstrap.sh:/bootstrap.sh:ro
-    entrypoint: /bin/sh
-    command: ["/bootstrap.sh"]
-    restart: "no"
-    networks:
-      - plm-net
-EOF
-}
-
-# Emit one backend service block for dist docker-compose.yml
-emit_backend_compose_block() {
-    local svc=$1 tag=$2
-    local port="${SVC_PORT[$svc]}"
-    local schema="${SVC_SCHEMA[$svc]}"
-    local exposed="${SVC_EXPOSED[$svc]}"
-    local logpkg="${SVC_LOGPKG[$svc]}"
-
-    echo ""
-    echo "  $svc:"
-    echo "    build: ./$svc"
-    echo "    image: $svc:$tag"
-    echo "    container_name: $svc"
-    if [[ "$exposed" == "true" ]]; then
-        echo "    ports:"
-        echo "      - \"$port:$port\""
-    fi
-    echo "    environment:"
-    if [[ -n "$schema" ]]; then
-        cat <<EOF
-      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
-      SPRING_DATASOURCE_USERNAME:          plm
-      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
-      SPRING_DATASOURCE_HIKARI_SCHEMA:     $schema
-      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
-      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
-      SPRING_FLYWAY_DEFAULT_SCHEMA:        $schema
-      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
-EOF
-    fi
-    cat <<EOF
-      # Secrets (PLM_SERVICE_SECRET, PG_PASSWORD, JWT tuning) come from Vault at bootstrap.
-      VAULT_ADDR:                          http://vault:8200
-      VAULT_TOKEN:                         plm-demo-services
-      SPE_API_URL:                         http://spe-api:${SVC_PORT[spe-api]}
-      SPE_SELF_BASE_URL:                   http://$svc:$port
-      PNO_API_URL:                         http://pno-api:${SVC_PORT[pno-api]}
-      LOGGING_LEVEL_ROOT:                  INFO
-      LOGGING_LEVEL_COM_$logpkg:               INFO
-EOF
-    # OTLP tracing (if any infra service named "jaeger" exists)
-    if [[ -n "${INFRA_IMAGE[jaeger]:-}" ]]; then
-        cat <<EOF
-      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
-      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-EOF
-    fi
-    # depends_on: vault-bootstrap (always) + postgres + infra services with healthchecks
-    echo "    depends_on:"
-    cat <<'EOF'
-      vault-bootstrap:
-        condition: service_completed_successfully
-EOF
-    if [[ -n "$schema" ]]; then
-        cat <<EOF
-      postgres:
-        condition: service_healthy
-EOF
-    fi
-    for infra in "${INFRA_NAMES[@]}"; do
-        if [[ -n "${INFRA_HC[$infra]}" ]]; then
-            cat <<EOF
-      $infra:
-        condition: service_healthy
-EOF
-        fi
-    done
-    cat <<EOF
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:$port/actuator/health || exit 1"]
-      interval: 20s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    restart: unless-stopped
-    networks:
-      - plm-net
-EOF
-}
-
-write_dist_compose() {
-    local out=$1 tag=$2 native=$3
-    local any_db=false
-    for svc in "${SVC_NAMES[@]}"; do
-        [[ -n "${SVC_SCHEMA[$svc]}" ]] && any_db=true
-    done
-
-    # Which service does the frontend depend on? First exposed service (gateway).
-    local gateway=""
-    for svc in "${SVC_NAMES[@]}"; do
-        if [[ "${SVC_EXPOSED[$svc]}" == "true" ]]; then gateway=$svc; break; fi
-    done
-    [[ -z "$gateway" ]] && gateway="${SVC_NAMES[0]}"
-
-    local header_comment="pre-built distribution"
-    [[ "$native" == "true" ]] && header_comment="pre-built native distribution (static binaries, no JVM)"
-
-    {
-        cat <<EOF
-# ============================================================
-# PLM Core — $header_comment
-#
-# Usage:
-#   cd dist/
-#   docker compose up --build   # first run (builds thin images)
-#   docker compose up           # subsequent runs
-#   docker compose down -v      # stop + wipe database
-#
-# Set PG_PASSWORD and PLM_SERVICE_SECRET in a .env file before running.
-# ============================================================
-
-services:
-EOF
-
-        if $any_db; then
-            cat <<'EOF'
-
-  postgres:
-    image: postgres:16-alpine
-    container_name: plm-postgres
-    environment:
-      POSTGRES_DB:       plmdb
-      POSTGRES_USER:     plm
-      POSTGRES_PASSWORD: ${PG_PASSWORD:-changeme}
-    ports:
-      - "5432:5432"
-    volumes:
-      - plm-pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U plm -d plmdb"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - plm-net
-EOF
-        fi
-
-        for infra in "${INFRA_NAMES[@]}"; do
-            emit_infra_compose_block "$infra"
-        done
-
-        emit_vault_compose_blocks
-
-        for svc in "${SVC_NAMES[@]}"; do
-            emit_backend_compose_block "$svc" "$tag"
-        done
-
-        cat <<EOF
-
-  plm-frontend:
-    build: ./frontend
-    image: plm-frontend:$tag
-    container_name: plm-frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      $gateway:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - plm-net
-
-networks:
-  plm-net:
-    driver: bridge
-EOF
-
-        # Always emit volumes (vault volumes are unconditional; pgdata conditional)
-        echo ""
-        echo "volumes:"
-        if $any_db; then
-            echo "  plm-pgdata:"
-            echo "    driver: local"
-        fi
-        echo "  plm-vault-file:"
-        echo "    driver: local"
-        echo "  plm-vault-init:"
-        echo "    driver: local"
-    } > "$out"
+# Rewrite dev docker-compose.yml for dist: replace multi-stage build blocks
+# with simple build contexts pointing at dist subdirectories.
+rewrite_compose_for_dist() {
+    local out=$1
+    perl -0777 -pe '
+        # Backend: multi-line build block → single-line (extract service dir from dockerfile path)
+        s/build:\n\s+context: \.\n\s+dockerfile: ([^\/]+)\/Dockerfile\n\s+target: runtime/build: .\/$1/g;
+        # Frontend: multi-line build block → single-line
+        s/build:\n\s+context: (.\/[^\n]+)\n\s+dockerfile: Dockerfile\n/build: $1\n/g;
+        # Image tags: :dev/:latest → :dist
+        s/(image: \S+):(?:dev|latest)/$1:dist/g;
+    ' docker-compose.yml > "$out"
 }
 
 run_package() {
@@ -872,11 +586,9 @@ run_package() {
     done
     write_frontend_dockerfile "$DIST/frontend/Dockerfile"
 
-    # docker-compose.yml
+    # docker-compose.yml — rewrite dev compose with dist build contexts
     log "Writing dist/docker-compose.yml…"
-    local tag="dist"
-    $NATIVE_MODE && tag="native"
-    write_dist_compose "$DIST/docker-compose.yml" "$tag" "$NATIVE_MODE"
+    rewrite_compose_for_dist "$DIST/docker-compose.yml"
 
     # .env.example
     cat > "$DIST/.env.example" << 'EOF'
