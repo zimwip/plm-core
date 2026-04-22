@@ -136,11 +136,24 @@ public class ActionService {
             guardViolations = List.of();
         }
 
-        String displayName = "TRANSITION".equals(actionCode) && transitionName != null
+        String displayName = "transition".equals(actionCode) && transitionName != null
             ? transitionName
             : row.get("display_name", String.class);
 
         List<Map<String, Object>> parameters = resolveParameters(actionId, nodeTypeId);
+
+        // Overlay dynamic allowedValues from handler (e.g. assign_domain domain list)
+        if (algorithmRegistry.hasBean(actionCode) && !parameters.isEmpty()) {
+            ActionHandler handler = algorithmRegistry.resolve(actionCode, ActionHandler.class);
+            Map<String, String> dynamic = handler.resolveDynamicAllowedValues(nodeId, nodeTypeId, transitionId);
+            if (dynamic != null && !dynamic.isEmpty()) {
+                for (Map<String, Object> param : parameters) {
+                    String pname = (String) param.get("name");
+                    String v = dynamic.get(pname);
+                    if (v != null) param.put("allowedValues", v);
+                }
+            }
+        }
 
         Map<String, Object> action = new LinkedHashMap<>();
         action.put("id",              buildActionKey(actionCode, transitionId));

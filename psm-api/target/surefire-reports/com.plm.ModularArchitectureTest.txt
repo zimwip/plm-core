@@ -1,0 +1,195 @@
+-------------------------------------------------------------------------------
+Test set: com.plm.ModularArchitectureTest
+-------------------------------------------------------------------------------
+Tests run: 2, Failures: 0, Errors: 1, Skipped: 0, Time elapsed: 7.509 s <<< FAILURE! -- in com.plm.ModularArchitectureTest
+com.plm.ModularArchitectureTest.verifyModuleStructure -- Time elapsed: 0.481 s <<< ERROR!
+org.springframework.modulith.core.Violations: 
+- Cycle detected: Slice action -> 
+                Slice algorithm -> 
+                Slice action
+  1. Dependencies of Slice action
+    - Class <com.plm.action.ActionWrapper> is annotated with <com.plm.algorithm.AlgorithmType> in (ActionWrapper.java:0)
+    - Class <com.plm.action.guard.ActionGuard> is annotated with <com.plm.algorithm.AlgorithmType> in (ActionGuard.java:0)
+    - Constructor <com.plm.action.ActionService.<init>(org.jooq.DSLContext, com.plm.shared.authorization.PolicyPort, com.plm.shared.authorization.PermissionCatalogPort, com.plm.action.guard.ActionGuardService, com.plm.shared.security.SecurityContextPort, com.plm.algorithm.AlgorithmRegistry)> has parameter of type <com.plm.algorithm.AlgorithmRegistry> in (ActionService.java:0)
+    - Constructor <com.plm.action.internal.ActionDispatcher.<init>(org.jooq.DSLContext, com.plm.action.internal.ActionParameterValidator, com.plm.algorithm.AlgorithmRegistry, com.plm.action.ActionScopeRegistry)> has parameter of type <com.plm.algorithm.AlgorithmRegistry> in (ActionDispatcher.java:0)
+    - Field <com.plm.action.ActionService.algorithmRegistry> has type <com.plm.algorithm.AlgorithmRegistry> in (ActionService.java:0)
+    - Field <com.plm.action.internal.ActionDispatcher.algorithmRegistry> has type <com.plm.algorithm.AlgorithmRegistry> in (ActionDispatcher.java:0)
+    - Method <com.plm.action.guard.ActionGuardService.algorithmRegistry()> has return type <com.plm.algorithm.AlgorithmRegistry> in (ActionGuardService.java:0)
+    - Method <com.plm.action.guard.ActionGuardService.algorithmRegistry()> calls method <com.plm.algorithm.AlgorithmRegistry.getInstance(org.springframework.context.ApplicationContext)> in (ActionGuardService.java:50)
+    - Method <com.plm.action.internal.ActionDispatcher.dispatch(java.lang.String, java.util.List, java.lang.String, java.lang.String, java.util.Map)> calls method <com.plm.algorithm.AlgorithmRegistry.resolve(java.lang.String, java.lang.Class)> in (ActionDispatcher.java:99)
+    - Method <com.plm.action.internal.ActionDispatcher.resolveWrappers(java.lang.String)> calls method <com.plm.algorithm.AlgorithmRegistry.resolve(java.lang.String, java.lang.Class)> in (ActionDispatcher.java:145)
+    - Method <com.plm.action.ActionService.buildActionEntry(org.jooq.Record, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, boolean, boolean)> calls method <com.plm.algorithm.AlgorithmRegistry.hasBean(java.lang.String)> in (ActionService.java:156)
+    - Method <com.plm.action.ActionService.buildActionEntry(org.jooq.Record, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, boolean, boolean)> calls method <com.plm.algorithm.AlgorithmRegistry.resolve(java.lang.String, java.lang.Class)> in (ActionService.java:157)
+    - Method <com.plm.action.guard.ActionGuardService.resolveGuardFromRow(org.jooq.Record, java.lang.String)> calls method <com.plm.algorithm.AlgorithmRegistry.hasBean(java.lang.String)> in (ActionGuardService.java:250)
+    - Method <com.plm.action.guard.ActionGuardService.resolveGuardFromRow(org.jooq.Record, java.lang.String)> calls method <com.plm.algorithm.AlgorithmRegistry.resolve(java.lang.String, java.lang.Class)> in (ActionGuardService.java:257)
+  2. Dependencies of Slice algorithm
+    - Constructor <com.plm.algorithm.internal.AlgorithmService.<init>(org.jooq.DSLContext, com.plm.action.guard.ActionGuardService, com.plm.node.lifecycle.internal.guard.LifecycleGuardService, com.plm.node.lifecycle.internal.stateaction.StateActionService, com.plm.shared.security.SecurityContextPort)> has parameter of type <com.plm.action.guard.ActionGuardService> in (AlgorithmService.java:0)
+    - Field <com.plm.algorithm.internal.AlgorithmService.actionGuardService> has type <com.plm.action.guard.ActionGuardService> in (AlgorithmService.java:0)
+    - Method <com.plm.algorithm.internal.AlgorithmService.createInstance(java.lang.String, java.lang.String)> calls method <com.plm.action.guard.ActionGuardService.evictCache()> in (AlgorithmService.java:141)
+    - Method <com.plm.algorithm.internal.AlgorithmService.updateInstance(java.lang.String, java.lang.String)> calls method <com.plm.action.guard.ActionGuardService.evictCache()> in (AlgorithmService.java:155)
+    - Method <com.plm.algorithm.internal.AlgorithmService.deleteInstance(java.lang.String)> calls method <com.plm.action.guard.ActionGuardService.evictCache()> in (AlgorithmService.java:182)
+    - Method <com.plm.algorithm.internal.AlgorithmService.setInstanceParamValue(java.lang.String, java.lang.String, java.lang.String)> calls method <com.plm.action.guard.ActionGuardService.evictCache()> in (AlgorithmService.java:210)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachActionGuard(java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.action.guard.ActionGuardService.evictCache()> in (AlgorithmService.java:251)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachActionGuard(java.lang.String)> calls method <com.plm.action.guard.ActionGuardService.evictCache()> in (AlgorithmService.java:260)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachTransitionGuard(java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.action.guard.ActionGuardService.evictCache()> in (AlgorithmService.java:347)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachTransitionGuard(java.lang.String)> calls method <com.plm.action.guard.ActionGuardService.evictCache()> in (AlgorithmService.java:357)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachNodeActionGuard(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.action.guard.ActionGuardService.evictCache()> in (AlgorithmService.java:421)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachNodeActionGuard(java.lang.String)> calls method <com.plm.action.guard.ActionGuardService.evictCache()> in (AlgorithmService.java:431)
+- Cycle detected: Slice action -> 
+                Slice algorithm -> 
+                Slice node -> 
+                Slice action
+  1. Dependencies of Slice action
+    - Class <com.plm.action.ActionWrapper> is annotated with <com.plm.algorithm.AlgorithmType> in (ActionWrapper.java:0)
+    - Class <com.plm.action.guard.ActionGuard> is annotated with <com.plm.algorithm.AlgorithmType> in (ActionGuard.java:0)
+    - Constructor <com.plm.action.ActionService.<init>(org.jooq.DSLContext, com.plm.shared.authorization.PolicyPort, com.plm.shared.authorization.PermissionCatalogPort, com.plm.action.guard.ActionGuardService, com.plm.shared.security.SecurityContextPort, com.plm.algorithm.AlgorithmRegistry)> has parameter of type <com.plm.algorithm.AlgorithmRegistry> in (ActionService.java:0)
+    - Constructor <com.plm.action.internal.ActionDispatcher.<init>(org.jooq.DSLContext, com.plm.action.internal.ActionParameterValidator, com.plm.algorithm.AlgorithmRegistry, com.plm.action.ActionScopeRegistry)> has parameter of type <com.plm.algorithm.AlgorithmRegistry> in (ActionDispatcher.java:0)
+    - Field <com.plm.action.ActionService.algorithmRegistry> has type <com.plm.algorithm.AlgorithmRegistry> in (ActionService.java:0)
+    - Field <com.plm.action.internal.ActionDispatcher.algorithmRegistry> has type <com.plm.algorithm.AlgorithmRegistry> in (ActionDispatcher.java:0)
+    - Method <com.plm.action.guard.ActionGuardService.algorithmRegistry()> has return type <com.plm.algorithm.AlgorithmRegistry> in (ActionGuardService.java:0)
+    - Method <com.plm.action.guard.ActionGuardService.algorithmRegistry()> calls method <com.plm.algorithm.AlgorithmRegistry.getInstance(org.springframework.context.ApplicationContext)> in (ActionGuardService.java:50)
+    - Method <com.plm.action.internal.ActionDispatcher.dispatch(java.lang.String, java.util.List, java.lang.String, java.lang.String, java.util.Map)> calls method <com.plm.algorithm.AlgorithmRegistry.resolve(java.lang.String, java.lang.Class)> in (ActionDispatcher.java:99)
+    - Method <com.plm.action.internal.ActionDispatcher.resolveWrappers(java.lang.String)> calls method <com.plm.algorithm.AlgorithmRegistry.resolve(java.lang.String, java.lang.Class)> in (ActionDispatcher.java:145)
+    - Method <com.plm.action.ActionService.buildActionEntry(org.jooq.Record, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, boolean, boolean)> calls method <com.plm.algorithm.AlgorithmRegistry.hasBean(java.lang.String)> in (ActionService.java:156)
+    - Method <com.plm.action.ActionService.buildActionEntry(org.jooq.Record, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, boolean, boolean)> calls method <com.plm.algorithm.AlgorithmRegistry.resolve(java.lang.String, java.lang.Class)> in (ActionService.java:157)
+    - Method <com.plm.action.guard.ActionGuardService.resolveGuardFromRow(org.jooq.Record, java.lang.String)> calls method <com.plm.algorithm.AlgorithmRegistry.hasBean(java.lang.String)> in (ActionGuardService.java:250)
+    - Method <com.plm.action.guard.ActionGuardService.resolveGuardFromRow(org.jooq.Record, java.lang.String)> calls method <com.plm.algorithm.AlgorithmRegistry.resolve(java.lang.String, java.lang.Class)> in (ActionGuardService.java:257)
+  2. Dependencies of Slice algorithm
+    - Constructor <com.plm.algorithm.internal.AlgorithmService.<init>(org.jooq.DSLContext, com.plm.action.guard.ActionGuardService, com.plm.node.lifecycle.internal.guard.LifecycleGuardService, com.plm.node.lifecycle.internal.stateaction.StateActionService, com.plm.shared.security.SecurityContextPort)> has parameter of type <com.plm.node.lifecycle.internal.guard.LifecycleGuardService> in (AlgorithmService.java:0)
+    - Constructor <com.plm.algorithm.internal.AlgorithmService.<init>(org.jooq.DSLContext, com.plm.action.guard.ActionGuardService, com.plm.node.lifecycle.internal.guard.LifecycleGuardService, com.plm.node.lifecycle.internal.stateaction.StateActionService, com.plm.shared.security.SecurityContextPort)> has parameter of type <com.plm.node.lifecycle.internal.stateaction.StateActionService> in (AlgorithmService.java:0)
+    - Field <com.plm.algorithm.internal.AlgorithmService.lifecycleGuardService> has type <com.plm.node.lifecycle.internal.guard.LifecycleGuardService> in (AlgorithmService.java:0)
+    - Field <com.plm.algorithm.internal.AlgorithmService.stateActionService> has type <com.plm.node.lifecycle.internal.stateaction.StateActionService> in (AlgorithmService.java:0)
+    - Method <com.plm.algorithm.internal.AlgorithmService.createInstance(java.lang.String, java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:142)
+    - Method <com.plm.algorithm.internal.AlgorithmService.createInstance(java.lang.String, java.lang.String)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:143)
+    - Method <com.plm.algorithm.internal.AlgorithmService.updateInstance(java.lang.String, java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:156)
+    - Method <com.plm.algorithm.internal.AlgorithmService.updateInstance(java.lang.String, java.lang.String)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:157)
+    - Method <com.plm.algorithm.internal.AlgorithmService.deleteInstance(java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:183)
+    - Method <com.plm.algorithm.internal.AlgorithmService.deleteInstance(java.lang.String)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:184)
+    - Method <com.plm.algorithm.internal.AlgorithmService.setInstanceParamValue(java.lang.String, java.lang.String, java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:211)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachActionGuard(java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:252)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachActionGuard(java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:261)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachTransitionGuard(java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:348)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachTransitionGuard(java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:358)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachNodeActionGuard(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:422)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachNodeActionGuard(java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:432)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachStateAction(java.lang.String, java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:475)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachStateAction(java.lang.String)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:484)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachNodeTypeStateAction(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:529)
+    (1 further dependencies have been omitted...)
+  3. Dependencies of Slice node
+    - Class <com.plm.node.lifecycle.internal.guard.FromStateMatchGuard> implements interface <com.plm.action.guard.ActionGuard> in (FromStateMatchGuard.java:0)
+    - Class <com.plm.node.lifecycle.internal.guard.NotFrozenGuard> implements interface <com.plm.action.guard.ActionGuard> in (NotFrozenGuard.java:0)
+    - Class <com.plm.node.lifecycle.internal.guard.TransitionLifecycleGuard> implements interface <com.plm.action.guard.ActionGuard> in (TransitionLifecycleGuard.java:0)
+    - Class <com.plm.node.signature.internal.guard.HasSignatureRequirementGuard> implements interface <com.plm.action.guard.ActionGuard> in (HasSignatureRequirementGuard.java:0)
+    - Class <com.plm.node.signature.internal.guard.NotAlreadySignedGuard> implements interface <com.plm.action.guard.ActionGuard> in (NotAlreadySignedGuard.java:0)
+    - Class <com.plm.node.transaction.internal.LockWrapper> implements interface <com.plm.action.ActionWrapper> in (LockWrapper.java:0)
+    - Class <com.plm.node.transaction.internal.TransactionWrapper> implements interface <com.plm.action.ActionWrapper> in (TransactionWrapper.java:0)
+    - Class <com.plm.node.transaction.internal.guard.LockOwnerRequiredGuard> implements interface <com.plm.action.guard.ActionGuard> in (LockOwnerRequiredGuard.java:0)
+    - Class <com.plm.node.transaction.internal.guard.NotLockedGuard> implements interface <com.plm.action.guard.ActionGuard> in (NotLockedGuard.java:0)
+    - Class <com.plm.node.version.internal.guard.FingerprintUnchangedGuard> implements interface <com.plm.action.guard.ActionGuard> in (FingerprintUnchangedGuard.java:0)
+    - Constructor <com.plm.node.NodeController.<init>(com.plm.node.NodeService, com.plm.node.transaction.internal.LockService, com.plm.node.signature.internal.SignatureService, com.plm.node.signature.internal.CommentService, com.plm.action.ActionService, com.plm.shared.security.SecurityContextPort)> has parameter of type <com.plm.action.ActionService> in (NodeController.java:0)
+    - Constructor <com.plm.node.metamodel.internal.ActionRegistrationService.<init>(org.jooq.DSLContext, com.plm.node.metamodel.internal.MetaModelCache, com.plm.shared.event.PlmEventPublisher, com.plm.shared.security.SecurityContextPort, com.plm.shared.authorization.PolicyPort, com.plm.shared.authorization.PermissionCatalogPort, com.plm.action.guard.ActionGuardService, com.plm.node.lifecycle.internal.guard.LifecycleGuardService)> has parameter of type <com.plm.action.guard.ActionGuardService> in (ActionRegistrationService.java:0)
+    - Field <com.plm.node.NodeController.actionService> has type <com.plm.action.ActionService> in (NodeController.java:0)
+    - Field <com.plm.node.metamodel.internal.ActionRegistrationService.actionGuardService> has type <com.plm.action.guard.ActionGuardService> in (ActionRegistrationService.java:0)
+    - Method <com.plm.node.lifecycle.internal.guard.FromStateMatchGuard.evaluate(com.plm.action.guard.ActionGuardContext)> has parameter of type <com.plm.action.guard.ActionGuardContext> in (FromStateMatchGuard.java:0)
+    - Method <com.plm.node.lifecycle.internal.guard.NotFrozenGuard.evaluate(com.plm.action.guard.ActionGuardContext)> has parameter of type <com.plm.action.guard.ActionGuardContext> in (NotFrozenGuard.java:0)
+    - Method <com.plm.node.lifecycle.internal.guard.TransitionLifecycleGuard.evaluate(com.plm.action.guard.ActionGuardContext)> has parameter of type <com.plm.action.guard.ActionGuardContext> in (TransitionLifecycleGuard.java:0)
+    - Method <com.plm.node.signature.internal.guard.HasSignatureRequirementGuard.evaluate(com.plm.action.guard.ActionGuardContext)> has parameter of type <com.plm.action.guard.ActionGuardContext> in (HasSignatureRequirementGuard.java:0)
+    - Method <com.plm.node.signature.internal.guard.NotAlreadySignedGuard.evaluate(com.plm.action.guard.ActionGuardContext)> has parameter of type <com.plm.action.guard.ActionGuardContext> in (NotAlreadySignedGuard.java:0)
+    - Method <com.plm.node.transaction.internal.LockWrapper.wrap(com.plm.shared.action.ActionContext, java.util.Map, java.util.Map, com.plm.action.ActionWrapper$Chain)> has parameter of type <com.plm.action.ActionWrapper$Chain> in (LockWrapper.java:0)
+    (39 further dependencies have been omitted...)
+- Cycle detected: Slice algorithm -> 
+                Slice node -> 
+                Slice algorithm
+  1. Dependencies of Slice algorithm
+    - Constructor <com.plm.algorithm.internal.AlgorithmService.<init>(org.jooq.DSLContext, com.plm.action.guard.ActionGuardService, com.plm.node.lifecycle.internal.guard.LifecycleGuardService, com.plm.node.lifecycle.internal.stateaction.StateActionService, com.plm.shared.security.SecurityContextPort)> has parameter of type <com.plm.node.lifecycle.internal.guard.LifecycleGuardService> in (AlgorithmService.java:0)
+    - Constructor <com.plm.algorithm.internal.AlgorithmService.<init>(org.jooq.DSLContext, com.plm.action.guard.ActionGuardService, com.plm.node.lifecycle.internal.guard.LifecycleGuardService, com.plm.node.lifecycle.internal.stateaction.StateActionService, com.plm.shared.security.SecurityContextPort)> has parameter of type <com.plm.node.lifecycle.internal.stateaction.StateActionService> in (AlgorithmService.java:0)
+    - Field <com.plm.algorithm.internal.AlgorithmService.lifecycleGuardService> has type <com.plm.node.lifecycle.internal.guard.LifecycleGuardService> in (AlgorithmService.java:0)
+    - Field <com.plm.algorithm.internal.AlgorithmService.stateActionService> has type <com.plm.node.lifecycle.internal.stateaction.StateActionService> in (AlgorithmService.java:0)
+    - Method <com.plm.algorithm.internal.AlgorithmService.createInstance(java.lang.String, java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:142)
+    - Method <com.plm.algorithm.internal.AlgorithmService.createInstance(java.lang.String, java.lang.String)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:143)
+    - Method <com.plm.algorithm.internal.AlgorithmService.updateInstance(java.lang.String, java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:156)
+    - Method <com.plm.algorithm.internal.AlgorithmService.updateInstance(java.lang.String, java.lang.String)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:157)
+    - Method <com.plm.algorithm.internal.AlgorithmService.deleteInstance(java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:183)
+    - Method <com.plm.algorithm.internal.AlgorithmService.deleteInstance(java.lang.String)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:184)
+    - Method <com.plm.algorithm.internal.AlgorithmService.setInstanceParamValue(java.lang.String, java.lang.String, java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:211)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachActionGuard(java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:252)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachActionGuard(java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:261)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachTransitionGuard(java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:348)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachTransitionGuard(java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:358)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachNodeActionGuard(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:422)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachNodeActionGuard(java.lang.String)> calls method <com.plm.node.lifecycle.internal.guard.LifecycleGuardService.evictCache()> in (AlgorithmService.java:432)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachStateAction(java.lang.String, java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:475)
+    - Method <com.plm.algorithm.internal.AlgorithmService.detachStateAction(java.lang.String)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:484)
+    - Method <com.plm.algorithm.internal.AlgorithmService.attachNodeTypeStateAction(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, int)> calls method <com.plm.node.lifecycle.internal.stateaction.StateActionService.evictCache()> in (AlgorithmService.java:529)
+    (1 further dependencies have been omitted...)
+  2. Dependencies of Slice node
+    - Class <com.plm.node.handler.AbortActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (AbortActionHandler.java:0)
+    - Class <com.plm.node.handler.AssignDomainActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (AssignDomainActionHandler.java:0)
+    - Class <com.plm.node.handler.BaselineActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (BaselineActionHandler.java:0)
+    - Class <com.plm.node.handler.CheckinActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (CheckinActionHandler.java:0)
+    - Class <com.plm.node.handler.CheckoutActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (CheckoutActionHandler.java:0)
+    - Class <com.plm.node.handler.CommitActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (CommitActionHandler.java:0)
+    - Class <com.plm.node.handler.CreateLinkActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (CreateLinkActionHandler.java:0)
+    - Class <com.plm.node.handler.CreateNodeActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (CreateNodeActionHandler.java:0)
+    - Class <com.plm.node.handler.DeleteLinkActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (DeleteLinkActionHandler.java:0)
+    - Class <com.plm.node.handler.RollbackActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (RollbackActionHandler.java:0)
+    - Class <com.plm.node.handler.SignActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (SignActionHandler.java:0)
+    - Class <com.plm.node.handler.TransitionActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (TransitionActionHandler.java:0)
+    - Class <com.plm.node.handler.UnassignDomainActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (UnassignDomainActionHandler.java:0)
+    - Class <com.plm.node.handler.UpdateLinkActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (UpdateLinkActionHandler.java:0)
+    - Class <com.plm.node.handler.UpdateNodeActionHandler> is annotated with <com.plm.algorithm.AlgorithmBean> in (UpdateNodeActionHandler.java:0)
+    - Class <com.plm.node.lifecycle.internal.guard.FromStateMatchGuard> is annotated with <com.plm.algorithm.AlgorithmBean> in (FromStateMatchGuard.java:0)
+    - Class <com.plm.node.lifecycle.internal.guard.LifecycleGuard> is annotated with <com.plm.algorithm.AlgorithmType> in (LifecycleGuard.java:0)
+    - Class <com.plm.node.lifecycle.internal.guard.NotFrozenGuard> is annotated with <com.plm.algorithm.AlgorithmBean> in (NotFrozenGuard.java:0)
+    - Class <com.plm.node.lifecycle.internal.guard.NotFrozenGuard> is annotated with <com.plm.algorithm.AlgorithmParam> in (NotFrozenGuard.java:0)
+    - Class <com.plm.node.lifecycle.internal.guard.TransitionLifecycleGuard> is annotated with <com.plm.algorithm.AlgorithmBean> in (TransitionLifecycleGuard.java:0)
+    (27 further dependencies have been omitted...)
+- Module 'shared' depends on non-exposed type com.plm.node.metamodel.internal.ValidationService$ValidationException within module 'node'!
+ValidationException declares parameter ValidationException.handleValidationException(ValidationException, HttpServletRequest) in (GlobalExceptionHandler.java:0)
+- Module 'shared' depends on non-exposed type com.plm.node.metamodel.internal.ValidationService$ValidationException within module 'node'!
+Method <com.plm.shared.exception.GlobalExceptionHandler.handleValidationException(com.plm.node.metamodel.internal.ValidationService$ValidationException, jakarta.servlet.http.HttpServletRequest)> calls method <com.plm.node.metamodel.internal.ValidationService$ValidationException.getMessage()> in (GlobalExceptionHandler.java:43)
+- Module 'shared' depends on non-exposed type com.plm.node.metamodel.internal.ValidationService$ValidationException within module 'node'!
+Method <com.plm.shared.exception.GlobalExceptionHandler.handleValidationException(com.plm.node.metamodel.internal.ValidationService$ValidationException, jakarta.servlet.http.HttpServletRequest)> calls method <com.plm.node.metamodel.internal.ValidationService$ValidationException.getErrors()> in (GlobalExceptionHandler.java:44)
+- Module 'shared' depends on non-exposed type com.plm.node.metamodel.internal.ValidationService$ValidationException within module 'node'!
+Method <com.plm.shared.exception.GlobalExceptionHandler.handleValidationException(com.plm.node.metamodel.internal.ValidationService$ValidationException, jakarta.servlet.http.HttpServletRequest)> has parameter of type <com.plm.node.metamodel.internal.ValidationService$ValidationException> in (GlobalExceptionHandler.java:0)
+- Module 'shared' depends on non-exposed type com.plm.node.metamodel.internal.ValidationService$ValidationException within module 'node'!
+Method <com.plm.shared.exception.GlobalExceptionHandler.handleValidationException(com.plm.node.metamodel.internal.ValidationService$ValidationException, jakarta.servlet.http.HttpServletRequest)> has annotation member of type <com.plm.node.metamodel.internal.ValidationService$ValidationException> in (GlobalExceptionHandler.java:0)
+- Module 'node' depends on module 'action' via com.plm.node.NodeController -> com.plm.action.ActionService. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'algorithm' via com.plm.node.lifecycle.LifecycleController -> com.plm.algorithm.internal.AlgorithmService. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.lifecycle.internal.guard.FromStateMatchGuard -> com.plm.action.guard.ActionGuardContext. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.lifecycle.internal.guard.FromStateMatchGuard -> com.plm.action.guard.ActionGuard. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.lifecycle.internal.guard.NotFrozenGuard -> com.plm.action.guard.ActionGuardContext. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.lifecycle.internal.guard.NotFrozenGuard -> com.plm.action.guard.ActionGuard. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.lifecycle.internal.guard.TransitionLifecycleGuard -> com.plm.action.guard.ActionGuardContext. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.lifecycle.internal.guard.TransitionLifecycleGuard -> com.plm.action.guard.ActionGuard. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.metamodel.internal.ActionRegistrationService -> com.plm.action.guard.ActionGuardService. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.signature.internal.guard.HasSignatureRequirementGuard -> com.plm.action.guard.ActionGuardContext. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.signature.internal.guard.HasSignatureRequirementGuard -> com.plm.action.guard.ActionGuard. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.signature.internal.guard.NotAlreadySignedGuard -> com.plm.action.guard.ActionGuardContext. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.signature.internal.guard.NotAlreadySignedGuard -> com.plm.action.guard.ActionGuard. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.transaction.internal.LockWrapper -> com.plm.action.ActionWrapper$Chain. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.transaction.internal.LockWrapper -> com.plm.action.ActionWrapper. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.transaction.internal.TransactionWrapper -> com.plm.action.ActionWrapper$Chain. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.transaction.internal.TransactionWrapper -> com.plm.action.ActionWrapper. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.transaction.internal.guard.LockOwnerRequiredGuard -> com.plm.action.guard.ActionGuardContext. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.transaction.internal.guard.LockOwnerRequiredGuard -> com.plm.action.guard.ActionGuard. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.transaction.internal.guard.NotLockedGuard -> com.plm.action.guard.ActionGuardContext. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.transaction.internal.guard.NotLockedGuard -> com.plm.action.guard.ActionGuard. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.version.internal.guard.FingerprintUnchangedGuard -> com.plm.action.guard.ActionGuardContext. Allowed targets: algorithm, permission, shared.
+- Module 'node' depends on module 'action' via com.plm.node.version.internal.guard.FingerprintUnchangedGuard -> com.plm.action.guard.ActionGuard. Allowed targets: algorithm, permission, shared.
+- Module 'dashboard' depends on module 'node' via com.plm.dashboard.internal.DashboardService -> com.plm.node.transaction.internal.LockService. Allowed targets: action, node, shared.
+- Module 'dashboard' depends on module 'node' via com.plm.dashboard.internal.DashboardService -> com.plm.node.transaction.internal.PlmTransactionService. Allowed targets: action, node, shared.
+- Module 'dashboard' depends on module 'node' via com.plm.dashboard.internal.DashboardService -> com.plm.node.transaction.internal.LockService$LockInfo. Allowed targets: action, node, shared.
+- Module 'algorithm' depends on module 'action' via com.plm.algorithm.internal.AlgorithmService -> com.plm.action.guard.ActionGuardService. Allowed targets: shared.
+- Module 'algorithm' depends on module 'node' via com.plm.algorithm.internal.AlgorithmService -> com.plm.node.lifecycle.internal.guard.LifecycleGuardService. Allowed targets: shared.
+- Module 'algorithm' depends on module 'node' via com.plm.algorithm.internal.AlgorithmService -> com.plm.node.lifecycle.internal.stateaction.StateActionService. Allowed targets: shared.
+	at org.springframework.modulith.core.Violations.and(Violations.java:141)
+	at org.springframework.modulith.core.ApplicationModules.detectViolations(ApplicationModules.java:506)
+	at org.springframework.modulith.core.ApplicationModules.verify(ApplicationModules.java:460)
+	at org.springframework.modulith.core.ApplicationModules.verify(ApplicationModules.java:444)
+	at com.plm.ModularArchitectureTest.verifyModuleStructure(ModularArchitectureTest.java:12)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+

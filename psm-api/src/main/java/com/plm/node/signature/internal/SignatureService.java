@@ -32,7 +32,7 @@ public class SignatureService {
     private final FingerPrintService fingerPrintService;
     private final PlmEventPublisher  eventPublisher;
 
-    @PlmAction(value = "SIGN", nodeIdExpr = "#nodeId")
+    @PlmAction(value = "sign", nodeIdExpr = "#nodeId")
     @Transactional
     public String sign(String nodeId, String userId, String meaning, String comment) {
 

@@ -5,7 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PLM Core</title>
   <style>
-    body { margin: 0; background: #0d0f12; }
+    /* Boot-flash fallback — overridden by theme-aware stylesheet once React
+       mounts. Matches OS preference so the flash is close to the final theme. */
+    html, body { margin: 0; background: #0d0f12; }
+    @media (prefers-color-scheme: light) {
+      html, body { background: #f5f6f8; }
+    }
     #root { min-height: 100vh; }
   </style>
 </head>

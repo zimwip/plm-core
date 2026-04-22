@@ -18,10 +18,10 @@ import java.util.UUID;
  * Admin CRUD for PSM permissions and attribute views.
  *
  * Manages:
- *   - Global permission grants (MANAGE_METAMODEL, MANAGE_ROLES, MANAGE_BASELINES, READ)
+ *   - Global permission grants (MANAGE_PSM, MANAGE_PNO, MANAGE_BASELINES, READ)
  *   - Attribute views (attribute_view + view_attribute_override)
  *
- * All mutating operations require MANAGE_ROLES permission.
+ * All mutating operations require MANAGE_PNO permission.
  */
 @Slf4j
 @Service
@@ -86,86 +86,75 @@ public class PermissionAdminService {
     }
 
     /**
-     * Returns ALL authorization_policy rows for a role in the active project space.
+     * Returns ALL authorization_policy rows for a role.
      * Frontend slices by scope locally.
      */
     public List<Map<String, Object>> getRolePolicies(String roleId) {
-        String psId = secCtx.currentProjectSpaceId();
-        var q = dsl.select(
+        return dsl.select(
                 DSL.field("id"),
                 DSL.field("permission_code"),
                 DSL.field("scope"),
                 DSL.field("node_type_id"),
                 DSL.field("transition_id"))
             .from("authorization_policy")
-            .where("role_id = ?", roleId);
-        if (psId != null) q = q.and("project_space_id = ?", psId);
-        return q.fetch().map(r -> {
-            var m = new java.util.LinkedHashMap<String, Object>();
-            m.put("id",             r.get("id",              String.class));
-            m.put("permissionCode", r.get("permission_code", String.class));
-            m.put("scope",          r.get("scope",           String.class));
-            m.put("nodeTypeId",     r.get("node_type_id",    String.class));
-            m.put("transitionId",   r.get("transition_id",   String.class));
-            return (Map<String, Object>) m;
-        });
+            .where("role_id = ?", roleId)
+            .fetch().map(r -> {
+                var m = new java.util.LinkedHashMap<String, Object>();
+                m.put("id",             r.get("id",              String.class));
+                m.put("permissionCode", r.get("permission_code", String.class));
+                m.put("scope",          r.get("scope",           String.class));
+                m.put("nodeTypeId",     r.get("node_type_id",    String.class));
+                m.put("transitionId",   r.get("transition_id",   String.class));
+                return (Map<String, Object>) m;
+            });
     }
 
     /**
-     * Lists all global permission grants for a given role in the active project space.
+     * Lists all global permission grants for a given role.
      */
     public List<Map<String, Object>> getRoleGlobalPermissions(String roleId) {
-        String psId = secCtx.currentProjectSpaceId();
-        var q = dsl.select(
+        return dsl.select(
                 DSL.field("id"),
                 DSL.field("permission_code"),
                 DSL.field("scope"))
             .from("authorization_policy")
             .where("scope = 'GLOBAL'")
             .and("role_id = ?", roleId)
-            .and("node_type_id IS NULL");
-        if (psId != null) q = q.and("project_space_id = ?", psId);
-        return q.fetch().map(r -> Map.<String, Object>of(
-            "id",             r.get("id",              String.class),
-            "permissionCode", r.get("permission_code", String.class)));
+            .and("node_type_id IS NULL")
+            .fetch().map(r -> Map.<String, Object>of(
+                "id",             r.get("id",              String.class),
+                "permissionCode", r.get("permission_code", String.class)));
     }
 
     /**
-     * Grants a GLOBAL permission to a role in the active project space.
-     * Idempotent — silently succeeds if the row already exists.
+     * Grants a GLOBAL permission to a role. Idempotent.
      */
-    @PlmPermission("MANAGE_ROLES")
+    @PlmPermission("MANAGE_PNO")
     public void addRoleGlobalPermission(String roleId, String permissionCode) {
-        String psId = secCtx.currentProjectSpaceId();
-        if (psId == null) throw new IllegalStateException("Project space required");
-
         int exists = dsl.fetchCount(
             dsl.selectOne().from("authorization_policy")
                 .where("permission_code = ?", permissionCode)
-                .and("project_space_id = ?", psId)
                 .and("role_id = ?", roleId)
                 .and("node_type_id IS NULL"));
         if (exists > 0) return;
 
         dsl.execute(
-            "INSERT INTO authorization_policy (id, permission_code, scope, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,NULL,NULL)",
-            UUID.randomUUID().toString(), permissionCode, "GLOBAL", psId, roleId);
+            "INSERT INTO authorization_policy (id, permission_code, scope, role_id, node_type_id, transition_id) VALUES (?,?,?,?,NULL,NULL)",
+            UUID.randomUUID().toString(), permissionCode, "GLOBAL", roleId);
         policyService.reloadPolicies();
-        log.info("Global permission granted: permission={} role={} space={}", permissionCode, roleId, psId);
+        log.info("Global permission granted: permission={} role={}", permissionCode, roleId);
     }
 
     /**
-     * Revokes a GLOBAL permission from a role in the active project space.
+     * Revokes a GLOBAL permission from a role.
      */
-    @PlmPermission("MANAGE_ROLES")
+    @PlmPermission("MANAGE_PNO")
     public void removeRoleGlobalPermission(String roleId, String permissionCode) {
-        String psId = secCtx.currentProjectSpaceId();
-        if (psId == null) throw new IllegalStateException("Project space required");
         dsl.execute(
-            "DELETE FROM authorization_policy WHERE permission_code = ? AND role_id = ? AND node_type_id IS NULL AND project_space_id = ?",
-            permissionCode, roleId, psId);
+            "DELETE FROM authorization_policy WHERE permission_code = ? AND role_id = ? AND node_type_id IS NULL",
+            permissionCode, roleId);
         policyService.reloadPolicies();
-        log.info("Global permission revoked: permission={} role={} space={}", permissionCode, roleId, psId);
+        log.info("Global permission revoked: permission={} role={}", permissionCode, roleId);
     }
 
     // ================================================================
@@ -176,7 +165,7 @@ public class PermissionAdminService {
      * Creates a new permission in the catalog.
      * Fails if the permission code already exists.
      */
-    @PlmPermission("MANAGE_ROLES")
+    @PlmPermission("MANAGE_PNO")
     public void createPermission(String permissionCode, String scope, String displayName,
                                  String description, int displayOrder) {
         if (permissionRegistry.exists(permissionCode)) {
@@ -193,7 +182,7 @@ public class PermissionAdminService {
     /**
      * Updates display metadata for an existing permission.
      */
-    @PlmPermission("MANAGE_ROLES")
+    @PlmPermission("MANAGE_PNO")
     public void updatePermission(String permissionCode, String displayName, String description,
                                  Integer displayOrder) {
         if (!permissionRegistry.exists(permissionCode)) {
@@ -218,7 +207,7 @@ public class PermissionAdminService {
     // VIEWS
     // ================================================================
 
-    @PlmPermission("MANAGE_ROLES")
+    @PlmPermission("MANAGE_PNO")
     public String createView(String nodeTypeId, String name, String description,
                              String eligibleRoleId, String eligibleStateId, int priority) {
         String id = UUID.randomUUID().toString();
@@ -233,7 +222,7 @@ public class PermissionAdminService {
         return id;
     }
 
-    @PlmPermission("MANAGE_ROLES")
+    @PlmPermission("MANAGE_PNO")
     public void setViewOverride(String viewId, String attributeDefId,
                                 Boolean visible, Boolean editable,
                                 Integer displayOrder, String displaySection) {

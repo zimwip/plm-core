@@ -269,8 +269,8 @@ export default function NodeEditor({
       const activeTxId = txId || await onAutoOpenTx();
       if (!activeTxId) return;
 
-      const createLinkAction = desc.actions?.find(a => a.actionCode === 'CREATE_LINK');
-      if (!createLinkAction) throw new Error('CREATE_LINK action not available for this node type');
+      const createLinkAction = desc.actions?.find(a => a.actionCode === 'create_link');
+      if (!createLinkAction) throw new Error('create_link action not available for this node type');
 
       // V2V pinning is resolved server-side by CreateLinkActionHandler
       await authoringApi.executeAction(nodeId, createLinkAction.actionCode, userId, activeTxId, {
@@ -290,7 +290,7 @@ export default function NodeEditor({
   }
 
   async function handleUpdateLink(linkId, newLogicalId, newTargetNodeId) {
-    const updateLinkAction = desc.actions?.find(a => a.actionCode === 'UPDATE_LINK');
+    const updateLinkAction = desc.actions?.find(a => a.actionCode === 'update_link');
     if (!updateLinkAction) return;
     setLinkActLoading(true);
     try {
@@ -311,7 +311,7 @@ export default function NodeEditor({
   }
 
   async function handleDeleteLink(linkId) {
-    const deleteLinkAction = desc.actions?.find(a => a.actionCode === 'DELETE_LINK');
+    const deleteLinkAction = desc.actions?.find(a => a.actionCode === 'delete_link');
     if (!deleteLinkAction) return;
     setLinkActLoading(true);
     setDeletingLinkId(null);
@@ -425,8 +425,8 @@ export default function NodeEditor({
   // fingerprintChanged is null for committed versions; false means OPEN but no content change
   const fingerprintChanged = activeDesc?.fingerprintChanged;
   // Internal actions used programmatically (not rendered as header buttons)
-  const INTERNAL_ACTIONS = new Set(['UPDATE_NODE', 'CREATE_LINK', 'UPDATE_LINK', 'DELETE_LINK', 'READ', 'COMMENT', 'BASELINE', 'MANAGE_METAMODEL', 'MANAGE_ROLES', 'MANAGE_BASELINES']);
-  const updateNodeAction = allActions.find(a => a.actionCode === 'UPDATE_NODE' && a.authorized !== false);
+  const INTERNAL_ACTIONS = new Set(['update_node', 'create_link', 'update_link', 'delete_link', 'read', 'comment', 'baseline', 'manage_metamodel', 'manage_roles', 'manage_baselines']);
+  const updateNodeAction = allActions.find(a => a.actionCode === 'update_node' && a.authorized !== false);
   // Visible header actions: authorized, non-internal, non-structural
   const headerActions = allActions.filter(a =>
     a.authorized !== false && !INTERNAL_ACTIONS.has(a.actionCode) && a.displayCategory !== 'STRUCTURAL'
@@ -439,16 +439,16 @@ export default function NodeEditor({
     return 'Blocked:\n\u2022 ' + v.map(x => typeof x === 'string' ? x : x.message || x.guardCode).join('\n\u2022 ');
   };
   // Guard violation map for LifecycleDiagram: includes unauthorized transitions too
-  const allTransitions    = allActions.filter(a => a.actionCode === 'TRANSITION');
+  const allTransitions    = allActions.filter(a => a.actionCode === 'transition');
   const transitionGuardViolations = new Map(
     allTransitions
       .filter(a => a.guardViolations?.length > 0)
       .map(a => [a.name, a.guardViolations])
   );
   // Available (unblocked) transition names for lifecycle diagram
-  const transitions = headerActions.filter(a => a.actionCode === 'TRANSITION');
-  const canUpdateLink     = activeDesc?.actions?.some(a => a.actionCode === 'UPDATE_LINK');
-  const canDeleteLink     = activeDesc?.actions?.some(a => a.actionCode === 'DELETE_LINK');
+  const transitions = headerActions.filter(a => a.actionCode === 'transition');
+  const canUpdateLink     = activeDesc?.actions?.some(a => a.actionCode === 'update_link');
+  const canDeleteLink     = activeDesc?.actions?.some(a => a.actionCode === 'delete_link');
   const hasLinkActions    = canUpdateLink || canDeleteLink;
 
   // Lifecycle ID for diagram — resolved from node type
@@ -619,7 +619,11 @@ export default function NodeEditor({
                       onChange={e => setActionParams(prev => ({ ...prev, [p.name]: e.target.value }))}
                     >
                       {!val && <option value="">—</option>}
-                      {enumValues.map(v => <option key={v} value={v}>{v}</option>)}
+                      {enumValues.map(v => {
+                        const value = typeof v === 'object' && v !== null ? v.value : v;
+                        const label = typeof v === 'object' && v !== null ? v.label : v;
+                        return <option key={value} value={value}>{label}</option>;
+                      })}
                     </select>
                   ) : p.widget === 'TEXTAREA' ? (
                     <textarea
@@ -820,7 +824,7 @@ export default function NodeEditor({
             const data = getDraggedNode();
             clearDraggedNode();
             if (!data) return;
-            if (!desc?.actions?.some(a => a.actionCode === 'CREATE_LINK')) {
+            if (!desc?.actions?.some(a => a.actionCode === 'create_link')) {
               toast('You do not have write permission on this node', 'error');
               return;
             }
@@ -835,7 +839,7 @@ export default function NodeEditor({
           )}
 
           {/* Add link button */}
-          {activeDesc.actions?.some(a => a.actionCode === 'CREATE_LINK') && (
+          {activeDesc.actions?.some(a => a.actionCode === 'create_link') && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
               <button className="btn btn-sm" onClick={() => linkPanel ? setLinkPanel(false) : openLinkPanel()}>
                 {linkPanel ? '✕ Cancel' : '+ Add link'}

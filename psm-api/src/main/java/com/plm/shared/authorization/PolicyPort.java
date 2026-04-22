@@ -31,4 +31,7 @@ public interface PolicyPort {
     void assertTransition(String transitionId);
 
     boolean canExecute(String permissionCode, String scope, String nodeTypeId, String transitionId);
+
+    /** Reloads all policies from the database. Call after any authorization_policy mutation. */
+    void reloadPolicies();
 }

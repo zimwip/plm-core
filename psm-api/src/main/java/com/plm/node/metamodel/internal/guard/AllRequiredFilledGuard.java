@@ -64,8 +64,14 @@ public class AllRequiredFilledGuard implements LifecycleGuard {
         var resolvedType = metaModelCache.get(nodeTypeId);
         if (resolvedType == null) return List.of();
 
+        // Collect all effective attributes: node_type + domains
+        List<ResolvedAttribute> allAttrs = new ArrayList<>(resolvedType.attributes());
+        dsl.select().from("node_version_domain").where("node_version_id = ?", currentVersionId)
+           .fetch().forEach(r -> allAttrs.addAll(
+               metaModelCache.getDomainAttributes(r.get("domain_id", String.class))));
+
         List<GuardViolation> violations = new ArrayList<>();
-        for (ResolvedAttribute attr : resolvedType.attributes()) {
+        for (ResolvedAttribute attr : allAttrs) {
             Record rule = metaModelCache.getStateRule(nodeTypeId, attr.id(), toStateId);
             if (rule == null || rule.get("required", Integer.class) != 1) continue;
             String value = currentValues.get(attr.id());

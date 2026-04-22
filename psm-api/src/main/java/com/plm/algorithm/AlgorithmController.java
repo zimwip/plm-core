@@ -16,7 +16,7 @@ import java.util.Map;
  * and guard attachments (action-level and NTA-level).
  *
  * Read endpoints are open to all authenticated users.
- * Write endpoints require MANAGE_METAMODEL permission (enforced via @PlmAction on AlgorithmService).
+ * Write endpoints require MANAGE_PSM permission (enforced via @PlmAction on AlgorithmService).
  */
 @RestController
 @RequestMapping("/api/psm/algorithms")

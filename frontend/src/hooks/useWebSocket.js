@@ -2,13 +2,14 @@
 import { useEffect, useRef } from 'react';
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
+import { getSessionToken } from '../services/api';
 
 /**
  * Subscribe to one or more STOMP topics over SockJS.
  *
- * @param {string|string[]} topics  Full STOMP destination(s), e.g. '/topic/nodes/abc'
- * @param {function}        onEvent Called with the parsed JSON payload for every message
- * @param {string}          userId  Forwarded in the STOMP CONNECT frame as X-PLM-User
+ * Auth: browsers cannot set custom headers on the WebSocket upgrade, so the
+ * session token is passed as ?token=... on the /ws URL. spe-api's
+ * AuthenticationFilter reads it when the path starts with /ws.
  */
 export function useWebSocket(topics, onEvent, userId) {
   const onEventRef = useRef(onEvent);
@@ -22,9 +23,12 @@ export function useWebSocket(topics, onEvent, userId) {
     if (topicArr.length === 0) return;
 
     const client = new Client({
-      webSocketFactory: () => new SockJS('/ws'),
-      // Pass userId in the STOMP CONNECT frame — browser blocks custom headers on XHR
-      connectHeaders: userId ? { 'X-PLM-User': userId } : {},
+      webSocketFactory: () => {
+        const token = getSessionToken();
+        const url = token ? `/ws?token=${encodeURIComponent(token)}` : '/ws';
+        return new SockJS(url);
+      },
+      connectHeaders: {},
       onConnect: () => {
         topicArr.forEach(topic => {
           client.subscribe(topic, (msg) => {

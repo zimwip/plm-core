@@ -48,11 +48,18 @@ public class ValidationService {
             .where("id = ?", nodeId)
             .fetchOne("node_type_id", String.class);
 
-        // Resolved attributes (own + inherited) from cache
+        // Resolved attributes (own + inherited) from cache + domain attributes
         var resolvedType = metaModelCache.get(nodeTypeId);
-        List<ResolvedAttribute> attrDefs = resolvedType != null
+        List<ResolvedAttribute> attrDefs = new ArrayList<>(resolvedType != null
             ? resolvedType.attributes()
-            : List.of();
+            : List.of());
+        // Add domain attributes if node version is known
+        if (currentVersion != null) {
+            String cvId = currentVersion.get("id", String.class);
+            dsl.select().from("node_version_domain").where("node_version_id = ?", cvId)
+               .fetch().forEach(r -> attrDefs.addAll(
+                   metaModelCache.getDomainAttributes(r.get("domain_id", String.class))));
+        }
 
         // Récupère les valeurs actuelles de la version courante
         Map<String, String> currentValues = new java.util.HashMap<>();
@@ -167,11 +174,11 @@ public class ValidationService {
                            + "' does not match pattern: " + logicalIdPattern);
         }
 
-        // Use cache for effective attributes (own + inherited)
+        // Use cache for effective attributes (own + inherited) + domain attributes
         var resolvedType = metaModelCache.get(nodeTypeId);
-        List<ResolvedAttribute> attrDefs = resolvedType != null
+        List<ResolvedAttribute> attrDefs = new ArrayList<>(resolvedType != null
             ? resolvedType.attributes()
-            : List.of();
+            : List.of());
 
         for (ResolvedAttribute attr : attrDefs) {
             String attrId   = attr.id();
@@ -226,6 +233,7 @@ public class ValidationService {
 
     /**
      * Collecte les violations pour une version donnée en chargeant ses attributs depuis la base.
+     * Also loads domain attributes for the version.
      */
     public List<String> collectVersionViolations(String nodeId, String versionId, String stateId) {
         Map<String, String> attrs = new HashMap<>();
@@ -237,7 +245,29 @@ public class ValidationService {
                r.get("attribute_def_id", String.class),
                r.get("value", String.class)
            ));
-        return collectContentViolations(nodeId, stateId, attrs);
+        List<String> violations = collectContentViolations(nodeId, stateId, attrs);
+
+        // Also validate domain attributes
+        String nodeTypeId = dsl.select().from("node").where("id = ?", nodeId)
+            .fetchOne("node_type_id", String.class);
+        List<ResolvedAttribute> domainAttrDefs = new ArrayList<>();
+        dsl.select().from("node_version_domain").where("node_version_id = ?", versionId)
+           .fetch().forEach(r -> domainAttrDefs.addAll(
+               metaModelCache.getDomainAttributes(r.get("domain_id", String.class))));
+
+        for (ResolvedAttribute attr : domainAttrDefs) {
+            org.jooq.Record rule = (stateId != null)
+                ? metaModelCache.getStateRule(nodeTypeId, attr.id(), stateId)
+                : null;
+            if (rule != null && rule.get("visible", Integer.class) == 0) continue;
+            String value = attrs.get(attr.id());
+            boolean requiredByState = rule != null && rule.get("required", Integer.class) == 1;
+            boolean requiredGlobal = attr.required();
+            if ((requiredByState || requiredGlobal) && (value == null || value.isBlank())) {
+                violations.add("Attribute '" + attr.name() + "' is required");
+            }
+        }
+        return violations;
     }
 
     // -------------------------------------------------------

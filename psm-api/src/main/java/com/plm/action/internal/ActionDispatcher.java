@@ -1,10 +1,12 @@
 package com.plm.action.internal;
 
+import com.plm.action.ActionScopeRegistry;
 import com.plm.action.ActionWrapper;
 import com.plm.algorithm.AlgorithmRegistry;
 import com.plm.shared.action.ActionResult;
 import com.plm.shared.action.ActionContext;
 import com.plm.shared.action.ActionHandler;
+import com.plm.shared.action.ActionScope;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,17 +37,22 @@ public class ActionDispatcher {
     private final DSLContext               dsl;
     private final ActionParameterValidator paramValidator;
     private final AlgorithmRegistry        algorithmRegistry;
+    private final ActionScopeRegistry      scopeRegistry;
 
     /**
-     * Dispatches an action by its {@code action.action_code}.
+     * Dispatches an action using scope-driven ID resolution.
+     *
+     * @param actionCode the action code (e.g. "CHECKOUT", "COMMIT")
+     * @param pathIds    positional IDs from the URL path, interpreted by the action's scope
+     * @param userId     the user triggering the action
+     * @param txIdHint   optional txId from X-PLM-Tx header (overrides scope-resolved txId)
+     * @param rawParams  user-supplied parameters from request body
      */
     public ActionResult dispatch(
         String actionCode,
-        String transitionId,
-        String nodeId,
-        String currentStateId,
+        List<String> pathIds,
         String userId,
-        String txId,
+        String txIdHint,
         Map<String, String> rawParams
     ) {
         Record action = dsl.select().from("action")
@@ -55,16 +62,30 @@ public class ActionDispatcher {
 
         String actionId = action.get("id", String.class);
         String handlerInstanceId = action.get("handler_instance_id", String.class);
+        String scopeCode = action.get("scope", String.class);
 
         if (handlerInstanceId == null) {
             throw new IllegalStateException("Action " + actionCode + " has no handler (permission-only action)");
         }
 
-        String nodeTypeId = null;
-        if (nodeId != null) {
+        // Resolve scope and build base context from path IDs
+        ActionScope scope = scopeRegistry.resolve(scopeCode);
+        ActionContext ctx = scope.resolve(actionId, actionCode, userId, pathIds, rawParams);
+
+        // Apply txId hint from header if present
+        if (txIdHint != null && !txIdHint.isBlank() && ctx.txId() == null) {
+            ctx = ctx.withTxId(txIdHint);
+        }
+
+        // Supplement nodeTypeId from DB when nodeId is present and nodeTypeId not already set
+        String nodeTypeId = ctx.nodeTypeId();
+        if (nodeTypeId == null && ctx.nodeId() != null) {
             nodeTypeId = dsl.select(DSL.field("node_type_id")).from("node")
-                .where("id = ?", nodeId)
+                .where("id = ?", ctx.nodeId())
                 .fetchOne(DSL.field("node_type_id"), String.class);
+            ctx = new ActionContext(
+                ctx.nodeId(), nodeTypeId, ctx.actionId(), ctx.actionCode(),
+                ctx.transitionId(), ctx.userId(), ctx.txId(), ctx.ids());
         }
 
         Map<String, String> params = new HashMap<>(paramValidator.validate(actionId, nodeTypeId, rawParams));
@@ -80,21 +101,16 @@ public class ActionDispatcher {
         // Build wrapper chain from attached algorithm instances
         List<ResolvedWrapper> wrappers = resolveWrappers(actionId);
 
-        ActionContext ctx = new ActionContext(
-            nodeId, nodeTypeId, actionId, actionCode, transitionId, userId, txId);
-
-        log.info("Dispatching action {} on node {} transition={} wrappers={} by user {}",
-            actionCode, nodeId, transitionId, wrappers.size(), userId);
+        log.info("Dispatching action {} scope={} pathIds={} wrappers={} by user {}",
+            actionCode, scopeCode, pathIds, wrappers.size(), userId);
 
         // Build chain: wrappers[0] → wrappers[1] → ... → handler
         ActionWrapper.Chain chain = buildChain(wrappers, handler);
         try {
             return chain.proceed(ctx, params);
         } catch (com.plm.shared.exception.AccessDeniedException e) {
-            // Enrich with action context if not already present
             String msg = e.getMessage();
             if (msg != null && !msg.contains(actionCode)) {
-                // Extract permission code from original message (e.g. "cannot execute 'UPDATE'")
                 String permHint = "";
                 int qi = msg.indexOf('\'');
                 if (qi >= 0) {

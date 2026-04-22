@@ -1,7 +1,28 @@
 // services/api.js — Couche d'accès à l'API PLM backend
 
+import { recordApiCall } from './apiStats';
+
 const BASE     = '/api/psm';
 const BASE_PNO = '/api/pno';
+
+// Wrap fetch to record timing + status into apiStats.
+async function timedFetch(url, init, method) {
+  const t0 = performance.now();
+  let res, err;
+  try {
+    res = await fetch(url, init);
+  } catch (e) {
+    err = e;
+  }
+  const durationMs = performance.now() - t0;
+  const endpoint = url.split('?')[0];
+  if (err) {
+    recordApiCall({ method, endpoint, status: 0, durationMs, ok: false });
+    throw err;
+  }
+  recordApiCall({ method, endpoint, status: res.status, durationMs, ok: res.ok });
+  return res;
+}
 
 // Module-level project space context — updated by App when user selects a space
 let _projectSpaceId = null;
@@ -10,6 +31,45 @@ export function setProjectSpaceId(id) { _projectSpaceId = id; }
 // Global error handler — set once by App so every unhandled API error shows a toast
 let _onError = null;
 export function setApiErrorHandler(fn) { _onError = fn; }
+
+// ── Session token (issued by spe-api /auth/login) ──────────────────
+let _sessionToken = null;
+export function setSessionToken(t) { _sessionToken = t; }
+export function getSessionToken() { return _sessionToken; }
+
+// Callback invoked when a request returns 401. Must return Promise<string|null>
+// resolving to a new session token (or null if re-auth failed).
+let _onAuthExpired = null;
+export function setAuthExpiredHandler(fn) { _onAuthExpired = fn; }
+
+// ── Auth API (public — does not require a session token) ───────────
+export const authApi = {
+  login: async (userId, projectSpaceId) => {
+    const res = await timedFetch('/api/spe/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, projectSpaceId }),
+    }, 'POST');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+    const body = await res.json();
+    _sessionToken = body.token;
+    return body;
+  },
+  logout: async () => {
+    const token = _sessionToken;
+    _sessionToken = null;
+    if (!token) return;
+    try {
+      await timedFetch('/api/spe/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      }, 'POST');
+    } catch { /* best effort */ }
+  },
+};
 
 // ── Backend reconnect detection ────────────────────────────────────
 let _backendDown = false;
@@ -45,23 +105,37 @@ function onBackendUnreachable() {
   }, 3000);
 }
 
-/** Sends a request to pno-api (People & Organisation). */
-async function pnoRequest(method, path, userId, body) {
+// Core request helper — session token carries user identity.
+// On 401 it calls _onAuthExpired to obtain a fresh token and retries once.
+async function doFetch(baseUrl, method, path, body, { txId, psOverride } = {}, isRetry = false) {
+  const h = { 'Content-Type': 'application/json' };
+  if (_sessionToken) h['Authorization'] = `Bearer ${_sessionToken}`;
+  const ps = psOverride ?? _projectSpaceId;
+  if (ps) h['X-PLM-ProjectSpace'] = ps;
+  if (txId) h['X-PLM-Tx'] = txId;
+
   let res;
   try {
-    const h = { 'Content-Type': 'application/json' };
-    if (userId) h['X-PLM-User'] = userId;
-    res = await fetch(`${BASE_PNO}${path}`, {
+    res = await timedFetch(`${baseUrl}${path}`, {
       method,
       headers: h,
       body: body ? JSON.stringify(body) : undefined,
-    });
+    }, method);
   } catch {
     onBackendUnreachable();
     const err = new Error('Backend unreachable');
     if (_onError) _onError(err);
     throw err;
   }
+
+  if (res.status === 401 && !isRetry && _onAuthExpired) {
+    const newToken = await _onAuthExpired().catch(() => null);
+    if (newToken) {
+      _sessionToken = newToken;
+      return doFetch(baseUrl, method, path, body, { txId, psOverride }, true);
+    }
+  }
+
   if (!res.ok) {
     if (res.status === 502 || res.status === 503) onBackendUnreachable();
     const payload = await res.json().catch(() => ({ error: res.statusText }));
@@ -74,41 +148,23 @@ async function pnoRequest(method, path, userId, body) {
   return text ? JSON.parse(text) : null;
 }
 
-async function request(method, path, userId, body, psOverride) {
-  const h = {
-    'Content-Type': 'application/json',
-    'X-PLM-User': userId,
-  };
-  const ps = psOverride ?? _projectSpaceId;
-  if (ps) h['X-PLM-ProjectSpace'] = ps;
-
-  let res;
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method,
-      headers: h,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch {
-    onBackendUnreachable();
-    const err = new Error('Backend unreachable');
-    if (_onError) _onError(err);
-    throw err;
-  }
-  if (!res.ok) {
-    if (res.status === 502 || res.status === 503) onBackendUnreachable();
-    const payload = await res.json().catch(() => ({ error: res.statusText }));
-    const err = new Error(payload.error || `HTTP ${res.status}`);
-    err.detail = payload; // { error, type, path, status, stackTrace }
-    if (_onError) _onError(err);
-    throw err;
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
+// userId args kept for API compatibility but no longer sent — the session token identifies the user.
+async function pnoRequest(method, path, _userId, body) {
+  return doFetch(BASE_PNO, method, path, body);
 }
 
-const requestForSpace = (method, path, userId, psId, body) =>
-  request(method, path, userId, body, psId);
+async function request(method, path, _userId, body, psOverride) {
+  return doFetch(BASE, method, path, body, { psOverride });
+}
+
+// ── SPE (gateway) platform status ──────────────────────────────────
+export const speApi = {
+  getStatus: async () => {
+    const res = await timedFetch('/api/spe/status', { cache: 'no-store' }, 'GET');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  },
+};
 
 // ── Nodes ──────────────────────────────────────────────────────────
 
@@ -137,9 +193,15 @@ export const api = {
   getVersionDiff: (userId, nodeId, v1, v2) =>
     request('GET', `/nodes/${nodeId}/versions/diff?v1=${v1}&v2=${v2}`, userId),
 
-  // Créer un noeud
+  // Créer un noeud (via action dispatch)
   createNode: (userId, nodeTypeId, attributes, logicalId, externalId) =>
-    request('POST', '/nodes', userId, { nodeTypeId, userId, attributes, logicalId, externalId }),
+    request('POST', `/actions/create_node/${nodeTypeId}`, userId, {
+      parameters: {
+        ...attributes,
+        _logicalId:  logicalId  || null,
+        _externalId: externalId || null,
+      },
+    }),
 
   // Description complète (Server-Driven UI) — txId optionnel pour voir les versions OPEN
   // versionNumber optionnel pour voir une version historique (lecture seule)
@@ -314,35 +376,46 @@ export const api = {
   registerCustomAction: (userId, body) =>
     request('POST', '/metamodel/actions', userId, body),
 
-  getActionPermissions: (userId, nodeTypeId, actionCode, transitionId) =>
+  // Permission grants — manage authorization_policy rows keyed by permission_code.
+  getPermissionGrants: (userId, nodeTypeId, permissionCode, transitionId) =>
     request('GET',
-      `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions${transitionId ? `?transitionId=${encodeURIComponent(transitionId)}` : ''}`,
+      `/metamodel/nodetypes/${nodeTypeId}/permissions/${permissionCode}${transitionId ? `?transitionId=${encodeURIComponent(transitionId)}` : ''}`,
       userId),
 
-  addActionPermission: (userId, nodeTypeId, actionCode, roleId, transitionId) =>
-    request('POST', `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions`, userId,
-      { roleId, transitionId: transitionId || null }),
+  addPermissionGrant: (userId, nodeTypeId, permissionCode, roleId, transitionId) =>
+    request('POST',
+      `/metamodel/nodetypes/${nodeTypeId}/permissions/${permissionCode}`,
+      userId, { roleId, transitionId: transitionId || null }),
 
-  removeActionPermission: (userId, nodeTypeId, actionCode, roleId, transitionId) =>
-    request('DELETE', `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions`, userId,
-      { roleId, transitionId: transitionId || null }),
+  removePermissionGrant: (userId, nodeTypeId, permissionCode, roleId, transitionId) =>
+    request('DELETE',
+      `/metamodel/nodetypes/${nodeTypeId}/permissions/${permissionCode}`,
+      userId, { roleId, transitionId: transitionId || null }),
 
-  // Space-scoped variants — used in the Project Spaces settings view where the
-  // target space may differ from the currently active project space.
-  getActionPermissionsForSpace: (userId, psId, nodeTypeId, actionCode, transitionId) =>
-    requestForSpace('GET',
-      `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions${transitionId ? `?transitionId=${encodeURIComponent(transitionId)}` : ''}`,
-      userId, psId),
+  // Domains
+  getDomains: (userId) =>
+    request('GET', '/domains', userId),
 
-  addActionPermissionForSpace: (userId, psId, nodeTypeId, actionCode, roleId, transitionId) =>
-    requestForSpace('POST',
-      `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions`,
-      userId, psId, { roleId, transitionId: transitionId || null }),
+  createDomain: (userId, body) =>
+    request('POST', '/domains', userId, body),
 
-  removeActionPermissionForSpace: (userId, psId, nodeTypeId, actionCode, roleId, transitionId) =>
-    requestForSpace('DELETE',
-      `/metamodel/nodetypes/${nodeTypeId}/actions/${actionCode}/permissions`,
-      userId, psId, { roleId, transitionId: transitionId || null }),
+  updateDomain: (userId, domainId, body) =>
+    request('PUT', `/domains/${domainId}`, userId, body),
+
+  deleteDomain: (userId, domainId) =>
+    request('DELETE', `/domains/${domainId}`, userId),
+
+  getDomainAttributes: (userId, domainId) =>
+    request('GET', `/domains/${domainId}/attributes`, userId),
+
+  createDomainAttribute: (userId, domainId, body) =>
+    request('POST', `/domains/${domainId}/attributes`, userId, body),
+
+  updateDomainAttribute: (userId, domainId, attrId, body) =>
+    request('PUT', `/domains/${domainId}/attributes/${attrId}`, userId, body),
+
+  deleteDomainAttribute: (userId, domainId, attrId) =>
+    request('DELETE', `/domains/${domainId}/attributes/${attrId}`, userId),
 
   // Baselines
   listBaselines: (userId) =>
@@ -381,6 +454,12 @@ export const api = {
   // Users — served by pno-api
   listUsers: (userId) =>
     pnoRequest('GET', '/users', userId),
+
+  getUser: (userId, targetUserId) =>
+    pnoRequest('GET', `/users/${targetUserId}`, userId),
+
+  updateUser: (userId, targetUserId, displayName, email) =>
+    pnoRequest('PUT', `/users/${targetUserId}`, userId, { displayName, email }),
 
   createUser: (userId, username, displayName, email) =>
     pnoRequest('POST', '/users', userId, { username, displayName, email }),
@@ -438,6 +517,10 @@ export const api = {
   /** Returns the GLOBAL action codes the current user can execute (e.g. ['MANAGE_METAMODEL']). */
   getMyGlobalPermissions: (userId) =>
     request('GET', '/admin/my-global-permissions', userId),
+
+  /** Returns settings sections grouped by category, filtered by user permissions. */
+  getSettingsSections: (userId) =>
+    request('GET', '/admin/settings-sections', userId),
 
   /** Returns the GLOBAL action permissions held by a specific role. */
   getRoleGlobalPermissions: (userId, roleId) =>
@@ -573,7 +656,7 @@ export const txApi = {
 
   /** Commite avec un commentaire. nodeIds optionnel : si fourni, seuls ces noeuds sont commités. */
   commit: (userId, txId, comment, nodeIds) =>
-    request('POST', `/transactions/${txId}/actions/COMMIT`, userId,
+    request('POST', `/actions/commit/${txId}`, userId,
       { parameters: { comment, ...(nodeIds ? { nodeIds: nodeIds.join(',') } : {}) } }),
 
   /** Libère une liste de noeuds d'une transaction (rollback partiel). */
@@ -582,7 +665,7 @@ export const txApi = {
 
   /** Annule et supprime la transaction. */
   rollback: (userId, txId) =>
-    request('POST', `/transactions/${txId}/actions/ROLLBACK`, userId, { parameters: {} }),
+    request('POST', `/actions/rollback/${txId}`, userId, { parameters: {} }),
 
   /** Détail d'une transaction. */
   get: (userId, txId) =>
@@ -597,46 +680,28 @@ export const txApi = {
     request('GET', `/transactions/${txId}/nodes`, userId),
 };
 
-/** Construit les headers avec X-PLM-User + X-PLM-Tx (si txId fourni). */
-export function authHeaders(userId, txId) {
-  const h = { 'Content-Type': 'application/json', 'X-PLM-User': userId };
+/** Build headers with Bearer + X-PLM-Tx / X-PLM-ProjectSpace. userId kept for API compat. */
+export function authHeaders(_userId, txId) {
+  const h = { 'Content-Type': 'application/json' };
+  if (_sessionToken) h['Authorization'] = `Bearer ${_sessionToken}`;
   if (txId) h['X-PLM-Tx'] = txId;
   if (_projectSpaceId) h['X-PLM-ProjectSpace'] = _projectSpaceId;
   return h;
 }
 
-/** Version de request qui inclut le txId dans le header. */
-export async function txRequest(method, path, userId, txId, body) {
-  let res;
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method,
-      headers: authHeaders(userId, txId),
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch {
-    onBackendUnreachable();
-    const err = new Error('Backend unreachable');
-    if (_onError) _onError(err);
-    throw err;
-  }
-  if (!res.ok) {
-    if (res.status === 502 || res.status === 503) onBackendUnreachable();
-    const payload = await res.json().catch(() => ({ error: res.statusText }));
-    const err = new Error(payload.error || `HTTP ${res.status}`);
-    err.detail = payload;
-    if (_onError) _onError(err);
-    throw err;
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
+/** request variant that includes the txId header. */
+export async function txRequest(method, path, _userId, txId, body) {
+  return doFetch(BASE, method, path, body, { txId });
 }
 
-// All write operations go through the action registry.
+// All write operations go through the central action controller.
 // actionCode matches action.action_code — from desc.actions[].actionCode.
-// transitionId is required for LIFECYCLE-scope actions.
+// transitionId is required for LIFECYCLE-scope actions (appended to path).
 export const authoringApi = {
-  executeAction: (nodeId, actionCode, userId, txId, parameters, transitionId) =>
-    txRequest('POST', `/nodes/${nodeId}/actions/${actionCode}`, userId, txId,
-      { parameters: parameters || {}, transitionId: transitionId || null }),
+  executeAction: (nodeId, actionCode, userId, txId, parameters, transitionId) => {
+    const path = transitionId
+      ? `/actions/${actionCode}/${nodeId}/${transitionId}`
+      : `/actions/${actionCode}/${nodeId}`;
+    return txRequest('POST', path, userId, txId, { parameters: parameters || {} });
+  },
 };

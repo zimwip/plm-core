@@ -6,6 +6,7 @@ import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,25 +61,52 @@ public class ProjectSpaceService {
             .map(r -> toMap(r));
     }
 
+    /**
+     * Resolves all descendant space IDs (children, grandchildren, etc.) including the target itself.
+     * Uses iterative BFS. Cycle-safe with visited set, max depth 20.
+     */
+    public List<String> resolveDescendants(String projectSpaceId) {
+        List<String> result = new ArrayList<>();
+        java.util.Set<String> visited = new java.util.HashSet<>();
+        java.util.Queue<String> queue = new java.util.LinkedList<>();
+        queue.add(projectSpaceId);
+
+        while (!queue.isEmpty() && result.size() < 500) {
+            String current = queue.poll();
+            if (!visited.add(current)) continue;
+            result.add(current);
+
+            List<String> children = dsl.select(DSL.field("id"))
+                .from("project_space")
+                .where("parent_id = ?", current)
+                .and("active = 1")
+                .fetch(DSL.field("id"), String.class);
+            queue.addAll(children);
+        }
+        return result;
+    }
+
     private Map<String, Object> toMap(org.jooq.Record r) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id",          r.get("id",          String.class));
         m.put("name",        r.get("name",        String.class));
         m.put("description", r.get("description", String.class));
+        m.put("parentId",    r.get("parent_id",   String.class));
         m.put("createdAt",   r.get("created_at",  Object.class));
         m.put("active",      Integer.valueOf(1).equals(r.get("active", Integer.class)));
         return m;
     }
 
     @Transactional
-    public Map<String, Object> createProjectSpace(String name, String description) {
+    public Map<String, Object> createProjectSpace(String name, String description, String parentId) {
         String id = "ps-" + UUID.randomUUID().toString().substring(0, 8);
-        dsl.execute("INSERT INTO project_space (id, name, description) VALUES (?, ?, ?)",
-            id, name, description);
+        dsl.execute("INSERT INTO project_space (id, name, description, parent_id) VALUES (?, ?, ?, ?)",
+            id, name, description, parentId);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id",          id);
         m.put("name",        name);
         m.put("description", description == null ? "" : description);
+        m.put("parentId",    parentId);
         m.put("active",      true);
         return m;
     }

@@ -1,5 +1,7 @@
 package com.plm.shared.action;
 
+import java.util.Map;
+
 /**
  * Immutable execution context passed to every ActionHandler.
  *
@@ -10,6 +12,7 @@ package com.plm.shared.action;
  * @param transitionId non-null only for LIFECYCLE-scope actions
  * @param userId       the user triggering the action
  * @param txId         the PLM transaction (may be null for actions with requires_tx=false)
+ * @param ids          generic ID bag for custom scopes (keyed by segment name)
  */
 public record ActionContext(
     String nodeId,
@@ -18,10 +21,11 @@ public record ActionContext(
     String actionCode,
     String transitionId,
     String userId,
-    String txId
+    String txId,
+    Map<String, String> ids
 ) {
     /** Returns a copy with a different txId (used by TransactionWrapper). */
     public ActionContext withTxId(String newTxId) {
-        return new ActionContext(nodeId, nodeTypeId, actionId, actionCode, transitionId, userId, newTxId);
+        return new ActionContext(nodeId, nodeTypeId, actionId, actionCode, transitionId, userId, newTxId, ids);
     }
 }

@@ -39,6 +39,8 @@ public class MetaModelCache {
     private final DSLContext dsl;
 
     private final AtomicReference<Map<String, ResolvedNodeType>> cache = new AtomicReference<>(null);
+    private final AtomicReference<Map<String, List<ResolvedAttribute>>> domainAttrCache = new AtomicReference<>(null);
+    private final AtomicReference<Map<String, Record>> domainCache = new AtomicReference<>(null);
 
     // ── Public API ────────────────────────────────────────────────────
 
@@ -55,9 +57,36 @@ public class MetaModelCache {
         return current;
     }
 
+    /** Returns resolved attributes for a domain. */
+    public List<ResolvedAttribute> getDomainAttributes(String domainId) {
+        var all = getAllDomainAttributes();
+        return all.getOrDefault(domainId, List.of());
+    }
+
+    /** Returns all domain records keyed by ID. */
+    public Map<String, Record> getAllDomains() {
+        Map<String, Record> current = domainCache.get();
+        if (current == null) {
+            buildDomainCaches();
+            current = domainCache.get();
+        }
+        return current != null ? current : Map.of();
+    }
+
+    private Map<String, List<ResolvedAttribute>> getAllDomainAttributes() {
+        Map<String, List<ResolvedAttribute>> current = domainAttrCache.get();
+        if (current == null) {
+            buildDomainCaches();
+            current = domainAttrCache.get();
+        }
+        return current != null ? current : Map.of();
+    }
+
     /** Invalidates the cache; next call to getAll/get triggers a full rebuild. */
     public void invalidate() {
         cache.set(null);
+        domainAttrCache.set(null);
+        domainCache.set(null);
         log.debug("MetaModelCache invalidated");
     }
 
@@ -66,13 +95,14 @@ public class MetaModelCache {
      * attrDefId, stateId) triple.
      *
      * Resolution order:
-     * 1. Rule scoped to contextNodeTypeId (child-type override).
+     * 1. Rule scoped to contextNodeTypeId (child-type override or node-type-scoped domain override).
      * 2. Rule scoped to the attribute's ownerNodeTypeId (parent definition's rule).
+     * 3. Rule with node_type_id IS NULL (domain-level default for domain attributes).
      */
     public Record getStateRule(String contextNodeTypeId, String attrDefId, String stateId) {
         if (stateId == null || attrDefId == null) return null;
 
-        // 1. Context type override (child or own rule)
+        // 1. Context type override (child or own rule, or node-type-scoped domain override)
         Record rule = dsl.select()
             .from("attribute_state_rule")
             .where("node_type_id = ?", contextNodeTypeId)
@@ -81,18 +111,28 @@ public class MetaModelCache {
             .fetchOne();
         if (rule != null) return rule;
 
-        // 2. Fall back to owner type's rule (only relevant for inherited attrs)
+        // 2. Fall back to owner type's rule (only relevant for inherited node_type attrs)
         ResolvedNodeType nt = get(contextNodeTypeId);
-        if (nt == null) return null;
-        String ownerTypeId = nt.attributes().stream()
-            .filter(a -> a.id().equals(attrDefId))
-            .map(ResolvedAttribute::ownerNodeTypeId)
-            .findFirst().orElse(null);
-        if (ownerTypeId == null || ownerTypeId.equals(contextNodeTypeId)) return null;
+        if (nt != null) {
+            String ownerTypeId = nt.attributes().stream()
+                .filter(a -> a.id().equals(attrDefId))
+                .map(ResolvedAttribute::ownerNodeTypeId)
+                .findFirst().orElse(null);
+            if (ownerTypeId != null && !ownerTypeId.equals(contextNodeTypeId)) {
+                rule = dsl.select()
+                    .from("attribute_state_rule")
+                    .where("node_type_id = ?", ownerTypeId)
+                    .and("attribute_definition_id = ?", attrDefId)
+                    .and("lifecycle_state_id = ?", stateId)
+                    .fetchOne();
+                if (rule != null) return rule;
+            }
+        }
 
+        // 3. Fall back to domain-level default (node_type_id IS NULL) for domain attributes
         return dsl.select()
             .from("attribute_state_rule")
-            .where("node_type_id = ?", ownerTypeId)
+            .where("node_type_id IS NULL")
             .and("attribute_definition_id = ?", attrDefId)
             .and("lifecycle_state_id = ?", stateId)
             .fetchOne();
@@ -108,9 +148,10 @@ public class MetaModelCache {
             typeById.put(t.get("id", String.class), t);
         }
 
-        // Group attrs by node_type_id, preserving display_order sort
+        // Group attrs by node_type_id, preserving display_order sort (exclude domain attrs)
         Map<String, List<Record>> attrsByType = new LinkedHashMap<>();
         dsl.select().from("attribute_definition")
+           .where("node_type_id IS NOT NULL")
            .orderBy(org.jooq.impl.DSL.field("display_order"))
            .fetch()
            .forEach(a -> attrsByType
@@ -161,7 +202,8 @@ public class MetaModelCache {
                         Integer.valueOf(1).equals(a.get("as_name", Integer.class)),
                         !isOwn,
                         isOwn ? null : ancestorName,
-                        ancestorId
+                        ancestorId,
+                        null, null
                     ));
                 }
             }
@@ -215,5 +257,50 @@ public class MetaModelCache {
             current = type.get("parent_node_type_id", String.class);
         }
         return chain;
+    }
+
+    // ── Domain cache ──────────────────────────────────────────────────
+
+    private void buildDomainCaches() {
+        // Load all domains
+        Map<String, Record> domains = new LinkedHashMap<>();
+        dsl.select().from("domain").fetch()
+            .forEach(d -> domains.put(d.get("id", String.class), d));
+
+        // Load domain attribute definitions grouped by domain_id
+        Map<String, List<ResolvedAttribute>> attrsByDomain = new LinkedHashMap<>();
+        dsl.select().from("attribute_definition")
+           .where("domain_id IS NOT NULL")
+           .orderBy(org.jooq.impl.DSL.field("display_order"))
+           .fetch()
+           .forEach(a -> {
+               String domainId = a.get("domain_id", String.class);
+               Record domain = domains.get(domainId);
+               String domainName = domain != null ? domain.get("name", String.class) : null;
+               Integer rawOrder = a.get("display_order", Integer.class);
+               attrsByDomain
+                   .computeIfAbsent(domainId, k -> new ArrayList<>())
+                   .add(new ResolvedAttribute(
+                       a.get("id", String.class),
+                       a.get("name", String.class),
+                       a.get("label", String.class),
+                       a.get("data_type", String.class),
+                       a.get("widget_type", String.class),
+                       Integer.valueOf(1).equals(a.get("required", Integer.class)),
+                       a.get("default_value", String.class),
+                       a.get("naming_regex", String.class),
+                       a.get("allowed_values", String.class),
+                       rawOrder != null ? rawOrder : 0,
+                       a.get("display_section", String.class),
+                       a.get("tooltip", String.class),
+                       false, // as_name never on domain attrs
+                       false, null, null,
+                       domainId, domainName
+                   ));
+           });
+
+        domainCache.set(Collections.unmodifiableMap(domains));
+        domainAttrCache.set(Collections.unmodifiableMap(attrsByDomain));
+        log.debug("Domain cache built: {} domains, {} with attributes", domains.size(), attrsByDomain.size());
     }
 }

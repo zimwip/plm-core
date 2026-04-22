@@ -118,18 +118,15 @@ public class PolicyService implements com.plm.shared.authorization.PolicyPort {
         PlmUserContext ctx = secCtx.currentUser();
         if (ctx.isAdmin()) return;
 
-        String psId = secCtx.currentProjectSpaceId();
         rwLock.readLock().lock();
         try {
-            // Find all nodeTypeIds that have a TRANSITION policy for this transitionId
-            List<List<String>> policies = enforcer.getFilteredPolicy(2, "TRANSITION");
+            // p = [sub, act, node_type, transition]
+            List<List<String>> policies = enforcer.getFilteredPolicy(1, "TRANSITION");
             for (String roleId : ctx.getRoleIds()) {
                 for (List<String> p : policies) {
-                    // p = [sub, dom, act, node_type, transition]
                     if (p.get(0).equals(roleId)
-                        && p.get(1).equals(psId)
-                        && (p.get(4).equals(transitionId) || p.get(4).equals("*"))
-                        && !p.get(3).equals("*")) {
+                        && (p.get(3).equals(transitionId) || p.get(3).equals("*"))
+                        && !p.get(2).equals("*")) {
                         return; // found a matching grant
                     }
                 }
@@ -193,14 +190,13 @@ public class PolicyService implements com.plm.shared.authorization.PolicyPort {
         Set<String> roleIds = ctx.getRoleIds();
         if (roleIds.isEmpty()) return false;
 
-        String psId       = secCtx.currentProjectSpaceId();
         String nodeType   = (nodeTypeId != null)   ? nodeTypeId   : "*";
         String transition = (transitionId != null)  ? transitionId : "*";
 
         rwLock.readLock().lock();
         try {
             for (String roleId : roleIds) {
-                if (enforcer.enforce(roleId, psId, permissionCode, nodeType, transition)) {
+                if (enforcer.enforce(roleId, permissionCode, nodeType, transition)) {
                     return true;
                 }
             }

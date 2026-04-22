@@ -150,6 +150,15 @@ public class VersionService {
             );
         }
 
+        // 7b. Copy domain assignments from previous version
+        if (current != null) {
+            String prevId = current.get("id", String.class);
+            dsl.fetch("SELECT domain_id FROM node_version_domain WHERE node_version_id = ?", prevId)
+               .forEach(r -> dsl.execute(
+                   "INSERT INTO node_version_domain (id, node_version_id, domain_id) VALUES (?,?,?)",
+                   UUID.randomUUID().toString(), versionId, r.get("domain_id", String.class)));
+        }
+
         // 8. Compute and store fingerprint immediately — avoids re-computation at commit time
         String fp = fingerPrintService.compute(nodeId, versionId);
         dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, versionId);

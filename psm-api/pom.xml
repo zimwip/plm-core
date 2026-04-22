@@ -38,6 +38,8 @@
     <dependencies>
         <!-- Spring Modulith -->
         <dependency><groupId>org.springframework.modulith</groupId><artifactId>spring-modulith-starter-core</artifactId></dependency>
+        <!-- Runtime module introspection (ApplicationModules.of(...) in AlgorithmRegistry) -->
+        <dependency><groupId>org.springframework.modulith</groupId><artifactId>spring-modulith-core</artifactId></dependency>
         <dependency><groupId>org.springframework.modulith</groupId><artifactId>spring-modulith-starter-test</artifactId><scope>test</scope></dependency>
 
         <!-- Spring Boot -->
@@ -72,10 +74,46 @@
 
         <!-- OpenAPI / Swagger — UI variant added by the dev profile below -->
 
-        <!-- Caffeine cache — for PnoApiClient user-context cache -->
+        <!-- Casbin — authorization engine -->
+        <dependency>
+            <groupId>org.casbin</groupId>
+            <artifactId>jcasbin</artifactId>
+            <version>1.55.0</version>
+        </dependency>
+
+        <!-- Caffeine cache -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
+        </dependency>
+
+        <!-- OpenTelemetry tracing via Micrometer bridge + OTLP exporter -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+
+        <!-- JWT (HS256, signed by spe-api with shared PLM_SERVICE_SECRET) -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>0.12.6</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>0.12.6</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>0.12.6</version>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- Lombok -->
@@ -88,10 +126,16 @@
     <build>
         <plugins>
 
-            <!-- 1. Spring Boot packaging -->
+            <!-- 1. Spring Boot packaging + build-info (writes META-INF/build-info.properties) -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>build-info</id>
+                        <goals><goal>build-info</goal></goals>
+                    </execution>
+                </executions>
                 <configuration>
                     <excludes>
                         <exclude><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId></exclude>

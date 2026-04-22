@@ -1,7 +1,10 @@
 package com.plm.node.metamodel.internal;
 import com.plm.node.metamodel.internal.MetaModelCache;
 
+import com.plm.shared.authorization.PermissionCatalogPort;
+import com.plm.shared.authorization.PermissionScope;
 import com.plm.shared.authorization.PlmPermission;
+import com.plm.shared.authorization.PolicyPort;
 import com.plm.action.guard.ActionGuardService;
 import com.plm.node.lifecycle.internal.guard.LifecycleGuardService;
 import com.plm.shared.security.SecurityContextPort;
@@ -33,11 +36,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ActionRegistrationService {
 
-    private final DSLContext          dsl;
-    private final MetaModelCache      metaModelCache;
-    private final PlmEventPublisher   eventPublisher;
-    private final SecurityContextPort secCtx;
-    private final ActionGuardService   actionGuardService;
+    private final DSLContext            dsl;
+    private final MetaModelCache        metaModelCache;
+    private final PlmEventPublisher     eventPublisher;
+    private final SecurityContextPort   secCtx;
+    private final PolicyPort            policyPort;
+    private final PermissionCatalogPort permissionCatalog;
+    private final ActionGuardService    actionGuardService;
     private final LifecycleGuardService lifecycleGuardService;
 
     // ================================================================
@@ -46,9 +51,13 @@ public class ActionRegistrationService {
 
     public List<Record> getAllActions() {
         return dsl.fetch(
-            "SELECT id, action_code, scope, display_name, description, " +
-            "display_category, display_order, managed_with " +
-            "FROM action ORDER BY action_code");
+            "SELECT a.id, a.action_code, a.scope, a.display_name, a.description, " +
+            "       a.display_category, a.display_order, a.managed_with, " +
+            "       a.handler_instance_id, alg.code AS handler_code " +
+            "FROM action a " +
+            "LEFT JOIN algorithm_instance ai ON ai.id = a.handler_instance_id " +
+            "LEFT JOIN algorithm alg        ON alg.id = ai.algorithm_id " +
+            "ORDER BY a.action_code");
     }
 
     /**
@@ -155,9 +164,9 @@ public class ActionRegistrationService {
     /**
      * Registers a custom action and returns its {@code action.id}. The action
      * becomes reachable for a node type only after granting at least one
-     * {@code authorization_policy} row via {@link #setActionPermission}.
+     * {@code authorization_policy} row via {@link #setPermissionGrant}.
      */
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public String registerCustomAction(String actionCode, String displayName, String handlerRef,
                                        String displayCategory, boolean requiresTx,
@@ -189,62 +198,61 @@ public class ActionRegistrationService {
     }
 
     // ================================================================
-    // ACTION PERMISSIONS
+    // PERMISSION GRANTS
     // ================================================================
 
     /**
-     * Grants a role permission to execute an action for a node type
-     * (optionally scoped to a transition).
+     * Grants a role a permission for a node type (optionally scoped to a
+     * transition). Writes to {@code authorization_policy}; scope is resolved
+     * from the {@code permission} catalog.
      */
-    @PlmPermission("MANAGE_ROLES")
+    @PlmPermission("MANAGE_PNO")
     @Transactional
-    public void setActionPermission(String nodeTypeId, String actionCode,
-                                    String transitionId, String roleId) {
-        String psId = secCtx.requireProjectSpaceId();
-        // Resolve scope from action table
-        String scope = resolveActionScope(actionCode);
+    public void setPermissionGrant(String nodeTypeId, String permissionCode,
+                                   String transitionId, String roleId) {
+        PermissionScope scope = permissionCatalog.scopeFor(permissionCode);
+        if (scope == null) throw new IllegalArgumentException("Unknown permission: " + permissionCode);
 
-        deleteActionPermissionRow(nodeTypeId, actionCode, roleId, psId, transitionId);
+        deletePermissionGrantRow(nodeTypeId, permissionCode, roleId, transitionId);
         dsl.execute(
-            "INSERT INTO authorization_policy (ID, PERMISSION_CODE, SCOPE, PROJECT_SPACE_ID, ROLE_ID, NODE_TYPE_ID, TRANSITION_ID) VALUES (?,?,?,?,?,?,?)",
-            UUID.randomUUID().toString(), actionCode, scope, psId, roleId, nodeTypeId, transitionId);
-        log.info("Permission set: nodeType={} permission={} role={} transition={} ps={}",
-            nodeTypeId, actionCode, roleId, transitionId, psId);
+            "INSERT INTO authorization_policy (ID, PERMISSION_CODE, SCOPE, ROLE_ID, NODE_TYPE_ID, TRANSITION_ID) VALUES (?,?,?,?,?,?)",
+            UUID.randomUUID().toString(), permissionCode, scope.name(), roleId, nodeTypeId, transitionId);
+        policyPort.reloadPolicies();
+        log.info("Permission granted: nodeType={} permission={} role={} transition={}",
+            nodeTypeId, permissionCode, roleId, transitionId);
     }
 
-    @PlmPermission("MANAGE_ROLES")
+    @PlmPermission("MANAGE_PNO")
     @Transactional
-    public void removeActionPermission(String nodeTypeId, String actionCode,
-                                       String transitionId, String roleId) {
-        String psId = secCtx.requireProjectSpaceId();
-        deleteActionPermissionRow(nodeTypeId, actionCode, roleId, psId, transitionId);
+    public void removePermissionGrant(String nodeTypeId, String permissionCode,
+                                      String transitionId, String roleId) {
+        deletePermissionGrantRow(nodeTypeId, permissionCode, roleId, transitionId);
+        policyPort.reloadPolicies();
     }
 
-    public List<Map<String, Object>> getActionPermissions(String nodeTypeId, String actionCode,
-                                                          String transitionId) {
-        String psId = secCtx.requireProjectSpaceId();
-
+    public List<Map<String, Object>> getPermissionGrants(String nodeTypeId, String permissionCode,
+                                                         String transitionId) {
         if (transitionId != null) {
             return dsl.fetch("""
                 SELECT id, role_id, transition_id
                 FROM authorization_policy
-                WHERE node_type_id = ? AND permission_code = ? AND project_space_id = ? AND transition_id = ?
+                WHERE node_type_id = ? AND permission_code = ? AND transition_id = ?
                 ORDER BY role_id
-                """, nodeTypeId, actionCode, psId, transitionId).intoMaps();
+                """, nodeTypeId, permissionCode, transitionId).intoMaps();
         }
         return dsl.fetch("""
             SELECT id, role_id, transition_id
             FROM authorization_policy
-            WHERE node_type_id = ? AND permission_code = ? AND project_space_id = ? AND transition_id IS NULL
+            WHERE node_type_id = ? AND permission_code = ? AND transition_id IS NULL
             ORDER BY role_id
-            """, nodeTypeId, actionCode, psId).intoMaps();
+            """, nodeTypeId, permissionCode).intoMaps();
     }
 
     // ================================================================
     // PARAM OVERRIDES
     // ================================================================
 
-    @PlmPermission("MANAGE_ROLES")
+    @PlmPermission("MANAGE_PNO")
     @Transactional
     public void setNodeActionParamOverride(String nodeTypeId, String actionCode, String parameterId,
                                            String defaultValue, String allowedValues,
@@ -277,11 +285,10 @@ public class ActionRegistrationService {
         for (Record r : rows) {
             String newId = UUID.randomUUID().toString();
             dsl.execute(
-                "INSERT INTO authorization_policy (id, permission_code, scope, project_space_id, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO authorization_policy (id, permission_code, scope, role_id, node_type_id, transition_id) VALUES (?,?,?,?,?,?)",
                 newId,
                 r.get("permission_code",  String.class),
                 r.get("scope",            String.class),
-                r.get("project_space_id", String.class),
                 r.get("role_id",          String.class),
                 childNodeTypeId,
                 r.get("transition_id",    String.class)
@@ -303,7 +310,7 @@ public class ActionRegistrationService {
      * When setting: validates manager exists, scope matches, no chaining.
      * Deletes all guards and permissions from the managed action.
      */
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public Map<String, Object> setManagedWith(String actionId, String managedWithId) {
         Record action = dsl.select(DSL.field("id"), DSL.field("scope"), DSL.field("action_code"))
@@ -379,31 +386,23 @@ public class ActionRegistrationService {
         return id;
     }
 
-    private String resolveActionScope(String actionCode) {
-        String scope = dsl.select(DSL.field("scope")).from("action")
-            .where("action_code = ?", actionCode)
-            .fetchOne(DSL.field("scope"), String.class);
-        if (scope == null) throw new IllegalArgumentException("Unknown action: " + actionCode);
-        return scope;
-    }
-
-    private void deleteActionPermissionRow(String nodeTypeId, String permissionCode,
-                                           String roleId, String psId, String transitionId) {
+    private void deletePermissionGrantRow(String nodeTypeId, String permissionCode,
+                                          String roleId, String transitionId) {
         if (nodeTypeId != null && transitionId != null) {
             dsl.execute(
                 "DELETE FROM authorization_policy WHERE permission_code = ? AND role_id = ? " +
-                "AND project_space_id = ? AND node_type_id = ? AND transition_id = ?",
-                permissionCode, roleId, psId, nodeTypeId, transitionId);
+                "AND node_type_id = ? AND transition_id = ?",
+                permissionCode, roleId, nodeTypeId, transitionId);
         } else if (nodeTypeId != null) {
             dsl.execute(
                 "DELETE FROM authorization_policy WHERE permission_code = ? AND role_id = ? " +
-                "AND project_space_id = ? AND node_type_id = ? AND transition_id IS NULL",
-                permissionCode, roleId, psId, nodeTypeId);
+                "AND node_type_id = ? AND transition_id IS NULL",
+                permissionCode, roleId, nodeTypeId);
         } else {
             dsl.execute(
                 "DELETE FROM authorization_policy WHERE permission_code = ? AND role_id = ? " +
-                "AND project_space_id = ? AND node_type_id IS NULL AND transition_id IS NULL",
-                permissionCode, roleId, psId);
+                "AND node_type_id IS NULL AND transition_id IS NULL",
+                permissionCode, roleId);
         }
     }
 }

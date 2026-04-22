@@ -14,7 +14,7 @@ import java.util.Map;
  * Les rôles et utilisateurs sont gérés par pno-api (/api/pno/...).
  * Ce contrôleur gère :
  *   - les vues d'attributs PSM (attribute_view + view_attribute_override)
- *   - les droits globaux (MANAGE_METAMODEL, MANAGE_ROLES, MANAGE_BASELINES, READ)
+ *   - les droits globaux (MANAGE_PSM, MANAGE_PNO, MANAGE_BASELINES, READ)
  *     pour la section "Access Rights" du frontend
  */
 @RestController
@@ -126,7 +126,7 @@ public class RoleController {
 
     /**
      * Grants a GLOBAL permission to a role.
-     * Body: { "permissionCode": "MANAGE_METAMODEL" }
+     * Body: { "permissionCode": "MANAGE_PSM" }
      */
     @PostMapping("/roles/{roleId}/global-permissions")
     public ResponseEntity<Void> addRoleGlobalPermission(

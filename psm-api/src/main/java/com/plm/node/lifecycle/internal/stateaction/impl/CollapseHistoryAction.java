@@ -101,11 +101,22 @@ public class CollapseHistoryAction implements StateAction {
         String ph = String.join(",", Collections.nCopies(toDelete.size(), "?"));
         Object[] p = toDelete.toArray();
 
-        // Move signatures from deleted versions to the current version
-        dsl.execute("UPDATE node_signature SET node_version_id = ? WHERE node_version_id IN (" + ph + ")",
-            prepend(currentVersionId, p));
+        // Move signatures only from the last version (highest version_number) to current
+        String lastVersionId = dsl
+            .select(DSL.field("id"))
+            .from("node_version")
+            .where("id IN (" + ph + ")", p)
+            .orderBy(DSL.field("version_number").desc())
+            .limit(1)
+            .fetchOne("id", String.class);
+        if (lastVersionId != null) {
+            dsl.execute("UPDATE node_signature SET node_version_id = ? WHERE node_version_id = ?",
+                currentVersionId, lastVersionId);
+        }
+        // Delete signatures from remaining deleted versions
+        dsl.execute("DELETE FROM node_signature WHERE node_version_id IN (" + ph + ")", p);
 
-        // Move comments from deleted versions to the current version
+        // Move comments from ALL deleted versions to the current version
         dsl.execute("UPDATE node_version_comment SET node_version_id = ? WHERE node_version_id IN (" + ph + ")",
             prepend(currentVersionId, p));
 

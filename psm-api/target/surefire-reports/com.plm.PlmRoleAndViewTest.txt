@@ -1,4 +1,32 @@
 -------------------------------------------------------------------------------
 Test set: com.plm.PlmRoleAndViewTest
 -------------------------------------------------------------------------------
-Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 13.89 s -- in com.plm.PlmRoleAndViewTest
+Tests run: 12, Failures: 3, Errors: 0, Skipped: 0, Time elapsed: 1.050 s <<< FAILURE! -- in com.plm.PlmRoleAndViewTest
+com.plm.PlmRoleAndViewTest.testPayloadReviewerAllReadonly -- Time elapsed: 0.105 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: 
+
+Expecting value to be false but was true
+	at com.plm.PlmRoleAndViewTest.testPayloadReviewerAllReadonly(PlmRoleAndViewTest.java:277)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+com.plm.PlmRoleAndViewTest.testReviewerViewFrozen -- Time elapsed: 0.115 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: 
+
+expected: false
+ but was: true
+	at com.plm.PlmRoleAndViewTest.testReviewerViewFrozen(PlmRoleAndViewTest.java:217)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+com.plm.PlmRoleAndViewTest.testActionsFilteredByRole -- Time elapsed: 0.058 s <<< FAILURE!
+java.lang.AssertionError: 
+
+Expecting actual not to be null
+	at com.plm.PlmRoleAndViewTest.testActionsFilteredByRole(PlmRoleAndViewTest.java:291)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+

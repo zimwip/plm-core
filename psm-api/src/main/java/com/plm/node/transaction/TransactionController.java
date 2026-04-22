@@ -1,7 +1,5 @@
 package com.plm.node.transaction;
 
-import com.plm.action.internal.ActionDispatcher;
-import com.plm.shared.action.ActionResult;
 import com.plm.shared.security.SecurityContextPort;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import lombok.RequiredArgsConstructor;
@@ -10,20 +8,15 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * API REST pour la gestion des transactions PLM.
  *
- * Flux typique :
+ * Commit/rollback passent par le ActionController central :
+ *   POST /api/psm/actions/COMMIT/{txId}
+ *   POST /api/psm/actions/ROLLBACK/{txId}
  *
- *   [optionnel] POST /api/transactions         → ouvre une tx explicitement
- *               PUT  /api/nodes/{id}            → modifie (checkin auto si pas de tx)
- *               PUT  /api/nodes/{id}            → autre modif dans la même tx
- *               POST /api/transactions/{id}/commit   → commit avec commentaire
- *
- *   ou :
- *               POST /api/transactions/{id}/rollback → annule tout
+ * Ce contrôleur gère les opérations de consultation et d'ouverture.
  */
 @RestController
 @RequestMapping("/api/psm/transactions")
@@ -32,7 +25,6 @@ public class TransactionController {
 
     private final PlmTransactionService txService;
     private final SecurityContextPort   secCtx;
-    private final ActionDispatcher      actionDispatcher;
 
     // ── Ouvrir une transaction explicitement ──────────────────────────
 
@@ -41,26 +33,6 @@ public class TransactionController {
         String userId = secCtx.currentUser().getUserId();
         String txId   = txService.openTransaction(userId);
         return ResponseEntity.ok(Map.of("txId", txId));
-    }
-
-    // ── TX-scope action dispatch ─────────────────────────────────────
-
-    @PostMapping("/{txId}/actions/{actionCode}")
-    public ResponseEntity<?> executeTransactionAction(
-        @PathVariable String txId,
-        @PathVariable String actionCode,
-        @RequestBody Map<String, Object> body
-    ) {
-        String userId = secCtx.currentUser().getUserId();
-        @SuppressWarnings("unchecked")
-        Map<String, Object> paramMap = (Map<String, Object>) body.getOrDefault("parameters", Map.of());
-        Map<String, String> params = paramMap.entrySet().stream()
-            .collect(Collectors.toMap(Map.Entry::getKey, e -> String.valueOf(e.getValue())));
-
-        ActionResult result = actionDispatcher.dispatch(
-            actionCode, null, null, null, userId, txId, params);
-
-        return ResponseEntity.ok(result.data());
     }
 
     // ── Consulter une transaction ─────────────────────────────────────
@@ -106,8 +78,6 @@ public class TransactionController {
     }
 
     // ── Statut de la transaction courante de l'utilisateur ───────────
-    // Résolu depuis le header X-PLM-User (via PlmSecurityContext).
-    // Retourne 204 No Content si aucune transaction OPEN n'existe pour cet utilisateur.
 
     @GetMapping("/current")
     public ResponseEntity<?> getCurrentTransaction() {
@@ -118,5 +88,4 @@ public class TransactionController {
         }
         return ResponseEntity.ok(txService.getTransaction(txId));
     }
-
 }

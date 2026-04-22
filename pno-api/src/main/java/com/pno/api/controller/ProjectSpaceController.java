@@ -23,7 +23,17 @@ public class ProjectSpaceController {
     public ResponseEntity<?> create(@RequestBody Map<String, Object> body) {
         String name        = (String) body.get("name");
         String description = (String) body.get("description");
-        return ResponseEntity.ok(projectSpaceService.createProjectSpace(name, description));
+        String parentId    = (String) body.get("parentId");
+        return ResponseEntity.ok(projectSpaceService.createProjectSpace(name, description, parentId));
+    }
+
+    /**
+     * Returns the target space + all descendant space IDs.
+     * Used by PSM for node visibility: connected to parent → see children.
+     */
+    @GetMapping("/{id}/descendants")
+    public ResponseEntity<?> descendants(@PathVariable String id) {
+        return ResponseEntity.ok(projectSpaceService.resolveDescendants(id));
     }
 
     @DeleteMapping("/{id}")

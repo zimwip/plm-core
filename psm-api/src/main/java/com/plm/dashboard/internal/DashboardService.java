@@ -3,6 +3,7 @@ import com.plm.node.transaction.internal.PlmTransactionService;
 import com.plm.node.transaction.internal.LockService;
 
 import com.plm.action.ActionService;
+import com.plm.shared.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -27,6 +28,7 @@ public class DashboardService {
     private final ActionService        actionService;
     private final LockService          lockService;
     private final PlmTransactionService txService;
+    private final SecurityContextPort  secCtx;
 
     /** Max nodes scanned to build workItems (stop early if 10 found). */
     private static final int SCAN_LIMIT = 30;
@@ -38,6 +40,7 @@ public class DashboardService {
     // ================================================================
 
     public Map<String, Object> getOpenTransactionSummary(String userId) {
+        String psId = secCtx.requireProjectSpaceId();
         String txId = txService.findOpenTransaction(userId);
         if (txId == null) return null;
 
@@ -46,6 +49,8 @@ public class DashboardService {
             .fetchOne();
         if (tx == null) return null;
 
+        // Scope to the caller's current project space — nodes from other spaces
+        // belonging to the same transaction are excluded from the summary.
         List<Record> rows = dsl.fetch(
             "SELECT n.id AS node_id, n.logical_id, nt.name AS node_type_name, " +
             "       nt.id AS node_type_id, " +
@@ -54,8 +59,9 @@ public class DashboardService {
             "JOIN node n  ON n.id  = nv.node_id " +
             "JOIN node_type nt ON nt.id = n.node_type_id " +
             "WHERE nv.tx_id = ? " +
+            "  AND n.project_space_id = ? " +
             "ORDER BY nv.created_at DESC",
-            txId
+            txId, psId
         );
 
         List<Map<String, Object>> nodeList = new ArrayList<>();
@@ -85,7 +91,10 @@ public class DashboardService {
     // ================================================================
 
     public List<Map<String, Object>> getWorkItems(String userId) {
-        // Fetch last SCAN_LIMIT committed nodes (most recently versioned first)
+        String psId = secCtx.requireProjectSpaceId();
+
+        // Fetch last SCAN_LIMIT committed nodes in the current project space
+        // (most recently versioned first).
         List<Record> candidates = dsl.fetch(
             "SELECT n.id AS node_id, n.logical_id, n.node_type_id, " +
             "       nt.name AS node_type_name, " +
@@ -95,6 +104,7 @@ public class DashboardService {
             "JOIN node_version nv  ON nv.node_id = n.id " +
             "JOIN plm_transaction pt ON pt.id = nv.tx_id " +
             "WHERE pt.status = 'COMMITTED' " +
+            "  AND n.project_space_id = ? " +
             "  AND nv.version_number = (" +
             "    SELECT MAX(nv2.version_number) " +
             "    FROM node_version nv2 " +
@@ -102,7 +112,8 @@ public class DashboardService {
             "    WHERE nv2.node_id = n.id AND pt2.status = 'COMMITTED'" +
             "  ) " +
             "ORDER BY nv.created_at DESC " +
-            "LIMIT " + SCAN_LIMIT
+            "LIMIT " + SCAN_LIMIT,
+            psId
         );
 
         List<Map<String, Object>> result = new ArrayList<>();

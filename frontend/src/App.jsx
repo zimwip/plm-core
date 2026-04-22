@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { api, txApi, setProjectSpaceId, setApiErrorHandler } from './services/api';
+import { api, txApi, setProjectSpaceId, setApiErrorHandler, authApi, setAuthExpiredHandler } from './services/api';
 import { usePlmStore } from './store/usePlmStore';
 import { useWebSocket } from './hooks/useWebSocket';
 import Header          from './components/Header';
@@ -10,6 +10,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import CommitModal     from './components/CommitModal';
 import CreateNodeModal from './components/CreateNodeModal';
 import ErrorDetailModal from './components/ErrorDetailModal';
+import StatusBar        from './components/StatusBar';
 
 const DEFAULT_PROJECT_SPACE = 'ps-default';
 
@@ -133,6 +134,7 @@ export default function App() {
   const [showCreateNode, setShowCreateNode] = useState(false);
   const [showSettings,         setShowSettings]         = useState(false);
   const [activeSettingsSection, setActiveSettingsSection] = useState(null);
+  const [settingsSections,      setSettingsSections]      = useState(null);
   const [panelWidth,            setPanelWidth]            = useState(268);
   const [showCommentPanel,      setShowCommentPanel]      = useState(false);
   const [commentPanelWidth,     setCommentPanelWidth]     = useState(320);
@@ -157,7 +159,23 @@ export default function App() {
     document.addEventListener('mouseup', onUp);
   }
 
-  function handleToggleSettings() { setShowSettings(s => !s); }
+  function handleToggleSettings() {
+    setShowSettings(s => {
+      if (!s && userId) {
+        api.getSettingsSections(userId).then(groups => {
+          setSettingsSections(groups);
+          const first = groups?.[0]?.sections?.[0]?.key;
+          if (first) setActiveSettingsSection(first);
+        }).catch(() => setSettingsSections([]));
+      }
+      return !s;
+    });
+  }
+
+  // ── Auth session state (set by login) ──────────────────────────
+  const [authReady, setAuthReady] = useState(false);
+  const [authError, setAuthError] = useState(null);
+  const [authRetry, setAuthRetry] = useState(0);
 
   // ── Init: set project space + global API error handler ────────
   useEffect(() => {
@@ -206,15 +224,45 @@ export default function App() {
     catch {}
   }, [userId]);
 
-  // Sync userId into store and trigger initial load
+  // Login (auto, no password) on userId/projectSpace change, then load.
   useEffect(() => {
-    storeSetUserId(userId);
-    refreshAll();
-    refreshNodeTypes();
-    refreshStateColorMap();
-    refreshProjectSpaces();
-    refreshUsers();
-  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    setAuthReady(false);
+    setAuthError(null);
+    (async () => {
+      try {
+        await authApi.login(userId, projectSpaceId);
+      } catch (err) {
+        if (!cancelled) setAuthError(err.message || String(err));
+        return;
+      }
+      if (cancelled) return;
+
+      // 401 handler: silently re-login with current userId/ps and hand back the new token.
+      setAuthExpiredHandler(async () => {
+        try {
+          const r = await authApi.login(userId, projectSpaceId);
+          return r.token;
+        } catch { return null; }
+      });
+
+      setAuthReady(true);
+      storeSetUserId(userId);
+      refreshAll();
+      refreshNodeTypes();
+      refreshStateColorMap();
+      refreshProjectSpaces();
+      refreshUsers();
+      if (showSettings) {
+        api.getSettingsSections(userId).then(groups => {
+          setSettingsSections(groups);
+          const first = groups?.[0]?.sections?.[0]?.key;
+          if (first) setActiveSettingsSection(first);
+        }).catch(() => setSettingsSections([]));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId, projectSpaceId, authRetry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── User switch ────────────────────────────────────────────────
   function handleUserChange(newUserId) {
@@ -335,6 +383,31 @@ export default function App() {
     }
   }, [activeNodeId]);
 
+  if (!authReady) {
+    return (
+      <div className="shell">
+        <div className="auth-splash">
+          {authError ? (
+            <>
+              <div className="auth-splash-error">Login failed</div>
+              <div className="auth-splash-detail">{authError}</div>
+              <button
+                className="auth-splash-retry"
+                onClick={() => setAuthRetry(n => n + 1)}
+              >retry</button>
+            </>
+          ) : (
+            <>
+              <div className="auth-splash-spinner" />
+              <div className="auth-splash-label">Signing in as {userId}…</div>
+            </>
+          )}
+        </div>
+        <StatusBar />
+      </div>
+    );
+  }
+
   return (
     <div className="shell">
       <Header
@@ -374,6 +447,7 @@ export default function App() {
             onToggleSettings={handleToggleSettings}
             activeSettingsSection={activeSettingsSection}
             onSettingsSectionChange={setActiveSettingsSection}
+            settingsSections={settingsSections}
             isDashboardOpen={isDashboardOpen}
             onOpenDashboard={openDashboard}
             hasMore={nodeHasMore}
@@ -390,6 +464,7 @@ export default function App() {
                 projectSpaceId={projectSpaceId}
                 activeSection={activeSettingsSection}
                 onSectionChange={setActiveSettingsSection}
+                settingsSections={settingsSections}
                 toast={toast}
               />
             </ErrorBoundary>
@@ -460,6 +535,7 @@ export default function App() {
       )}
 
       <Toasts toasts={toasts} />
+      <StatusBar showSettings={showSettings} onToggleSettings={handleToggleSettings} />
     </div>
   );
 }

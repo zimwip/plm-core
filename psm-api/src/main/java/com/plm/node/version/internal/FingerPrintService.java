@@ -97,6 +97,17 @@ public class FingerPrintService {
               .append(';');
         }
 
+        // 4. Domain assignments (sorted by domain_id)
+        List<Record> domains = dsl.select()
+            .from("node_version_domain")
+            .where("node_version_id = ?", nodeVersionId)
+            .orderBy(DSL.field("domain_id").asc())
+            .fetch();
+        sb.append("|domains=");
+        for (Record d : domains) {
+            sb.append(d.get("domain_id", String.class)).append(';');
+        }
+
         return sha256(sb.toString());
     }
 

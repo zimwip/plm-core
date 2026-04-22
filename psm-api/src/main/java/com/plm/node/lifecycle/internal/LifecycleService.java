@@ -135,7 +135,7 @@ public class LifecycleService {
     // LIFECYCLE AUTHORING — CRUD for lifecycles, states, transitions
     // ================================================================
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public String createLifecycle(String name, String description) {
         String id = java.util.UUID.randomUUID().toString();
@@ -147,7 +147,7 @@ public class LifecycleService {
         return id;
     }
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public String duplicateLifecycle(String sourceId, String newName) {
         Record src = dsl.select().from("lifecycle").where("id = ?", sourceId).fetchOne();
@@ -247,7 +247,7 @@ public class LifecycleService {
         return dsl.select().from("lifecycle").where("id = ?", lifecycleId).fetchOne();
     }
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public String addState(String lifecycleId, String name,
                            boolean isInitial, Map<String, String> metadata,
@@ -271,7 +271,7 @@ public class LifecycleService {
         return id;
     }
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public void updateState(String stateId, String name, boolean isInitial,
                             Map<String, String> metadata, int displayOrder, String color) {
@@ -304,7 +304,7 @@ public class LifecycleService {
         }).collect(Collectors.toList());
     }
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public String addTransition(String lifecycleId, String name,
                                 String fromStateId, String toStateId,
@@ -322,7 +322,7 @@ public class LifecycleService {
         return id;
     }
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public void updateTransition(String transitionId, String name, String fromStateId, String toStateId,
                                  String guardExpr, String actionType, String versionStrategy) {
@@ -365,7 +365,7 @@ public class LifecycleService {
         }).collect(java.util.stream.Collectors.toList());
     }
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public String addSignatureRequirement(String transitionId, String roleId, int displayOrder) {
         String id = java.util.UUID.randomUUID().toString();
@@ -377,7 +377,7 @@ public class LifecycleService {
         return id;
     }
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public void removeSignatureRequirement(String reqId) {
         dsl.execute("DELETE FROM signature_requirement WHERE id = ?", reqId);
@@ -386,7 +386,7 @@ public class LifecycleService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public void deleteLifecycle(String lifecycleId) {
         int used = dsl.fetchCount(dsl.selectOne().from("node_type").where("lifecycle_id = ?", lifecycleId));
@@ -407,7 +407,7 @@ public class LifecycleService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public void deleteState(String stateId) {
         int inTransitions = dsl.fetchCount(
@@ -425,7 +425,7 @@ public class LifecycleService {
         eventPublisher.metamodelChanged(secCtx.currentUser().getUserId());
     }
 
-    @PlmPermission("MANAGE_LIFECYCLE")
+    @PlmPermission("MANAGE_PSM")
     @Transactional
     public void deleteTransition(String transitionId) {
         dsl.execute("DELETE FROM authorization_policy WHERE permission_code = 'TRANSITION' AND transition_id = ?", transitionId);
@@ -462,7 +462,7 @@ public class LifecycleService {
      * @param txId  transaction PLM ouverte — OBLIGATOIRE
      */
     @PlmAction(
-        value = "TRANSITION",
+        value = "transition",
         nodeIdExpr = "#nodeId",
         transitionIdExpr = "#transitionId"
     )

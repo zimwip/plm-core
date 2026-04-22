@@ -3,13 +3,8 @@ import com.plm.node.signature.internal.CommentService;
 import com.plm.node.signature.internal.SignatureService;
 import com.plm.node.transaction.internal.LockService;
 
-import com.plm.action.internal.ActionDispatcher;
-import com.plm.shared.action.ActionResult;
 import com.plm.action.ActionService;
 import com.plm.shared.security.SecurityContextPort;
-import com.plm.node.signature.internal.CommentService;
-import com.plm.node.signature.internal.SignatureService;
-import com.plm.node.transaction.internal.LockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,15 +15,13 @@ import java.util.Map;
 /**
  * API REST pour les noeuds PLM.
  *
- * Toutes les opérations d'écriture (checkout, modification, transition, signature, lien)
- * passent exclusivement par l'endpoint générique :
+ * Toutes les opérations d'écriture passent par le ActionController central :
  *
- *   POST /api/psm/nodes/{nodeId}/actions/{actionCode}
+ *   POST /api/psm/actions/{actionCode}/{id1}/{id2}/...
  *   Header: X-PLM-Tx (requis si l'action a requires_tx = true)
- *   Body:   { "parameters": { ... }, "transitionId": "tr-..." (pour LIFECYCLE) }
+ *   Body:   { "parameters": { ... } }
  *
- * Le code de l'action ({@code action.action_code}) est visible dans le payload UI
- * via {@code actions[].actionCode} renvoyé par GET /nodes/{nodeId}/description.
+ * Ce contrôleur ne gère que les lectures.
  */
 @RestController
 @RequestMapping("/api/psm/nodes")
@@ -39,29 +32,8 @@ public class NodeController {
     private final LockService         lockService;
     private final SignatureService    signatureService;
     private final CommentService      commentService;
-    private final ActionDispatcher    actionDispatcher;
     private final ActionService       actionService;
     private final SecurityContextPort secCtx;
-
-    // ── Création ──────────────────────────────────────────────────────
-
-    @PostMapping
-    public ResponseEntity<Map<String, String>> createNode(
-        @RequestBody Map<String, Object> body
-    ) {
-        String projectSpaceId = secCtx.requireProjectSpaceId();
-        String nodeTypeId = (String) body.get("nodeTypeId");
-        // userId always taken from security context — never from client payload
-        String userId     = secCtx.currentUser().getUserId();
-        String logicalId  = (String) body.get("logicalId");
-        String externalId = (String) body.get("externalId");
-        @SuppressWarnings("unchecked")
-        Map<String, String> attributes = (Map<String, String>) body.getOrDefault("attributes", Map.of());
-
-        String nodeId = nodeService.createNode(projectSpaceId, nodeTypeId, userId, attributes,
-                                               logicalId, externalId);
-        return ResponseEntity.ok(Map.of("nodeId", nodeId));
-    }
 
     // ── Liste ─────────────────────────────────────────────────────────
 
@@ -104,7 +76,7 @@ public class NodeController {
 
         // Derive globalCanWrite from actions
         boolean globalCanWrite = !historicalView && actions.stream()
-            .anyMatch(a -> "UPDATE_NODE".equals(a.get("actionCode"))
+            .anyMatch(a -> "update_node".equals(a.get("actionCode"))
                 && Boolean.TRUE.equals(a.get("authorized"))
                 && ((List<?>) a.getOrDefault("guardViolations", List.of())).isEmpty());
 
@@ -169,12 +141,12 @@ public class NodeController {
 
     @GetMapping("/{nodeId}/signatures")
     public ResponseEntity<?> getSignatures(@PathVariable String nodeId) {
-        return ResponseEntity.ok(signatureService.getSignaturesForCurrentIteration(nodeId));
+        return ResponseEntity.ok(signatureService.getSignaturesForCurrentVersion(nodeId));
     }
 
     @GetMapping("/{nodeId}/signatures/history")
     public ResponseEntity<?> getSignatureHistory(@PathVariable String nodeId) {
-        return Response/{nodeId}/liEntity.ok(signatureService.getFullSignatureHistory(nodeId));
+        return ResponseEntity.ok(signatureService.getFullSignatureHistory(nodeId));
     }
 
     // ── Comments ─────────────────────────────────────────────────────
@@ -197,26 +169,4 @@ public class NodeController {
         String id = commentService.addComment(nodeId, nodeVersionId, userId, text, parentId, attributeName);
         return ResponseEntity.ok(Map.of("commentId", id));
     }
-
-    // ── Actions (seul point d'entrée pour toutes les écritures) ───────
-
-    @PostMapping("/{nodeId}/actions/{actionCode}")
-    public ResponseEntity<?> executeAction(
-        @PathVariable  String nodeId,
-        @PathVariable  String actionCode,
-        @RequestHeader(value = "X-PLM-Tx", required = false) String txId,
-        @RequestBody   Map<String, Object> body
-    ) {
-        String userId = secCtx.currentUser().getUserId();
-        @SuppressWarnings("unchecked")
-        Map<String, String> params = (Map<String, String>) body.getOrDefault("parameters", Map.of());
-        String transitionId = (String) body.get("transitionId");
-
-        String currentStateId = nodeService.getCurrentStateId(nodeId, txId);
-
-        ActionResult result = actionDispatcher.dispatch(
-            actionCode, transitionId, nodeId, currentStateId, userId, txId, params);
-        return ResponseEntity.ok(result.data());
-    }
-
 }

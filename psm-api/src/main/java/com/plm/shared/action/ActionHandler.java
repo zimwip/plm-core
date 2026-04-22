@@ -41,4 +41,16 @@ public interface ActionHandler {
     default Map<String, Object> resolveDisplayHints(String nodeId, String nodeTypeId, String transitionId) {
         return Map.of();
     }
+
+    /**
+     * Returns dynamic allowed-values overrides for the action's parameters.
+     * Called by ActionService to populate dropdowns whose options are computed
+     * at request time (e.g. list of currently assignable domains).
+     *
+     * @return map of {paramName → allowedValues JSON}. Each JSON is either a string
+     *         array ({@code ["a","b"]}) or a {@code [{"value","label"}]} array.
+     */
+    default Map<String, String> resolveDynamicAllowedValues(String nodeId, String nodeTypeId, String transitionId) {
+        return Map.of();
+    }
 }

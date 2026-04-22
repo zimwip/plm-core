@@ -6,7 +6,7 @@ import java.lang.annotation.*;
  * Declares a permission requirement on a service method.
  *
  * <p>Permission codes must match {@code permission.permission_code} in the DB
- * (e.g. {@code "MANAGE_METAMODEL"}, {@code "READ_NODE"}).
+ * (e.g. {@code "MANAGE_PSM"}, {@code "READ_NODE"}).
  *
  * <p>Scope is NOT declared on the annotation — it is resolved at runtime from
  * the {@code permission} table via {@link PermissionCatalogPort}.
@@ -18,7 +18,7 @@ import java.lang.annotation.*;
  *
  * <p><b>Global permission (no context needed):</b>
  * <pre>
- *   {@literal @}PlmPermission("MANAGE_METAMODEL")
+ *   {@literal @}PlmPermission("MANAGE_PSM")
  *   public String createLifecycle(...) { ... }
  * </pre>
  *
@@ -48,7 +48,7 @@ import java.lang.annotation.*;
  *
  * <p><b>Multiple permissions (AND semantics):</b>
  * <pre>
- *   {@literal @}PlmPermission({"MANAGE_METAMODEL", "MANAGE_LIFECYCLE"})
+ *   {@literal @}PlmPermission({"MANAGE_PSM", "MANAGE_PSM"})
  * </pre>
  *
  * <p><b>Admin bypass:</b> {@link com.plm.shared.security.PlmUserContext#isAdmin()} always passes.

@@ -366,34 +366,34 @@ public class MetaModelController {
         return ResponseEntity.ok(Map.of("id", actionId));
     }
 
-    @GetMapping("/nodetypes/{nodeTypeId}/actions/{actionCode}/permissions")
-    public ResponseEntity<?> getActionPermissions(
+    @GetMapping("/nodetypes/{nodeTypeId}/permissions/{permissionCode}")
+    public ResponseEntity<?> getPermissionGrants(
         @PathVariable String nodeTypeId,
-        @PathVariable String actionCode,
+        @PathVariable String permissionCode,
         @RequestParam(required = false) String transitionId
     ) {
-        return ResponseEntity.ok(metaModelService.getActionPermissions(nodeTypeId, actionCode, transitionId));
+        return ResponseEntity.ok(metaModelService.getPermissionGrants(nodeTypeId, permissionCode, transitionId));
     }
 
-    @PostMapping("/nodetypes/{nodeTypeId}/actions/{actionCode}/permissions")
-    public ResponseEntity<?> addActionPermission(
+    @PostMapping("/nodetypes/{nodeTypeId}/permissions/{permissionCode}")
+    public ResponseEntity<?> addPermissionGrant(
         @PathVariable String nodeTypeId,
-        @PathVariable String actionCode,
+        @PathVariable String permissionCode,
         @RequestBody Map<String, String> body
     ) {
         String transitionId = body.get("transitionId");
-        metaModelService.setActionPermission(nodeTypeId, actionCode, transitionId, body.get("roleId"));
-        return ResponseEntity.ok(Map.of("actionCode", actionCode));
+        metaModelService.setPermissionGrant(nodeTypeId, permissionCode, transitionId, body.get("roleId"));
+        return ResponseEntity.ok(Map.of("permissionCode", permissionCode));
     }
 
-    @DeleteMapping("/nodetypes/{nodeTypeId}/actions/{actionCode}/permissions")
-    public ResponseEntity<?> removeActionPermission(
+    @DeleteMapping("/nodetypes/{nodeTypeId}/permissions/{permissionCode}")
+    public ResponseEntity<?> removePermissionGrant(
         @PathVariable String nodeTypeId,
-        @PathVariable String actionCode,
+        @PathVariable String permissionCode,
         @RequestBody Map<String, String> body
     ) {
         String transitionId = body.get("transitionId");
-        metaModelService.removeActionPermission(nodeTypeId, actionCode, transitionId, body.get("roleId"));
+        metaModelService.removePermissionGrant(nodeTypeId, permissionCode, transitionId, body.get("roleId"));
         return ResponseEntity.noContent().build();
     }
 

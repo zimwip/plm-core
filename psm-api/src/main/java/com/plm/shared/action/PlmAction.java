@@ -13,7 +13,7 @@ import java.lang.annotation.*;
  *
  * <p><b>Global action</b> — no node context, checked against {@code authorization_policy} (GLOBAL scope):
  * <pre>
- *   {@literal @}PlmAction("MANAGE_METAMODEL")
+ *   {@literal @}PlmAction("MANAGE_PSM")
  *   public String createLifecycle(...) { ... }
  * </pre>
  *
@@ -59,7 +59,7 @@ public @interface PlmAction {
 
     /**
      * Action code as stored in {@code action.action_code}.
-     * Must be the exact DB value, e.g. {@code "CHECKOUT"}, {@code "MANAGE_METAMODEL"}.
+     * Must be the exact DB value, e.g. {@code "CHECKOUT"}, {@code "MANAGE_PSM"}.
      */
     String value();
 

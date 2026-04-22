@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { getTheme, setTheme as applyTheme } from '../theme';
+
 import {
   LayersIcon, LifecycleIcon, CloseIcon,
   ChevronRightIcon, ChevronDownIcon, HexIcon, TerminalIcon, PlusIcon,
@@ -11,17 +13,156 @@ import ApiPlayground from './ApiPlayground';
 import UserManual from './UserManual';
 import LifecycleDiagram from './LifecycleDiagram';
 
-export const SECTIONS = [
-  { key: 'node-types',      label: 'Node Types',     Icon: LayersIcon,    requiredPermission: 'MANAGE_METAMODEL' },
-  { key: 'lifecycles',      label: 'Lifecycles',     Icon: LifecycleIcon, requiredPermission: 'MANAGE_METAMODEL' },
-  { key: 'proj-spaces',     label: 'Project Spaces', Icon: HexIcon,       requiredPermission: 'MANAGE_ROLES'     },
-  { key: 'users-roles',     label: 'Users & Roles',  Icon: UsersIcon,     requiredPermission: 'MANAGE_ROLES'     },
-  { key: 'access-rights',   label: 'Access Rights',  Icon: ShieldIcon,    requiredPermission: 'MANAGE_ROLES'     },
-  { key: 'algorithms',      label: 'Algorithms',     Icon: CpuIcon,       requiredPermission: 'MANAGE_METAMODEL' },
-  { key: 'guards',          label: 'Actions & Guards', Icon: WorkflowIcon, requiredPermission: 'MANAGE_METAMODEL' },
-  { key: 'api-playground',  label: 'API Playground', Icon: TerminalIcon,  requiredPermission: null               },
-  { key: 'user-manual',     label: 'User Manual',    Icon: BookIcon,      requiredPermission: null               },
+
+/* ── Spring Modulith module badge ─────────────────────────────────── */
+// Deterministic color per module name — stable across reloads.
+function moduleColor(name) {
+  if (!name) return { fg: 'var(--muted2)', bg: 'rgba(120,130,150,.14)' };
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffff;
+  const hue = h % 360;
+  return { fg: `hsl(${hue},70%,72%)`, bg: `hsl(${hue},55%,22%)` };
+}
+export function ModuleBadge({ module }) {
+  if (!module) return null;
+  const c = moduleColor(module);
+  return (
+    <span
+      title={`Spring Modulith module: ${module}`}
+      style={{
+        display: 'inline-block', padding: '1px 7px', borderRadius: 10,
+        fontSize: 9, fontWeight: 700, letterSpacing: '.06em',
+        fontFamily: 'var(--mono)', textTransform: 'uppercase',
+        background: c.bg, color: c.fg,
+        border: `1px solid ${c.fg}33`,
+        verticalAlign: 'middle',
+      }}
+    >
+      {module}
+    </span>
+  );
+}
+
+/* ── My Profile Section ──────────────────────────────────────────── */
+function MyProfileSection({ userId, canWrite, toast }) {
+  const [profile, setProfile] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ displayName: '', email: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.getUser(userId, userId).then(setProfile).catch(() => {});
+  }, [userId]);
+
+  function startEdit() {
+    setForm({ displayName: profile?.displayName || '', email: profile?.email || '' });
+    setEditing(true);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await api.updateUser(userId, userId, form.displayName.trim(), form.email.trim());
+      const updated = await api.getUser(userId, userId);
+      setProfile(updated);
+      setEditing(false);
+      toast('Profile updated', 'success');
+    } catch (e) {
+      toast('Failed to update profile', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!profile) return <div className="settings-loading">Loading…</div>;
+
+  return (
+    <div className="settings-list">
+      <div className="settings-card" style={{ padding: '14px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <UserIcon size={15} color="var(--accent)" strokeWidth={1.5} />
+          <span className="settings-card-name" style={{ fontSize: 13 }}>{profile.username}</span>
+          {profile.isAdmin && <span className="settings-badge settings-badge--accent">Admin</span>}
+        </div>
+
+        {editing ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Field label="Display Name">
+              <input className="field-input" autoFocus value={form.displayName}
+                onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))} />
+            </Field>
+            <Field label="Email">
+              <input className="field-input" type="email" value={form.email}
+                onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </Field>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingLeft: 23 }}>
+            <div>
+              <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 2 }}>Display Name</div>
+              <div style={{ fontSize: 12, color: 'var(--text)' }}>{profile.displayName || '—'}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 2 }}>Email</div>
+              <div style={{ fontSize: 12, color: 'var(--text)' }}>{profile.email || '—'}</div>
+            </div>
+            {canWrite && (
+              <div style={{ marginTop: 4 }}>
+                <button className="btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 5 }} onClick={startEdit}>
+                  <EditIcon size={11} strokeWidth={2} />
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <ThemeSelector />
+    </div>
+  );
+}
+
+/* ── Theme Selector ──────────────────────────────────────────────── */
+const THEME_OPTIONS = [
+  { value: 'dark',   label: 'Dark',   icon: '●' },
+  { value: 'light',  label: 'Light',  icon: '○' },
+  { value: 'system', label: 'System', icon: '◐' },
 ];
+
+function ThemeSelector() {
+  const [current, setCurrent] = useState(getTheme);
+
+  function handleChange(value) {
+    setCurrent(value);
+    applyTheme(value);
+  }
+
+  return (
+    <div className="settings-card" style={{ padding: '14px 14px' }}>
+      <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 10 }}>Theme</div>
+      <div className="theme-selector">
+        {THEME_OPTIONS.map(opt => (
+          <button
+            key={opt.value}
+            type="button"
+            className={`theme-option${current === opt.value ? ' theme-option--active' : ''}`}
+            onClick={() => handleChange(opt.value)}
+          >
+            <span className="theme-option-icon">{opt.icon}</span>
+            <span>{opt.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const LINK_POLICIES      = ['VERSION_TO_MASTER', 'VERSION_TO_VERSION'];
 const NUMBERING_SCHEMES  = ['ALPHA_NUMERIC'];
@@ -166,7 +307,7 @@ function ModalSection({ label, action }) {
 }
 
 /* ── Reusable attribute form fields ─────────────────────────────── */
-function AttrFields({ form, setForm, autoFocusName = true }) {
+function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false }) {
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -202,10 +343,12 @@ function AttrFields({ form, setForm, autoFocusName = true }) {
           <input type="checkbox" checked={!!form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} />
           Required field
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-          <input type="checkbox" checked={!!form.asName} onChange={e => setForm(f => ({ ...f, asName: e.target.checked }))} />
-          Use as display name <span style={{ color: 'var(--accent)', marginLeft: 2 }}>★</span>
-        </label>
+        {!hideAsName && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <input type="checkbox" checked={!!form.asName} onChange={e => setForm(f => ({ ...f, asName: e.target.checked }))} />
+            Use as display name <span style={{ color: 'var(--accent)', marginLeft: 2 }}>★</span>
+          </label>
+        )}
       </div>
     </>
   );
@@ -369,7 +512,7 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
       )}
 
       {addingForm ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--surface2, rgba(255,255,255,.03))', border: '1px solid var(--border)', borderRadius: 6, padding: 12, marginTop: 4 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: 12, marginTop: 4 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <input className="field-input" autoFocus placeholder="Name (key) *" value={addingForm.name || ''} onChange={e => setAddingForm(f => ({ ...f, name: e.target.value }))} />
             <input className="field-input" placeholder="Label (display) *" value={addingForm.label || ''} onChange={e => setAddingForm(f => ({ ...f, label: e.target.value }))} />
@@ -513,7 +656,7 @@ function LinkCascadeTable({ userId, linkTypeId, sourceLifecycleId, targetLifecyc
       )}
 
       {addForm ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--surface2, rgba(255,255,255,.03))', border: '1px solid var(--border)', borderRadius: 6, padding: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr', gap: 8, alignItems: 'center' }}>
             <select className="field-input" value={addForm.parentTransitionId} onChange={e => setAddForm(f => ({ ...f, parentTransitionId: e.target.value }))}>
               <option value="">Parent transition…</option>
@@ -1498,6 +1641,328 @@ function TransitionFormFields({ form, setForm, states }) {
   );
 }
 
+/* ── Domains Section ─────────────────────────────────────────────── */
+export function DomainsSection({ userId, canWrite, toast }) {
+  const [domains,   setDomains]   = useState([]);
+  const [expanded,  setExpanded]  = useState(null);
+  const [attrs,     setAttrs]     = useState({});
+  const [loading,   setLoading]   = useState(true);
+  const [modal,     setModal]     = useState(null);
+  const [form,      setForm]      = useState({});
+  const [saving,    setSaving]    = useState(false);
+
+  function loadDomains() {
+    return api.getDomains(userId).then(d => setDomains(Array.isArray(d) ? d : []));
+  }
+
+  useEffect(() => {
+    loadDomains().finally(() => setLoading(false));
+  }, [userId]);
+
+  useWebSocket(
+    '/topic/metamodel',
+    (evt) => { if (evt.event === 'METAMODEL_CHANGED') loadDomains(); },
+    userId,
+  );
+
+  async function expand(dom) {
+    const id = dom.id;
+    if (expanded === id) { setExpanded(null); return; }
+    setExpanded(id);
+    if (!attrs[id]) {
+      try {
+        const a = await api.getDomainAttributes(userId, id);
+        setAttrs(s => ({ ...s, [id]: Array.isArray(a) ? a : [] }));
+      } catch { setAttrs(s => ({ ...s, [id]: [] })); }
+    }
+  }
+
+  function openModal(type, ctx = {}, defaults = {}) {
+    setForm(defaults);
+    setModal({ type, ctx });
+  }
+  function closeModal() { setModal(null); setForm({}); }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const { type, ctx } = modal;
+      if (type === 'create-domain') {
+        await api.createDomain(userId, {
+          name:        form.name?.trim(),
+          description: form.description?.trim() || null,
+          color:       form.color || null,
+          icon:        form.icon || null,
+        });
+        await loadDomains();
+
+      } else if (type === 'edit-domain') {
+        await api.updateDomain(userId, ctx.domainId, {
+          name:        form.name?.trim(),
+          description: form.description?.trim() || null,
+          color:       form.color || null,
+          icon:        form.icon || null,
+        });
+        await loadDomains();
+
+      } else if (type === 'create-attr') {
+        await api.createDomainAttribute(userId, ctx.domainId, {
+          name:           form.name?.trim(),
+          label:          form.label?.trim(),
+          dataType:       form.dataType || 'STRING',
+          widgetType:     form.widgetType || 'TEXT',
+          required:       !!form.required,
+          displaySection: form.displaySection?.trim() || null,
+          displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
+        });
+        const updated = await api.getDomainAttributes(userId, ctx.domainId);
+        setAttrs(s => ({ ...s, [ctx.domainId]: Array.isArray(updated) ? updated : [] }));
+
+      } else if (type === 'edit-attr') {
+        await api.updateDomainAttribute(userId, ctx.domainId, ctx.attrId, {
+          name:           form.name?.trim(),
+          label:          form.label?.trim(),
+          dataType:       form.dataType || 'STRING',
+          widgetType:     form.widgetType || 'TEXT',
+          required:       !!form.required,
+          displaySection: form.displaySection?.trim() || null,
+          displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
+        });
+        const updated = await api.getDomainAttributes(userId, ctx.domainId);
+        setAttrs(s => ({ ...s, [ctx.domainId]: Array.isArray(updated) ? updated : [] }));
+      }
+
+      closeModal();
+    } catch (e) {
+      toast(e, 'error');
+    } finally { setSaving(false); }
+  }
+
+  async function deleteDomain(e, dom) {
+    e.stopPropagation();
+    if (!window.confirm(`Delete domain "${dom.name}"?\n\nThis also deletes all its attributes. Cannot be undone.`)) return;
+    try {
+      await api.deleteDomain(userId, dom.id);
+      await loadDomains();
+      if (expanded === dom.id) setExpanded(null);
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function deleteAttr(e, domainId, a) {
+    e.stopPropagation();
+    if (!window.confirm(`Delete attribute "${a.label || a.name}"?`)) return;
+    try {
+      await api.deleteDomainAttribute(userId, domainId, a.id);
+      const updated = await api.getDomainAttributes(userId, domainId);
+      setAttrs(s => ({ ...s, [domainId]: Array.isArray(updated) ? updated : [] }));
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  const saveDisabled = () => {
+    if (!modal || saving) return true;
+    const { type } = modal;
+    if (type === 'create-domain') return !form.name?.trim();
+    if (type === 'edit-domain')   return !form.name?.trim();
+    if (type === 'create-attr')   return !form.name?.trim() || !form.label?.trim();
+    if (type === 'edit-attr')     return !form.name?.trim() || !form.label?.trim();
+    return false;
+  };
+
+  if (loading) return <div className="settings-loading">Loading…</div>;
+
+  return (
+    <div className="settings-list">
+      {modal && (
+        <MetaModal
+          title={
+            modal.type === 'create-domain' ? 'New Domain' :
+            modal.type === 'edit-domain'   ? 'Edit Domain' :
+            modal.type === 'create-attr'   ? 'Add Attribute' :
+            modal.type === 'edit-attr'     ? 'Edit Attribute' : ''
+          }
+          width={480}
+          onClose={closeModal}
+          onSave={handleSave}
+          saving={saving}
+          saveDisabled={saveDisabled()}
+          saveLabel={['edit-domain','edit-attr'].includes(modal.type) ? 'Update' : 'Create'}
+        >
+          {(modal.type === 'create-domain' || modal.type === 'edit-domain') && <>
+            <Field label="Name *">
+              <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Electrical" />
+            </Field>
+            <Field label="Description">
+              <input className="field-input" value={form.description || ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional description" />
+            </Field>
+            <ColorField
+              label="Color"
+              value={form.color || ''}
+              onChange={v => setForm(f => ({ ...f, color: v }))}
+            />
+          </>}
+
+          {modal.type === 'create-attr' && (
+            <AttrFields form={form} setForm={setForm} hideName={false} hideAsName={true} />
+          )}
+
+          {modal.type === 'edit-attr' && <>
+            <Field label="Name *">
+              <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </Field>
+            <Field label="Label (display) *">
+              <input className="field-input" value={form.label || ''} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} />
+            </Field>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field label="Data Type">
+                <select className="field-input" value={form.dataType || 'STRING'} onChange={e => setForm(f => ({ ...f, dataType: e.target.value }))}>
+                  {DATA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </Field>
+              <Field label="Widget">
+                <select className="field-input" value={form.widgetType || 'TEXT'} onChange={e => setForm(f => ({ ...f, widgetType: e.target.value }))}>
+                  {WIDGET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </Field>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 12 }}>
+              <Field label="Section">
+                <input className="field-input" value={form.displaySection || ''} onChange={e => setForm(f => ({ ...f, displaySection: e.target.value }))} />
+              </Field>
+              <Field label="Order">
+                <input className="field-input" type="number" min="0" value={form.displayOrder ?? ''} onChange={e => setForm(f => ({ ...f, displayOrder: e.target.value }))} />
+              </Field>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <input type="checkbox" checked={!!form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} />
+              Required field
+            </label>
+          </>}
+        </MetaModal>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        {canWrite && (
+          <button
+            className="btn btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+            onClick={() => openModal('create-domain', {}, {})}
+          >
+            <PlusIcon size={11} strokeWidth={2.5} />
+            New domain
+          </button>
+        )}
+      </div>
+
+      {domains.map(dom => {
+        const id     = dom.id;
+        const name   = dom.name || id;
+        const isExp  = expanded === id;
+        const domAttrs = attrs[id] || [];
+        const domColor = dom.color || null;
+
+        return (
+          <div key={id} className="settings-card">
+            <div className="settings-card-hd" onClick={() => expand(dom)} style={{ display: 'flex', alignItems: 'center' }}>
+              <span className="settings-card-chevron">
+                {isExp
+                  ? <ChevronDownIcon  size={13} strokeWidth={2} color="var(--muted)" />
+                  : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />
+                }
+              </span>
+              {domColor && <span style={{ width: 10, height: 10, borderRadius: '50%', background: domColor, flexShrink: 0, marginRight: 4 }} />}
+              <span className="settings-card-name">{name}</span>
+              <span className="settings-card-id">{id}</span>
+              <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                {canWrite && (
+                  <button className="panel-icon-btn" title="Edit domain" onClick={e => { e.stopPropagation(); openModal('edit-domain', { domainId: id }, { name: dom.name, description: dom.description || '', color: domColor || '' }); }}>
+                    <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
+                  </button>
+                )}
+                {canWrite && (
+                  <button className="panel-icon-btn" title="Delete domain" onClick={e => deleteDomain(e, dom)}>
+                    <TrashIcon size={12} strokeWidth={2} color="var(--danger, #f87171)" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {isExp && (
+              <div className="settings-card-body">
+                {dom.description && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>{dom.description}</div>
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <span className="settings-sub-label" style={{ margin: 0 }}>Attributes</span>
+                  {canWrite && (
+                    <button className="panel-icon-btn" title="Add attribute" onClick={() => openModal('create-attr', { domainId: id }, { dataType: 'STRING', widgetType: 'TEXT', required: false })}>
+                      <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
+                    </button>
+                  )}
+                </div>
+                {domAttrs.length === 0 ? (
+                  <div className="settings-empty-row">No attributes defined</div>
+                ) : (
+                  <table className="settings-table">
+                    <thead>
+                      <tr><th>Name</th><th>Label</th><th>Type</th><th>Req</th><th>Section</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {[...domAttrs]
+                        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+                        .map(a => {
+                          const aid   = a.id;
+                          const aname = a.name;
+                          const albl  = a.label || aname;
+                          const atype = a.widget_type || 'TEXT';
+                          const areq  = !!(a.required);
+                          const asec  = a.display_section || '—';
+                          return (
+                            <tr key={aid}>
+                              <td className="settings-td-mono">{aname}</td>
+                              <td>{albl}</td>
+                              <td><span className="settings-badge">{atype}</span></td>
+                              <td style={{ color: areq ? 'var(--success)' : 'var(--muted)' }}>{areq ? '✓' : '—'}</td>
+                              <td style={{ color: 'var(--muted)' }}>{asec}</td>
+                              <td>
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                  {canWrite && (
+                                    <button className="panel-icon-btn" title="Edit" onClick={() => openModal('edit-attr', { domainId: id, attrId: aid }, {
+                                      name:           aname,
+                                      label:          albl,
+                                      dataType:       a.data_type || 'STRING',
+                                      widgetType:     a.widget_type || 'TEXT',
+                                      required:       areq,
+                                      displaySection: a.display_section || '',
+                                      displayOrder:   a.display_order ?? '',
+                                    })}>
+                                      <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
+                                    </button>
+                                  )}
+                                  {canWrite && (
+                                    <button className="panel-icon-btn" title="Delete" onClick={e => deleteAttr(e, id, a)}>
+                                      <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {domains.length === 0 && <div className="settings-empty-row">No domains defined yet</div>}
+    </div>
+  );
+}
+
 export function LifecyclesSection({ userId, canWrite, toast }) {
   const [lcs,         setLcs]         = useState([]);
   const [expanded,    setExpanded]    = useState(null);
@@ -1854,7 +2319,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                       <div style={{
                         display: 'flex', alignItems: 'center', gap: 10,
                         padding: '6px 8px', borderRadius: isStateExp ? '5px 5px 0 0' : 5,
-                        background: 'rgba(255,255,255,.02)',
+                        background: 'var(--subtle-bg)',
                         border: '1px solid var(--border)',
                         borderBottom: isStateExp ? '1px solid var(--border2)' : '1px solid var(--border)',
                         cursor: 'pointer',
@@ -1908,7 +2373,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                       {isStateExp && (
                         <div style={{
                           padding: '10px 12px',
-                          background: 'rgba(255,255,255,.01)',
+                          background: 'var(--subtle-bg2)',
                           border: '1px solid var(--border)',
                           borderTop: 'none',
                           borderRadius: '0 0 5px 5px',
@@ -1948,11 +2413,12 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                             <div key={a.id} style={{
                               display: 'flex', alignItems: 'center', gap: 8,
                               padding: '4px 6px', marginBottom: 2, borderRadius: 3,
-                              background: 'rgba(255,255,255,.02)',
+                              background: 'var(--subtle-bg)',
                               border: '1px solid var(--border)',
                               fontSize: 11,
                             }}>
                               <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600 }}>{a.algorithmCode || a.instanceName}</span>
+                              <ModuleBadge module={a.moduleName} />
                               <span className="settings-badge" style={{
                                 background: a.trigger === 'ON_ENTER' ? 'rgba(52,211,153,.15)' : 'rgba(248,113,113,.15)',
                                 color:      a.trigger === 'ON_ENTER' ? '#34d399' : '#f87171',
@@ -2054,7 +2520,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                         display: 'flex', alignItems: 'center', gap: 10,
                         padding: '6px 8px',
                         borderRadius: isTransExp ? '5px 5px 0 0' : 5,
-                        background: 'rgba(255,255,255,.02)',
+                        background: 'var(--subtle-bg)',
                         border: '1px solid var(--border)',
                         borderBottom: isTransExp ? '1px solid var(--border2)' : '1px solid var(--border)',
                         cursor: 'pointer',
@@ -2112,7 +2578,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                       {isTransExp && (
                         <div style={{
                           padding: '10px 12px',
-                          background: 'rgba(255,255,255,.01)',
+                          background: 'var(--subtle-bg2)',
                           border: '1px solid var(--border)',
                           borderTop: 'none',
                           borderRadius: '0 0 5px 5px',
@@ -2137,11 +2603,12 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                             <div key={g.id} style={{
                               display: 'flex', alignItems: 'center', gap: 8,
                               padding: '4px 6px', marginBottom: 2, borderRadius: 3,
-                              background: 'rgba(255,255,255,.02)',
+                              background: 'var(--subtle-bg)',
                               border: '1px solid var(--border)',
                               fontSize: 11,
                             }}>
                               <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600 }}>{g.algorithmCode || g.instanceName}</span>
+                              <ModuleBadge module={g.moduleName} />
                               <span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`} style={{ fontSize: 9 }}>{g.effect}</span>
                               <span style={{ flex: 1 }} />
                               {canWrite && (
@@ -2196,7 +2663,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                             <div key={req.id} style={{
                               display: 'flex', alignItems: 'center', gap: 8,
                               padding: '4px 6px', marginBottom: 2, borderRadius: 3,
-                              background: 'rgba(255,255,255,.02)',
+                              background: 'var(--subtle-bg)',
                               border: '1px solid var(--border)',
                               fontSize: 11,
                             }}>
@@ -2250,7 +2717,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
  * Fully introspection-driven: permissions, node types, and transitions
  * are loaded from backend; the UI adapts to any configuration change.
  */
-function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast,
+function NodeTypeActionsPanel({ userId, roleId, canWrite, toast,
                                 nodePerms, lcPerms, nodeTypes, transitions }) {
   // Bulk policies loaded per role — Set of "permCode|ntId|transId" keys
   const [policies, setPolicies] = useState(null);
@@ -2267,7 +2734,7 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast,
       });
       setPolicies(set);
     }).catch(() => setPolicies(new Set()));
-  }, [userId, roleId, projectSpaceId]);
+  }, [userId, roleId]);
 
   const pKey = (permCode, ntId, transId) => `${permCode}|${ntId || ''}|${transId || ''}`;
 
@@ -2278,9 +2745,9 @@ function NodeTypeActionsPanel({ userId, projectSpaceId, roleId, canWrite, toast,
     setPolicies(s => { const n = new Set(s); isGranted ? n.delete(key) : n.add(key); return n; });
     try {
       if (isGranted) {
-        await api.removeActionPermissionForSpace(userId, projectSpaceId, ntId, permCode, roleId, transId || null);
+        await api.removePermissionGrant(userId, ntId, permCode, roleId, transId || null);
       } else {
-        await api.addActionPermissionForSpace(userId, projectSpaceId, ntId, permCode, roleId, transId || null);
+        await api.addPermissionGrant(userId, ntId, permCode, roleId, transId || null);
       }
     } catch (err) {
       setPolicies(s => { const n = new Set(s); isGranted ? n.add(key) : n.delete(key); return n; });
@@ -2853,7 +3320,7 @@ function PermissionCatalog({ permissions, userId, canWrite, toast, onReload }) {
             return (
               <div key={scope}>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em',
-                  color: 'var(--muted)', padding: '6px 10px', background: 'rgba(0,0,0,.03)', borderBottom: '1px solid var(--border)' }}>
+                  color: 'var(--muted)', padding: '6px 10px', background: 'var(--subtle-bg)', borderBottom: '1px solid var(--border)' }}>
                   {scope} scope
                 </div>
                 {items.map(p => (
@@ -2923,9 +3390,7 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
   const [permissions, setPermissions] = useState([]); // full catalog {permissionCode, scope, displayName}
   const [nodeTypes,   setNodeTypes]   = useState([]);
   const [transitions, setTransitions] = useState([]); // {id, label, lifecycleId}
-  const [spaces,      setSpaces]      = useState([]);
   const [expandedRole, setExpandedRole] = useState(null);
-  const [expandedSpace, setExpandedSpace] = useState(null);
   // globalPerms: roleId → Set<permissionCode>
   const [globalPerms, setGlobalPerms] = useState({});
 
@@ -2936,12 +3401,10 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
       api.listPermissions(userId),
       api.getNodeTypes(userId),
       api.getLifecycles(userId),
-      api.listProjectSpaces(userId),
-    ]).then(async ([roleList, permList, ntList, lcList, spaceList]) => {
+    ]).then(async ([roleList, permList, ntList, lcList]) => {
       setRoles(Array.isArray(roleList) ? roleList : []);
       setPermissions(Array.isArray(permList) ? permList : []);
       setNodeTypes(Array.isArray(ntList) ? ntList : []);
-      setSpaces(Array.isArray(spaceList) ? spaceList : []);
 
       // Load transitions for each lifecycle
       const lcs = Array.isArray(lcList) ? lcList : [];
@@ -2974,9 +3437,8 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
   const lcPerms        = permissions.filter(p => p.scope === 'LIFECYCLE');
 
   async function toggleRole(roleId) {
-    if (expandedRole === roleId) { setExpandedRole(null); setExpandedSpace(null); return; }
+    if (expandedRole === roleId) { setExpandedRole(null); return; }
     setExpandedRole(roleId);
-    setExpandedSpace(null);
     if (globalPerms[roleId] === undefined) {
       const rows = await api.getRoleGlobalPermissions(userId, roleId).catch(() => []);
       const granted = new Set((Array.isArray(rows) ? rows : []).map(r => r.permissionCode || r.permission_code));
@@ -3040,7 +3502,7 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
                 {/* ── GLOBAL scope permissions ─────────────────── */}
                 {globalPermsSet.length > 0 && (
                   <div style={{ marginBottom: 14 }}>
-                    <div className="settings-sub-label">Global Scope Permissions</div>
+                    <div className="settings-sub-label">Global Permissions</div>
                     <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6 }}>
                       Role-only check — no node type context.
                     </div>
@@ -3067,39 +3529,14 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
                   </div>
                 )}
 
-                {/* ── NODE + LIFECYCLE scope permissions by project space ── */}
-                {(nodePerms.length > 0 || lcPerms.length > 0) && spaces.length > 0 && (
-                  <div>
-                    <div className="settings-sub-label">Node &amp; Lifecycle Scope Permissions</div>
-                    {spaces.map(ps => {
-                      const psId = ps.id || ps.ID;
-                      const psName = ps.name || ps.NAME || psId;
-                      const isExpSp = expandedSpace === psId;
-                      return (
-                        <div key={psId} style={{ marginBottom: 4, border: '1px solid var(--border)', borderRadius: 5, overflow: 'hidden' }}>
-                          <div onClick={() => setExpandedSpace(isExpSp ? null : psId)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', cursor: 'pointer',
-                                     background: isExpSp ? 'rgba(99,102,241,.06)' : 'transparent' }}>
-                            {isExpSp ? <ChevronDownIcon size={11} strokeWidth={2} color="var(--muted)" />
-                                     : <ChevronRightIcon size={11} strokeWidth={2} color="var(--muted)" />}
-                            <HexIcon size={11} color="var(--accent)" strokeWidth={1.5} />
-                            <span style={{ fontSize: 12, fontWeight: 600 }}>{psName}</span>
-                            <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>{psId}</span>
-                          </div>
-                          {isExpSp && (
-                            <div style={{ padding: '6px 10px', background: 'rgba(0,0,0,.02)' }}>
-                              <NodeTypeActionsPanel
-                                userId={userId} projectSpaceId={psId} roleId={role.id}
-                                canWrite={canWrite} toast={toast}
-                                nodePerms={nodePerms} lcPerms={lcPerms}
-                                nodeTypes={nodeTypes} transitions={transitions}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                {/* ── NODE + LIFECYCLE scope permissions ── */}
+                {(nodePerms.length > 0 || lcPerms.length > 0) && (
+                  <NodeTypeActionsPanel
+                    userId={userId} roleId={role.id}
+                    canWrite={canWrite} toast={toast}
+                    nodePerms={nodePerms} lcPerms={lcPerms}
+                    nodeTypes={nodeTypes} transitions={transitions}
+                  />
                 )}
 
               </div>
@@ -3169,7 +3606,7 @@ function InstanceCard({ inst, algo, userId, canWrite, toast, onReload }) {
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '4px 6px',
         borderRadius: expanded ? '4px 4px 0 0' : 4,
-        background: 'rgba(255,255,255,.02)',
+        background: 'var(--subtle-bg)',
         border: '1px solid var(--border)',
         borderBottom: expanded ? '1px solid var(--border2)' : '1px solid var(--border)',
         cursor: 'pointer', fontSize: 12,
@@ -3206,7 +3643,7 @@ function InstanceCard({ inst, algo, userId, canWrite, toast, onReload }) {
       {expanded && (
         <div style={{
           padding: '8px 10px',
-          background: 'rgba(255,255,255,.01)',
+          background: 'var(--subtle-bg2)',
           border: '1px solid var(--border)',
           borderTop: 'none',
           borderRadius: '0 0 4px 4px',
@@ -3325,12 +3762,23 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
 
   if (algorithms === null) return <div className="settings-loading">Loading…</div>;
 
-  // Group algorithms by type
+  // Group algorithms by module → domain → type. Backend tells us the Spring
+  // Modulith module and the first-level sub-package (domain) for each bean.
   const algosByType = {};
   algorithms.forEach(a => {
     const key = a.typeName || 'Unknown';
     if (!algosByType[key]) algosByType[key] = [];
     algosByType[key].push(a);
+  });
+
+  // module → domain → algorithms[]
+  const algosByModuleDomain = {};
+  algorithms.forEach(a => {
+    const mod = a.moduleName || 'unknown';
+    const dom = a.domainName || '(root)';
+    if (!algosByModuleDomain[mod]) algosByModuleDomain[mod] = {};
+    if (!algosByModuleDomain[mod][dom]) algosByModuleDomain[mod][dom] = [];
+    algosByModuleDomain[mod][dom].push(a);
   });
 
   // Group instances by algorithm
@@ -3548,10 +3996,17 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
 
       {/* ── Catalog tab ── */}
       {tab === 'catalog' && <div className="settings-list">
-          {Object.entries(algosByType).map(([typeName, algos]) => (
-            <div key={typeName} style={{ marginBottom: 16 }}>
+          {Object.entries(algosByModuleDomain).sort(([a],[b]) => a.localeCompare(b)).map(([mod, domains]) => (
+            <div key={mod} style={{ marginBottom: 22 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
+                <ModuleBadge module={mod} />
+                <span style={{ fontSize: 10, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '.06em' }}>module</span>
+              </div>
+            {Object.entries(domains).sort(([a],[b]) => a.localeCompare(b)).map(([dom, algos]) => (
+            <div key={dom} style={{ marginBottom: 14, marginLeft: 4 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
-                {typeName}
+                <span style={{ opacity: .5 }}>▸</span> {dom}
+                <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--muted2)' }}>({algos.length})</span>
               </div>
               {algos.map(algo => {
                 const isExp = expandedAlgo === algo.id;
@@ -3573,6 +4028,7 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
                       <WorkflowIcon size={13} color="var(--accent)" strokeWidth={1.5} />
                       <span className="settings-card-name" style={{ marginLeft: 4 }}>{algo.name}</span>
                       <span className="settings-card-id">{algo.code}</span>
+                      <span style={{ marginLeft: 6 }}><ModuleBadge module={algo.moduleName} /></span>
                       <span style={{ flex: 1, fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 8 }}>
                         {algo.description || ''}
                       </span>
@@ -3659,6 +4115,8 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
                 );
               })}
             </div>
+            ))}
+            </div>
           ))}
         </div>}
     </div>
@@ -3671,6 +4129,7 @@ export function GuardsSection({ userId, canWrite, toast }) {
   const [actions, setActions]       = useState(null);
   const [instances, setInstances]   = useState(null);
   const [nodeTypes, setNodeTypes]   = useState(null);
+  const [algorithms, setAlgorithms] = useState(null);
   const [expandedAction, setExpandedAction] = useState(null);
   const [actionGuards, setActionGuards]     = useState({});
   const [actionWrappers, setActionWrappers] = useState({});
@@ -3680,11 +4139,13 @@ export function GuardsSection({ userId, canWrite, toast }) {
       api.getAllActions(userId),
       api.listAllInstances(userId),
       api.getNodeTypes(userId),
-    ]).then(([acts, insts, nts]) => {
+      api.listAlgorithms(userId),
+    ]).then(([acts, insts, nts, algs]) => {
       setActions(Array.isArray(acts)     ? acts   : []);
       setInstances(Array.isArray(insts)  ? insts  : []);
       setNodeTypes(Array.isArray(nts)    ? nts    : []);
-    }).catch(() => { setActions([]); setInstances([]); setNodeTypes([]); });
+      setAlgorithms(Array.isArray(algs)  ? algs   : []);
+    }).catch(() => { setActions([]); setInstances([]); setNodeTypes([]); setAlgorithms([]); });
   }, [userId]);
 
   async function loadActionGuards(actionId) {
@@ -3722,6 +4183,28 @@ export function GuardsSection({ userId, canWrite, toast }) {
 
   if (actions === null) return <div className="settings-loading">Loading…</div>;
 
+  // handler_code → { moduleName, domainName } lookup (backend-driven)
+  const algByCode = {};
+  (algorithms || []).forEach(a => { if (a.code) algByCode[a.code] = a; });
+
+  function actionModuleDomain(action) {
+    const handlerCode = action.handler_code || action.handlerCode;
+    const alg = handlerCode ? algByCode[handlerCode] : null;
+    return {
+      moduleName: alg?.moduleName || 'unknown',
+      domainName: alg?.domainName || '(root)',
+    };
+  }
+
+  // Group actions by module → domain for display splitting
+  const actionsByModuleDomain = {};
+  actions.forEach(a => {
+    const { moduleName, domainName } = actionModuleDomain(a);
+    if (!actionsByModuleDomain[moduleName]) actionsByModuleDomain[moduleName] = {};
+    if (!actionsByModuleDomain[moduleName][domainName]) actionsByModuleDomain[moduleName][domainName] = [];
+    actionsByModuleDomain[moduleName][domainName].push(a);
+  });
+
   const tabStyle = (key) => ({
     padding: '6px 14px', fontSize: 12, cursor: 'pointer', background: 'none', border: 'none',
     color: tab === key ? 'var(--accent)' : 'var(--muted)',
@@ -3745,7 +4228,19 @@ export function GuardsSection({ userId, canWrite, toast }) {
       {/* ── Action Guards tab ── */}
       {tab === 'action-guards' && (
         <div className="settings-list">
-          {actions.map(action => {
+          {Object.entries(actionsByModuleDomain).sort(([a],[b]) => a.localeCompare(b)).map(([mod, domains]) => (
+          <div key={mod} style={{ marginBottom: 22 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
+              <ModuleBadge module={mod} />
+              <span style={{ fontSize: 10, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '.06em' }}>module</span>
+            </div>
+          {Object.entries(domains).sort(([a],[b]) => a.localeCompare(b)).map(([dom, actionsInDom]) => (
+          <div key={dom} style={{ marginBottom: 14, marginLeft: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
+              <span style={{ opacity: .5 }}>▸</span> {dom}
+              <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--muted2)' }}>({actionsInDom.length})</span>
+            </div>
+          {actionsInDom.map(action => {
             const isExp = expandedAction === action.id;
             const guards = actionGuards[action.id] || [];
             const aCode    = action.action_code    || action.actionCode;
@@ -3841,12 +4336,13 @@ export function GuardsSection({ userId, canWrite, toast }) {
                     {guards.length > 0 && (
                       <table className="settings-table" style={{ width: '100%', marginBottom: 8 }}>
                         <thead>
-                          <tr><th>Guard</th><th>Effect</th><th>Type</th><th></th></tr>
+                          <tr><th>Guard</th><th>Module</th><th>Effect</th><th>Type</th><th></th></tr>
                         </thead>
                         <tbody>
                           {guards.map(g => (
                             <tr key={g.id}>
                               <td>{g.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({g.algorithmCode})</span></td>
+                              <td><ModuleBadge module={g.moduleName} /></td>
                               <td><span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`}>{g.effect}</span></td>
                               <td style={{ fontSize: 11, color: 'var(--muted)' }}>{g.typeName}</td>
                               <td style={{ textAlign: 'right' }}>
@@ -3887,13 +4383,14 @@ export function GuardsSection({ userId, canWrite, toast }) {
                         {wrappers.length > 0 && (
                           <table className="settings-table" style={{ width: '100%', marginBottom: 8 }}>
                             <thead>
-                              <tr><th>Order</th><th>Wrapper</th><th>Instance</th><th></th></tr>
+                              <tr><th>Order</th><th>Wrapper</th><th>Module</th><th>Instance</th><th></th></tr>
                             </thead>
                             <tbody>
                               {wrappers.map(w => (
                                 <tr key={w.id}>
                                   <td style={{ width: 50 }}>{w.executionOrder}</td>
                                   <td>{w.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({w.algorithmCode})</span></td>
+                                  <td><ModuleBadge module={w.moduleName} /></td>
                                   <td style={{ fontSize: 11, color: 'var(--muted)' }}>{w.instanceName}</td>
                                   <td style={{ textAlign: 'right' }}>
                                     {canWrite && (
@@ -3943,6 +4440,10 @@ export function GuardsSection({ userId, canWrite, toast }) {
               </div>
             );
           })}
+          </div>
+          ))}
+          </div>
+          ))}
         </div>
       )}
 
@@ -4254,36 +4755,33 @@ function NodeTypeStateActionOverridesSubSection({ userId, canWrite, toast, nodeT
 }
 
 /* ── Main SettingsPage ───────────────────────────────────────────── */
-export default function SettingsPage({ userId, projectSpaceId, activeSection, onSectionChange, toast }) {
-  const [globalPerms, setGlobalPerms] = useState(null); // null = loading; Set<string> once loaded
+export default function SettingsPage({ userId, projectSpaceId, activeSection, onSectionChange, settingsSections, toast }) {
 
-  useEffect(() => {
-    api.getMyGlobalPermissions(userId)
-      .then(codes => {
-        const perms = new Set(Array.isArray(codes) ? codes : []);
-        setGlobalPerms(perms);
-        const first = SECTIONS.find(s => true); // all sections visible
-        onSectionChange(first?.key ?? null);
-      })
-      .catch(() => {
-        setGlobalPerms(new Set());
-        onSectionChange('api-playground');
-      });
-  }, [userId, projectSpaceId]);
+  // Build canWrite lookup from backend-provided sections
+  const sectionPerms = useMemo(() => {
+    const map = {};
+    (settingsSections || []).forEach(g => g.sections.forEach(s => { map[s.key] = s.canWrite; }));
+    return map;
+  }, [settingsSections]);
 
-  // canWrite(permission) = true if user has the given permission (or permission is null = open)
-  function canWrite(permission) {
-    if (globalPerms === null) return false;
-    if (permission === null) return true;
-    return globalPerms.has(permission);
+  function canWrite(sectionKey) {
+    return sectionPerms[sectionKey] ?? false;
   }
 
-  const activeSection_obj = SECTIONS.find(s => s.key === activeSection);
+  // Resolve label from backend sections
+  const activeSectionLabel = useMemo(() => {
+    if (!settingsSections) return activeSection;
+    for (const g of settingsSections) {
+      const s = g.sections.find(s => s.key === activeSection);
+      if (s) return s.label;
+    }
+    return activeSection;
+  }, [settingsSections, activeSection]);
 
   return (
     <div className="settings-content">
       <div className="settings-content-hd">
-        <span className="settings-content-title">{activeSection_obj?.label}</span>
+        <span className="settings-content-title">{activeSectionLabel}</span>
       </div>
       {activeSection === null ? (
         <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
@@ -4293,13 +4791,15 @@ export default function SettingsPage({ userId, projectSpaceId, activeSection, on
         <UserManual />
       ) : (
         <div className="settings-content-body">
-          {activeSection === 'node-types'    && <NodeTypesSection    userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
-          {activeSection === 'lifecycles'    && <LifecyclesSection   userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
-          {activeSection === 'proj-spaces'   && <ProjectSpacesSection userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
-          {activeSection === 'users-roles'   && <UsersRolesSection   userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
-          {activeSection === 'access-rights' && <AccessRightsSection userId={userId} canWrite={canWrite('MANAGE_ROLES')} toast={toast} />}
-          {activeSection === 'algorithms'    && <AlgorithmsSection    userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
-          {activeSection === 'guards'        && <GuardsSection        userId={userId} canWrite={canWrite('MANAGE_METAMODEL')} toast={toast} />}
+          {activeSection === 'my-profile'    && <MyProfileSection    userId={userId} canWrite={canWrite('my-profile')} toast={toast} />}
+          {activeSection === 'node-types'    && <NodeTypesSection    userId={userId} canWrite={canWrite('node-types')} toast={toast} />}
+          {activeSection === 'domains'       && <DomainsSection      userId={userId} canWrite={canWrite('domains')} toast={toast} />}
+          {activeSection === 'lifecycles'    && <LifecyclesSection   userId={userId} canWrite={canWrite('lifecycles')} toast={toast} />}
+          {activeSection === 'proj-spaces'   && <ProjectSpacesSection userId={userId} canWrite={canWrite('proj-spaces')} toast={toast} />}
+          {activeSection === 'users-roles'   && <UsersRolesSection   userId={userId} canWrite={canWrite('users-roles')} toast={toast} />}
+          {activeSection === 'access-rights' && <AccessRightsSection userId={userId} canWrite={canWrite('access-rights')} toast={toast} />}
+          {activeSection === 'algorithms'    && <AlgorithmsSection    userId={userId} canWrite={canWrite('algorithms')} toast={toast} />}
+          {activeSection === 'guards'        && <GuardsSection        userId={userId} canWrite={canWrite('guards')} toast={toast} />}
         </div>
       )}
     </div>

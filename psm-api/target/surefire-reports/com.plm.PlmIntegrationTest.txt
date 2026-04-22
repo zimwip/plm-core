@@ -1,4 +1,16 @@
 -------------------------------------------------------------------------------
 Test set: com.plm.PlmIntegrationTest
 -------------------------------------------------------------------------------
-Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.553 s -- in com.plm.PlmIntegrationTest
+Tests run: 7, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.595 s <<< FAILURE! -- in com.plm.PlmIntegrationTest
+com.plm.PlmIntegrationTest.testObjectDescription -- Time elapsed: 0.115 s <<< FAILURE!
+java.lang.AssertionError: 
+
+Expecting actual:
+  {"attributes"=[], "currentVersionId"="9d9aa608-9252-4362-80cc-c35afbe58bdd", "displayName"="", "domains"=[], "externalId"="", "fingerprintChanged"=null, "historicalView"=false, "identity"="A.1", "iteration"=1, "lifecycleId"="51b75346-5e87-4f90-b230-26ccfff47744", "lock"={"locked"=false, "lockedBy"="", "txId"=""}, "logicalId"="", "logicalIdLabel"="Identifier", "logicalIdPattern"="", "nodeId"="9fb74d7f-a7fd-4e56-9c1b-45540ec047c0", "nodeTypeId"="06c4b921-2b12-49cf-9002-a31f04419bcc", "revision"="A", "state"="55c7a6dc-0e9b-4cef-816f-2173682ca693", "stateName"="Draft", "technicalId"="9fb74d7f-a7fd-4e56-9c1b-45540ec047c0", "txStatus"="COMMITTED"}
+to contain key:
+  "actions"
+	at com.plm.PlmIntegrationTest.testObjectDescription(PlmIntegrationTest.java:257)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+

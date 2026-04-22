@@ -4,10 +4,30 @@ import { setDraggedNode, clearDraggedNode } from '../services/dragState';
 import { NODE_ICONS } from './Icons';
 import {
   ChevronRightIcon, ChevronDownIcon,
-  LayersIcon, CommitIcon, RollbackIcon, GearIcon, PlusIcon, LockIcon,
+  LayersIcon, CommitIcon, RollbackIcon, PlusIcon, LockIcon,
   EditIcon, XCircleIcon,
 } from './Icons';
-import { SECTIONS } from './SettingsPage';
+import {
+  LayersIcon as SLayersIcon, LifecycleIcon as SLifecycleIcon,
+  HexIcon as SHexIcon, UsersIcon as SUsersIcon, ShieldIcon as SShieldIcon,
+  CpuIcon as SCpuIcon, WorkflowIcon as SWorkflowIcon, TerminalIcon as STerminalIcon,
+  BookIcon as SBookIcon, UserIcon as SUserIcon,
+} from './Icons';
+import { Database as SDatabaseIcon } from 'lucide-react';
+
+const SECTION_ICONS = {
+  'my-profile':     SUserIcon,
+  'node-types':     SLayersIcon,
+  'domains':        SDatabaseIcon,
+  'lifecycles':     SLifecycleIcon,
+  'proj-spaces':    SHexIcon,
+  'users-roles':    SUsersIcon,
+  'access-rights':  SShieldIcon,
+  'algorithms':     SCpuIcon,
+  'guards':         SWorkflowIcon,
+  'api-playground': STerminalIcon,
+  'user-manual':    SBookIcon,
+};
 
 
 const CHANGE_BADGE = {
@@ -34,9 +54,9 @@ function LeftPanel({
   onRollback,
   onReleaseNode,
   showSettings,
-  onToggleSettings,
   activeSettingsSection,
   onSettingsSectionChange,
+  settingsSections,
   isDashboardOpen,
   onOpenDashboard,
   hasMore,
@@ -218,14 +238,22 @@ function LeftPanel({
 
       {showSettings ? (
         <div className="settings-section-nav">
-          {SECTIONS.map(({ key, label, Icon }) => (
-            <div
-              key={key}
-              className={`settings-nav-item${activeSettingsSection === key ? ' active' : ''}`}
-              onClick={() => onSettingsSectionChange(key)}
-            >
-              <Icon size={13} strokeWidth={1.8} color={activeSettingsSection === key ? 'var(--accent)' : 'var(--muted)'} />
-              {label}
+          {(settingsSections || []).map(group => (
+            <div key={group.groupKey}>
+              <div className="settings-nav-group-label">{group.groupLabel}</div>
+              {group.sections.map(({ key, label }) => {
+                const Icon = SECTION_ICONS[key];
+                return (
+                  <div
+                    key={key}
+                    className={`settings-nav-item${activeSettingsSection === key ? ' active' : ''}`}
+                    onClick={() => onSettingsSectionChange(key)}
+                  >
+                    {Icon && <Icon size={13} strokeWidth={1.8} color={activeSettingsSection === key ? 'var(--accent)' : 'var(--muted)'} />}
+                    {label}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>
@@ -494,13 +522,6 @@ function LeftPanel({
 
       </>)}
 
-      {/* ── Footer ──────────────────────────────────── */}
-      <div className="panel-footer">
-        <button className={`settings-btn${showSettings ? ' active' : ''}`} onClick={onToggleSettings}>
-          <GearIcon size={13} color={showSettings ? 'var(--accent)' : 'var(--muted)'} strokeWidth={1.8} />
-          <span>Settings &amp; Metadata</span>
-        </button>
-      </div>
     </aside>
   );
 }

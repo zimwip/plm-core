@@ -19,6 +19,21 @@ public class UserController {
         return ResponseEntity.ok(userService.listUsers());
     }
 
+    @GetMapping("/{userId}")
+    public ResponseEntity<?> getUser(@PathVariable String userId) {
+        var user = userService.getUser(userId);
+        if (user == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(user);
+    }
+
+    @PutMapping("/{userId}")
+    public ResponseEntity<?> updateUser(@PathVariable String userId, @RequestBody Map<String, Object> body) {
+        String displayName = (String) body.get("displayName");
+        String email       = (String) body.get("email");
+        userService.updateUser(userId, displayName, email);
+        return ResponseEntity.ok(Map.of("status", "updated"));
+    }
+
     @PostMapping
     public ResponseEntity<?> createUser(@RequestBody Map<String, Object> body) {
         String username    = (String) body.get("username");

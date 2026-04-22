@@ -1,6 +1,7 @@
 package com.plm.algorithm.internal;
 
 import com.plm.shared.authorization.PlmPermission;
+import com.plm.algorithm.AlgorithmRegistry;
 import com.plm.action.guard.ActionGuardService;
 import com.plm.node.lifecycle.internal.guard.LifecycleGuardService;
 import com.plm.shared.security.SecurityContextPort;
@@ -21,7 +22,7 @@ import java.util.UUID;
  * CRUD for algorithm types, algorithms, instances, parameter values,
  * and guard attachments (action_guard, node_type_action_guard).
  *
- * All mutating operations require MANAGE_METAMODEL permission and
+ * All mutating operations require MANAGE_PSM permission and
  * invalidate the GuardService cache.
  */
 @Slf4j
@@ -34,6 +35,7 @@ public class AlgorithmService {
     private final LifecycleGuardService lifecycleGuardService;
     private final StateActionService  stateActionService;
     private final SecurityContextPort secCtx;
+    private final AlgorithmRegistry   algorithmRegistry;
 
     // ================================================================
     // ALGORITHM TYPES (read-only — system-level)
@@ -64,6 +66,8 @@ public class AlgorithmService {
                 m.put("handlerRef",  r.get("handler_ref", String.class));
                 m.put("typeId",      r.get("type_id",     String.class));
                 m.put("typeName",    r.get("type_name",   String.class));
+                m.put("moduleName",  algorithmRegistry.getModuleForCode(r.get("code", String.class)));
+                m.put("domainName",  algorithmRegistry.getDomainForCode(r.get("code", String.class)));
                 return m;
             });
     }
@@ -125,11 +129,13 @@ public class AlgorithmService {
                 m.put("algorithmCode", r.get("algorithm_code", String.class));
                 m.put("algorithmName", r.get("algorithm_name", String.class));
                 m.put("typeName",      r.get("type_name",      String.class));
+                m.put("moduleName",    algorithmRegistry.getModuleForCode(r.get("algorithm_code", String.class)));
+                m.put("domainName",    algorithmRegistry.getDomainForCode(r.get("algorithm_code", String.class)));
                 return m;
             });
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public String createInstance(String algorithmId, String name) {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("Instance name is required");
@@ -145,7 +151,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public void updateInstance(String instanceId, String name) {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("Instance name is required");
@@ -169,7 +175,7 @@ public class AlgorithmService {
         }
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public void deleteInstance(String instanceId) {
         dsl.execute("DELETE FROM node_type_state_action WHERE algorithm_instance_id = ?", instanceId);
         dsl.execute("DELETE FROM lifecycle_state_action WHERE algorithm_instance_id = ?", instanceId);
@@ -199,7 +205,7 @@ public class AlgorithmService {
             """, instanceId).map(r -> mapOf(r, "id", "param_name", "param_label", "data_type", "value"));
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public void setInstanceParamValue(String instanceId, String parameterId, String value) {
         dsl.execute(
             "DELETE FROM algorithm_instance_param_value WHERE algorithm_instance_id = ? AND algorithm_parameter_id = ?",
@@ -237,11 +243,13 @@ public class AlgorithmService {
                 m.put("algorithmCode", r.get("algorithm_code", String.class));
                 m.put("algorithmName", r.get("algorithm_name", String.class));
                 m.put("typeName",      r.get("type_name",      String.class));
+                m.put("moduleName",    algorithmRegistry.getModuleForCode(r.get("algorithm_code", String.class)));
+                m.put("domainName",    algorithmRegistry.getDomainForCode(r.get("algorithm_code", String.class)));
                 return m;
             });
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public String attachActionGuard(String actionId, String instanceId, String effect, int displayOrder) {
         assertNotManagedForHide(actionId, effect);
         String id = UUID.randomUUID().toString();
@@ -254,7 +262,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public void detachActionGuard(String guardId) {
         dsl.execute("DELETE FROM action_guard WHERE id = ?", guardId);
         actionGuardService.evictCache();
@@ -286,11 +294,13 @@ public class AlgorithmService {
                 m.put("instanceName",    r.get("instance_name",   String.class));
                 m.put("algorithmCode",   r.get("algorithm_code",  String.class));
                 m.put("algorithmName",   r.get("algorithm_name",  String.class));
+                m.put("moduleName",      algorithmRegistry.getModuleForCode(r.get("algorithm_code", String.class)));
+                m.put("domainName",      algorithmRegistry.getDomainForCode(r.get("algorithm_code", String.class)));
                 return m;
             });
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public String attachActionWrapper(String actionId, String instanceId, int executionOrder) {
         String id = java.util.UUID.randomUUID().toString();
         dsl.execute(
@@ -300,7 +310,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public void detachActionWrapper(String wrapperId) {
         dsl.execute("DELETE FROM action_wrapper WHERE id = ?", wrapperId);
         log.info("Action wrapper detached: id={}", wrapperId);
@@ -332,12 +342,14 @@ public class AlgorithmService {
                 m.put("algorithmCode", r.get("algorithm_code", String.class));
                 m.put("algorithmName", r.get("algorithm_name", String.class));
                 m.put("typeName",      r.get("type_name",      String.class));
+                m.put("moduleName",    algorithmRegistry.getModuleForCode(r.get("algorithm_code", String.class)));
+                m.put("domainName",    algorithmRegistry.getDomainForCode(r.get("algorithm_code", String.class)));
                 m.put("level",         "LIFECYCLE_TRANSITION");
                 return m;
             });
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public String attachTransitionGuard(String transitionId, String instanceId,
                                         String effect, int displayOrder) {
         String id = UUID.randomUUID().toString();
@@ -351,7 +363,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public void detachTransitionGuard(String guardId) {
         dsl.execute("DELETE FROM lifecycle_transition_guard WHERE id = ?", guardId);
         actionGuardService.evictCache();
@@ -408,7 +420,7 @@ public class AlgorithmService {
             });
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public String attachNodeActionGuard(String nodeTypeId, String actionCode, String transitionId,
                                         String instanceId, String effect,
                                         String overrideAction, int displayOrder) {
@@ -425,7 +437,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public void detachNodeActionGuard(String guardId) {
         dsl.execute("DELETE FROM node_action_guard WHERE id = ?", guardId);
         actionGuardService.evictCache();
@@ -465,7 +477,7 @@ public class AlgorithmService {
             });
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public String attachStateAction(String stateId, String instanceId,
                                     String trigger, String executionMode, int displayOrder) {
         String id = UUID.randomUUID().toString();
@@ -478,7 +490,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public void detachStateAction(String attachmentId) {
         dsl.execute("DELETE FROM lifecycle_state_action WHERE id = ?", attachmentId);
         stateActionService.evictCache();
@@ -518,7 +530,7 @@ public class AlgorithmService {
             });
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public String attachNodeTypeStateAction(String nodeTypeId, String stateId, String instanceId,
                                             String trigger, String executionMode,
                                             String overrideAction, int displayOrder) {
@@ -532,7 +544,7 @@ public class AlgorithmService {
         return id;
     }
 
-    @PlmPermission("MANAGE_METAMODEL")
+    @PlmPermission("MANAGE_PSM")
     public void detachNodeTypeStateAction(String attachmentId) {
         dsl.execute("DELETE FROM node_type_state_action WHERE id = ?", attachmentId);
         stateActionService.evictCache();

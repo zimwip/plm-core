@@ -51,7 +51,7 @@ public class LinkService {
      *
      * @param txId transaction PLM ouverte — OBLIGATOIRE
      */
-    @PlmAction(value = "CREATE_LINK", nodeIdExpr = "#sourceNodeId")
+    @PlmAction(value = "create_link", nodeIdExpr = "#sourceNodeId")
     @Transactional
     public String createLink(
         String linkTypeId,
@@ -157,7 +157,7 @@ public class LinkService {
     // DELETE LINK
     // ================================================================
 
-    @PlmAction(value = "DELETE_LINK", linkIdExpr = "#linkId")
+    @PlmAction(value = "delete_link", linkIdExpr = "#linkId")
     @Transactional
     public void deleteLink(String linkId, String userId, String txId) {
         String sourceNodeId = resolveLinkSourceNodeId(linkId);
@@ -177,7 +177,7 @@ public class LinkService {
     // UPDATE LINK
     // ================================================================
 
-    @PlmAction(value = "UPDATE_LINK", linkIdExpr = "#linkId")
+    @PlmAction(value = "update_link", linkIdExpr = "#linkId")
     @Transactional
     public void updateLink(
         String linkId,

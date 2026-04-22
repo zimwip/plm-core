@@ -26,7 +26,6 @@ public class JooqPolicyAdapter implements Adapter {
     public void loadPolicy(Model model) {
         var rows = dsl.select(
                 DSL.field("role_id"),
-                DSL.field("project_space_id"),
                 DSL.field("permission_code"),
                 DSL.coalesce(DSL.field("node_type_id"), DSL.inline("*")),
                 DSL.coalesce(DSL.field("transition_id"), DSL.inline("*")))
@@ -39,8 +38,7 @@ public class JooqPolicyAdapter implements Adapter {
                 row.get(0, String.class),
                 row.get(1, String.class),
                 row.get(2, String.class),
-                row.get(3, String.class),
-                row.get(4, String.class));
+                row.get(3, String.class));
             model.addPolicy("p", "p", rule);
             count++;
         }

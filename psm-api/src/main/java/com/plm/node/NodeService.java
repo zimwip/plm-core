@@ -74,12 +74,13 @@ public class NodeService {
     private final GraphValidationService          graphValidationService;
     private final SecurityContextPort             secCtx;
     private final MetadataService                 metadataService;
+    private final com.plm.shared.security.PnoProjectSpaceClient pnoProjectSpaceClient;
 
     // ================================================================
     // CRÉATION (pas de txId — version initiale directement COMMITTED)
     // ================================================================
 
-    @PlmPermission(value = "CREATE_NODE", nodeTypeIdExpr = "#nodeTypeId")
+    @PlmAction(value = "create_node", nodeTypeIdExpr = "#nodeTypeId")
     @Transactional
     public String createNode(
         String projectSpaceId,
@@ -221,6 +222,10 @@ public class NodeService {
     }
 
     public PagedResult<Record> listNodes(String projectSpaceId, int page, int size) {
+        // Resolve descendant spaces for hierarchy visibility
+        List<String> spaceIds = pnoProjectSpaceClient.getDescendants(projectSpaceId);
+        String placeholders = String.join(",", spaceIds.stream().map(s -> "?").toList());
+
         // Full query (no LIMIT yet — permission filter may reduce count)
         // All versions (COMMITTED and OPEN) are visible to everyone.
         // children_count counts links from all committed or open versions.
@@ -246,7 +251,7 @@ public class NodeService {
                    ON ad_name.node_type_id = n.node_type_id AND ad_name.as_name = 1
             LEFT JOIN node_version_attribute nva_name
                    ON nva_name.node_version_id = nv.id AND nva_name.attribute_def_id = ad_name.id
-            WHERE n.project_space_id = ?
+            WHERE n.project_space_id IN (%s)
               AND pt.status IN ('COMMITTED', 'OPEN')
               AND nv.version_number = (
                 SELECT MAX(nv2.version_number) FROM node_version nv2
@@ -254,8 +259,8 @@ public class NodeService {
                 WHERE nv2.node_id = n.id
                   AND pt2.status IN ('COMMITTED', 'OPEN'))
             ORDER BY n.created_at DESC
-            """,
-            projectSpaceId
+            """.formatted(placeholders),
+            spaceIds.toArray()
         );
 
         // Batch permission check: load all readable node type IDs in a single call
@@ -588,7 +593,7 @@ public class NodeService {
      * @param txId  transaction existante, ou {@code null} pour en trouver/créer une automatiquement
      * @return id de la version OPEN (nouvelle ou existante)
      */
-    @PlmAction(value = "CHECKOUT", nodeIdExpr = "#nodeId")  // action_code = 'CHECKOUT' in action
+    @PlmAction(value = "checkout", nodeIdExpr = "#nodeId")  // action_code = 'checkout' in action
     @Transactional
     public String checkout(String nodeId, String userId, String txId) {
         assertNotFrozen(nodeId);
@@ -628,7 +633,7 @@ public class NodeService {
      * @param txId      transaction PLM ouverte — OBLIGATOIRE
      * @param strategy  stratégie de numérotation (null = ITERATE par défaut)
      */
-    @PlmAction(value = "UPDATE_NODE", nodeIdExpr = "#nodeId")
+    @PlmAction(value = "update_node", nodeIdExpr = "#nodeId")
     @Transactional
     public String modifyNode(
         String nodeId,
@@ -668,7 +673,7 @@ public class NodeService {
     }
 
     /** Overload without strategy — defaults to ITERATE. */
-    @PlmAction(value = "UPDATE_NODE", nodeIdExpr = "#nodeId")
+    @PlmAction(value = "update_node", nodeIdExpr = "#nodeId")
     @Transactional
     public String modifyNode(
         String nodeId,
@@ -842,9 +847,24 @@ public class NodeService {
             : "";
 
         // Attributs résolus avec règle d'état + override de vue (inherited attrs included via cache)
-        var effectiveAttrs = resolvedNodeType != null
+        // Merge node_type attributes + domain attributes
+        var baseAttrs = resolvedNodeType != null
             ? resolvedNodeType.attributes()
             : List.<ResolvedAttribute>of();
+        List<String> assignedDomainIds = dsl.select(DSL.field("domain_id"))
+            .from("node_version_domain")
+            .where("node_version_id = ?", versionId)
+            .fetch("domain_id", String.class);
+        List<ResolvedAttribute> effectiveAttrs = new ArrayList<>(baseAttrs);
+        Set<String> nodeTypeAttrNames = baseAttrs.stream()
+            .map(ResolvedAttribute::name).collect(Collectors.toSet());
+        for (String domId : assignedDomainIds) {
+            for (ResolvedAttribute da : metaModelCache.getDomainAttributes(domId)) {
+                if (!nodeTypeAttrNames.contains(da.name())) {
+                    effectiveAttrs.add(da);
+                }
+            }
+        }
         var attributes = effectiveAttrs.stream()
             .map(attr -> {
                 String attrId = attr.id();
@@ -896,7 +916,9 @@ public class NodeService {
                         "allowedValues",
                         attr.allowedValues() != null ? attr.allowedValues() : ""
                     ),
-                    entry("tooltip", attr.tooltip() != null ? attr.tooltip() : "")
+                    entry("tooltip", attr.tooltip() != null ? attr.tooltip() : ""),
+                    entry("sourceDomainId", attr.sourceDomainId() != null ? attr.sourceDomainId() : ""),
+                    entry("sourceDomainName", attr.sourceDomainName() != null ? attr.sourceDomainName() : "")
                 );
             })
             .filter(Objects::nonNull)
@@ -960,6 +982,18 @@ public class NodeService {
         result.put("nodeTypeId", nodeTypeId);
         result.put("currentVersionId", versionId);
         result.put("attributes", attributes);
+        // Domain assignments
+        List<Map<String, Object>> domainList = new ArrayList<>();
+        for (String domId : assignedDomainIds) {
+            var domRec = metaModelCache.getAllDomains().get(domId);
+            if (domRec != null) {
+                domainList.add(Map.of(
+                    "id", domId,
+                    "name", domRec.get("name", String.class) != null ? domRec.get("name", String.class) : ""
+                ));
+            }
+        }
+        result.put("domains", domainList);
         result.put("historicalView", historicalView);
         if (historicalView) result.put("versionNumber", versionNumber);
 

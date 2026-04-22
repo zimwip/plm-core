@@ -56,6 +56,27 @@ public class UserService {
         return ctx;
     }
 
+    public Map<String, Object> getUser(String userId) {
+        var r = dsl.select().from("pno_user").where("id = ?", userId).fetchOne();
+        if (r == null) return null;
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id",          r.get("id",           String.class));
+        m.put("username",    r.get("username",     String.class));
+        m.put("displayName", r.get("display_name", String.class));
+        m.put("email",       r.get("email",        String.class));
+        m.put("active",      Integer.valueOf(1).equals(r.get("active",   Integer.class)));
+        m.put("isAdmin",     Integer.valueOf(1).equals(r.get("is_admin", Integer.class)));
+        return m;
+    }
+
+    @Transactional
+    public void updateUser(String userId, String displayName, String email) {
+        int updated = dsl.execute(
+            "UPDATE pno_user SET display_name = ?, email = ? WHERE id = ? AND active = 1",
+            displayName, email, userId);
+        if (updated == 0) throw new IllegalArgumentException("User not found: " + userId);
+    }
+
     public List<Map<String, Object>> listUsers() {
         return dsl.select().from("pno_user").orderBy(DSL.field("username")).fetch()
             .map(r -> {

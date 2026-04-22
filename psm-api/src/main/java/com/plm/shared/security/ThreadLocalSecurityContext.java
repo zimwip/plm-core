@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 /**
  * Implements {@link SecurityContextPort} by delegating to the ThreadLocal holders
  * ({@link PlmSecurityContext} and {@link PlmProjectSpaceContext}) that are populated
- * by {@link PlmAuthFilter} on each incoming HTTP request.
+ * by {@link JwtAuthFilter} on each incoming HTTP request.
  */
 @Component
 public class ThreadLocalSecurityContext implements SecurityContextPort {
