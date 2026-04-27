@@ -7,12 +7,8 @@
 # Stage 2 (runtime)     : Eclipse Temurin JRE + layered app
 # ============================================================
 
-# ── Stage 0: install platform-lib ────────────────────────────
-FROM maven:3.9-eclipse-temurin-21-alpine AS lib-builder
-WORKDIR /lib
-COPY platform-lib/pom.xml .
-COPY platform-lib/src ./src
-RUN mvn -q install -DskipTests --no-transfer-progress
+# ── Stage 0: reuse pre-built platform-lib base image (run.sh builds it) ──
+FROM plm-platform-lib:dev AS lib-builder
 
 # ── Stage 1: build spe-api ───────────────────────────────────
 FROM maven:3.9-eclipse-temurin-21-alpine AS builder

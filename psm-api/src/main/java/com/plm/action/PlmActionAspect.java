@@ -1,15 +1,19 @@
 package com.plm.action;
 
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.ConfigSnapshotUpdatedEvent;
+import com.plm.platform.config.dto.ActionConfig;
 import com.plm.shared.action.PlmAction;
-import com.plm.shared.authorization.PermissionCatalogPort;
-import com.plm.shared.authorization.PermissionScope;
-import com.plm.shared.authorization.PolicyPort;
+import com.plm.platform.authz.PermissionCatalogPort;
+import com.plm.platform.authz.PolicyPort;
 import com.plm.shared.exception.UnauthenticatedException;
+import static com.plm.platform.authz.PermissionScope.GLOBAL_CODE;
+import static com.plm.platform.authz.PermissionScope.LIFECYCLE_CODE;
+import static com.plm.platform.authz.PermissionScope.NODE_CODE;
 import com.plm.action.guard.ActionGuardContext;
 import com.plm.action.guard.ActionGuardService;
 import com.plm.shared.security.PlmUserContext;
 import com.plm.shared.security.SecurityContextPort;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -18,6 +22,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
@@ -59,38 +64,31 @@ public class PlmActionAspect {
     private final PermissionCatalogPort   permissionCatalog;
     private final ActionGuardService      actionGuardService;
     private final SecurityContextPort     secCtx;
-    private final DSLContext              dsl;
+    private final DSLContext              dsl;  // kept for business table queries (node, node_version)
+    private final ConfigCache             configCache;
 
     private static final ExpressionParser SPEL = new SpelExpressionParser();
 
-    /** actionCode → list of permission codes required. Loaded at startup. */
-    private Map<String, List<String>> permissionCache;
+    /** actionCode → list of permission codes required. Rebuilt on each snapshot update. */
+    private volatile Map<String, List<String>> permissionCache = Map.of();
 
-    /** actionCode → actionId. Loaded at startup. */
-    private Map<String, String> actionIdCache;
+    /** actionCode → actionId. Rebuilt on each snapshot update. */
+    private volatile Map<String, String> actionIdCache = Map.of();
 
-    @PostConstruct
-    void loadPermissionMappings() {
-        permissionCache = new HashMap<>();
-        actionIdCache   = new HashMap<>();
+    @EventListener(ConfigSnapshotUpdatedEvent.class)
+    public void onConfigSnapshotUpdated(ConfigSnapshotUpdatedEvent event) {
+        Map<String, List<String>> newPerms = new HashMap<>();
+        Map<String, String> newIds = new HashMap<>();
 
-        // Load action_required_permission mappings
-        dsl.fetch("""
-            SELECT a.action_code, arp.permission_code
-            FROM action_required_permission arp
-            JOIN action a ON a.id = arp.action_id
-            """)
-            .forEach(r -> {
-                String actionCode = r.get("action_code", String.class);
-                String permCode   = r.get("permission_code", String.class);
-                permissionCache.computeIfAbsent(actionCode, k -> new ArrayList<>()).add(permCode);
-            });
+        for (ActionConfig action : configCache.getAllActions()) {
+            if (action.requiredPermissions() != null && !action.requiredPermissions().isEmpty()) {
+                newPerms.put(action.actionCode(), new ArrayList<>(action.requiredPermissions()));
+            }
+            newIds.put(action.actionCode(), action.id());
+        }
 
-        // Load action IDs
-        dsl.fetch("SELECT id, action_code FROM action")
-            .forEach(r -> actionIdCache.put(
-                r.get("action_code", String.class),
-                r.get("id", String.class)));
+        permissionCache = Map.copyOf(newPerms);
+        actionIdCache   = Map.copyOf(newIds);
 
         log.info("PlmActionAspect: loaded {} action→permission mappings", permissionCache.size());
     }
@@ -158,7 +156,7 @@ public class PlmActionAspect {
         if (requiredPerms == null || requiredPerms.isEmpty()) return;
 
         for (String permCode : requiredPerms) {
-            PermissionScope permScope = permissionCatalog.scopeFor(permCode);
+            String permScope = permissionCatalog.scopeFor(permCode);
             if (permScope == null) {
                 log.warn("PlmActionAspect: permission code '{}' not found in permission table", permCode);
                 continue;
@@ -166,17 +164,19 @@ public class PlmActionAspect {
 
             try {
                 switch (permScope) {
-                    case GLOBAL -> policyService.assertGlobal(permCode);
-                    case NODE -> {
+                    case GLOBAL_CODE -> policyService.assertGlobal(permCode);
+                    case NODE_CODE -> {
                         if (nodeTypeId != null) {
                             policyService.assertNodeType(permCode, nodeTypeId);
                         }
                     }
-                    case LIFECYCLE -> {
+                    case LIFECYCLE_CODE -> {
                         if (nodeTypeId != null) {
                             policyService.assertLifecycle(permCode, nodeTypeId, transitionId);
                         }
                     }
+                    default -> log.warn("PlmActionAspect: no built-in handler for scope '{}' (permission '{}')",
+                        permScope, permCode);
                 }
             } catch (com.plm.shared.exception.AccessDeniedException e) {
                 String userId = secCtx.currentUser().getUserId();

@@ -22,7 +22,10 @@ export default function SignaturePanel({
 
   useWebSocket(
     nodeId ? `/topic/nodes/${nodeId}` : null,
-    (evt) => { if (evt.event === 'SIGNED') load(); },
+    (evt) => {
+      if (evt.nodeId && evt.nodeId !== nodeId) return;
+      if (evt.event === 'SIGNED') load();
+    },
     userId,
   );
 

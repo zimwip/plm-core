@@ -2,19 +2,22 @@ package com.plm.action.internal;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.ActionConfig;
+import com.plm.platform.config.dto.ActionParamOverrideConfig;
+import com.plm.platform.config.dto.ActionParameterConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jooq.DSLContext;
-import org.jooq.Record;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Validates user-supplied action parameters against the schema defined in
- * action_parameter, applying action_param_override when a
+ * ConfigCache (ActionParameterConfig), applying ActionParamOverrideConfig when a
  * node_type_action context is provided.
  */
 @Slf4j
@@ -22,7 +25,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ActionParameterValidator {
 
-    private final DSLContext  dsl;
+    private final ConfigCache  configCache;
     private final ObjectMapper mapper;
 
     /**
@@ -35,45 +38,45 @@ public class ActionParameterValidator {
      */
     public Map<String, String> validate(String actionId, String nodeTypeId,
                                         Map<String, String> rawParams) {
-        Map<String, String> params = rawParams != null ? new java.util.HashMap<>(rawParams) : new java.util.HashMap<>();
+        Map<String, String> params = rawParams != null ? new HashMap<>(rawParams) : new HashMap<>();
 
-        List<Record> schema = dsl.select().from("action_parameter")
-            .where("action_id = ?", actionId)
-            .orderBy(org.jooq.impl.DSL.field("display_order"))
-            .fetch();
+        ActionConfig action = configCache.getActionById(actionId).orElse(null);
+        List<ActionParameterConfig> schema = action != null && action.parameters() != null
+            ? action.parameters() : List.of();
 
-        Map<String, Record> overridesByParamId = new java.util.HashMap<>();
-        if (nodeTypeId != null) {
-            dsl.select().from("action_param_override")
-                .where("node_type_id = ?", nodeTypeId)
-                .and("action_id = ?", actionId)
-                .fetch()
-                .forEach(ov -> overridesByParamId.put(ov.get("parameter_id", String.class), ov));
+        // Build override map keyed by parameterId
+        Map<String, ActionParamOverrideConfig> overridesByParamId = new HashMap<>();
+        if (nodeTypeId != null && action != null && action.paramOverrides() != null) {
+            for (ActionParamOverrideConfig ov : action.paramOverrides()) {
+                if (nodeTypeId.equals(ov.nodeTypeId())) {
+                    overridesByParamId.put(ov.parameterId(), ov);
+                }
+            }
         }
 
         List<String> violations = new ArrayList<>();
 
-        for (Record param : schema) {
-            String name     = param.get("param_name",  String.class);
-            String label    = param.get("param_label", String.class);
-            String type     = param.get("data_type",   String.class);
-            String regex    = param.get("validation_regex", String.class);
-            String minV     = param.get("min_value",   String.class);
-            String maxV     = param.get("max_value",   String.class);
+        for (ActionParameterConfig param : schema) {
+            String name     = param.paramName();
+            String label    = param.paramLabel();
+            String type     = param.dataType();
+            String regex    = param.validationRegex();
+            String minV     = param.minValue();
+            String maxV     = param.maxValue();
 
-            String effectiveRequired      = null;
-            String effectiveDefault       = param.get("default_value",  String.class);
-            String effectiveAllowedValues = param.get("allowed_values", String.class);
-            int    baseRequired           = param.get("required", Integer.class);
+            Boolean effectiveRequired        = null;
+            String effectiveDefault          = param.defaultValue();
+            String effectiveAllowedValues    = param.allowedValues();
+            boolean baseRequired             = param.required();
 
-            Record ov = overridesByParamId.get(param.get("id", String.class));
+            ActionParamOverrideConfig ov = overridesByParamId.get(param.id());
             if (ov != null) {
-                if (ov.get("required",       Integer.class) != null) effectiveRequired      = String.valueOf(ov.get("required", Integer.class));
-                if (ov.get("default_value",  String.class) != null)  effectiveDefault       = ov.get("default_value",  String.class);
-                if (ov.get("allowed_values", String.class) != null)  effectiveAllowedValues = ov.get("allowed_values", String.class);
+                if (ov.required()      != null) effectiveRequired      = ov.required();
+                if (ov.defaultValue()  != null) effectiveDefault       = ov.defaultValue();
+                if (ov.allowedValues() != null) effectiveAllowedValues = ov.allowedValues();
             }
 
-            boolean required = effectiveRequired != null ? "1".equals(effectiveRequired) : baseRequired == 1;
+            boolean required = effectiveRequired != null ? effectiveRequired : baseRequired;
 
             // Apply default if param absent
             String value = params.get(name);
@@ -112,9 +115,9 @@ public class ActionParameterValidator {
                 try {
                     double num = Double.parseDouble(value);
                     if (minV != null && num < Double.parseDouble(minV))
-                        violations.add("'" + label + "' must be ≥ " + minV);
+                        violations.add("'" + label + "' must be >= " + minV);
                     if (maxV != null && num > Double.parseDouble(maxV))
-                        violations.add("'" + label + "' must be ≤ " + maxV);
+                        violations.add("'" + label + "' must be <= " + maxV);
                 } catch (NumberFormatException e) {
                     violations.add("'" + label + "' must be a number");
                 }

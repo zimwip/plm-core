@@ -1,7 +1,8 @@
 package com.plm.node.signature.internal;
 import com.plm.node.version.internal.FingerPrintService;
 
-import com.plm.shared.authorization.PlmPermission;
+import com.plm.platform.authz.KeyExpr;
+import com.plm.platform.authz.PlmPermission;
 import com.plm.shared.event.PlmEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,7 +38,7 @@ public class CommentService {
     private final FingerPrintService fingerPrintService;
     private final PlmEventPublisher  eventPublisher;
 
-    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     @Transactional
     public String addComment(String nodeId, String nodeVersionId, String userId,
                              String text, String parentCommentId, String attributeName) {
@@ -78,7 +79,7 @@ public class CommentService {
         return id;
     }
 
-    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public List<Map<String, Object>> getComments(String nodeId) {
         return dsl.fetch("""
             SELECT c.id, c.author, c.created_at, c.text, c.version_fingerprint,

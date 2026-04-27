@@ -195,6 +195,9 @@ export default function NodeEditor({
   useWebSocket(
     nodeId ? `/topic/nodes/${nodeId}` : null,
     (evt) => {
+      // With NATS global subjects, all events arrive. Filter by nodeId.
+      if (evt.nodeId && evt.nodeId !== nodeId) return;
+
       const NODE_EVENTS = ['STATE_CHANGED', 'LOCK_ACQUIRED', 'LOCK_RELEASED', 'NODE_UPDATED', 'SIGNED'];
       if (NODE_EVENTS.includes(evt.event)) {
         refreshNodeDesc(nodeId);  // update this editor's content in the store
@@ -702,7 +705,9 @@ export default function NodeEditor({
         <div className="violations-banner">
           <span className="violations-banner-title">⚠ Will fail at commit:</span>
           <ul className="violations-banner-list">
-            {saveViolations.map((v, i) => <li key={i}>{v}</li>)}
+            {saveViolations.map((v, i) => (
+              <li key={i}>{typeof v === 'string' ? v : v.message}</li>
+            ))}
           </ul>
         </div>
       )}
@@ -1552,8 +1557,8 @@ function DiffModal({ diff, v1Num, v2Num, onClose, stateColorMap }) {
                   </thead>
                   <tbody>
                     {changedAttrs.map(attr => (
-                      <tr key={attr.name} className="diff-row-changed">
-                        <td className="diff-attr-name">{attr.label || attr.name}</td>
+                      <tr key={attr.id || attr.code} className="diff-row-changed">
+                        <td className="diff-attr-name">{attr.label || attr.id || attr.code}</td>
                         <td className="diff-val diff-val-old">
                           {attr.v1Value !== '' ? attr.v1Value : <span className="diff-empty">—</span>}
                         </td>
@@ -1583,8 +1588,8 @@ function DiffModal({ diff, v1Num, v2Num, onClose, stateColorMap }) {
                 </thead>
                 <tbody>
                   {unchangedAttrs.map(attr => (
-                    <tr key={attr.name} className="diff-row-unchanged">
-                      <td className="diff-attr-name">{attr.label || attr.name}</td>
+                    <tr key={attr.id || attr.code} className="diff-row-unchanged">
+                      <td className="diff-attr-name">{attr.label || attr.id || attr.code}</td>
                       <td className="diff-val" colSpan={2} style={{ color: 'var(--muted2)' }}>
                         {attr.v1Value !== '' ? attr.v1Value : <span className="diff-empty">—</span>}
                       </td>

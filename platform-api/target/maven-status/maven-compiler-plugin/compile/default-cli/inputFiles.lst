@@ -1,0 +1,14 @@
+/work/platform-api/src/main/java/com/plm/platform/api/PlatformApiApplication.java
+/work/platform-api/src/main/java/com/plm/platform/api/api/SettingsGroupDto.java
+/work/platform-api/src/main/java/com/plm/platform/api/api/SettingsSectionResponse.java
+/work/platform-api/src/main/java/com/plm/platform/api/api/SettingsSectionsController.java
+/work/platform-api/src/main/java/com/plm/platform/api/client/PnoApiClient.java
+/work/platform-api/src/main/java/com/plm/platform/api/registry/ServiceSettingsRegistration.java
+/work/platform-api/src/main/java/com/plm/platform/api/registry/SettingsRegistrationController.java
+/work/platform-api/src/main/java/com/plm/platform/api/registry/SettingsSectionRegistry.java
+/work/platform-api/src/main/java/com/plm/platform/api/secrets/SecretsAdminController.java
+/work/platform-api/src/main/java/com/plm/platform/api/secrets/SecretsSettingSections.java
+/work/platform-api/src/main/java/com/plm/platform/api/sections/GeneralAndHelpSections.java
+/work/platform-api/src/main/java/com/plm/platform/api/security/SettingsAuthContextBinder.java
+/work/platform-api/src/main/java/com/plm/platform/api/security/SettingsSecurityContext.java
+/work/platform-api/src/main/java/com/plm/platform/api/security/SettingsUserContext.java

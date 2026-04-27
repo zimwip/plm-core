@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
  *   GET /api/psm/dashboard/workitems    → noeuds sur lesquels l'utilisateur peut agir
  */
 @RestController
-@RequestMapping("/api/psm/dashboard")
+@RequestMapping("/dashboard")
 @RequiredArgsConstructor
 public class DashboardController {
 

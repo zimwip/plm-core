@@ -13,7 +13,7 @@ import {
   CpuIcon as SCpuIcon, WorkflowIcon as SWorkflowIcon, TerminalIcon as STerminalIcon,
   BookIcon as SBookIcon, UserIcon as SUserIcon,
 } from './Icons';
-import { Database as SDatabaseIcon, List as SListIcon, KeyRound as SKeyIcon } from 'lucide-react';
+import { Database as SDatabaseIcon, List as SListIcon, KeyRound as SKeyIcon, Globe as SGlobeIcon } from 'lucide-react';
 
 const SECTION_ICONS = {
   'my-profile':     SUserIcon,
@@ -26,7 +26,8 @@ const SECTION_ICONS = {
   'access-rights':  SShieldIcon,
   'algorithms':     SCpuIcon,
   'guards':         SWorkflowIcon,
-  'secrets':        SKeyIcon,
+  'secrets':                SKeyIcon,
+  'platform-environment':   SGlobeIcon,
   'api-playground': STerminalIcon,
   'user-manual':    SBookIcon,
 };

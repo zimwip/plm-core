@@ -3,10 +3,13 @@ package com.plm.node.metamodel.internal.guard;
 import com.plm.algorithm.AlgorithmBean;
 import com.plm.node.lifecycle.internal.guard.LifecycleGuard;
 import com.plm.node.lifecycle.internal.guard.LifecycleGuardContext;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.LifecycleConfig;
+import com.plm.platform.config.dto.LifecycleTransitionConfig;
 import com.plm.shared.guard.GuardEffect;
 import com.plm.shared.guard.GuardViolation;
+import com.plm.node.metamodel.MetaModelCachePort;
 import com.plm.shared.model.ResolvedAttribute;
-import com.plm.node.metamodel.internal.MetaModelCache;
 import com.plm.node.version.internal.VersionService;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -28,8 +31,9 @@ import java.util.Map;
 public class AllRequiredFilledGuard implements LifecycleGuard {
 
     private final DSLContext     dsl;
+    private final ConfigCache    configCache;
     private final VersionService versionService;
-    private final MetaModelCache metaModelCache;
+    private final MetaModelCachePort metaModelCache;
 
     @Override
     public String code() { return "all_required_filled"; }
@@ -38,10 +42,8 @@ public class AllRequiredFilledGuard implements LifecycleGuard {
     public List<GuardViolation> evaluate(LifecycleGuardContext ctx) {
         if (ctx.transitionId() == null) return List.of();
 
-        // Resolve target state from transition
-        String toStateId = dsl.select().from("lifecycle_transition")
-            .where("id = ?", ctx.transitionId())
-            .fetchOne("to_state_id", String.class);
+        // Resolve target state from transition via ConfigCache
+        String toStateId = findTransitionToState(ctx.transitionId());
         if (toStateId == null) return List.of();
 
         String nodeTypeId = ctx.nodeTypeId() != null ? ctx.nodeTypeId()
@@ -72,15 +74,29 @@ public class AllRequiredFilledGuard implements LifecycleGuard {
 
         List<GuardViolation> violations = new ArrayList<>();
         for (ResolvedAttribute attr : allAttrs) {
-            Record rule = metaModelCache.getStateRule(nodeTypeId, attr.id(), toStateId);
-            if (rule == null || rule.get("required", Integer.class) != 1) continue;
+            MetaModelCachePort.StateRuleInfo rule = metaModelCache.getStateRuleInfo(nodeTypeId, attr.id(), toStateId);
+            if (rule == null || !rule.required()) continue;
             String value = currentValues.get(attr.id());
             if (value == null || value.isBlank()) {
+                String label = (attr.label() != null && !attr.label().isBlank())
+                    ? attr.label() : attr.id();
                 violations.add(new GuardViolation(code(),
-                    "Required field '" + attr.label() + "' is empty",
-                    GuardEffect.BLOCK, attr.name()));
+                    "Required field '" + label + "' is empty",
+                    GuardEffect.BLOCK, attr.id()));
             }
         }
         return violations;
+    }
+
+    private String findTransitionToState(String transitionId) {
+        for (LifecycleConfig lc : configCache.getAllLifecycles()) {
+            if (lc.transitions() == null) continue;
+            for (LifecycleTransitionConfig tr : lc.transitions()) {
+                if (transitionId.equals(tr.id())) {
+                    return tr.toStateId();
+                }
+            }
+        }
+        return null;
     }
 }

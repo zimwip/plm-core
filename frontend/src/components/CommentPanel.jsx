@@ -177,7 +177,10 @@ export default function CommentPanel({
 
   useWebSocket(
     nodeId ? `/topic/nodes/${nodeId}` : null,
-    (evt) => { if (evt.event === 'COMMENT_ADDED') load(); },
+    (evt) => {
+      if (evt.nodeId && evt.nodeId !== nodeId) return;
+      if (evt.event === 'COMMENT_ADDED') load();
+    },
     userId,
   );
 

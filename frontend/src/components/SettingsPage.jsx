@@ -351,6 +351,7 @@ function ModalSection({ label, action }) {
 
 /* ── Reusable attribute form fields ─────────────────────────────── */
 function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false, userId }) {
+  const dt = form.dataType || 'STRING';
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -363,7 +364,7 @@ function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false, u
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field label="Data Type">
-          <select className="field-input" value={form.dataType || 'STRING'} onChange={e => setForm(f => ({ ...f, dataType: e.target.value }))}>
+          <select className="field-input" value={dt} onChange={e => setForm(f => ({ ...f, dataType: e.target.value }))}>
             {DATA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </Field>
@@ -381,6 +382,20 @@ function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false, u
           <input className="field-input" type="number" min="0" value={form.displayOrder ?? ''} onChange={e => setForm(f => ({ ...f, displayOrder: e.target.value }))} placeholder="0" />
         </Field>
       </div>
+      <Field label="Default value">
+        <input className="field-input" value={form.defaultValue || ''} onChange={e => setForm(f => ({ ...f, defaultValue: e.target.value }))} placeholder="Optional" />
+      </Field>
+      <Field label="Validation regex">
+        <input className="field-input" value={form.namingRegex || ''} onChange={e => setForm(f => ({ ...f, namingRegex: e.target.value }))} placeholder="e.g. ^[A-Z]{3}-[0-9]+$" />
+      </Field>
+      {dt !== 'ENUM' && (
+        <Field label="Allowed values (comma-separated)">
+          <input className="field-input" value={form.allowedValues || ''} onChange={e => setForm(f => ({ ...f, allowedValues: e.target.value }))} placeholder="e.g. Low,Medium,High" />
+        </Field>
+      )}
+      <Field label="Tooltip">
+        <input className="field-input" value={form.tooltip || ''} onChange={e => setForm(f => ({ ...f, tooltip: e.target.value }))} placeholder="Hint shown next to the field" />
+      </Field>
       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
           <input type="checkbox" checked={!!form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} />
@@ -393,7 +408,7 @@ function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false, u
           </label>
         )}
       </div>
-      {(form.dataType === 'ENUM') && userId && (
+      {dt === 'ENUM' && userId && (
         <EnumPicker userId={userId} enumDefinitionId={form.enumDefinitionId || null}
           onChange={v => setForm(f => ({ ...f, enumDefinitionId: v }))} />
       )}
@@ -426,6 +441,10 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
       enumDefinitionId: a.enum_definition_id || a.ENUM_DEFINITION_ID || null,
       displaySection: a.display_section || a.DISPLAY_SECTION || '',
       displayOrder:   a.display_order  ?? a.DISPLAY_ORDER  ?? '',
+      defaultValue:   a.default_value  || a.DEFAULT_VALUE  || '',
+      namingRegex:    a.naming_regex   || a.NAMING_REGEX   || '',
+      allowedValues:  a.allowed_values || a.ALLOWED_VALUES || '',
+      tooltip:        a.tooltip        || a.TOOLTIP        || '',
     });
     setEditModal({ attr: a });
   }
@@ -441,6 +460,10 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
         enumDefinitionId: editForm.dataType === 'ENUM' ? (editForm.enumDefinitionId || null) : null,
         displaySection: editForm.displaySection || null,
         displayOrder:   editForm.displayOrder !== '' ? Number(editForm.displayOrder) : 0,
+        defaultValue:   editForm.defaultValue?.trim() || null,
+        namingRegex:    editForm.namingRegex?.trim() || null,
+        allowedValues:  editForm.dataType !== 'ENUM' ? (editForm.allowedValues?.trim() || null) : null,
+        tooltip:        editForm.tooltip?.trim() || null,
       });
       await load();
       setEditModal(null);
@@ -461,6 +484,10 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
         enumDefinitionId: addingForm.dataType === 'ENUM' ? (addingForm.enumDefinitionId || null) : null,
         displaySection: addingForm.displaySection || null,
         displayOrder:   addingForm.displayOrder !== '' ? Number(addingForm.displayOrder) : 0,
+        defaultValue:   addingForm.defaultValue?.trim() || null,
+        namingRegex:    addingForm.namingRegex?.trim() || null,
+        allowedValues:  addingForm.dataType !== 'ENUM' ? (addingForm.allowedValues?.trim() || null) : null,
+        tooltip:        addingForm.tooltip?.trim() || null,
       });
       await load();
       setAddingForm(null);
@@ -516,6 +543,20 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
               <input className="field-input" type="number" min="0" value={editForm.displayOrder ?? ''} onChange={e => setEditForm(f => ({ ...f, displayOrder: e.target.value }))} />
             </Field>
           </div>
+          <Field label="Default value">
+            <input className="field-input" value={editForm.defaultValue || ''} onChange={e => setEditForm(f => ({ ...f, defaultValue: e.target.value }))} placeholder="Optional" />
+          </Field>
+          <Field label="Validation regex">
+            <input className="field-input" value={editForm.namingRegex || ''} onChange={e => setEditForm(f => ({ ...f, namingRegex: e.target.value }))} placeholder="e.g. ^[A-Z]{3}-[0-9]+$" />
+          </Field>
+          {editForm.dataType !== 'ENUM' && (
+            <Field label="Allowed values (comma-separated)">
+              <input className="field-input" value={editForm.allowedValues || ''} onChange={e => setEditForm(f => ({ ...f, allowedValues: e.target.value }))} placeholder="e.g. Low,Medium,High" />
+            </Field>
+          )}
+          <Field label="Tooltip">
+            <input className="field-input" value={editForm.tooltip || ''} onChange={e => setEditForm(f => ({ ...f, tooltip: e.target.value }))} placeholder="Hint shown next to the field" />
+          </Field>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
             <input type="checkbox" checked={!!editForm.required} onChange={e => setEditForm(f => ({ ...f, required: e.target.checked }))} />
             Required field
@@ -584,6 +625,12 @@ function LinkAttrTable({ userId, linkTypeId, canWrite, toast }) {
             <EnumPicker userId={userId} enumDefinitionId={addingForm.enumDefinitionId || null}
               onChange={v => setAddingForm(f => ({ ...f, enumDefinitionId: v }))} />
           )}
+          <input className="field-input" placeholder="Default value (optional)" value={addingForm.defaultValue || ''} onChange={e => setAddingForm(f => ({ ...f, defaultValue: e.target.value }))} />
+          <input className="field-input" placeholder="Validation regex (optional, e.g. ^[A-Z]+$)" value={addingForm.namingRegex || ''} onChange={e => setAddingForm(f => ({ ...f, namingRegex: e.target.value }))} />
+          {addingForm.dataType !== 'ENUM' && (
+            <input className="field-input" placeholder="Allowed values comma-separated (optional)" value={addingForm.allowedValues || ''} onChange={e => setAddingForm(f => ({ ...f, allowedValues: e.target.value }))} />
+          )}
+          <input className="field-input" placeholder="Tooltip (optional)" value={addingForm.tooltip || ''} onChange={e => setAddingForm(f => ({ ...f, tooltip: e.target.value }))} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
               <input type="checkbox" checked={!!addingForm.required} onChange={e => setAddingForm(f => ({ ...f, required: e.target.checked }))} />
@@ -863,6 +910,10 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
           enumDefinitionId: form.dataType === 'ENUM' ? (form.enumDefinitionId || null) : null,
           displaySection: form.displaySection?.trim() || null,
           displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
+          defaultValue:   form.defaultValue?.trim() || null,
+          namingRegex:    form.namingRegex?.trim() || null,
+          allowedValues:  form.dataType !== 'ENUM' ? (form.allowedValues?.trim() || null) : null,
+          tooltip:        form.tooltip?.trim() || null,
         });
         const updated = await api.getNodeTypeAttributes(userId, ctx.nodeTypeId);
         setAttrs(s => ({ ...s, [ctx.nodeTypeId]: Array.isArray(updated) ? updated : [] }));
@@ -877,6 +928,10 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
           enumDefinitionId: form.dataType === 'ENUM' ? (form.enumDefinitionId || null) : null,
           displaySection: form.displaySection?.trim() || null,
           displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
+          defaultValue:   form.defaultValue?.trim() || null,
+          namingRegex:    form.namingRegex?.trim() || null,
+          allowedValues:  form.dataType !== 'ENUM' ? (form.allowedValues?.trim() || null) : null,
+          tooltip:        form.tooltip?.trim() || null,
         });
         const updated = await api.getNodeTypeAttributes(userId, ctx.nodeTypeId);
         setAttrs(s => ({ ...s, [ctx.nodeTypeId]: Array.isArray(updated) ? updated : [] }));
@@ -1106,45 +1161,9 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
           )}
 
           {/* ── Edit attribute ── */}
-          {modal.type === 'edit-attr' && <>
-            <Field label="Label (display) *">
-              <input className="field-input" autoFocus value={form.label || ''} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} />
-            </Field>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Field label="Data Type">
-                <select className="field-input" value={form.dataType || 'STRING'} onChange={e => setForm(f => ({ ...f, dataType: e.target.value }))}>
-                  {DATA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </Field>
-              <Field label="Widget">
-                <select className="field-input" value={form.widgetType || 'TEXT'} onChange={e => setForm(f => ({ ...f, widgetType: e.target.value }))}>
-                  {WIDGET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </Field>
-            </div>
-            {(form.dataType === 'ENUM') && (
-              <EnumPicker userId={userId} enumDefinitionId={form.enumDefinitionId || null}
-                onChange={v => setForm(f => ({ ...f, enumDefinitionId: v }))} />
-            )}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 12 }}>
-              <Field label="Section">
-                <input className="field-input" value={form.displaySection || ''} onChange={e => setForm(f => ({ ...f, displaySection: e.target.value }))} />
-              </Field>
-              <Field label="Order">
-                <input className="field-input" type="number" min="0" value={form.displayOrder ?? ''} onChange={e => setForm(f => ({ ...f, displayOrder: e.target.value }))} />
-              </Field>
-            </div>
-            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                <input type="checkbox" checked={!!form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} />
-                Required field
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                <input type="checkbox" checked={!!form.asName} onChange={e => setForm(f => ({ ...f, asName: e.target.checked }))} />
-                Use as display name <span style={{ color: 'var(--accent)', marginLeft: 2 }}>★</span>
-              </label>
-            </div>
-          </>}
+          {modal.type === 'edit-attr' && (
+            <AttrFields form={form} setForm={setForm} autoFocusName={false} userId={userId} />
+          )}
 
           {/* ── Create link type ── */}
           {modal.type === 'create-link' && <>
@@ -1458,6 +1477,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                                 <div style={{ display: 'flex', gap: 4 }}>
                                   {canWrite && !aInherited && (
                                     <button className="panel-icon-btn" title="Edit" onClick={() => openModal('edit-attr', { nodeTypeId: id, attrId: aid }, {
+                                      name:           a.name           || a.NAME           || '',
                                       label:          albl,
                                       dataType:       a.data_type      || a.DATA_TYPE      || 'STRING',
                                       widgetType:     a.widget_type    || a.WIDGET_TYPE    || 'TEXT',
@@ -1466,6 +1486,10 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                                       enumDefinitionId: a.enum_definition_id || a.ENUM_DEFINITION_ID || null,
                                       displaySection: a.display_section || a.DISPLAY_SECTION || '',
                                       displayOrder:   a.display_order  ?? a.DISPLAY_ORDER  ?? '',
+                                      defaultValue:   a.default_value  || a.DEFAULT_VALUE  || '',
+                                      namingRegex:    a.naming_regex   || a.NAMING_REGEX   || '',
+                                      allowedValues:  a.allowed_values || a.ALLOWED_VALUES || '',
+                                      tooltip:        a.tooltip        || a.TOOLTIP        || '',
                                     })}>
                                       <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
                                     </button>
@@ -1614,8 +1638,8 @@ function StateFormFields({ form, setForm, knownMetaKeys = [] }) {
     metadata: { ...(f.metadata || {}), [key]: val ? 'true' : undefined },
   }));
 
-  // Known keys from @Metadata annotations
-  const knownKeyNames = new Set(knownMetaKeys.map(k => k.key));
+  // Known keys from backend (distinct meta_key values, List<String>)
+  const knownKeyNames = new Set(knownMetaKeys);
   // Extra keys in current metadata not covered by known keys
   const extraKeys = Object.keys(meta).filter(k => !knownKeyNames.has(k));
 
@@ -1639,10 +1663,9 @@ function StateFormFields({ form, setForm, knownMetaKeys = [] }) {
       <Field label="Metadata">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {knownMetaKeys.map(mk => (
-            <label key={mk.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={meta[mk.key] === 'true'} onChange={e => setMeta(mk.key, e.target.checked)} />
-              <span className="lc-state-flag" style={{ opacity: meta[mk.key] === 'true' ? 1 : 0.4 }}>{mk.key.toUpperCase()}</span>
-              <span style={{ color: 'var(--muted)', fontSize: 11 }}>{mk.description}</span>
+            <label key={mk} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={meta[mk] === 'true'} onChange={e => setMeta(mk, e.target.checked)} />
+              <span className="lc-state-flag" style={{ opacity: meta[mk] === 'true' ? 1 : 0.4 }}>{mk.toUpperCase()}</span>
             </label>
           ))}
           {knownMetaKeys.length === 0 && (
@@ -1780,6 +1803,10 @@ export function DomainsSection({ userId, canWrite, toast }) {
           enumDefinitionId: form.dataType === 'ENUM' ? (form.enumDefinitionId || null) : null,
           displaySection: form.displaySection?.trim() || null,
           displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
+          defaultValue:   form.defaultValue?.trim() || null,
+          namingRegex:    form.namingRegex?.trim() || null,
+          allowedValues:  form.dataType !== 'ENUM' ? (form.allowedValues?.trim() || null) : null,
+          tooltip:        form.tooltip?.trim() || null,
         });
         const updated = await api.getDomainAttributes(userId, ctx.domainId);
         setAttrs(s => ({ ...s, [ctx.domainId]: Array.isArray(updated) ? updated : [] }));
@@ -1794,6 +1821,10 @@ export function DomainsSection({ userId, canWrite, toast }) {
           enumDefinitionId: form.dataType === 'ENUM' ? (form.enumDefinitionId || null) : null,
           displaySection: form.displaySection?.trim() || null,
           displayOrder:   form.displayOrder !== '' ? Number(form.displayOrder) : 0,
+          defaultValue:   form.defaultValue?.trim() || null,
+          namingRegex:    form.namingRegex?.trim() || null,
+          allowedValues:  form.dataType !== 'ENUM' ? (form.allowedValues?.trim() || null) : null,
+          tooltip:        form.tooltip?.trim() || null,
         });
         const updated = await api.getDomainAttributes(userId, ctx.domainId);
         setAttrs(s => ({ ...s, [ctx.domainId]: Array.isArray(updated) ? updated : [] }));
@@ -2007,6 +2038,10 @@ export function DomainsSection({ userId, canWrite, toast }) {
                                       enumDefinitionId: a.enum_definition_id || null,
                                       displaySection: a.display_section || '',
                                       displayOrder:   a.display_order ?? '',
+                                      defaultValue:   a.default_value || '',
+                                      namingRegex:    a.naming_regex || '',
+                                      allowedValues:  a.allowed_values || '',
+                                      tooltip:        a.tooltip || '',
                                     })}>
                                       <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
                                     </button>
@@ -2958,9 +2993,31 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                               border: '1px solid var(--border)',
                               fontSize: 11,
                             }}>
-                              <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600 }}>{g.algorithmCode || g.instanceName}</span>
+                              <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600 }}>{g.algorithmName || g.algorithmCode || g.instanceName}</span>
+                              {g.algorithmCode && g.algorithmName && (
+                                <span style={{ fontSize: 10, color: 'var(--muted)' }}>({g.algorithmCode})</span>
+                              )}
                               <ModuleBadge module={g.moduleName} />
-                              <span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`} style={{ fontSize: 9 }}>{g.effect}</span>
+                              {canWrite ? (
+                                <select className="field-input" style={{ fontSize: 10, padding: '0 4px', height: 20 }}
+                                  value={g.effect}
+                                  onChange={async (e) => {
+                                    const newEffect = e.target.value;
+                                    try {
+                                      await api.updateTransitionGuard(userId, g.id, newEffect);
+                                      setTransGuards(s => ({
+                                        ...s,
+                                        [tid]: (s[tid] || []).map(x => x.id === g.id ? { ...x, effect: newEffect } : x),
+                                      }));
+                                      toast('Effect updated', 'success');
+                                    } catch (err) { toast(err, 'error'); }
+                                  }}>
+                                  <option value="HIDE">HIDE</option>
+                                  <option value="BLOCK">BLOCK</option>
+                                </select>
+                              ) : (
+                                <span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`} style={{ fontSize: 9 }}>{g.effect}</span>
+                              )}
                               <span style={{ flex: 1 }} />
                               {canWrite && (
                                 <button className="panel-icon-btn" title="Detach guard" onClick={async () => {
@@ -3882,7 +3939,13 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
       api.getLifecycles(userId),
     ]).then(async ([roleList, permList, ntList, lcList]) => {
       setRoles(Array.isArray(roleList) ? roleList : []);
-      setPermissions(Array.isArray(permList) ? permList : []);
+      const normPerms = (Array.isArray(permList) ? permList : []).map(p => ({
+        ...p,
+        permissionCode: p.permissionCode || p.permission_code,
+        displayName:    p.displayName    || p.display_name,
+        displayOrder:   p.displayOrder   ?? p.display_order,
+      }));
+      setPermissions(normPerms);
       setNodeTypes(Array.isArray(ntList) ? ntList : []);
 
       // Load transitions for each lifecycle
@@ -3907,7 +3970,13 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
 
   async function reloadPermissions() {
     const permList = await api.listPermissions(userId).catch(() => []);
-    setPermissions(Array.isArray(permList) ? permList : []);
+    const normalized = (Array.isArray(permList) ? permList : []).map(p => ({
+      ...p,
+      permissionCode: p.permissionCode || p.permission_code,
+      displayName:    p.displayName    || p.display_name,
+      displayOrder:   p.displayOrder   ?? p.display_order,
+    }));
+    setPermissions(normalized);
   }
 
   // Split permissions by scope
@@ -4241,23 +4310,16 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
 
   if (algorithms === null) return <div className="settings-loading">Loading…</div>;
 
-  // Group algorithms by module → domain → type. Backend tells us the Spring
-  // Modulith module and the first-level sub-package (domain) for each bean.
-  const algosByType = {};
+  // type → module → algorithms[]. typeName + moduleName populated by psm-api
+  // registration (see AlgorithmRegistrationClient). Algorithms registered before
+  // V4 may have null moduleName until psm-api runs once after upgrade.
+  const algosByTypeModule = {};
   algorithms.forEach(a => {
-    const key = a.typeName || 'Unknown';
-    if (!algosByType[key]) algosByType[key] = [];
-    algosByType[key].push(a);
-  });
-
-  // module → domain → algorithms[]
-  const algosByModuleDomain = {};
-  algorithms.forEach(a => {
+    const t = a.typeName || 'Unknown';
     const mod = a.moduleName || 'unknown';
-    const dom = a.domainName || '(root)';
-    if (!algosByModuleDomain[mod]) algosByModuleDomain[mod] = {};
-    if (!algosByModuleDomain[mod][dom]) algosByModuleDomain[mod][dom] = [];
-    algosByModuleDomain[mod][dom].push(a);
+    if (!algosByTypeModule[t]) algosByTypeModule[t] = {};
+    if (!algosByTypeModule[t][mod]) algosByTypeModule[t][mod] = [];
+    algosByTypeModule[t][mod].push(a);
   });
 
   // Group instances by algorithm
@@ -4332,8 +4394,7 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
                       <th style={{ textAlign: 'right' }}>Avg (ms)</th>
                       <th style={{ textAlign: 'right' }}>Max (ms)</th>
                       <th style={{ textAlign: 'right' }}>Total (ms)</th>
-                      <th style={{ textAlign: 'right' }}>Pending</th>
-                      <th>Last Flush</th>
+                      <th>Last Update</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4345,7 +4406,6 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
                         <td style={{ textAlign: 'right' }}>{typeof s.avgMs === 'number' ? s.avgMs.toFixed(3) : '—'}</td>
                         <td style={{ textAlign: 'right' }}>{typeof s.maxMs === 'number' ? s.maxMs.toFixed(3) : '—'}</td>
                         <td style={{ textAlign: 'right' }}>{typeof s.totalMs === 'number' ? s.totalMs.toFixed(1) : '—'}</td>
-                        <td style={{ textAlign: 'right', color: s.pendingFlush > 0 ? 'var(--warn)' : 'var(--muted)' }}>{s.pendingFlush || 0}</td>
                         <td style={{ fontSize: 10, color: 'var(--muted)' }}>{s.lastFlushed || '—'}</td>
                       </tr>
                     ))}
@@ -4475,17 +4535,17 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
 
       {/* ── Catalog tab ── */}
       {tab === 'catalog' && <div className="settings-list">
-          {Object.entries(algosByModuleDomain).sort(([a],[b]) => a.localeCompare(b)).map(([mod, domains]) => (
-            <div key={mod} style={{ marginBottom: 22 }}>
+          {Object.entries(algosByTypeModule).sort(([a],[b]) => a.localeCompare(b)).map(([typeName, mods]) => (
+            <div key={typeName} style={{ marginBottom: 22 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
-                <ModuleBadge module={mod} />
-                <span style={{ fontSize: 10, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '.06em' }}>module</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{typeName}</span>
+                <span style={{ fontSize: 10, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '.06em' }}>type</span>
               </div>
-            {Object.entries(domains).sort(([a],[b]) => a.localeCompare(b)).map(([dom, algos]) => (
-            <div key={dom} style={{ marginBottom: 14, marginLeft: 4 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
-                <span style={{ opacity: .5 }}>▸</span> {dom}
-                <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--muted2)' }}>({algos.length})</span>
+            {Object.entries(mods).sort(([a],[b]) => a.localeCompare(b)).map(([mod, algos]) => (
+            <div key={mod} style={{ marginBottom: 14, marginLeft: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <ModuleBadge module={mod} />
+                <span style={{ fontSize: 9, color: 'var(--muted2)' }}>({algos.length})</span>
               </div>
               {algos.map(algo => {
                 const isExp = expandedAlgo === algo.id;
@@ -4644,11 +4704,22 @@ export function GuardsSection({ userId, canWrite, toast }) {
     if (!actionWrappers[actionId]) loadActionWrappers(actionId);
   }
 
-  async function handleAttachActionGuard(actionId, instanceId) {
+  async function handleAttachActionGuard(actionId, instanceId, effect) {
     try {
-      await api.attachActionGuard(userId, actionId, instanceId, 'HIDE', 0);
+      await api.attachActionGuard(userId, actionId, instanceId, effect || 'HIDE', 0);
       loadActionGuards(actionId);
       toast('Guard attached', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function handleUpdateActionGuardEffect(actionId, guardId, effect) {
+    try {
+      await api.updateActionGuard(userId, actionId, guardId, effect);
+      setActionGuards(s => ({
+        ...s,
+        [actionId]: (s[actionId] || []).map(g => g.id === guardId ? { ...g, effect } : g),
+      }));
+      toast('Effect updated', 'success');
     } catch (e) { toast(e, 'error'); }
   }
 
@@ -4662,26 +4733,25 @@ export function GuardsSection({ userId, canWrite, toast }) {
 
   if (actions === null) return <div className="settings-loading">Loading…</div>;
 
-  // handler_code → { moduleName, domainName } lookup (backend-driven)
+  // Backend pre-joins handler algorithm → module on each action row
+  // (action.handlerModuleName). Falls back to algorithm lookup by handler code
+  // for older payloads.
   const algByCode = {};
   (algorithms || []).forEach(a => { if (a.code) algByCode[a.code] = a; });
 
-  function actionModuleDomain(action) {
+  function actionModule(action) {
+    if (action.handlerModuleName) return action.handlerModuleName;
     const handlerCode = action.handler_code || action.handlerCode;
     const alg = handlerCode ? algByCode[handlerCode] : null;
-    return {
-      moduleName: alg?.moduleName || 'unknown',
-      domainName: alg?.domainName || '(root)',
-    };
+    return alg?.moduleName || 'unknown';
   }
 
-  // Group actions by module → domain for display splitting
-  const actionsByModuleDomain = {};
+  // Group actions by handler module (drop domain).
+  const actionsByModule = {};
   actions.forEach(a => {
-    const { moduleName, domainName } = actionModuleDomain(a);
-    if (!actionsByModuleDomain[moduleName]) actionsByModuleDomain[moduleName] = {};
-    if (!actionsByModuleDomain[moduleName][domainName]) actionsByModuleDomain[moduleName][domainName] = [];
-    actionsByModuleDomain[moduleName][domainName].push(a);
+    const mod = actionModule(a);
+    if (!actionsByModule[mod]) actionsByModule[mod] = [];
+    actionsByModule[mod].push(a);
   });
 
   const tabStyle = (key) => ({
@@ -4707,19 +4777,13 @@ export function GuardsSection({ userId, canWrite, toast }) {
       {/* ── Action Guards tab ── */}
       {tab === 'action-guards' && (
         <div className="settings-list">
-          {Object.entries(actionsByModuleDomain).sort(([a],[b]) => a.localeCompare(b)).map(([mod, domains]) => (
+          {Object.entries(actionsByModule).sort(([a],[b]) => a.localeCompare(b)).map(([mod, actionsInMod]) => (
           <div key={mod} style={{ marginBottom: 22 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
               <ModuleBadge module={mod} />
-              <span style={{ fontSize: 10, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '.06em' }}>module</span>
+              <span style={{ fontSize: 9, color: 'var(--muted2)' }}>({actionsInMod.length})</span>
             </div>
-          {Object.entries(domains).sort(([a],[b]) => a.localeCompare(b)).map(([dom, actionsInDom]) => (
-          <div key={dom} style={{ marginBottom: 14, marginLeft: 4 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
-              <span style={{ opacity: .5 }}>▸</span> {dom}
-              <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--muted2)' }}>({actionsInDom.length})</span>
-            </div>
-          {actionsInDom.map(action => {
+          {actionsInMod.map(action => {
             const isExp = expandedAction === action.id;
             const guards = actionGuards[action.id] || [];
             const aCode    = action.action_code    || action.actionCode;
@@ -4822,7 +4886,18 @@ export function GuardsSection({ userId, canWrite, toast }) {
                             <tr key={g.id}>
                               <td>{g.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({g.algorithmCode})</span></td>
                               <td><ModuleBadge module={g.moduleName} /></td>
-                              <td><span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`}>{g.effect}</span></td>
+                              <td>
+                                {canWrite ? (
+                                  <select className="field-input" style={{ fontSize: 11, padding: '1px 4px' }}
+                                    value={g.effect}
+                                    onChange={e => handleUpdateActionGuardEffect(action.id, g.id, e.target.value)}>
+                                    <option value="HIDE">HIDE</option>
+                                    <option value="BLOCK">BLOCK</option>
+                                  </select>
+                                ) : (
+                                  <span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`}>{g.effect}</span>
+                                )}
+                              </td>
                               <td style={{ fontSize: 11, color: 'var(--muted)' }}>{g.typeName}</td>
                               <td style={{ textAlign: 'right' }}>
                                 {canWrite && (
@@ -4836,21 +4911,29 @@ export function GuardsSection({ userId, canWrite, toast }) {
                         </tbody>
                       </table>
                     )}
-                    {canWrite && (
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <select id={`add-guard-${action.id}`} className="field-input" style={{ fontSize: 11, flex: 1 }}>
-                          {(instances || []).map(i => (
-                            <option key={i.id} value={i.id}>{i.algorithmName} — {i.name || i.id}</option>
-                          ))}
-                        </select>
-                        <button className="btn btn-xs btn-primary" onClick={() => {
-                          const sel = document.getElementById(`add-guard-${action.id}`);
-                          if (sel?.value) handleAttachActionGuard(action.id, sel.value);
-                        }}>
-                          <PlusIcon size={10} /> Attach
-                        </button>
-                      </div>
-                    )}
+                    {canWrite && (() => {
+                      const guardInstances = (instances || []).filter(i => i.typeName === 'Action Guard' || i.typeName === 'Lifecycle Guard');
+                      return (
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <select id={`add-guard-${action.id}`} className="field-input" style={{ fontSize: 11, flex: 1 }}>
+                            {guardInstances.map(i => (
+                              <option key={i.id} value={i.id}>{i.algorithmName} — {i.name || i.id}</option>
+                            ))}
+                          </select>
+                          <select id={`add-guard-effect-${action.id}`} className="field-input" style={{ fontSize: 11, width: 90 }} defaultValue="HIDE">
+                            <option value="HIDE">HIDE</option>
+                            <option value="BLOCK">BLOCK</option>
+                          </select>
+                          <button className="btn btn-xs btn-primary" onClick={() => {
+                            const sel = document.getElementById(`add-guard-${action.id}`);
+                            const eff = document.getElementById(`add-guard-effect-${action.id}`);
+                            if (sel?.value) handleAttachActionGuard(action.id, sel.value, eff?.value || 'HIDE');
+                          }}>
+                            <PlusIcon size={10} /> Attach
+                          </button>
+                        </div>
+                      );
+                    })()}
 
                     {/* Wrappers (middleware pipeline) */}
                     <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, marginTop: 12 }}>Wrappers (middleware pipeline)</div>
@@ -4921,8 +5004,6 @@ export function GuardsSection({ userId, canWrite, toast }) {
           })}
           </div>
           ))}
-          </div>
-          ))}
         </div>
       )}
 
@@ -4974,11 +5055,23 @@ function NodeActionGuardsSubSection({ userId, canWrite, toast, nodeTypes, instan
     if (!guards[k]) loadGuards(actionCode, transitionId);
   }
 
-  async function handleAttach(actionCode, transitionId, instanceId) {
+  async function handleAttach(actionCode, transitionId, instanceId, effect) {
     try {
-      await api.attachNodeActionGuard(userId, selectedNt, actionCode, transitionId, instanceId, 'BLOCK', 'ADD', 0);
+      await api.attachNodeActionGuard(userId, selectedNt, actionCode, transitionId, instanceId, effect || 'BLOCK', 'ADD', 0);
       loadGuards(actionCode, transitionId);
       toast('Guard attached', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  async function handleUpdateEffect(actionCode, transitionId, guardId, effect) {
+    try {
+      await api.updateNodeActionGuard(userId, guardId, effect);
+      const k = rowKey(actionCode, transitionId);
+      setGuards(s => ({
+        ...s,
+        [k]: (s[k] || []).map(g => g.id === guardId ? { ...g, effect } : g),
+      }));
+      toast('Effect updated', 'success');
     } catch (e) { toast(e, 'error'); }
   }
 
@@ -5038,7 +5131,18 @@ function NodeActionGuardsSubSection({ userId, canWrite, toast, nodeTypes, instan
                       {rows.map(g => (
                         <tr key={g.id}>
                           <td>{g.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({g.algorithmCode})</span></td>
-                          <td><span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`}>{g.effect}</span></td>
+                          <td>
+                            {canWrite ? (
+                              <select className="field-input" style={{ fontSize: 11, padding: '1px 4px' }}
+                                value={g.effect}
+                                onChange={e => handleUpdateEffect(code, tran, g.id, e.target.value)}>
+                                <option value="HIDE">HIDE</option>
+                                <option value="BLOCK">BLOCK</option>
+                              </select>
+                            ) : (
+                              <span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`}>{g.effect}</span>
+                            )}
+                          </td>
                           <td><span className={`settings-badge ${g.overrideAction === 'DISABLE' ? 'badge-danger' : ''}`}>{g.overrideAction}</span></td>
                           <td style={{ textAlign: 'right' }}>
                             {canWrite && (
@@ -5051,21 +5155,29 @@ function NodeActionGuardsSubSection({ userId, canWrite, toast, nodeTypes, instan
                       ))}
                     </tbody>
                   </table>
-                  {canWrite && (
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <select id={`add-nag-${k}`} className="field-input" style={{ fontSize: 11, flex: 1 }}>
-                        {(instances || []).map(i => (
-                          <option key={i.id} value={i.id}>{i.algorithmName} — {i.name || i.id}</option>
-                        ))}
-                      </select>
-                      <button className="btn btn-xs btn-primary" onClick={() => {
-                        const sel = document.getElementById(`add-nag-${k}`);
-                        if (sel?.value) handleAttach(code, tran, sel.value);
-                      }}>
-                        <PlusIcon size={10} /> Attach
-                      </button>
-                    </div>
-                  )}
+                  {canWrite && (() => {
+                    const guardInstances = (instances || []).filter(i => i.typeName === 'Action Guard' || i.typeName === 'Lifecycle Guard');
+                    return (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <select id={`add-nag-${k}`} className="field-input" style={{ fontSize: 11, flex: 1 }}>
+                          {guardInstances.map(i => (
+                            <option key={i.id} value={i.id}>{i.algorithmName} — {i.name || i.id}</option>
+                          ))}
+                        </select>
+                        <select id={`add-nag-effect-${k}`} className="field-input" style={{ fontSize: 11, width: 90 }} defaultValue="BLOCK">
+                          <option value="HIDE">HIDE</option>
+                          <option value="BLOCK">BLOCK</option>
+                        </select>
+                        <button className="btn btn-xs btn-primary" onClick={() => {
+                          const sel = document.getElementById(`add-nag-${k}`);
+                          const eff = document.getElementById(`add-nag-effect-${k}`);
+                          if (sel?.value) handleAttach(code, tran, sel.value, eff?.value || 'BLOCK');
+                        }}>
+                          <PlusIcon size={10} /> Attach
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -5234,6 +5346,171 @@ function NodeTypeStateActionOverridesSubSection({ userId, canWrite, toast, nodeT
 }
 
 /* ── Secrets Section (Vault-backed, Platform group) ──────────────── */
+/* ── Platform Environment Section ───────────────────────────────── */
+function PlatformEnvironmentSection({ userId, canWrite, toast }) {
+  const [expectedServices, setExpectedServices] = useState([]);
+  const [status, setStatus] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [newCode, setNewCode] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const BASELINE = ['pno-api', 'spe-api', 'platform-api'];
+
+  async function refresh() {
+    try {
+      const [env, st] = await Promise.all([
+        speApi.getEnvironment(),
+        speApi.getStatus(),
+      ]);
+      setExpectedServices(env.expectedServices || []);
+      setStatus(st);
+    } catch (e) {
+      toast(e?.message || String(e), 'error');
+    }
+  }
+
+  useEffect(() => { refresh(); }, []);
+
+  const statusMap = {};
+  (status?.services || []).forEach(svc => {
+    statusMap[svc.serviceCode] = svc;
+  });
+
+  async function handleAdd() {
+    const code = newCode.trim();
+    if (!code) return;
+    setBusy(true);
+    try {
+      await speApi.addExpectedService(code);
+      setNewCode('');
+      setAdding(false);
+      toast('Service added', 'success');
+      refresh();
+    } catch (e) { toast(e?.message || String(e), 'error'); }
+    finally { setBusy(false); }
+  }
+
+  async function handleRemove(code) {
+    if (!window.confirm(`Remove expected service '${code}'?`)) return;
+    setBusy(true);
+    try {
+      const result = await speApi.removeExpectedService(code);
+      if (result?.baseline) {
+        toast('Cannot remove baseline service', 'error');
+      } else {
+        toast('Service removed', 'success');
+      }
+      refresh();
+    } catch (e) { toast(e?.message || String(e), 'error'); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="settings-section">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <h2 style={{ margin: 0 }}>Expected Services</h2>
+        <span style={{ fontSize: 12, color: 'var(--muted2)' }}>
+          Services the platform expects to be running
+        </span>
+        <div style={{ marginLeft: 'auto' }}>
+          {canWrite && !adding && (
+            <button
+              className="btn btn-xs btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              onClick={() => setAdding(true)}
+            >
+              <PlusIcon size={11} strokeWidth={2} />
+              Add service
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!canWrite && (
+        <div className="settings-banner" style={{ marginBottom: 12 }}>
+          Read-only access
+        </div>
+      )}
+
+      {adding && (
+        <div style={{ border: '1px solid var(--border)', padding: 12, borderRadius: 6, marginBottom: 12, background: 'var(--bg-alt, rgba(255,255,255,0.02))' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              className="field-input"
+              placeholder="Service code (e.g. my-service)"
+              value={newCode}
+              onChange={e => setNewCode(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAdd()}
+              style={{ flex: 1, maxWidth: 300 }}
+              autoFocus
+            />
+            <button className="btn btn-primary btn-xs" onClick={handleAdd} disabled={busy}>
+              Add
+            </button>
+            <button className="btn btn-xs" onClick={() => { setAdding(false); setNewCode(''); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <table className="settings-table">
+        <thead>
+          <tr>
+            <th>Service Code</th>
+            <th>Status</th>
+            <th>Instances</th>
+            <th>Version</th>
+            <th style={{ width: 80 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {expectedServices.map(code => {
+            const svc = statusMap[code];
+            const isBaseline = BASELINE.includes(code);
+            const st = svc?.status || 'missing';
+            const STATUS_COLORS = {
+              up:       '#4dd4a0',
+              degraded: '#f0b429',
+              down:     '#fc8181',
+              missing:  '#6b8099',
+            };
+            const dotColor = STATUS_COLORS[st] || STATUS_COLORS.missing;
+            return (
+              <tr key={code}>
+                <td>
+                  <code style={{ fontSize: 12 }}>{code}</code>
+                  {isBaseline && <span className="settings-badge" style={{ marginLeft: 8, fontSize: 10 }}>baseline</span>}
+                </td>
+                <td>
+                  <span className="status-dot" style={{ marginRight: 6, background: dotColor, boxShadow: `0 0 6px ${dotColor}` }} />
+                  {st}
+                </td>
+                <td>{svc ? `${svc.healthyInstances ?? 0}/${svc.instanceCount ?? 0}` : '\u2013'}</td>
+                <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{svc?.version || '\u2013'}</td>
+                <td>
+                  {canWrite && !isBaseline && (
+                    <button className="btn btn-xs btn-danger" onClick={() => handleRemove(code)} disabled={busy}>
+                      Remove
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {expectedServices.length === 0 && (
+            <tr>
+              <td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>
+                No expected services configured (dynamic discovery mode)
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function SecretsSection({ userId, canWrite, toast }) {
   const [keys, setKeys]             = useState(null);
   const [revealed, setRevealed]     = useState({});   // { key: plaintext | null(loading) }
@@ -5504,6 +5781,7 @@ export default function SettingsPage({ userId, projectSpaceId, activeSection, on
           {activeSection === 'algorithms'    && <AlgorithmsSection    userId={userId} canWrite={canWrite('algorithms')} toast={toast} />}
           {activeSection === 'guards'        && <GuardsSection        userId={userId} canWrite={canWrite('guards')} toast={toast} />}
           {activeSection === 'secrets'       && <SecretsSection       userId={userId} canWrite={canWrite('secrets')} toast={toast} />}
+          {activeSection === 'platform-environment' && <PlatformEnvironmentSection userId={userId} canWrite={canWrite('platform-environment')} toast={toast} />}
         </div>
       )}
     </div>

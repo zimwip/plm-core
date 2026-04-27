@@ -3,6 +3,9 @@ package com.plm.node.signature.internal.guard;
 import com.plm.algorithm.AlgorithmBean;
 import com.plm.node.lifecycle.internal.guard.LifecycleGuard;
 import com.plm.node.lifecycle.internal.guard.LifecycleGuardContext;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.LifecycleConfig;
+import com.plm.platform.config.dto.LifecycleTransitionConfig;
 import com.plm.shared.guard.GuardEffect;
 import com.plm.shared.guard.GuardViolation;
 import com.plm.node.version.internal.VersionService;
@@ -23,7 +26,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AllSignaturesDoneGuard implements LifecycleGuard {
 
-    private final DSLContext     dsl;
+    private final DSLContext     dsl;  // kept for node_signature (business table)
+    private final ConfigCache    configCache;
     private final VersionService versionService;
 
     @Override
@@ -33,9 +37,8 @@ public class AllSignaturesDoneGuard implements LifecycleGuard {
     public List<GuardViolation> evaluate(LifecycleGuardContext ctx) {
         if (ctx.transitionId() == null) return List.of();
 
-        int required = dsl.fetchCount(dsl.selectOne()
-            .from("signature_requirement")
-            .where("lifecycle_transition_id = ?", ctx.transitionId()));
+        // Count required signatures from ConfigCache
+        int required = countSignatureRequirements(ctx.transitionId());
         if (required == 0) return List.of();
 
         Record current = versionService.getCurrentVersion(ctx.nodeId());
@@ -57,5 +60,17 @@ public class AllSignaturesDoneGuard implements LifecycleGuard {
                 Map.of("signed", signed, "required", required)));
         }
         return List.of();
+    }
+
+    private int countSignatureRequirements(String transitionId) {
+        for (LifecycleConfig lc : configCache.getAllLifecycles()) {
+            if (lc.transitions() == null) continue;
+            for (LifecycleTransitionConfig t : lc.transitions()) {
+                if (transitionId.equals(t.id())) {
+                    return t.signatureRequirements() != null ? t.signatureRequirements().size() : 0;
+                }
+            }
+        }
+        return 0;
     }
 }

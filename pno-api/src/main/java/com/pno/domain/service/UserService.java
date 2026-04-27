@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,10 +18,11 @@ import java.util.UUID;
 public class UserService {
 
     private final DSLContext dsl;
+    private final AuthorizationService authorizationService;
 
     /**
-     * Returns the user context payload consumed by plm-api's PlmAuthFilter.
-     * Format: { userId, username, isAdmin, roleIds }
+     * Returns the user context payload consumed by plm-api's PlmAuthFilter and platform-api.
+     * Format: { userId, username, isAdmin, roleIds, globalPermissions }
      *
      * When projectSpaceId is provided, only roles assigned in that space are returned.
      * When null/blank, roles across all project spaces are returned (union).
@@ -53,6 +55,8 @@ public class UserService {
         ctx.put("username", username);
         ctx.put("isAdmin",  isAdmin);
         ctx.put("roleIds",  roleIds);
+        ctx.put("globalPermissions",
+            authorizationService.listPermissionCodesForRoles(new HashSet<>(roleIds), isAdmin));
         return ctx;
     }
 

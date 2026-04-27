@@ -1,8 +1,6 @@
 package com.plm.platform.vault;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.stereotype.Component;
 import org.springframework.vault.core.VaultKeyValueOperations;
 import org.springframework.vault.core.VaultKeyValueOperationsSupport.KeyValueBackend;
 import org.springframework.vault.core.VaultTemplate;
@@ -24,8 +22,6 @@ import java.util.Map;
  * secret administration endpoints.
  */
 @Slf4j
-@Component
-@ConditionalOnBean(VaultTemplate.class)
 public class VaultAdminClient {
 
     private static final String BACKEND = "secret";

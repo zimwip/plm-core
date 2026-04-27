@@ -112,6 +112,11 @@ export default function App() {
         refreshStateColorMap();
         if (evt.byUser && evt.byUser !== userId)
           toast(`${evt.byUser} updated the metamodel`, 'info');
+      } else if (evt.event === 'PNO_CHANGED') {
+        refreshUsers();
+        refreshProjectSpaces();
+        if (evt.byUser && evt.byUser !== userId)
+          toast(`${evt.byUser} updated ${(evt.entity || 'PNO data').toLowerCase()}`, 'info');
       }
     },
     userId,

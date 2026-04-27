@@ -14,14 +14,12 @@ import java.util.UUID;
  * Publication d'événements PLM via le pattern outbox transactionnel.
  *
  * Les événements sont écrits atomiquement dans event_outbox avec l'opération
- * métier, puis lus par OutboxPoller et envoyés via WebSocket avant suppression.
+ * métier, puis lus par OutboxPoller et publiés sur NATS avant suppression.
  *
- * Topics :
- *  /topic/nodes/{nodeId} → événements sur un noeud spécifique
- *  /topic/global          → événements globaux (création de noeud)
- *  /topic/baselines       → événements de baseline
- *  /topic/transactions    → événements de transaction
- *  /topic/metamodel       → événements de changement méta-modèle
+ * NATS subjects :
+ *  global.{eventType}                                    → tous les utilisateurs connectés
+ *  project.{psId}.users.{userId}.{eventType}             → utilisateur ciblé
+ *  env.service.{serviceCode}.{eventType}                 → interne inter-services
  */
 @Slf4j
 @Component
@@ -66,7 +64,7 @@ public class PlmEventPublisher {
     }
 
     public void baselineCreated(String baselineId, String name, String byUser) {
-        enqueue("/topic/baselines", Map.of(
+        enqueue("global.BASELINE_CREATED", Map.of(
             "event",      "BASELINE_CREATED",
             "baselineId", baselineId,
             "name",       name,
@@ -76,7 +74,7 @@ public class PlmEventPublisher {
     }
 
     public void nodeCreated(String nodeId, String byUser) {
-        enqueue("/topic/global", Map.of(
+        enqueue("global.NODE_CREATED", Map.of(
             "event",  "NODE_CREATED",
             "nodeId", nodeId,
             "byUser", byUser,
@@ -103,7 +101,7 @@ public class PlmEventPublisher {
     }
 
     public void transactionCommitted(String txId, java.util.List<String> nodeIds, String byUser) {
-        enqueue("/topic/transactions", Map.of(
+        enqueue("global.TX_COMMITTED", Map.of(
             "event",   "TX_COMMITTED",
             "txId",    txId,
             "byUser",  byUser,
@@ -118,7 +116,7 @@ public class PlmEventPublisher {
                 "txId",       txId,
                 "at",         at
             ));
-            enqueue("/topic/global", Map.of(
+            enqueue("global.NODE_UPDATED", Map.of(
                 "event",  "NODE_UPDATED",
                 "nodeId", nodeId,
                 "byUser", byUser,
@@ -129,7 +127,7 @@ public class PlmEventPublisher {
     }
 
     public void transactionRolledBack(String txId, java.util.List<String> nodeIds, String byUser) {
-        enqueue("/topic/transactions", Map.of(
+        enqueue("global.TX_ROLLED_BACK", Map.of(
             "event",   "TX_ROLLED_BACK",
             "txId",    txId,
             "byUser",  byUser,
@@ -155,7 +153,7 @@ public class PlmEventPublisher {
                 "at",         LocalDateTime.now().toString()
             ));
         }
-        enqueue("/topic/transactions", Map.of(
+        enqueue("global.NODES_RELEASED", Map.of(
             "event",   "NODES_RELEASED",
             "byUser",  byUser,
             "nodeIds", nodeIds,
@@ -176,7 +174,7 @@ public class PlmEventPublisher {
     }
 
     public void metamodelChanged(String byUser) {
-        enqueue("/topic/metamodel", Map.of(
+        enqueue("global.METAMODEL_CHANGED", Map.of(
             "event",  "METAMODEL_CHANGED",
             "byUser", byUser != null ? byUser : "unknown",
             "at",     LocalDateTime.now().toString()
@@ -189,13 +187,13 @@ public class PlmEventPublisher {
     private void publish(String nodeId, String eventType, Map<String, Object> payload) {
         var envelope = new java.util.HashMap<>(payload);
         envelope.put("event", eventType);
-        enqueue("/topic/nodes/" + nodeId, envelope);
+        enqueue("global." + eventType, envelope);
         log.debug("Event enqueued: {} → node={}", eventType, nodeId);
     }
 
     /**
      * Inserts an event row into event_outbox within the current DB transaction.
-     * OutboxPoller picks it up after commit and delivers it via WebSocket.
+     * OutboxPoller picks it up after commit and publishes to NATS before deletion.
      */
     private void enqueue(String destination, Object payload) {
         try {

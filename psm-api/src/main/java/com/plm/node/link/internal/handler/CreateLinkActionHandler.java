@@ -4,6 +4,8 @@ import com.plm.shared.action.ActionContext;
 import com.plm.shared.action.ActionHandler;
 import com.plm.shared.action.ActionResult;
 import com.plm.node.NodeService;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.LinkTypeConfig;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import com.plm.algorithm.AlgorithmBean;
@@ -15,6 +17,7 @@ import java.util.Map;
 public class CreateLinkActionHandler implements ActionHandler {
 
     private final NodeService  nodeService;
+    private final ConfigCache  configCache;
     private final DSLContext   dsl;
 
     @Override
@@ -27,9 +30,8 @@ public class CreateLinkActionHandler implements ActionHandler {
         String linkLogicalId= params.get("linkLogicalId");
 
         // Determine pinned version from link_type policy
-        String policy = dsl.select(org.jooq.impl.DSL.field("link_policy"))
-            .from("link_type").where("id = ?", linkTypeId)
-            .fetchOne(org.jooq.impl.DSL.field("link_policy"), String.class);
+        String policy = configCache.getLinkType(linkTypeId)
+            .map(LinkTypeConfig::linkPolicy).orElse(null);
 
         String pinnedVersionId = null;
         if ("VERSION_TO_VERSION".equals(policy)) {

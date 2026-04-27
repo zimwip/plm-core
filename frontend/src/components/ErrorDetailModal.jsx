@@ -17,7 +17,11 @@ export default function ErrorDetailModal({ detail, onClose }) {
           <div className="err-message">{detail.error}</div>
           {detail.violations?.length > 0 && (
             <ul className="violations-list">
-              {detail.violations.map((v, i) => <li key={i} className="violation-item">{v}</li>)}
+              {detail.violations.map((v, i) => (
+                <li key={i} className="violation-item">
+                  {typeof v === 'string' ? v : v.message}
+                </li>
+              ))}
             </ul>
           )}
           {isTech && detail.type && <div className="err-meta">{detail.type}</div>}

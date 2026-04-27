@@ -1,24 +1,97 @@
 # ============================================================
-# PLM Core — pre-built distribution
+# PLM Core - Docker Compose
 #
 # Usage:
-#   cd dist/
-#   docker compose up --build   # first run (builds thin images)
-#   docker compose up           # subsequent runs
-#   docker compose down -v      # stop + wipe database
+#   ./run.sh          # start + watch for changes
+#   ./run.sh --build  # force full rebuild before starting
 #
-# Set PG_PASSWORD and PLM_SERVICE_SECRET in a .env file before running.
+# Access:
+#   Frontend : http://localhost:3000
+#   Gateway  : http://localhost:8082 (sole external API entry point)
 # ============================================================
 
 services:
 
+  # ============================================================
+  # Jaeger — OpenTelemetry traces UI + OTLP collector (all-in-one)
+  #   UI:            http://localhost:16686
+  #   OTLP/HTTP in:  4318 (services push traces here)
+  #   OTLP/gRPC in:  4317
+  # ============================================================
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+      - "4317:4317"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:14269/ || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  # ============================================================
+  # HashiCorp Vault — secret store (demo: file backend, single-shard unseal)
+  # Unseal key + root token persist on the plm-vault-init volume as plaintext.
+  # DEMO ONLY. See vault/bootstrap.sh for the one-shot seed logic.
+  # ============================================================
+  vault:
+    image: hashicorp/vault:1.17
+    cap_add: [IPC_LOCK]
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+    volumes:
+      - plm-vault-file:/vault/file
+      - plm-vault-init:/vault/init
+      - ./vault/config.hcl:/vault/config/config.hcl:ro,z
+    entrypoint: vault server -config=/vault/config/config.hcl
+    healthcheck:
+      # sealedcode=200 treats "sealed" as healthy; uninitcode=200 treats "not initialized" as healthy.
+      # vault-bootstrap then unseals + seeds.
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8200/v1/sys/health?sealedcode=200&uninitcode=200' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  vault-bootstrap:
+    image: hashicorp/vault:1.17
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      PLM_SERVICE_SECRET: ${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (must be >= 32 bytes)}
+      PG_PASSWORD: ${PG_PASSWORD:?Set PG_PASSWORD in .env (see .env.example)}
+    volumes:
+      - plm-vault-init:/vault/init
+      - ./vault/bootstrap.sh:/bootstrap.sh:ro,z
+    entrypoint: /bin/sh
+    command: ["/bootstrap.sh"]
+    restart: "no"
+    networks:
+      - plm-net
+
+  # ============================================================
+  # PostgreSQL 16
+  # ============================================================
   postgres:
     image: postgres:16-alpine
-    container_name: plm-postgres
     environment:
       POSTGRES_DB:       plmdb
       POSTGRES_USER:     plm
-      POSTGRES_PASSWORD: ${PG_PASSWORD:-changeme}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?Set PG_PASSWORD in .env (see .env.example)}
     ports:
       - "5432:5432"
     volumes:
@@ -32,71 +105,32 @@ services:
     networks:
       - plm-net
 
-  jaeger:
-    image: jaegertracing/all-in-one:1.62.0
-    container_name: jaeger
+  # ============================================================
+  # NATS — pub/sub messaging bus
+  #   Client:     nats://nats:4222
+  #   Monitoring: http://localhost:8222
+  # ============================================================
+  nats:
+    image: nats:2.10-alpine
     ports:
-      - "16686:16686"
-      - "4318:4318"
-      - "4317:4317"
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
+      - "4222:4222"
+      - "8222:8222"
+    command: ["-m", "8222"]
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:14269/ || exit 1"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    restart: unless-stopped
-    networks:
-      - plm-net
-
-  vault:
-    image: hashicorp/vault:1.17
-    container_name: vault
-    cap_add: [IPC_LOCK]
-    ports:
-      - "8200:8200"
-    environment:
-      VAULT_ADDR: http://127.0.0.1:8200
-    volumes:
-      - plm-vault-file:/vault/file
-      - plm-vault-init:/vault/init
-      - ./vault/config.hcl:/vault/config/config.hcl:ro
-    entrypoint: vault server -config=/vault/config/config.hcl
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8200/v1/sys/health?sealedcode=200&uninitcode=200' || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8222/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
     restart: unless-stopped
     networks:
       - plm-net
 
-  vault-bootstrap:
-    image: hashicorp/vault:1.17
-    container_name: vault-bootstrap
-    depends_on:
-      vault:
-        condition: service_healthy
-    environment:
-      VAULT_ADDR: http://vault:8200
-      PLM_SERVICE_SECRET: ${PLM_SERVICE_SECRET:?Set PLM_SERVICE_SECRET in .env (must be >= 32 bytes)}
-      PG_PASSWORD: ${PG_PASSWORD:?Set PG_PASSWORD in .env}
-    volumes:
-      - plm-vault-init:/vault/init
-      - ./vault/bootstrap.sh:/bootstrap.sh:ro
-    entrypoint: /bin/sh
-    command: ["/bootstrap.sh"]
-    restart: "no"
-    networks:
-      - plm-net
-
+  # ============================================================
+  # PNO API — People & Organisation microservice (internal only)
+  # ============================================================
   pno-api:
     build: ./pno-api
     image: pno-api:dist
-    container_name: pno-api
     environment:
       SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
       SPRING_DATASOURCE_USERNAME:          plm
@@ -106,16 +140,19 @@ services:
       SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
       SPRING_FLYWAY_DEFAULT_SCHEMA:        pno
       SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
-      # Secrets (PLM_SERVICE_SECRET, PG_PASSWORD, JWT tuning) come from Vault at bootstrap.
+      # PLM_SERVICE_SECRET + PG_PASSWORD now resolved at bootstrap from Vault (secret/plm).
       VAULT_ADDR:                          http://vault:8200
       VAULT_TOKEN:                         plm-demo-services
       SPE_API_URL:                         http://spe-api:8082
       SPE_SELF_BASE_URL:                   http://pno-api:8081
-      PNO_API_URL:                         http://pno-api:8081
-      LOGGING_LEVEL_ROOT:                  INFO
-      LOGGING_LEVEL_COM_PNO:               INFO
       MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_PNO:               INFO
+      PLM_SETTINGS_ENABLED:                "true"
+      PLM_PLATFORM_URL:                    http://platform-api:8084
+      NATS_URL:                            nats://nats:4222
+      PLM_NATS_ENABLED:                    "true"
     depends_on:
       vault-bootstrap:
         condition: service_completed_successfully
@@ -123,8 +160,10 @@ services:
         condition: service_healthy
       jaeger:
         condition: service_healthy
+      nats:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/api/pno/actuator/health || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -133,29 +172,35 @@ services:
     networks:
       - plm-net
 
-  psm-api:
-    build: ./psm-api
-    image: psm-api:dist
-    container_name: psm-api
+  # ============================================================
+  # PSM Admin — Config/metamodel source of truth (internal only)
+  # ============================================================
+  psm-admin:
+    build: ./psm-admin
+    image: psm-admin:dist
     environment:
       SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
       SPRING_DATASOURCE_USERNAME:          plm
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
-      SPRING_DATASOURCE_HIKARI_SCHEMA:     psm
       SPRING_JOOQ_SQL_DIALECT:             POSTGRES
       SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
-      SPRING_FLYWAY_DEFAULT_SCHEMA:        psm
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        psm_admin
       SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
-      # Secrets (PLM_SERVICE_SECRET, PG_PASSWORD, JWT tuning) come from Vault at bootstrap.
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     psm_admin
       VAULT_ADDR:                          http://vault:8200
       VAULT_TOKEN:                         plm-demo-services
       SPE_API_URL:                         http://spe-api:8082
-      SPE_SELF_BASE_URL:                   http://psm-api:8080
-      PNO_API_URL:                         http://pno-api:8081
-      LOGGING_LEVEL_ROOT:                  INFO
-      LOGGING_LEVEL_COM_PLM:               INFO
+      SPE_SELF_BASE_URL:                   http://psm-admin:8083
       MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_PLM:               INFO
+      PLM_SETTINGS_ENABLED:                "true"
+      PLM_PLATFORM_URL:                    http://platform-api:8084
+      PLM_PERMISSION_ENABLED:              "true"
+      PLM_PERMISSION_PNO_URL:              http://pno-api:8081
+      NATS_URL:                            nats://nats:4222
+      PLM_NATS_ENABLED:                    "true"
     depends_on:
       vault-bootstrap:
         condition: service_completed_successfully
@@ -163,8 +208,10 @@ services:
         condition: service_healthy
       jaeger:
         condition: service_healthy
+      nats:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/api/psa/actuator/health || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -173,42 +220,206 @@ services:
     networks:
       - plm-net
 
-  spe-api:
-    build: ./spe-api
-    image: spe-api:dist
-    container_name: spe-api
-    ports:
-      - "8082:8082"
-    environment:
-      # Secrets (PLM_SERVICE_SECRET, PG_PASSWORD, JWT tuning) come from Vault at bootstrap.
+  # ============================================================
+  # PSM API — Product Structure Management microservice (internal only)
+  # Two replicas with isolated PostgreSQL schemas (psm1 / psm2).
+  # Each replica self-registers with its own DNS hostname and space tag,
+  # so spe-api routes project spaces to the correct instance.
+  # Flyway creates and migrates each schema independently.
+  # ============================================================
+  psm-api-1:
+    build: ./psm-api
+    image: psm-api:dist
+    environment: &psm-env
+      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
+      SPRING_DATASOURCE_USERNAME:          plm
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
+      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        ${PSM_SCHEMA:-psm1}
+      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     ${PSM_SCHEMA:-psm1}
+      # PLM_SERVICE_SECRET + PG_PASSWORD now resolved at bootstrap from Vault (secret/plm).
       VAULT_ADDR:                          http://vault:8200
       VAULT_TOKEN:                         plm-demo-services
       SPE_API_URL:                         http://spe-api:8082
-      SPE_SELF_BASE_URL:                   http://spe-api:8082
-      PNO_API_URL:                         http://pno-api:8081
-      LOGGING_LEVEL_ROOT:                  INFO
-      LOGGING_LEVEL_COM_SPE:               INFO
       MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_PLM:               INFO
+      SPE_SELF_BASE_URL:                   http://psm-api-1:8080
+      SPE_SPACE_TAG:                       ${SPE_PSM1_TAG:-PSM1}
+      PSM_CONFIG_ADMIN_URL:                http://psm-admin:8083
+      PSM_CONFIG_SERVICE_CODE:             psm-data
+      PSM_CONFIG_SELF_BASE_URL:            http://psm-api-1:8080
+      PLM_SETTINGS_ENABLED:                "true"
+      PLM_PLATFORM_URL:                    http://platform-api:8084
+      NATS_URL:                            nats://nats:4222
+      PLM_NATS_ENABLED:                    "true"
+    depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+      psm-admin:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/psm/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  psm-api-2:
+    build: ./psm-api
+    image: psm-api:dist
+    environment:
+      <<: *psm-env
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        ${PSM2_SCHEMA:-psm2}
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     ${PSM2_SCHEMA:-psm2}
+      SPE_SELF_BASE_URL:                   http://psm-api-2:8080
+      SPE_SPACE_TAG:                       ${SPE_PSM2_TAG:-PSM2}
+      PSM_CONFIG_ADMIN_URL:                http://psm-admin:8083
+      PSM_CONFIG_SERVICE_CODE:             psm-data
+      PSM_CONFIG_SELF_BASE_URL:            http://psm-api-2:8080
+      PLM_SETTINGS_ENABLED:                "true"
+      PLM_PLATFORM_URL:                    http://platform-api:8084
+    depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+      psm-admin:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/psm/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  # ============================================================
+  # Platform API — Central settings aggregator + Vault admin (in-memory, no DB)
+  # ============================================================
+  platform-api:
+    build: ./platform-api
+    image: platform-api:dist
+    environment:
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
+      SPE_API_URL:                         http://spe-api:8082
+      SPE_SELF_BASE_URL:                   http://platform-api:8084
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      LOGGING_LEVEL_ROOT:                  INFO
     depends_on:
       vault-bootstrap:
         condition: service_completed_successfully
       jaeger:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/api/platform/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  # ============================================================
+  # WS Gateway — WebSocket relay backed by NATS pub/sub
+  # ============================================================
+  ws-gateway:
+    build: ./ws-gateway
+    image: ws-gateway:dist
+    environment:
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
+      SPE_API_URL:                         http://spe-api:8082
+      SPE_SELF_BASE_URL:                   http://ws-gateway:8085
+      NATS_URL:                            nats://nats:4222
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      LOGGING_LEVEL_ROOT:                  INFO
+    depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/api/ws/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  # ============================================================
+  # SPE API — Gateway, service registry, auth (sole external entry)
+  # ============================================================
+  spe-api:
+    build: ./spe-api
+    image: spe-api:dist
+    ports:
+      - "8082:8082"
+    environment:
+      # PLM_SERVICE_SECRET now resolved at bootstrap from Vault (secret/plm).
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
+      PNO_API_URL:                         http://pno-api:8081
+      SPE_EXPECTED_SERVICES:               psm,pno,psa,platform,ws
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_SPE:               INFO
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_CLOUD_GATEWAY: INFO
+      PLM_SETTINGS_ENABLED:                "true"
+      PLM_PLATFORM_URL:                    http://platform-api:8084
+      NATS_MONITORING_URL:                 http://nats:8222
+      NATS_URL:                            nats://nats:4222
+      PLM_NATS_ENABLED:                    "true"
+    depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 30s
     restart: unless-stopped
     networks:
       - plm-net
 
+  # ============================================================
+  # Frontend — Vite build served by nginx
+  # ============================================================
   plm-frontend:
     build: ./frontend
-    image: plm-frontend:dist
-    container_name: plm-frontend
+    image: plm-core-frontend:dist
     ports:
       - "3000:80"
     depends_on:

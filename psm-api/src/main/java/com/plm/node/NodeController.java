@@ -4,13 +4,21 @@ import com.plm.node.signature.internal.SignatureService;
 import com.plm.node.transaction.internal.LockService;
 
 import com.plm.action.ActionService;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.NodeTypeConfig;
+import com.plm.platform.authz.KeyExpr;
+import com.plm.platform.authz.PlmPermission;
+import com.plm.platform.authz.PolicyPort;
 import com.plm.shared.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * API REST pour les noeuds PLM.
@@ -24,7 +32,7 @@ import java.util.Map;
  * Ce contrôleur ne gère que les lectures.
  */
 @RestController
-@RequestMapping("/api/psm/nodes")
+@RequestMapping("/nodes")
 @RequiredArgsConstructor
 public class NodeController {
 
@@ -34,6 +42,34 @@ public class NodeController {
     private final CommentService      commentService;
     private final ActionService       actionService;
     private final SecurityContextPort secCtx;
+    private final ConfigCache         configCache;
+    private final PolicyPort          policyService;
+
+    // ── Metamodel reads (business context — permission-filtered) ─────
+
+    @GetMapping("/nodetypes/creatable")
+    public ResponseEntity<?> getCreatableNodeTypes() throws InterruptedException {
+        if (!configCache.isPopulated()) {
+            configCache.awaitPopulated(10, java.util.concurrent.TimeUnit.SECONDS);
+        }
+        Set<String> allIds = configCache.getAllNodeTypes().stream()
+            .map(NodeTypeConfig::id).collect(Collectors.toSet());
+        Map<String, Boolean> canCreate = policyService.canOnNodeTypes("CREATE_NODE", allIds);
+        List<Map<String, Object>> result = configCache.getAllNodeTypes().stream()
+            .filter(nt -> Boolean.TRUE.equals(canCreate.get(nt.id())))
+            .map(nt -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", nt.id());
+                m.put("name", nt.name());
+                m.put("description", nt.description());
+                m.put("color", nt.color());
+                m.put("icon", nt.icon());
+                m.put("lifecycle_id", nt.lifecycleId());
+                return m;
+            })
+            .toList();
+        return ResponseEntity.ok(result);
+    }
 
     // ── Liste ─────────────────────────────────────────────────────────
 
@@ -53,11 +89,15 @@ public class NodeController {
      */
     @GetMapping("/{nodeId}/description")
     @SuppressWarnings("unchecked")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public ResponseEntity<Map<String, Object>> getDescription(
         @PathVariable String nodeId,
         @RequestParam(required = false) String txId,
         @RequestParam(required = false) Integer versionNumber
-    ) {
+    ) throws InterruptedException {
+        if (!configCache.isPopulated()) {
+            configCache.awaitPopulated(10, java.util.concurrent.TimeUnit.SECONDS);
+        }
         String userId = secCtx.currentUser().getUserId();
         Map<String, Object> description = nodeService.buildObjectDescription(nodeId, userId, txId, versionNumber);
 
@@ -102,11 +142,13 @@ public class NodeController {
     // ── Liens — lecture ───────────────────────────────────────────────
 
     @GetMapping("/{nodeId}/links/children")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public ResponseEntity<?> getChildLinks(@PathVariable String nodeId) {
         return ResponseEntity.ok(nodeService.getChildLinks(nodeId));
     }
 
     @GetMapping("/{nodeId}/links/parents")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public ResponseEntity<?> getParentLinks(@PathVariable String nodeId) {
         return ResponseEntity.ok(nodeService.getParentLinks(nodeId));
     }
@@ -114,11 +156,13 @@ public class NodeController {
     // ── Historique des versions ───────────────────────────────────────
 
     @GetMapping("/{nodeId}/versions")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public ResponseEntity<?> getVersionHistory(@PathVariable String nodeId) {
         return ResponseEntity.ok(nodeService.getVersionHistory(nodeId));
     }
 
     @GetMapping("/{nodeId}/versions/diff")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public ResponseEntity<?> getVersionDiff(
             @PathVariable String nodeId,
             @RequestParam int v1,
@@ -129,6 +173,7 @@ public class NodeController {
     // ── Lock info ─────────────────────────────────────────────────────
 
     @GetMapping("/{nodeId}/lock")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public ResponseEntity<?> getLockInfo(@PathVariable String nodeId) {
         LockService.LockInfo info = lockService.getLockInfo(nodeId);
         return ResponseEntity.ok(Map.of(
@@ -140,11 +185,13 @@ public class NodeController {
     // ── Signatures — lecture ──────────────────────────────────────────
 
     @GetMapping("/{nodeId}/signatures")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public ResponseEntity<?> getSignatures(@PathVariable String nodeId) {
         return ResponseEntity.ok(signatureService.getSignaturesForCurrentVersion(nodeId));
     }
 
     @GetMapping("/{nodeId}/signatures/history")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public ResponseEntity<?> getSignatureHistory(@PathVariable String nodeId) {
         return ResponseEntity.ok(signatureService.getFullSignatureHistory(nodeId));
     }
@@ -152,11 +199,13 @@ public class NodeController {
     // ── Comments ─────────────────────────────────────────────────────
 
     @GetMapping("/{nodeId}/comments")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public ResponseEntity<?> getComments(@PathVariable String nodeId) {
         return ResponseEntity.ok(commentService.getComments(nodeId));
     }
 
     @PostMapping("/{nodeId}/comments")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public ResponseEntity<?> addComment(
         @PathVariable String nodeId,
         @RequestBody  Map<String, Object> body

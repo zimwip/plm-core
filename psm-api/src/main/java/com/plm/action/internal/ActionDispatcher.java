@@ -3,6 +3,11 @@ package com.plm.action.internal;
 import com.plm.action.ActionScopeRegistry;
 import com.plm.action.ActionWrapper;
 import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.ActionConfig;
+import com.plm.platform.config.dto.ActionWrapperConfig;
+import com.plm.platform.config.dto.AlgorithmConfig;
+import com.plm.platform.config.dto.AlgorithmInstanceConfig;
 import com.plm.shared.action.ActionResult;
 import com.plm.shared.action.ActionContext;
 import com.plm.shared.action.ActionHandler;
@@ -11,7 +16,6 @@ import com.plm.shared.action.ActionScope;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
-import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +39,7 @@ import java.util.Map;
 public class ActionDispatcher {
 
     private final DSLContext               dsl;
+    private final ConfigCache              configCache;
     private final ActionParameterValidator paramValidator;
     private final AlgorithmRegistry        algorithmRegistry;
     private final ActionScopeRegistry      scopeRegistry;
@@ -55,14 +60,12 @@ public class ActionDispatcher {
         String txIdHint,
         Map<String, String> rawParams
     ) {
-        Record action = dsl.select().from("action")
-            .where("action_code = ?", actionCode)
-            .fetchOne();
-        if (action == null) throw new IllegalArgumentException("Unknown action: " + actionCode);
+        ActionConfig action = configCache.getAction(actionCode)
+            .orElseThrow(() -> new IllegalArgumentException("Unknown action: " + actionCode));
 
-        String actionId = action.get("id", String.class);
-        String handlerInstanceId = action.get("handler_instance_id", String.class);
-        String scopeCode = action.get("scope", String.class);
+        String actionId = action.id();
+        String handlerInstanceId = action.handlerInstanceId();
+        String scopeCode = action.scope();
 
         if (handlerInstanceId == null) {
             throw new IllegalStateException("Action " + actionCode + " has no handler (permission-only action)");
@@ -90,16 +93,12 @@ public class ActionDispatcher {
 
         Map<String, String> params = new HashMap<>(paramValidator.validate(actionId, nodeTypeId, rawParams));
 
-        // Resolve handler via algorithm_instance FK → algorithm.code → AlgorithmRegistry
-        String handlerCode = dsl.select(DSL.field("a.code"))
-            .from("algorithm_instance ai")
-            .join("algorithm a").on("a.id = ai.algorithm_id")
-            .where("ai.id = ?", handlerInstanceId)
-            .fetchOne(DSL.field("a.code"), String.class);
+        // Resolve handler via ConfigCache: instance → algorithmId → algorithm code → AlgorithmRegistry
+        String handlerCode = resolveAlgorithmCode(handlerInstanceId);
         ActionHandler handler = algorithmRegistry.resolve(handlerCode, ActionHandler.class);
 
         // Build wrapper chain from attached algorithm instances
-        List<ResolvedWrapper> wrappers = resolveWrappers(actionId);
+        List<ResolvedWrapper> wrappers = resolveWrappers(action);
 
         log.info("Dispatching action {} scope={} pathIds={} wrappers={} by user {}",
             actionCode, scopeCode, pathIds, wrappers.size(), userId);
@@ -126,44 +125,39 @@ public class ActionDispatcher {
     }
 
     /**
-     * Resolves ordered wrappers with their instance parameters.
+     * Resolves ordered wrappers with their instance parameters from ConfigCache.
      */
-    private List<ResolvedWrapper> resolveWrappers(String actionId) {
-        var attachments = dsl.fetch("""
-            SELECT a.code AS algorithm_code, aw.execution_order, ai.id AS instance_id
-            FROM action_wrapper aw
-            JOIN algorithm_instance ai ON ai.id = aw.algorithm_instance_id
-            JOIN algorithm a           ON a.id = ai.algorithm_id
-            WHERE aw.action_id = ?
-            ORDER BY aw.execution_order
-            """, actionId);
+    private List<ResolvedWrapper> resolveWrappers(ActionConfig action) {
+        List<ActionWrapperConfig> wrapperConfigs = action.wrappers();
+        if (wrapperConfigs == null || wrapperConfigs.isEmpty()) return List.of();
 
         List<ResolvedWrapper> wrappers = new ArrayList<>();
-        for (var r : attachments) {
-            String code = r.get("algorithm_code", String.class);
-            String instanceId = r.get("instance_id", String.class);
+        for (ActionWrapperConfig aw : wrapperConfigs) {
+            String instanceId = aw.algorithmInstanceId();
+            String code = resolveAlgorithmCode(instanceId);
             ActionWrapper wrapper = algorithmRegistry.resolve(code, ActionWrapper.class);
-            Map<String, String> instanceParams = loadInstanceParams(instanceId);
+            Map<String, String> instanceParams = configCache.getInstance(instanceId)
+                .map(AlgorithmInstanceConfig::paramValues)
+                .orElse(Map.of());
             wrappers.add(new ResolvedWrapper(wrapper, instanceParams));
         }
         return wrappers;
     }
 
     /**
-     * Loads algorithm_instance_param_value for a given instance.
+     * Resolves the algorithm code for a given algorithm instance id via ConfigCache.
      */
-    private Map<String, String> loadInstanceParams(String instanceId) {
-        Map<String, String> params = new HashMap<>();
-        dsl.fetch("""
-            SELECT ap.param_name, pv.value
-            FROM algorithm_instance_param_value pv
-            JOIN algorithm_parameter ap ON ap.id = pv.algorithm_parameter_id
-            WHERE pv.algorithm_instance_id = ?
-            """, instanceId)
-            .forEach(r -> params.put(
-                r.get("param_name", String.class),
-                r.get("value", String.class)));
-        return params;
+    private String resolveAlgorithmCode(String instanceId) {
+        AlgorithmInstanceConfig instance = configCache.getInstance(instanceId)
+            .orElseThrow(() -> new IllegalStateException(
+                "Algorithm instance not found in config cache: " + instanceId));
+        String algorithmId = instance.algorithmId();
+        return configCache.getAllAlgorithms().stream()
+            .filter(a -> a.id().equals(algorithmId))
+            .map(AlgorithmConfig::code)
+            .findFirst()
+            .orElseThrow(() -> new IllegalStateException(
+                "Algorithm not found for id: " + algorithmId));
     }
 
     /**

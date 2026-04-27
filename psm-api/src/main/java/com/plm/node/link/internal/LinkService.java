@@ -4,6 +4,11 @@ import com.plm.node.version.internal.FingerPrintService;
 import com.plm.node.version.internal.VersionService;
 import com.plm.node.transaction.internal.LockService;
 
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.LifecycleConfig;
+import com.plm.platform.config.dto.LifecycleStateConfig;
+import com.plm.platform.config.dto.LinkTypeConfig;
+import com.plm.platform.config.dto.NodeTypeConfig;
 import com.plm.shared.model.Enums.ChangeType;
 import com.plm.shared.model.Enums.VersionStrategy;
 import com.plm.shared.action.PlmAction;
@@ -35,6 +40,7 @@ import java.util.UUID;
 public class LinkService {
 
     private final DSLContext              dsl;
+    private final ConfigCache             configCache;
     private final LockService             lockService;
     private final VersionService          versionService;
     private final GraphValidationService  graphValidationService;
@@ -62,25 +68,19 @@ public class LinkService {
         String txId,
         String linkLogicalId
     ) {
-        Record linkType = dsl
-            .select()
-            .from("link_type")
-            .where("id = ?", linkTypeId)
-            .fetchOne();
-        if (linkType == null) throw new IllegalArgumentException(
-            "LinkType not found: " + linkTypeId
-        );
+        LinkTypeConfig linkType = configCache.getLinkType(linkTypeId)
+            .orElseThrow(() -> new IllegalArgumentException("LinkType not found: " + linkTypeId));
 
-        String expectedSource = linkType.get("source_node_type_id", String.class);
-        String expectedTarget = linkType.get("target_node_type_id", String.class);
+        String expectedSource = linkType.sourceNodeTypeId();
+        String expectedTarget = linkType.targetNodeTypeId();
         if (expectedSource != null) validateNodeType(sourceNodeId, expectedSource);
         if (expectedTarget != null) validateNodeType(targetNodeId, expectedTarget);
 
         graphValidationService.assertNoCycle(sourceNodeId, targetNodeId);
 
         // Validate link_logical_id — mandatory
-        String pattern = linkType.get("link_logical_id_pattern", String.class);
-        String label   = linkType.get("link_logical_id_label",   String.class);
+        String pattern = linkType.linkLogicalIdPattern();
+        String label   = linkType.linkLogicalIdLabel();
         if (label == null || label.isBlank()) label = "Link ID";
         if (linkLogicalId == null || linkLogicalId.isBlank()) {
             throw new IllegalArgumentException("'" + label + "' is required");
@@ -91,7 +91,7 @@ public class LinkService {
             );
         }
 
-        Integer maxCard = linkType.get("max_cardinality", Integer.class);
+        Integer maxCard = linkType.maxCardinality();
         if (maxCard != null) {
             int existing = dsl.fetchCount(
                 dsl.selectOne()
@@ -201,9 +201,8 @@ public class LinkService {
             graphValidationService.assertNoCycle(sourceNodeId, newTargetNodeId);
 
             String linkTypeId = link.get("link_type_id", String.class);
-            String policy = dsl.select().from("link_type")
-                .where("id = ?", linkTypeId)
-                .fetchOne("link_policy", String.class);
+            String policy = configCache.getLinkType(linkTypeId)
+                .map(LinkTypeConfig::linkPolicy).orElse(null);
             String pinnedVersionId = null;
             if ("VERSION_TO_VERSION".equals(policy)) {
                 pinnedVersionId = dsl.select().from("node_version")
@@ -256,23 +255,19 @@ public class LinkService {
         String isAdminStr = String.valueOf(isAdmin);
         return dsl.fetch(
             """
-            SELECT nl.id AS link_id, lt.name AS link_type_name, lt.link_policy, lt.color AS link_type_color, lt.icon AS link_type_icon,
-                   nl.link_logical_id, lt.link_logical_id_label,
-                   n.id AS target_node_id, nt.name AS target_node_type,
+            SELECT nl.id AS link_id, nl.link_type_id,
+                   nl.link_logical_id,
+                   n.id AS target_node_id, n.node_type_id AS target_node_type_id,
                    n.logical_id AS target_logical_id,
                    nv.revision, nv.iteration, nv.lifecycle_state_id,
-                   ls.name AS state_name,
                    (SELECT COUNT(*) FROM node_version_link nvl_c
                     WHERE nvl_c.source_node_version_id = nv.id) AS target_children_count
             FROM node_version_link nl
-            JOIN link_type lt        ON lt.id     = nl.link_type_id
             JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
             JOIN plm_transaction pt_src ON pt_src.id = nv_src.tx_id
             JOIN node n              ON n.id      = nl.target_node_id
-            JOIN node_type nt        ON nt.id     = n.node_type_id
             JOIN node_version nv     ON nv.node_id = n.id
             JOIN plm_transaction pt  ON pt.id     = nv.tx_id
-            LEFT JOIN lifecycle_state ls ON ls.id = nv.lifecycle_state_id
             WHERE nv_src.node_id = ?
               AND (pt_src.status = 'COMMITTED'
                    OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
@@ -284,7 +279,7 @@ public class LinkService {
                 WHERE nv2.node_id = n.id
                   AND (pt2.status = 'COMMITTED'
                        OR (pt2.status = 'OPEN' AND (pt2.owner_id = ? OR ? = 'true'))))
-            ORDER BY lt.name, n.logical_id
+            ORDER BY n.logical_id
             """,
             nodeId,
             currentUserId, isAdminStr,
@@ -293,19 +288,24 @@ public class LinkService {
         ).stream().map(r -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("linkId",            r.get("link_id",             String.class));
-            m.put("linkTypeName",      r.get("link_type_name",      String.class));
-            m.put("linkPolicy",        r.get("link_policy",         String.class));
-            m.put("linkTypeColor",     r.get("link_type_color",     String.class));
-            m.put("linkTypeIcon",      r.get("link_type_icon",      String.class));
+            String ltId = r.get("link_type_id", String.class);
+            var lt = configCache.getLinkType(ltId);
+            m.put("linkTypeName",      lt.map(LinkTypeConfig::name).orElse(ltId));
+            m.put("linkPolicy",        lt.map(LinkTypeConfig::linkPolicy).orElse(""));
+            m.put("linkTypeColor",     lt.map(LinkTypeConfig::color).orElse(null));
+            m.put("linkTypeIcon",      lt.map(LinkTypeConfig::icon).orElse(null));
             m.put("linkLogicalId",     Objects.toString(r.get("link_logical_id",      String.class), ""));
-            m.put("linkLogicalIdLabel",Objects.toString(r.get("link_logical_id_label",String.class), "Link ID"));
+            m.put("linkLogicalIdLabel",lt.map(LinkTypeConfig::linkLogicalIdLabel).orElse("Link ID"));
             m.put("targetNodeId",      r.get("target_node_id",      String.class));
-            m.put("targetNodeType",    r.get("target_node_type",    String.class));
+            String tntId = r.get("target_node_type_id", String.class);
+            m.put("targetNodeType",    configCache.getNodeType(tntId)
+                .map(NodeTypeConfig::name).orElse(tntId));
             m.put("targetLogicalId",   Objects.toString(r.get("target_logical_id",   String.class), ""));
             m.put("targetRevision",    Objects.toString(r.get("revision",             String.class), ""));
             m.put("targetIteration",   Objects.toString(r.get("iteration",            Integer.class), ""));
-            m.put("targetState",       Objects.toString(r.get("lifecycle_state_id",  String.class), ""));
-            m.put("targetStateName",   Objects.toString(r.get("state_name",          String.class), ""));
+            String targetStateId = r.get("lifecycle_state_id", String.class);
+            m.put("targetState",       Objects.toString(targetStateId, ""));
+            m.put("targetStateName",   resolveStateName(targetStateId));
             m.put("targetChildrenCount", r.get("target_children_count", Integer.class));
             return m;
         }).toList();
@@ -321,21 +321,17 @@ public class LinkService {
         String isAdminStr = String.valueOf(isAdmin);
         return dsl.fetch(
             """
-            SELECT nl.id AS link_id, lt.name AS link_type_name, lt.link_policy,
-                   nl.link_logical_id, lt.link_logical_id_label,
-                   n.id AS source_node_id, nt.name AS source_node_type,
+            SELECT nl.id AS link_id, nl.link_type_id,
+                   nl.link_logical_id,
+                   n.id AS source_node_id, n.node_type_id AS source_node_type_id,
                    n.logical_id AS source_logical_id,
-                   nv.revision, nv.iteration, nv.lifecycle_state_id,
-                   ls.name AS state_name
+                   nv.revision, nv.iteration, nv.lifecycle_state_id
             FROM node_version_link nl
-            JOIN link_type lt        ON lt.id     = nl.link_type_id
             JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
             JOIN plm_transaction pt_src ON pt_src.id = nv_src.tx_id
             JOIN node n              ON n.id      = nv_src.node_id
-            JOIN node_type nt        ON nt.id     = n.node_type_id
             JOIN node_version nv     ON nv.node_id = n.id
             JOIN plm_transaction pt  ON pt.id     = nv.tx_id
-            LEFT JOIN lifecycle_state ls ON ls.id = nv.lifecycle_state_id
             WHERE nl.target_node_id = ?
               AND (pt_src.status = 'COMMITTED'
                    OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
@@ -347,7 +343,7 @@ public class LinkService {
                 WHERE nv2.node_id = n.id
                   AND (pt2.status = 'COMMITTED'
                        OR (pt2.status = 'OPEN' AND (pt2.owner_id = ? OR ? = 'true'))))
-            ORDER BY lt.name, n.logical_id
+            ORDER BY n.logical_id
             """,
             nodeId,
             currentUserId, isAdminStr,
@@ -356,17 +352,22 @@ public class LinkService {
         ).stream().map(r -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("linkId",             r.get("link_id",             String.class));
-            m.put("linkTypeName",       r.get("link_type_name",      String.class));
-            m.put("linkPolicy",         r.get("link_policy",         String.class));
+            String ltId = r.get("link_type_id", String.class);
+            var lt = configCache.getLinkType(ltId);
+            m.put("linkTypeName",       lt.map(LinkTypeConfig::name).orElse(ltId));
+            m.put("linkPolicy",         lt.map(LinkTypeConfig::linkPolicy).orElse(""));
             m.put("linkLogicalId",      Objects.toString(r.get("link_logical_id",      String.class), ""));
-            m.put("linkLogicalIdLabel", Objects.toString(r.get("link_logical_id_label",String.class), "Link ID"));
+            m.put("linkLogicalIdLabel", lt.map(LinkTypeConfig::linkLogicalIdLabel).orElse("Link ID"));
             m.put("sourceNodeId",       r.get("source_node_id",      String.class));
-            m.put("sourceNodeType",     r.get("source_node_type",    String.class));
+            String sntId = r.get("source_node_type_id", String.class);
+            m.put("sourceNodeType",     configCache.getNodeType(sntId)
+                .map(NodeTypeConfig::name).orElse(sntId));
             m.put("sourceLogicalId",    Objects.toString(r.get("source_logical_id",   String.class), ""));
             m.put("sourceRevision",     Objects.toString(r.get("revision",             String.class), ""));
             m.put("sourceIteration",    Objects.toString(r.get("iteration",            Integer.class), ""));
-            m.put("sourceState",        Objects.toString(r.get("lifecycle_state_id",  String.class), ""));
-            m.put("sourceStateName",    Objects.toString(r.get("state_name",          String.class), ""));
+            String sourceStateId = r.get("lifecycle_state_id", String.class);
+            m.put("sourceState",        Objects.toString(sourceStateId, ""));
+            m.put("sourceStateName",    resolveStateName(sourceStateId));
             return m;
         }).toList();
     }
@@ -374,6 +375,18 @@ public class LinkService {
     // ================================================================
     // Helpers
     // ================================================================
+
+    private String resolveStateName(String stateId) {
+        if (stateId == null) return "";
+        for (LifecycleConfig lc : configCache.getAllLifecycles()) {
+            if (lc.states() != null) {
+                for (LifecycleStateConfig st : lc.states()) {
+                    if (stateId.equals(st.id())) return st.name();
+                }
+            }
+        }
+        return stateId;
+    }
 
     private String findOpenVersionInTx(String nodeId, String txId) {
         return dsl.select().from("node_version")
@@ -407,8 +420,8 @@ public class LinkService {
         String current = typeId;
         while (current != null) {
             if (expectedTypeId.equals(current)) return true;
-            current = dsl.select().from("node_type").where("id = ?", current)
-                .fetchOne("parent_node_type_id", String.class);
+            current = configCache.getNodeType(current)
+                .map(NodeTypeConfig::parentNodeTypeId).orElse(null);
         }
         return false;
     }

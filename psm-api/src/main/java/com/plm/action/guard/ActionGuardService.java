@@ -1,15 +1,18 @@
 package com.plm.action.guard;
 
 import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.ConfigSnapshotUpdatedEvent;
+import com.plm.platform.config.dto.ActionGuardConfig;
+import com.plm.platform.config.dto.AlgorithmConfig;
+import com.plm.platform.config.dto.AlgorithmInstanceConfig;
+import com.plm.platform.config.dto.NodeActionGuardConfig;
 import com.plm.shared.exception.GuardViolationException;
 import com.plm.shared.guard.GuardEffect;
 import com.plm.shared.guard.GuardEvaluation;
 import com.plm.shared.guard.GuardViolation;
 import lombok.extern.slf4j.Slf4j;
-import org.jooq.DSLContext;
 import org.springframework.context.ApplicationContext;
-import org.jooq.Record;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
@@ -18,12 +21,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Evaluates guards for actions. Maintains an in-memory cache of the guard
  * attachment graph (action -> guards, (node_type, action, transition) -> guards)
- * loaded at startup.
+ * loaded at startup from {@link ConfigCache}.
  *
  * Cache is invalidated via {@link #evictCache()} when admin changes guard config.
  */
@@ -31,7 +35,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Service
 public class ActionGuardService {
 
-    private final DSLContext          dsl;
+    private final ConfigCache         configCache;
     private final ApplicationContext  appCtx;
 
     /** Action-level guards (global across node types), keyed by actionId. */
@@ -41,8 +45,11 @@ public class ActionGuardService {
 
     private final ReentrantReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
-    public ActionGuardService(DSLContext dsl, ApplicationContext appCtx) {
-        this.dsl = dsl;
+    /** Reverse index: algorithm id → algorithm code (rebuilt on each cache rebuild). */
+    private Map<String, String> algorithmCodeById = Map.of();
+
+    public ActionGuardService(ConfigCache configCache, ApplicationContext appCtx) {
+        this.configCache = configCache;
         this.appCtx = appCtx;
     }
 
@@ -50,8 +57,8 @@ public class ActionGuardService {
         return AlgorithmRegistry.getInstance(appCtx);
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void loadCache() {
+    @EventListener(ConfigSnapshotUpdatedEvent.class)
+    public void onConfigSnapshotUpdated(ConfigSnapshotUpdatedEvent event) {
         rebuildCache();
     }
 
@@ -190,42 +197,35 @@ public class ActionGuardService {
         Map<String, List<ResolvedGuard>> newActionGuards = new HashMap<>();
         Map<NodeActionKey, List<ResolvedGuard>> newNodeActionGuards = new HashMap<>();
 
-        List<Record> actionGuardRows = dsl.fetch("""
-            SELECT ag.action_id, ag.algorithm_instance_id, ag.effect, ag.display_order,
-                   ai.algorithm_id, a.code AS algorithm_code
-            FROM action_guard ag
-            JOIN algorithm_instance ai ON ai.id = ag.algorithm_instance_id
-            JOIN algorithm a ON a.id = ai.algorithm_id
-            ORDER BY ag.action_id, ag.display_order
-            """);
+        // Build reverse index: algorithm id → code
+        Map<String, String> codeById = new HashMap<>();
+        for (AlgorithmConfig alg : configCache.getAllAlgorithms()) {
+            codeById.put(alg.id(), alg.code());
+        }
+        algorithmCodeById = Map.copyOf(codeById);
 
-        for (Record row : actionGuardRows) {
-            String actionId = row.get("action_id", String.class);
-            ResolvedGuard rg = resolveGuardFromRow(row, "ADD");
-            if (rg != null) {
-                newActionGuards.computeIfAbsent(actionId, k -> new ArrayList<>()).add(rg);
+        // Action-level guards (from ActionConfig.guards())
+        for (var action : configCache.getAllActions()) {
+            for (ActionGuardConfig ag : configCache.getActionGuards(action.id())) {
+                ResolvedGuard rg = resolveGuardFromConfig(ag.algorithmInstanceId(), ag.effect(), "ADD");
+                if (rg != null) {
+                    newActionGuards.computeIfAbsent(action.id(), k -> new ArrayList<>()).add(rg);
+                }
             }
         }
 
-        List<Record> nodeActionGuardRows = dsl.fetch("""
-            SELECT nag.node_type_id, nag.action_id, nag.transition_id,
-                   nag.algorithm_instance_id, nag.effect, nag.override_action, nag.display_order,
-                   ai.algorithm_id, a.code AS algorithm_code
-            FROM node_action_guard nag
-            JOIN algorithm_instance ai ON ai.id = nag.algorithm_instance_id
-            JOIN algorithm a ON a.id = ai.algorithm_id
-            ORDER BY nag.node_type_id, nag.action_id, nag.display_order
-            """);
-
-        for (Record row : nodeActionGuardRows) {
-            NodeActionKey key = new NodeActionKey(
-                row.get("node_type_id",  String.class),
-                row.get("action_id",     String.class),
-                row.get("transition_id", String.class));
-            String overrideAction = row.get("override_action", String.class);
-            ResolvedGuard rg = resolveGuardFromRow(row, overrideAction);
-            if (rg != null) {
-                newNodeActionGuards.computeIfAbsent(key, k -> new ArrayList<>()).add(rg);
+        // Node-action-level guards (from ConfigSnapshot.nodeActionGuards)
+        ConfigCache cache = configCache;
+        var snapshot = cache.getSnapshot();
+        if (snapshot != null && snapshot.nodeActionGuards() != null) {
+            for (NodeActionGuardConfig nag : snapshot.nodeActionGuards()) {
+                NodeActionKey key = new NodeActionKey(
+                    nag.nodeTypeId(), nag.actionId(), nag.transitionId());
+                String overrideAction = nag.overrideAction();
+                ResolvedGuard rg = resolveGuardFromConfig(nag.algorithmInstanceId(), nag.effect(), overrideAction);
+                if (rg != null) {
+                    newNodeActionGuards.computeIfAbsent(key, k -> new ArrayList<>()).add(rg);
+                }
             }
         }
 
@@ -242,10 +242,19 @@ public class ActionGuardService {
             newNodeActionGuards.values().stream().mapToInt(List::size).sum());
     }
 
-    private ResolvedGuard resolveGuardFromRow(Record row, String overrideAction) {
-        String code = row.get("algorithm_code", String.class);
-        String instanceId = row.get("algorithm_instance_id", String.class);
-        GuardEffect effect = GuardEffect.valueOf(row.get("effect", String.class));
+    /**
+     * Resolves a guard from ConfigCache data (replaces the old JOOQ-based resolveGuardFromRow).
+     * Looks up the algorithm code via instanceId → algorithmId → code, then resolves the
+     * Spring bean and collects instance parameters.
+     */
+    private ResolvedGuard resolveGuardFromConfig(String instanceId, String effectStr, String overrideAction) {
+        String code = resolveAlgorithmCode(instanceId);
+        if (code == null) {
+            log.warn("Cannot resolve algorithm code for instance '{}' -- skipping", instanceId);
+            return null;
+        }
+
+        GuardEffect effect = GuardEffect.valueOf(effectStr);
 
         if (!algorithmRegistry().hasBean(code)) {
             log.warn("Guard algorithm '{}' has no Spring bean -- skipping", code);
@@ -260,16 +269,22 @@ public class ActionGuardService {
             return null;
         }
 
-        Map<String, String> params = new HashMap<>();
-        dsl.fetch("""
-            SELECT ap.param_name, aipv.value
-            FROM algorithm_instance_param_value aipv
-            JOIN algorithm_parameter ap ON ap.id = aipv.algorithm_parameter_id
-            WHERE aipv.algorithm_instance_id = ?
-            """, instanceId)
-            .forEach(r -> params.put(r.get("param_name", String.class), r.get("value", String.class)));
+        // Instance parameters are already resolved in AlgorithmInstanceConfig
+        Map<String, String> params = configCache.getInstance(instanceId)
+            .map(AlgorithmInstanceConfig::paramValues)
+            .orElse(Map.of());
 
-        return new ResolvedGuard(instanceId, bean, effect, overrideAction, Map.copyOf(params));
+        return new ResolvedGuard(instanceId, bean, effect, overrideAction, params);
+    }
+
+    /**
+     * Resolves algorithm code from an instance id:
+     * instanceId → AlgorithmInstanceConfig.algorithmId() → AlgorithmConfig.code()
+     */
+    private String resolveAlgorithmCode(String instanceId) {
+        Optional<AlgorithmInstanceConfig> instance = configCache.getInstance(instanceId);
+        if (instance.isEmpty()) return null;
+        return algorithmCodeById.get(instance.get().algorithmId());
     }
 
     /**

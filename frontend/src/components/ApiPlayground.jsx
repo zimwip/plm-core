@@ -49,7 +49,7 @@ function schemaToExample(schema, depth = 0) {
 }
 
 // ── Single endpoint row ──────────────────────────────────────────────
-function EndpointRow({ method, path, operation, userId, projectSpaceId }) {
+function EndpointRow({ method, path, operation, userId, projectSpaceId, basePath }) {
   const [open,      setOpen]      = useState(false);
   const [params,    setParams]    = useState({});
   const [body,      setBody]      = useState('');
@@ -79,7 +79,9 @@ function EndpointRow({ method, path, operation, userId, projectSpaceId }) {
     setExecuting(true);
     setResponse(null);
 
-    let url = path;
+    // Spec paths are relative to the service context-path; prefix with basePath
+    // so the request hits the SPE gateway at the right route.
+    let url = (basePath || '') + path;
     parameters.filter(p => p.in === 'path').forEach(p => {
       url = url.replace(`{${p.name}}`, encodeURIComponent(params[p.name] ?? ''));
     });
@@ -245,18 +247,65 @@ function EndpointRow({ method, path, operation, userId, projectSpaceId }) {
   );
 }
 
+// Normalise service path from /api/spe/status: trim trailing slash for
+// consistent URL composition downstream.
+function normalizeBasePath(p) {
+  if (!p) return '';
+  return p.endsWith('/') ? p.slice(0, -1) : p;
+}
+
 // ── Main component ───────────────────────────────────────────────────
 export default function ApiPlayground({ userId, projectSpaceId }) {
+  const [services,     setServices]     = useState([]);
+  const [selected,     setSelected]     = useState(null);  // serviceCode
   const [spec,         setSpec]         = useState(null);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState(null);
   const [filter,       setFilter]       = useState('');
   const [collapsedTags, setCollapsedTags] = useState({});
 
-  const loadSpec = useCallback(() => {
+  const selectedService = useMemo(
+    () => services.find(s => s.serviceCode === selected) || null,
+    [services, selected]
+  );
+  const basePath = normalizeBasePath(selectedService?.path);
+
+  // Load the list of healthy registered services from the public gateway status.
+  const loadServices = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch('/v3/api-docs', { headers: authHeader() })
+    fetch('/api/spe/status', { headers: authHeader(), cache: 'no-store' })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status} on /api/spe/status`);
+        return r.json();
+      })
+      .then(data => {
+        // Keep services that registered and have an external path. The gateway
+        // itself (spe-api, path = /api/spe/) exposes no OpenAPI spec; skip it.
+        // ws-gateway is WebSocket-only; also skip.
+        const usable = (data.services || [])
+          .filter(s => s.registered && s.path && s.serviceCode !== 'spe-api' && s.serviceCode !== 'ws')
+          .sort((a, b) => a.serviceCode.localeCompare(b.serviceCode));
+        setServices(usable);
+        if (usable.length === 0) {
+          setSelected(null);
+          setLoading(false);
+          setError('No services registered — start backend services first.');
+        } else {
+          // Preserve current selection if still present, else pick first.
+          setSelected(prev => usable.some(s => s.serviceCode === prev) ? prev : usable[0].serviceCode);
+        }
+      })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, []);
+
+  // Load the OpenAPI spec for the currently selected service.
+  const loadSpec = useCallback(() => {
+    if (!basePath) return;
+    setLoading(true);
+    setError(null);
+    setSpec(null);
+    fetch(`${basePath}/v3/api-docs`, { headers: authHeader(), cache: 'no-store' })
       .then(async r => {
         if (!r.ok) {
           const body = await r.text().catch(() => '');
@@ -264,15 +313,17 @@ export default function ApiPlayground({ userId, projectSpaceId }) {
         }
         const ct = r.headers.get('content-type') || '';
         if (!ct.includes('json')) {
-          throw new Error(`Expected JSON spec, got ${ct || 'unknown'} — check nginx /v3/api-docs proxy.`);
+          throw new Error(`Expected JSON spec, got ${ct || 'unknown'}.`);
         }
         return r.json();
       })
       .then(data => { setSpec(data); setLoading(false); })
       .catch(e  => { setError(e.message); setLoading(false); });
-  }, []);
+  }, [basePath]);
 
+  useEffect(() => { loadServices(); }, [loadServices]);
   useEffect(() => { loadSpec(); }, [loadSpec]);
+  useEffect(() => { setFilter(''); setCollapsedTags({}); }, [selected]);
 
   const taggedOps = useMemo(() => {
     if (!spec?.paths) return [];
@@ -316,12 +367,48 @@ export default function ApiPlayground({ userId, projectSpaceId }) {
 
   const totalPaths = spec ? Object.keys(spec.paths || {}).length : 0;
 
-  if (loading) return <div className="settings-loading">Fetching OpenAPI spec…</div>;
+  const serviceSelector = (
+    <select
+      className="pg-service-select"
+      value={selected || ''}
+      onChange={e => setSelected(e.target.value)}
+      disabled={services.length === 0}
+      style={{
+        background: 'var(--bg-elev-1)', color: 'var(--fg)',
+        border: '1px solid var(--border)', borderRadius: 4,
+        padding: '4px 8px', fontSize: 12, fontFamily: 'var(--mono)',
+        minWidth: 160,
+      }}
+    >
+      {services.map(s => (
+        <option key={s.serviceCode} value={s.serviceCode}>
+          {s.serviceCode}  ({s.path})
+        </option>
+      ))}
+    </select>
+  );
+
+  if (loading && !spec) return (
+    <div className="pg-shell">
+      <div className="pg-topbar">
+        {serviceSelector}
+        <span className="pg-topbar-meta">loading…</span>
+        <button className="btn btn-xs pg-topbar-refresh" onClick={loadServices} title="Reload services">⟳</button>
+      </div>
+      <div className="settings-loading">Fetching OpenAPI spec…</div>
+    </div>
+  );
 
   if (error) return (
-    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <span style={{ fontSize: 12, color: 'var(--danger)' }}>✗ {error}</span>
-      <button className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={loadSpec}>Retry</button>
+    <div className="pg-shell">
+      <div className="pg-topbar">
+        {serviceSelector}
+        <button className="btn btn-xs pg-topbar-refresh" onClick={loadServices} title="Reload services">⟳</button>
+      </div>
+      <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <span style={{ fontSize: 12, color: 'var(--danger)' }}>✗ {error}</span>
+        <button className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={loadSpec}>Retry</button>
+      </div>
     </div>
   );
 
@@ -329,6 +416,7 @@ export default function ApiPlayground({ userId, projectSpaceId }) {
     <div className="pg-shell">
       {/* Top bar */}
       <div className="pg-topbar">
+        {serviceSelector}
         <span className="pg-topbar-title">{spec?.info?.title}</span>
         <span className="pg-topbar-ver">v{spec?.info?.version}</span>
         <span className="pg-topbar-meta">{totalPaths} paths</span>
@@ -386,6 +474,7 @@ export default function ApiPlayground({ userId, projectSpaceId }) {
                   operation={operation}
                   userId={userId}
                   projectSpaceId={projectSpaceId}
+                  basePath={basePath}
                 />
               ))}
             </div>

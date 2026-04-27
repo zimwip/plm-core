@@ -38,7 +38,7 @@ public class PnoProjectSpaceClient {
         if (cached != null) return cached;
 
         try {
-            List<String> result = serviceClient.get("pno-api",
+            List<String> result = serviceClient.get("pno",
                 "/api/pno/project-spaces/" + projectSpaceId + "/descendants",
                 new ParameterizedTypeReference<List<String>>() {});
             if (result == null) result = List.of(projectSpaceId);

@@ -2,8 +2,10 @@
 
 import { recordApiCall } from './apiStats';
 
-const BASE     = '/api/psm';
-const BASE_PNO = '/api/pno';
+const BASE          = '/api/psm';
+const BASE_ADMIN    = '/api/psa';
+const BASE_PNO      = '/api/pno';
+const BASE_PLATFORM = '/api/platform';
 
 // Wrap fetch to record timing + status into apiStats.
 async function timedFetch(url, init, method) {
@@ -153,8 +155,16 @@ async function pnoRequest(method, path, _userId, body) {
   return doFetch(BASE_PNO, method, path, body);
 }
 
+async function platformRequest(method, path, _userId, body) {
+  return doFetch(BASE_PLATFORM, method, path, body);
+}
+
 async function request(method, path, _userId, body, psOverride) {
   return doFetch(BASE, method, path, body, { psOverride });
+}
+
+async function adminRequest(method, path, _userId, body) {
+  return doFetch(BASE_ADMIN, method, path, body);
 }
 
 // ── SPE (gateway) platform status ──────────────────────────────────
@@ -169,6 +179,25 @@ export const speApi = {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   },
+
+  // Environment config (expected services)
+  getEnvironment: async () => {
+    return doFetch('/api/spe', 'GET', '/config/environment');
+  },
+  updateEnvironment: async (expectedServices) => {
+    return doFetch('/api/spe', 'PUT', '/config/environment', { expectedServices });
+  },
+  addExpectedService: async (serviceCode) => {
+    return doFetch('/api/spe', 'POST', '/config/environment/services', { serviceCode });
+  },
+  removeExpectedService: async (serviceCode) => {
+    return doFetch('/api/spe', 'DELETE', `/config/environment/services/${serviceCode}`);
+  },
+  getNatsStatus: async () => {
+    const res = await timedFetch('/api/spe/status/nats', { cache: 'no-store' }, 'GET');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  },
 };
 
 // ── Nodes ──────────────────────────────────────────────────────────
@@ -176,15 +205,15 @@ export const speApi = {
 export const api = {
   // Metadata keys (discovered from @Metadata annotations)
   getMetadataKeys: (userId, targetType) =>
-    request('GET', targetType ? `/metamodel/metadata/keys/${targetType}` : '/metamodel/metadata/keys', userId),
+    adminRequest('GET', targetType ? `/metamodel/metadata/keys/${targetType}` : '/metamodel/metadata/keys', userId),
 
   // Lister les types de noeuds disponibles
   getNodeTypes: (userId) =>
-    request('GET', '/metamodel/nodetypes', userId),
+    adminRequest('GET', '/metamodel/nodetypes', userId),
 
-  // Lister les types de noeuds que l'utilisateur courant peut créer
+  // Lister les types de noeuds que l'utilisateur courant peut créer (permission-filtered, served by psm-api)
   getCreatableNodeTypes: (userId) =>
-    request('GET', '/metamodel/nodetypes/creatable', userId),
+    request('GET', '/nodes/nodetypes/creatable', userId),
 
   // Lister tous les noeuds (dernière version committée)
   listNodes: (userId, page = 0, size = 50) =>
@@ -236,10 +265,10 @@ export const api = {
     }),
 
   getLinkTypes: (userId) =>
-    request('GET', '/metamodel/linktypes', userId),
+    adminRequest('GET', '/metamodel/linktypes', userId),
 
   getNodeTypeLinkTypes: (userId, nodeTypeId) =>
-    request('GET', `/metamodel/nodetypes/${nodeTypeId}/linktypes`, userId),
+    adminRequest('GET', `/metamodel/nodetypes/${nodeTypeId}/linktypes`, userId),
 
   // Liens d'un noeud — lecture
   getChildLinks: (userId, nodeId) =>
@@ -250,208 +279,208 @@ export const api = {
 
   // Meta-model
   getLifecycles: (userId) =>
-    request('GET', '/metamodel/lifecycles', userId),
+    adminRequest('GET', '/metamodel/lifecycles', userId),
 
   getLifecycleStates: (userId, id) =>
-    request('GET', `/metamodel/lifecycles/${id}/states`, userId),
+    adminRequest('GET', `/metamodel/lifecycles/${id}/states`, userId),
 
   getLifecycleTransitions: (userId, id) =>
-    request('GET', `/metamodel/lifecycles/${id}/transitions`, userId),
+    adminRequest('GET', `/metamodel/lifecycles/${id}/transitions`, userId),
 
   createLifecycle: (userId, body) =>
-    request('POST', '/metamodel/lifecycles', userId, body),
+    adminRequest('POST', '/metamodel/lifecycles', userId, body),
 
   duplicateLifecycle: (userId, sourceId, name) =>
-    request('POST', `/metamodel/lifecycles/${sourceId}/duplicate`, userId, { name }),
+    adminRequest('POST', `/metamodel/lifecycles/${sourceId}/duplicate`, userId, { name }),
 
   deleteLifecycle: (userId, lifecycleId) =>
-    request('DELETE', `/metamodel/lifecycles/${lifecycleId}`, userId),
+    adminRequest('DELETE', `/metamodel/lifecycles/${lifecycleId}`, userId),
 
   addLifecycleState: (userId, lifecycleId, body) =>
-    request('POST', `/metamodel/lifecycles/${lifecycleId}/states`, userId, body),
+    adminRequest('POST', `/metamodel/lifecycles/${lifecycleId}/states`, userId, body),
 
   updateLifecycleState: (userId, lifecycleId, stateId, body) =>
-    request('PUT', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}`, userId, body),
+    adminRequest('PUT', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}`, userId, body),
 
   deleteLifecycleState: (userId, lifecycleId, stateId) =>
-    request('DELETE', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}`, userId),
+    adminRequest('DELETE', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}`, userId),
 
   // State actions (lifecycle state level)
   listLifecycleStateActions: (userId, lifecycleId, stateId) =>
-    request('GET', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}/actions`, userId),
+    adminRequest('GET', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}/actions`, userId),
 
   attachLifecycleStateAction: (userId, lifecycleId, stateId, instanceId, trigger, executionMode, displayOrder = 0) =>
-    request('POST', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}/actions`, userId, { instanceId, trigger, executionMode, displayOrder }),
+    adminRequest('POST', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}/actions`, userId, { instanceId, trigger, executionMode, displayOrder }),
 
   detachLifecycleStateAction: (userId, lifecycleId, stateId, actionId) =>
-    request('DELETE', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}/actions/${actionId}`, userId),
+    adminRequest('DELETE', `/metamodel/lifecycles/${lifecycleId}/states/${stateId}/actions/${actionId}`, userId),
 
   addLifecycleTransition: (userId, lifecycleId, body) =>
-    request('POST', `/metamodel/lifecycles/${lifecycleId}/transitions`, userId, body),
+    adminRequest('POST', `/metamodel/lifecycles/${lifecycleId}/transitions`, userId, body),
 
   updateLifecycleTransition: (userId, lifecycleId, transId, body) =>
-    request('PUT', `/metamodel/lifecycles/${lifecycleId}/transitions/${transId}`, userId, body),
+    adminRequest('PUT', `/metamodel/lifecycles/${lifecycleId}/transitions/${transId}`, userId, body),
 
   deleteLifecycleTransition: (userId, lifecycleId, transId) =>
-    request('DELETE', `/metamodel/lifecycles/${lifecycleId}/transitions/${transId}`, userId),
+    adminRequest('DELETE', `/metamodel/lifecycles/${lifecycleId}/transitions/${transId}`, userId),
 
   addTransitionSignatureRequirement: (userId, transId, roleId, displayOrder = 0) =>
-    request('POST', `/metamodel/transitions/${transId}/signature-requirements`, userId, { roleId, displayOrder }),
+    adminRequest('POST', `/metamodel/transitions/${transId}/signature-requirements`, userId, { roleId, displayOrder }),
 
   removeTransitionSignatureRequirement: (userId, transId, reqId) =>
-    request('DELETE', `/metamodel/transitions/${transId}/signature-requirements/${reqId}`, userId),
+    adminRequest('DELETE', `/metamodel/transitions/${transId}/signature-requirements/${reqId}`, userId),
 
   deleteNodeType: (userId, nodeTypeId) =>
-    request('DELETE', `/metamodel/nodetypes/${nodeTypeId}`, userId),
+    adminRequest('DELETE', `/metamodel/nodetypes/${nodeTypeId}`, userId),
 
   updateNodeTypeIdentity: (userId, nodeTypeId, body) =>
-    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/identity`, userId, body),
+    adminRequest('PUT', `/metamodel/nodetypes/${nodeTypeId}/identity`, userId, body),
 
   updateNodeTypeNumberingScheme: (userId, nodeTypeId, numberingScheme) =>
-    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/numbering-scheme`, userId, { numberingScheme }),
+    adminRequest('PUT', `/metamodel/nodetypes/${nodeTypeId}/numbering-scheme`, userId, { numberingScheme }),
 
   updateNodeTypeVersionPolicy: (userId, nodeTypeId, versionPolicy) =>
-    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/version-policy`, userId, { versionPolicy }),
+    adminRequest('PUT', `/metamodel/nodetypes/${nodeTypeId}/version-policy`, userId, { versionPolicy }),
 
   updateNodeTypeCollapseHistory: (userId, nodeTypeId, collapseHistory) =>
-    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/collapse-history`, userId, { collapseHistory }),
+    adminRequest('PUT', `/metamodel/nodetypes/${nodeTypeId}/collapse-history`, userId, { collapseHistory }),
 
   updateNodeTypeLifecycle: (userId, nodeTypeId, lifecycleId) =>
-    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/lifecycle`, userId, { lifecycleId: lifecycleId || null }),
+    adminRequest('PUT', `/metamodel/nodetypes/${nodeTypeId}/lifecycle`, userId, { lifecycleId: lifecycleId || null }),
 
   updateNodeTypeAppearance: (userId, nodeTypeId, color, icon) =>
-    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/appearance`, userId, { color: color || null, icon: icon || null }),
+    adminRequest('PUT', `/metamodel/nodetypes/${nodeTypeId}/appearance`, userId, { color: color || null, icon: icon || null }),
 
   updateAttribute: (userId, nodeTypeId, attrId, body) =>
-    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/attributes/${attrId}`, userId, body),
+    adminRequest('PUT', `/metamodel/nodetypes/${nodeTypeId}/attributes/${attrId}`, userId, body),
 
   deleteAttribute: (userId, nodeTypeId, attrId) =>
-    request('DELETE', `/metamodel/nodetypes/${nodeTypeId}/attributes/${attrId}`, userId),
+    adminRequest('DELETE', `/metamodel/nodetypes/${nodeTypeId}/attributes/${attrId}`, userId),
 
   updateLinkType: (userId, linkTypeId, body) =>
-    request('PUT', `/metamodel/linktypes/${linkTypeId}`, userId, body),
+    adminRequest('PUT', `/metamodel/linktypes/${linkTypeId}`, userId, body),
 
   deleteLinkType: (userId, linkTypeId) =>
-    request('DELETE', `/metamodel/linktypes/${linkTypeId}`, userId),
+    adminRequest('DELETE', `/metamodel/linktypes/${linkTypeId}`, userId),
 
   getLinkTypeAttributes: (userId, linkTypeId) =>
-    request('GET', `/metamodel/linktypes/${linkTypeId}/attributes`, userId),
+    adminRequest('GET', `/metamodel/linktypes/${linkTypeId}/attributes`, userId),
 
   createLinkTypeAttribute: (userId, linkTypeId, body) =>
-    request('POST', `/metamodel/linktypes/${linkTypeId}/attributes`, userId, body),
+    adminRequest('POST', `/metamodel/linktypes/${linkTypeId}/attributes`, userId, body),
 
   updateLinkTypeAttribute: (userId, linkTypeId, attrId, body) =>
-    request('PUT', `/metamodel/linktypes/${linkTypeId}/attributes/${attrId}`, userId, body),
+    adminRequest('PUT', `/metamodel/linktypes/${linkTypeId}/attributes/${attrId}`, userId, body),
 
   deleteLinkTypeAttribute: (userId, linkTypeId, attrId) =>
-    request('DELETE', `/metamodel/linktypes/${linkTypeId}/attributes/${attrId}`, userId),
+    adminRequest('DELETE', `/metamodel/linktypes/${linkTypeId}/attributes/${attrId}`, userId),
 
   // Link type cascade rules
   getLinkTypeCascades: (userId, linkTypeId) =>
-    request('GET', `/metamodel/linktypes/${linkTypeId}/cascades`, userId),
+    adminRequest('GET', `/metamodel/linktypes/${linkTypeId}/cascades`, userId),
 
   createLinkTypeCascade: (userId, linkTypeId, parentTransitionId, childFromStateId, childTransitionId) =>
-    request('POST', `/metamodel/linktypes/${linkTypeId}/cascades`, userId, { parentTransitionId, childFromStateId, childTransitionId }),
+    adminRequest('POST', `/metamodel/linktypes/${linkTypeId}/cascades`, userId, { parentTransitionId, childFromStateId, childTransitionId }),
 
   deleteLinkTypeCascade: (userId, linkTypeId, cascadeId) =>
-    request('DELETE', `/metamodel/linktypes/${linkTypeId}/cascades/${cascadeId}`, userId),
+    adminRequest('DELETE', `/metamodel/linktypes/${linkTypeId}/cascades/${cascadeId}`, userId),
 
   getNodeTypeAttributes: (userId, nodeTypeId) =>
-    request('GET', `/metamodel/nodetypes/${nodeTypeId}/attributes`, userId),
+    adminRequest('GET', `/metamodel/nodetypes/${nodeTypeId}/attributes`, userId),
 
   createNodeType: (userId, body) =>
-    request('POST', '/metamodel/nodetypes', userId, body),
+    adminRequest('POST', '/metamodel/nodetypes', userId, body),
 
   updateNodeTypeParent: (userId, nodeTypeId, parentNodeTypeId) =>
-    request('PUT', `/metamodel/nodetypes/${nodeTypeId}/parent`, userId, { parentNodeTypeId: parentNodeTypeId || null }),
+    adminRequest('PUT', `/metamodel/nodetypes/${nodeTypeId}/parent`, userId, { parentNodeTypeId: parentNodeTypeId || null }),
 
   createAttribute: (userId, nodeTypeId, body) =>
-    request('POST', `/metamodel/nodetypes/${nodeTypeId}/attributes`, userId, body),
+    adminRequest('POST', `/metamodel/nodetypes/${nodeTypeId}/attributes`, userId, body),
 
   createLinkType: (userId, body) =>
-    request('POST', '/metamodel/linktypes', userId, body),
+    adminRequest('POST', '/metamodel/linktypes', userId, body),
 
   // Action registry (meta-model)
   getAllActions: (userId) =>
-    request('GET', '/metamodel/actions', userId),
+    adminRequest('GET', '/metamodel/actions', userId),
 
   getActionsForNodeType: (userId, nodeTypeId) =>
-    request('GET', `/metamodel/nodetypes/${nodeTypeId}/actions`, userId),
+    adminRequest('GET', `/metamodel/nodetypes/${nodeTypeId}/actions`, userId),
 
   registerCustomAction: (userId, body) =>
-    request('POST', '/metamodel/actions', userId, body),
+    adminRequest('POST', '/metamodel/actions', userId, body),
 
-  // Permission grants — manage authorization_policy rows keyed by permission_code.
+  // Permission grants — authorization_policy rows are owned by pno-api (Phase D4+).
   getPermissionGrants: (userId, nodeTypeId, permissionCode, transitionId) =>
-    request('GET',
-      `/metamodel/nodetypes/${nodeTypeId}/permissions/${permissionCode}${transitionId ? `?transitionId=${encodeURIComponent(transitionId)}` : ''}`,
+    pnoRequest('GET',
+      `/nodetypes/${nodeTypeId}/permissions/${permissionCode}${transitionId ? `?transitionId=${encodeURIComponent(transitionId)}` : ''}`,
       userId),
 
   addPermissionGrant: (userId, nodeTypeId, permissionCode, roleId, transitionId) =>
-    request('POST',
-      `/metamodel/nodetypes/${nodeTypeId}/permissions/${permissionCode}`,
+    pnoRequest('POST',
+      `/nodetypes/${nodeTypeId}/permissions/${permissionCode}`,
       userId, { roleId, transitionId: transitionId || null }),
 
   removePermissionGrant: (userId, nodeTypeId, permissionCode, roleId, transitionId) =>
-    request('DELETE',
-      `/metamodel/nodetypes/${nodeTypeId}/permissions/${permissionCode}`,
+    pnoRequest('DELETE',
+      `/nodetypes/${nodeTypeId}/permissions/${permissionCode}`,
       userId, { roleId, transitionId: transitionId || null }),
 
   // Domains
   getDomains: (userId) =>
-    request('GET', '/domains', userId),
+    adminRequest('GET', '/domains', userId),
 
   createDomain: (userId, body) =>
-    request('POST', '/domains', userId, body),
+    adminRequest('POST', '/domains', userId, body),
 
   updateDomain: (userId, domainId, body) =>
-    request('PUT', `/domains/${domainId}`, userId, body),
+    adminRequest('PUT', `/domains/${domainId}`, userId, body),
 
   deleteDomain: (userId, domainId) =>
-    request('DELETE', `/domains/${domainId}`, userId),
+    adminRequest('DELETE', `/domains/${domainId}`, userId),
 
   getDomainAttributes: (userId, domainId) =>
-    request('GET', `/domains/${domainId}/attributes`, userId),
+    adminRequest('GET', `/domains/${domainId}/attributes`, userId),
 
   createDomainAttribute: (userId, domainId, body) =>
-    request('POST', `/domains/${domainId}/attributes`, userId, body),
+    adminRequest('POST', `/domains/${domainId}/attributes`, userId, body),
 
   updateDomainAttribute: (userId, domainId, attrId, body) =>
-    request('PUT', `/domains/${domainId}/attributes/${attrId}`, userId, body),
+    adminRequest('PUT', `/domains/${domainId}/attributes/${attrId}`, userId, body),
 
   deleteDomainAttribute: (userId, domainId, attrId) =>
-    request('DELETE', `/domains/${domainId}/attributes/${attrId}`, userId),
+    adminRequest('DELETE', `/domains/${domainId}/attributes/${attrId}`, userId),
 
   // Enums
   getEnums: (userId) =>
-    request('GET', '/enums', userId),
+    adminRequest('GET', '/enums', userId),
 
   getEnumDetail: (userId, enumId) =>
-    request('GET', `/enums/${enumId}`, userId),
+    adminRequest('GET', `/enums/${enumId}`, userId),
 
   createEnum: (userId, body) =>
-    request('POST', '/enums', userId, body),
+    adminRequest('POST', '/enums', userId, body),
 
   updateEnum: (userId, enumId, body) =>
-    request('PUT', `/enums/${enumId}`, userId, body),
+    adminRequest('PUT', `/enums/${enumId}`, userId, body),
 
   deleteEnum: (userId, enumId) =>
-    request('DELETE', `/enums/${enumId}`, userId),
+    adminRequest('DELETE', `/enums/${enumId}`, userId),
 
   getEnumValues: (userId, enumId) =>
-    request('GET', `/enums/${enumId}/values`, userId),
+    adminRequest('GET', `/enums/${enumId}/values`, userId),
 
   addEnumValue: (userId, enumId, body) =>
-    request('POST', `/enums/${enumId}/values`, userId, body),
+    adminRequest('POST', `/enums/${enumId}/values`, userId, body),
 
   updateEnumValue: (userId, enumId, valueId, body) =>
-    request('PUT', `/enums/${enumId}/values/${valueId}`, userId, body),
+    adminRequest('PUT', `/enums/${enumId}/values/${valueId}`, userId, body),
 
   deleteEnumValue: (userId, enumId, valueId) =>
-    request('DELETE', `/enums/${enumId}/values/${valueId}`, userId),
+    adminRequest('DELETE', `/enums/${enumId}/values/${valueId}`, userId),
 
   reorderEnumValues: (userId, enumId, valueIds) =>
-    request('PUT', `/enums/${enumId}/values/reorder`, userId, valueIds),
+    adminRequest('PUT', `/enums/${enumId}/values/reorder`, userId, valueIds),
 
   // Baselines
   listBaselines: (userId) =>
@@ -541,168 +570,177 @@ export const api = {
 
   /** Returns full permission catalog: code, scope, displayName. */
   listPermissions: (userId) =>
-    request('GET', '/admin/permissions', userId),
+    adminRequest('GET', '/permissions', userId),
 
   /** Creates a new permission. */
   createPermission: (userId, permissionCode, scope, displayName, description, displayOrder) =>
-    request('POST', '/admin/permissions', userId, { permissionCode, scope, displayName, description, displayOrder }),
+    adminRequest('POST', '/permissions', userId, { permissionCode, scope, displayName, description, displayOrder }),
 
   /** Updates permission display metadata. */
   updatePermission: (userId, permissionCode, displayName, description, displayOrder) =>
-    request('PUT', `/admin/permissions/${permissionCode}`, userId, { displayName, description, displayOrder }),
+    adminRequest('PUT', `/permissions/${permissionCode}`, userId, { displayName, description, displayOrder }),
 
-  /** Returns ALL authorization_policy rows for a role (all scopes, bulk). */
+  /** Returns ALL authorization_policy rows for a role. Owned by pno-api (Phase D4+). */
   getRolePolicies: (userId, roleId) =>
-    request('GET', `/admin/roles/${roleId}/policies`, userId),
+    pnoRequest('GET', `/roles/${roleId}/policies`, userId),
 
-  /** Returns all GLOBAL actions from the action catalog. */
+  /** Returns all GLOBAL actions from the permission catalog. pno-api mirror (Phase D4+). */
   listGlobalActions: (userId) =>
-    request('GET', '/admin/global-actions', userId),
+    pnoRequest('GET', '/global-actions', userId),
 
-  /** Returns the GLOBAL action codes the current user can execute (e.g. ['MANAGE_METAMODEL']). */
+  /** Returns the GLOBAL action codes the current user can execute. pno-api (Phase D4+). */
   getMyGlobalPermissions: (userId) =>
-    request('GET', '/admin/my-global-permissions', userId),
+    pnoRequest('GET', '/my-global-permissions', userId),
 
   /** Returns settings sections grouped by category, filtered by user permissions. */
   getSettingsSections: (userId) =>
-    request('GET', '/admin/settings-sections', userId),
+    platformRequest('GET', '/sections', userId),
 
-  /** Returns the GLOBAL action permissions held by a specific role. */
+  /** Returns the GLOBAL action permissions held by a specific role. pno-api (Phase D4+). */
   getRoleGlobalPermissions: (userId, roleId) =>
-    request('GET', `/admin/roles/${roleId}/global-permissions`, userId),
+    pnoRequest('GET', `/roles/${roleId}/global-permissions`, userId),
 
-  /** Grants a GLOBAL permission to a role. Requires MANAGE_ROLES. */
+  /** Grants a GLOBAL permission to a role. Requires MANAGE_ROLES. pno-api (Phase D4+). */
   addRoleGlobalPermission: (userId, roleId, permissionCode) =>
-    request('POST', `/admin/roles/${roleId}/global-permissions`, userId, { permissionCode }),
+    pnoRequest('POST', `/roles/${roleId}/global-permissions`, userId, { permissionCode }),
 
-  /** Revokes a GLOBAL permission from a role. Requires MANAGE_ROLES. */
+  /** Revokes a GLOBAL permission from a role. Requires MANAGE_ROLES. pno-api (Phase D4+). */
   removeRoleGlobalPermission: (userId, roleId, permissionCode) =>
-    request('DELETE', `/admin/roles/${roleId}/global-permissions/${permissionCode}`, userId),
+    pnoRequest('DELETE', `/roles/${roleId}/global-permissions/${permissionCode}`, userId),
 
-  // ── Secrets (Vault-backed) ──────────────────────────────────────────
+  // ── Secrets (Vault-backed, served by platform-api at /api/platform/admin/secrets) ──
 
   listSecrets: (userId) =>
-    request('GET', '/admin/secrets', userId),
+    platformRequest('GET', '/admin/secrets', userId),
 
   revealSecret: (userId, key) =>
-    request('GET', `/admin/secrets/${encodeURIComponent(key)}`, userId),
+    platformRequest('GET', `/admin/secrets/${encodeURIComponent(key)}`, userId),
 
   createSecret: (userId, key, value) =>
-    request('POST', '/admin/secrets', userId, { key, value }),
+    platformRequest('POST', '/admin/secrets', userId, { key, value }),
 
   updateSecret: (userId, key, value) =>
-    request('PUT', `/admin/secrets/${encodeURIComponent(key)}`, userId, { value }),
+    platformRequest('PUT', `/admin/secrets/${encodeURIComponent(key)}`, userId, { value }),
 
   deleteSecret: (userId, key) =>
-    request('DELETE', `/admin/secrets/${encodeURIComponent(key)}`, userId),
+    platformRequest('DELETE', `/admin/secrets/${encodeURIComponent(key)}`, userId),
 
   // ── Algorithms & Guards ─────────────────────────────────────────────
 
   listAlgorithmTypes: (userId) =>
-    request('GET', '/algorithms/types', userId),
+    adminRequest('GET', '/algorithms/types', userId),
 
   listAlgorithms: (userId) =>
-    request('GET', '/algorithms', userId),
+    adminRequest('GET', '/algorithms', userId),
 
   listAlgorithmsByType: (userId, typeId) =>
-    request('GET', `/algorithms/by-type/${typeId}`, userId),
+    adminRequest('GET', `/algorithms/by-type/${typeId}`, userId),
 
   listAlgorithmParameters: (userId, algorithmId) =>
-    request('GET', `/algorithms/${algorithmId}/parameters`, userId),
+    adminRequest('GET', `/algorithms/${algorithmId}/parameters`, userId),
 
   listAllInstances: (userId) =>
-    request('GET', '/algorithms/instances', userId),
+    adminRequest('GET', '/algorithms/instances', userId),
 
   listInstances: (userId, algorithmId) =>
-    request('GET', `/algorithms/${algorithmId}/instances`, userId),
+    adminRequest('GET', `/algorithms/${algorithmId}/instances`, userId),
 
   createInstance: (userId, algorithmId, name) =>
-    request('POST', '/algorithms/instances', userId, { algorithmId, name }),
+    adminRequest('POST', '/algorithms/instances', userId, { algorithmId, name }),
 
   updateInstance: (userId, instanceId, name) =>
-    request('PUT', `/algorithms/instances/${instanceId}`, userId, { name }),
+    adminRequest('PUT', `/algorithms/instances/${instanceId}`, userId, { name }),
 
   deleteInstance: (userId, instanceId) =>
-    request('DELETE', `/algorithms/instances/${instanceId}`, userId),
+    adminRequest('DELETE', `/algorithms/instances/${instanceId}`, userId),
 
   getInstanceParams: (userId, instanceId) =>
-    request('GET', `/algorithms/instances/${instanceId}/params`, userId),
+    adminRequest('GET', `/algorithms/instances/${instanceId}/params`, userId),
 
   setInstanceParam: (userId, instanceId, parameterId, value) =>
-    request('PUT', `/algorithms/instances/${instanceId}/params/${parameterId}`, userId, { value }),
+    adminRequest('PUT', `/algorithms/instances/${instanceId}/params/${parameterId}`, userId, { value }),
 
   listActionGuards: (userId, actionId) =>
-    request('GET', `/algorithms/actions/${actionId}/guards`, userId),
+    adminRequest('GET', `/algorithms/actions/${actionId}/guards`, userId),
 
   attachActionGuard: (userId, actionId, instanceId, effect, displayOrder) =>
-    request('POST', `/algorithms/actions/${actionId}/guards`, userId, { instanceId, effect, displayOrder }),
+    adminRequest('POST', `/algorithms/actions/${actionId}/guards`, userId, { instanceId, effect, displayOrder }),
+
+  updateActionGuard: (userId, actionId, guardId, effect) =>
+    adminRequest('PUT', `/algorithms/actions/${actionId}/guards/${guardId}`, userId, { effect }),
 
   detachActionGuard: (userId, actionId, guardId) =>
-    request('DELETE', `/algorithms/actions/${actionId}/guards/${guardId}`, userId),
+    adminRequest('DELETE', `/algorithms/actions/${actionId}/guards/${guardId}`, userId),
 
   // Action wrappers (middleware pipeline)
   listActionWrappers: (userId, actionId) =>
-    request('GET', `/algorithms/actions/${actionId}/wrappers`, userId),
+    adminRequest('GET', `/algorithms/actions/${actionId}/wrappers`, userId),
 
   attachActionWrapper: (userId, actionId, instanceId, executionOrder) =>
-    request('POST', `/algorithms/actions/${actionId}/wrappers`, userId, { instanceId, executionOrder }),
+    adminRequest('POST', `/algorithms/actions/${actionId}/wrappers`, userId, { instanceId, executionOrder }),
 
   detachActionWrapper: (userId, actionId, wrapperId) =>
-    request('DELETE', `/algorithms/actions/${actionId}/wrappers/${wrapperId}`, userId),
+    adminRequest('DELETE', `/algorithms/actions/${actionId}/wrappers/${wrapperId}`, userId),
 
   listTransitionGuards: (userId, transitionId) =>
-    request('GET', `/algorithms/transitions/${transitionId}/guards`, userId),
+    adminRequest('GET', `/algorithms/transitions/${transitionId}/guards`, userId),
 
   attachTransitionGuard: (userId, transitionId, instanceId, effect, displayOrder) =>
-    request('POST', `/algorithms/transitions/${transitionId}/guards`, userId,
+    adminRequest('POST', `/algorithms/transitions/${transitionId}/guards`, userId,
       { instanceId, effect, displayOrder }),
 
+  updateTransitionGuard: (userId, guardId, effect) =>
+    adminRequest('PUT', `/algorithms/transitions/guards/${guardId}`, userId, { effect }),
+
   detachTransitionGuard: (userId, guardId) =>
-    request('DELETE', `/algorithms/transitions/guards/${guardId}`, userId),
+    adminRequest('DELETE', `/algorithms/transitions/guards/${guardId}`, userId),
 
   listNodeActionGuards: (userId, nodeTypeId, actionCode, transitionId) =>
-    request('GET',
+    adminRequest('GET',
       `/algorithms/node-actions/${nodeTypeId}/${actionCode}/guards${transitionId ? `?transitionId=${encodeURIComponent(transitionId)}` : ''}`,
       userId),
 
   attachNodeActionGuard: (userId, nodeTypeId, actionCode, transitionId, instanceId, effect, overrideAction, displayOrder) =>
-    request('POST', `/algorithms/node-actions/${nodeTypeId}/${actionCode}/guards`, userId,
+    adminRequest('POST', `/algorithms/node-actions/${nodeTypeId}/${actionCode}/guards`, userId,
       { transitionId: transitionId || null, instanceId, effect, overrideAction, displayOrder }),
 
+  updateNodeActionGuard: (userId, guardId, effect) =>
+    adminRequest('PUT', `/algorithms/node-actions/guards/${guardId}`, userId, { effect }),
+
   detachNodeActionGuard: (userId, guardId) =>
-    request('DELETE', `/algorithms/node-actions/guards/${guardId}`, userId),
+    adminRequest('DELETE', `/algorithms/node-actions/guards/${guardId}`, userId),
 
   // ── Node-type state action overrides (tier 2) ──
 
   listNodeTypeStateActions: (userId, nodeTypeId, stateId) =>
-    request('GET', `/algorithms/node-types/${nodeTypeId}/states/${stateId}/actions`, userId),
+    adminRequest('GET', `/algorithms/node-types/${nodeTypeId}/states/${stateId}/actions`, userId),
 
   attachNodeTypeStateAction: (userId, nodeTypeId, stateId, instanceId, trigger, executionMode, overrideAction, displayOrder = 0) =>
-    request('POST', `/algorithms/node-types/${nodeTypeId}/states/${stateId}/actions`, userId,
+    adminRequest('POST', `/algorithms/node-types/${nodeTypeId}/states/${stateId}/actions`, userId,
       { instanceId, trigger, executionMode, overrideAction, displayOrder }),
 
   detachNodeTypeStateAction: (userId, attachmentId) =>
-    request('DELETE', `/algorithms/node-type-state-actions/${attachmentId}`, userId),
+    adminRequest('DELETE', `/algorithms/node-type-state-actions/${attachmentId}`, userId),
 
   // ── Managed-with ──
 
   setManagedWith: (userId, actionId, managedWith) =>
-    request('PUT', `/metamodel/actions/${actionId}/managed-with`, userId, { managedWith: managedWith || '' }),
+    adminRequest('PUT', `/metamodel/actions/${actionId}/managed-with`, userId, { managedWith: managedWith || '' }),
 
   getManagedActions: (userId, actionId) =>
-    request('GET', `/metamodel/actions/${actionId}/managed-actions`, userId),
+    adminRequest('GET', `/metamodel/actions/${actionId}/managed-actions`, userId),
 
   /** Returns persisted + in-memory merged stats. */
   getAlgorithmStats: (userId) =>
-    request('GET', '/algorithms/stats', userId),
+    adminRequest('GET', '/algorithms/stats', userId),
 
   /** Returns time-series stats in 15-min windows. */
   getAlgorithmTimeseries: (userId, hours = 24) =>
-    request('GET', `/algorithms/stats/timeseries?hours=${hours}`, userId),
+    adminRequest('GET', `/algorithms/stats/timeseries?hours=${hours}`, userId),
 
   /** Resets all stats (memory + DB). */
   resetAlgorithmStats: (userId) =>
-    request('DELETE', '/algorithms/stats', userId),
+    adminRequest('DELETE', '/algorithms/stats', userId),
 };
 
 // ── Transactions ────────────────────────────────────────────────────

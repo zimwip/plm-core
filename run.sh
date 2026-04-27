@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 # ============================================================
-# PLM Core — dev runner with automatic rebuild
+# PLM Core — dev runner (no file watcher)
 #
 # Usage:
-#   ./run.sh           # start containers + watch for changes
-#   ./run.sh build     # rebuild images (layer cache), start + watch
-#   ./run.sh reset     # down --volumes, rebuild, start + watch
-#   ./run.sh down      # stop and remove containers
-#   ./run.sh local     # run all services natively (java + node must be in PATH)
-#   ./run.sh package          # build JARs + frontend → dist/ (compiler-free deploy)
-#   ./run.sh package -y       # same, skip confirmation if dist/ exists
-#   ./run.sh package --native # GraalVM static binaries (~20 MB, ~200 ms startup)
+#   ./run.sh                     start; exit when healthy
+#   ./run.sh build               rebuild projects with git changes, then start
+#   ./run.sh build all           rebuild every image, then start
+#   ./run.sh build <svc>...      rebuild listed compose services, then start
+#   ./run.sh reset               destroy volumes, rebuild all, start
+#   ./run.sh down                stop and remove containers
+#   ./run.sh local               run all services natively (java + node in PATH)
+#   ./run.sh package             build dist/ (JVM JARs) for compiler-free deploy
+#   ./run.sh package -y          same, skip confirm if dist/ exists
+#   ./run.sh package --native    GraalVM static binaries
 #
-# File change → debounce 2s → rebuild/restart relevant service
+# Change detection (for `./run.sh build`):
+#   Uses `git diff --name-only HEAD` + untracked files to find which top-level
+#   projects have pending changes. platform-lib change = rebuild all backends.
 #
 # Adding a new backend service:
 #   1. Create <name>/ with pom.xml, Dockerfile, mvnw at project root.
@@ -24,13 +28,16 @@ set -euo pipefail
 # ── Backend services registry ───────────────────────────────
 # Columns (pipe-separated):
 #   name    : directory / docker compose service name
-#   port    : actuator/health port
+#   port    : actuator/health port (container-internal)
 #   schema  : Flyway schema (empty = no DB dependency)
 #   (unused): reserved (keep empty or any value)
 #   logpkg  : Java package suffix for LOGGING_LEVEL_COM_* (e.g. PLM, PNO, SPE)
 BACKEND_SVC_ROWS=(
     "pno-api|8081|pno||PNO"
+    "psm-admin|8083|psm_admin||PLM"
     "psm-api|8080|psm||PLM"
+    "ws-gateway|8085|||PLM"
+    "platform-api|8084|||PLM"
     "spe-api|8082||true|SPE"
 )
 
@@ -44,33 +51,8 @@ for row in "${BACKEND_SVC_ROWS[@]}"; do
     SVC_LOGPKG[$name]=$logpkg
 done
 
-FRONTEND_WATCH="frontend/src frontend/index.html frontend/vite.config.js frontend/package.json frontend/Dockerfile frontend/nginx.conf"
-
-build_backend_watch() {
-    local out="platform-lib/src platform-lib/pom.xml"
-    for svc in "${SVC_NAMES[@]}"; do
-        out="$out $svc/src $svc/pom.xml $svc/Dockerfile"
-    done
-    echo "${out# }"
-}
-BACKEND_WATCH=$(build_backend_watch)
-
-DEBOUNCE=2          # seconds after last event before triggering rebuild
-HEALTH_TIMEOUT=120  # seconds to wait for backend health
-
-# Temp files for inter-process signalling (include PID to avoid collisions)
-REBUILD_LOCK=/tmp/plm-rebuild-lock-$$
-marker_for() { echo "/tmp/plm-need-$1-$$"; }
-
-all_markers() {
-    local out=()
-    out+=("$(marker_for plm-frontend)")
-    out+=("$(marker_for platform-lib)")
-    for svc in "${SVC_NAMES[@]}"; do
-        out+=("$(marker_for "$svc")")
-    done
-    echo "${out[@]}"
-}
+HEALTH_TIMEOUT=180  # seconds to wait for all services healthy
+PLATFORM_LIB_IMAGE="plm-platform-lib:dev"
 
 # ── Helpers ─────────────────────────────────────────────────
 log()  { printf '\033[1;36m[run.sh %s]\033[0m %s\n' "$(date +%H:%M:%S)" "$*"; }
@@ -78,16 +60,25 @@ ok()   { printf '\033[1;32m[run.sh %s] ✓\033[0m %s\n' "$(date +%H:%M:%S)" "$*"
 warn() { printf '\033[1;33m[run.sh %s] ⚠\033[0m %s\n' "$(date +%H:%M:%S)" "$*"; }
 err()  { printf '\033[1;31m[run.sh %s] ✗\033[0m %s\n' "$(date +%H:%M:%S)" "$*"; }
 
+# Build platform-lib as a shared base image consumed by every service's
+# Dockerfile stage 0 (`FROM plm-platform-lib:dev AS lib-builder`).
+# Compiles platform-lib once; Docker layer cache makes this a no-op when
+# platform-lib/ source is unchanged.
+build_platform_lib_image() {
+    log "Building $PLATFORM_LIB_IMAGE (shared lib-builder base)…"
+    if ! docker build -t "$PLATFORM_LIB_IMAGE" platform-lib/; then
+        err "Failed to build $PLATFORM_LIB_IMAGE"
+        return 1
+    fi
+    ok "$PLATFORM_LIB_IMAGE ready"
+}
+
 # Local mode state
 declare -A LOCAL_PID
 LOCAL_MODE=false
 
 cleanup() {
-    # shellcheck disable=SC2046
-    rm -f $(all_markers)
-    rm -rf "$REBUILD_LOCK" 2>/dev/null || true
-    [[ -n "${WATCHER_PID:-}" ]] && kill "$WATCHER_PID" 2>/dev/null || true
-    [[ -n "${LOGS_PID:-}" ]]    && kill -- -"$LOGS_PID" 2>/dev/null || true
+    [[ -n "${LOGS_PID:-}" ]] && kill -- -"$LOGS_PID" 2>/dev/null || true
 
     if $LOCAL_MODE; then
         log "Stopping local services…"
@@ -99,188 +90,123 @@ cleanup() {
             fi
         done
         log "All local services stopped."
-    else
-        log "Stopped watching. Containers are still running."
-        log "  docker compose down   → stop and remove"
-        log "  docker compose logs   → view logs"
     fi
     exit 0
 }
+trap cleanup INT TERM
 
-# Which compose service should be rebuilt for a given logical target?
-compose_service_for() {
-    case "$1" in
-        plm-frontend) echo "plm-frontend" ;;
-        *)            echo "$1" ;;
-    esac
-}
-
-# ── Docker-based rebuild ────────────────────────────────────
-rebuild() {
-    local target=$1
-
-    if [[ -d "$REBUILD_LOCK" ]]; then
-        warn "Rebuild already in progress — skipping $target trigger"
-        return
-    fi
-    mkdir "$REBUILD_LOCK"
-
-    if [[ "$target" == "platform-lib" ]]; then
-        log "▶  platform-lib changed — rebuilding all backends…"
-        local compose_services=()
-        for svc in "${SVC_NAMES[@]}"; do
-            # Expand multi-replica services (psm-api → psm-api-1, psm-api-2) via compose ps
-            while IFS= read -r cs; do
-                [[ -n "$cs" ]] && compose_services+=("$cs")
-            done < <(docker compose config --services 2>/dev/null | grep -E "^${svc}(-[0-9]+)?$" || echo "$svc")
-        done
-        if ! docker compose build "${compose_services[@]}"; then
-            err "Build failed during platform-lib cascade"
-            rmdir "$REBUILD_LOCK" 2>/dev/null || true
-            return 1
-        fi
-        docker compose up -d --no-deps --force-recreate "${compose_services[@]}"
-        ok "All backends rebuilt"
-        rmdir "$REBUILD_LOCK" 2>/dev/null || true
-        return 0
-    fi
-
-    local service
-    service=$(compose_service_for "$target")
-
-    log "▶  $target changed — rebuilding…"
-
-    if ! docker compose build "$service"; then
-        err "Build failed for $service"
-        rmdir "$REBUILD_LOCK" 2>/dev/null || true
-        return 1
-    fi
-    docker compose up -d --no-deps --force-recreate "$service"
-
-    local port="${SVC_PORT[$target]:-}"
-    if [[ -n "$port" ]]; then
-        log "   Waiting for $target health on :$port (max ${HEALTH_TIMEOUT}s)…"
-        local elapsed=0
-        while (( elapsed < HEALTH_TIMEOUT )); do
-            if curl -sf "http://localhost:$port/actuator/health" >/dev/null 2>&1; then
-                ok "$target ready after ${elapsed}s"
-                if docker exec plm-frontend nginx -s reload >/dev/null 2>&1; then
-                    ok "nginx reloaded — frontend proxy reconnected"
-                else
-                    warn "nginx reload failed (frontend may still serve stale IP)"
+# ── Health polling ──────────────────────────────────────────
+# Wait for every compose-managed container to either report healthy (if it has
+# a healthcheck) or be in a terminal "expected" state (running without
+# healthcheck, or exited 0 for one-shot services like vault-bootstrap).
+wait_all_healthy() {
+    local timeout=${1:-$HEALTH_TIMEOUT}
+    local start elapsed=0
+    start=$(date +%s)
+    log "Waiting for services to become healthy (max ${timeout}s)…"
+    while (( elapsed < timeout )); do
+        local all_ok=true
+        local pending=()
+        while IFS=$'\t' read -r svc name state; do
+            [[ -z "$name" ]] && continue
+            local health
+            health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name" 2>/dev/null || echo "")
+            if [[ -n "$health" ]]; then
+                if [[ "$health" != "healthy" ]]; then
+                    all_ok=false
+                    pending+=("$name=$health")
                 fi
-                rmdir "$REBUILD_LOCK" 2>/dev/null || true
-                return 0
+            else
+                # No healthcheck — accept running (long-lived) or exited (one-shot seeders)
+                case "$state" in
+                    running|exited) ;;
+                    *) all_ok=false; pending+=("$name=$state") ;;
+                esac
             fi
-            sleep 3; (( elapsed += 3 )); printf '.'
+        done < <(docker compose ps -a --format '{{.Service}}\t{{.Name}}\t{{.State}}' 2>/dev/null)
+        if $all_ok; then
+            echo ""
+            ok "All services ready after ${elapsed}s"
+            return 0
+        fi
+        sleep 3
+        elapsed=$(( $(date +%s) - start ))
+        printf '.'
+    done
+    echo ""
+    err "Timeout after ${timeout}s. Pending: ${pending[*]}"
+    return 1
+}
+
+# ── Change detection ────────────────────────────────────────
+# Prints compose-service names whose source tree has uncommitted changes.
+# platform-lib change cascades to every backend (shared dep).
+detect_changed_services() {
+    local roots=("platform-lib" "frontend")
+    for svc in "${SVC_NAMES[@]}"; do roots+=("$svc"); done
+
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        warn "Not inside a git repo — falling back to full rebuild"
+        docker compose config --services
+        return
+    fi
+
+    declare -A hits=()
+    local paths
+    paths=$( { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u)
+
+    while IFS= read -r p; do
+        [[ -z "$p" ]] && continue
+        for r in "${roots[@]}"; do
+            if [[ "$p" == "$r" || "$p" == "$r/"* ]]; then
+                hits[$r]=1
+                break
+            fi
         done
-        echo ""
-        warn "$target did not respond within ${HEALTH_TIMEOUT}s"
-    else
-        ok "$target restarted"
-    fi
+    done <<< "$paths"
 
-    rmdir "$REBUILD_LOCK" 2>/dev/null || true
-}
+    # Expand a backend entry to all compose services matching it (psm-api → psm-api-1, psm-api-2)
+    expand_compose() {
+        local svc=$1
+        docker compose config --services 2>/dev/null | grep -E "^${svc}(-[0-9]+)?$" || echo "$svc"
+    }
 
-# ── Change classifier ───────────────────────────────────────
-classify_change() {
-    local changed=$1
-    [[ "$changed" =~ \.(swp|swx|tmp|orig|bak|class|pyc)$ ]] && return
-    [[ "$changed" =~ (/target/|/\.git/|/__pycache__/) ]]    && return
-
-    if [[ "$changed" == frontend/* || "$changed" == */frontend/* ]]; then
-        touch "$(marker_for plm-frontend)"
+    # platform-lib change → all backends
+    if [[ -n "${hits[platform-lib]:-}" ]]; then
+        for svc in "${SVC_NAMES[@]}"; do expand_compose "$svc"; done
+        [[ -n "${hits[frontend]:-}" ]] && echo "plm-frontend"
         return
     fi
-    if [[ "$changed" == platform-lib/* || "$changed" == */platform-lib/* ]]; then
-        touch "$(marker_for platform-lib)"
-        return
-    fi
+
     for svc in "${SVC_NAMES[@]}"; do
-        if [[ "$changed" == "$svc"/* || "$changed" == */"$svc"/* ]]; then
-            touch "$(marker_for "$svc")"
-            return
-        fi
+        [[ -n "${hits[$svc]:-}" ]] && expand_compose "$svc"
     done
+    [[ -n "${hits[frontend]:-}" ]] && echo "plm-frontend"
 }
 
-# ── Debounce dispatcher (called from watch loops) ───────────
-dispatch_rebuilds() {
-    local rebuild_fn=$1
-    local now; now=$(date +%s)
-    for target in "platform-lib" "plm-frontend" "${SVC_NAMES[@]}"; do
-        local marker; marker=$(marker_for "$target")
-        [[ -f "$marker" ]] || continue
-        local mtime
-        mtime=$(stat -c %Y "$marker" 2>/dev/null || stat -f %m "$marker" 2>/dev/null || echo 0)
-        if (( now - mtime >= DEBOUNCE )); then
-            rm -f "$marker"
-            "$rebuild_fn" "$target"
-        fi
+print_banner() {
+    echo ""
+    echo "  ┌──────────────────────────────────────────────┐"
+    printf "  │  %-12s : http://localhost:%-5s         │\n" "Frontend" "3000"
+    for svc in "${SVC_NAMES[@]}"; do
+        printf "  │  %-12s : http://localhost:%-5s         │\n" "$svc" "${SVC_PORT[$svc]}"
     done
+    echo "  └──────────────────────────────────────────────┘"
+    echo ""
+    echo "  DBeaver (PostgreSQL):"
+    echo "    host=localhost port=5432 db=plmdb user=plm password=\${PG_PASSWORD:-changeme}"
+    echo ""
+    echo "  docker compose logs -f [svc]   → stream logs"
+    echo "  ./run.sh down                  → stop containers"
+    echo ""
 }
 
-# ── Watch loops ─────────────────────────────────────────────
-watch_inotify_with() {
-    local rebuild_fn=$1
-    log "Watching for changes with inotifywait…"
-    log "  Backend  : $BACKEND_WATCH"
-    log "  Frontend : $FRONTEND_WATCH"
-
-    # shellcheck disable=SC2086
-    inotifywait -m -r \
-        -e close_write -e create -e delete -e moved_to \
-        --format '%w%f' \
-        --exclude '(/target/|/\.git/|/node_modules/|\.swp$|\.swx$|\.tmp$|~$|\.class$)' \
-        $BACKEND_WATCH $FRONTEND_WATCH 2>/dev/null \
-    | while IFS= read -r changed; do
-        classify_change "$changed"
-    done &
-    WATCHER_PID=$!
-
-    while kill -0 "$WATCHER_PID" 2>/dev/null; do
-        sleep 1
-        dispatch_rebuilds "$rebuild_fn"
-    done
-    err "inotifywait exited unexpectedly"
-}
-
-watch_fswatch_with() {
-    local rebuild_fn=$1
-    log "Watching for changes with fswatch…"
-
-    # shellcheck disable=SC2086
-    fswatch -r --event Created --event Updated --event Removed \
-        --exclude '\.swp$' --exclude '\.swx$' --exclude '\.tmp$' \
-        --exclude '/target/' --exclude '/node_modules/' --exclude '/\.git/' \
-        $BACKEND_WATCH $FRONTEND_WATCH \
-    | while IFS= read -r changed; do
-        classify_change "$changed"
-    done &
-    WATCHER_PID=$!
-
-    while kill -0 "$WATCHER_PID" 2>/dev/null; do
-        sleep 1
-        dispatch_rebuilds "$rebuild_fn"
-    done
-}
-
-# ── Local mode helpers ──────────────────────────────────────
+# ── Local mode (native java + node, no Docker) ──────────────
 local_log() { echo "/tmp/plm-${1}-$$.log"; }
 
 local_start() {
     local service=$1
     shift
-
-    local old="${LOCAL_PID[$service]:-}"
-    if [[ -n "$old" ]] && kill -0 "$old" 2>/dev/null; then
-        log "   Stopping previous $service (PID $old)…"
-        kill  "$old" 2>/dev/null || true
-        pkill -P "$old" 2>/dev/null || true
-        sleep 1
-    fi
-
     log "   Starting $service…"
     "$@" >>"$(local_log "$service")" 2>&1 &
     LOCAL_PID[$service]=$!
@@ -312,36 +238,6 @@ local_start_frontend() {
     local_start plm-frontend bash -c 'cd frontend && npm run dev'
 }
 
-local_rebuild() {
-    local target=$1
-    if [[ -d "$REBUILD_LOCK" ]]; then
-        warn "Rebuild already in progress — skipping $target trigger"
-        return
-    fi
-    mkdir "$REBUILD_LOCK"
-    log "▶  $target changed — restarting…"
-
-    if [[ "$target" == "platform-lib" ]]; then
-        log "   Reinstalling platform-lib to local ~/.m2…"
-        if ./psm-api/mvnw -f platform-lib/pom.xml -q install -DskipTests; then
-            ok "platform-lib installed"
-            for svc in "${SVC_NAMES[@]}"; do
-                local_start_backend "$svc"
-            done
-        else
-            err "platform-lib install failed — backends NOT restarted"
-        fi
-    elif [[ "$target" == "plm-frontend" ]]; then
-        local_start_frontend
-        ok "Frontend (Vite) restarted"
-    elif [[ -n "${SVC_PORT[$target]:-}" ]]; then
-        local_start_backend "$target"
-    else
-        warn "Unknown target: $target"
-    fi
-    rmdir "$REBUILD_LOCK" 2>/dev/null || true
-}
-
 run_local() {
     LOCAL_MODE=true
 
@@ -370,9 +266,9 @@ run_local() {
 
     echo ""
     echo "  ┌─────────────────────────────────────────┐"
-    echo "  │  Frontend : http://localhost:5173        │"
+    echo "  │  Frontend : http://localhost:5173       │"
     for svc in "${SVC_NAMES[@]}"; do
-        printf "  │  %-8s : http://localhost:%-5s        │\n" "$svc" "${SVC_PORT[$svc]}"
+        printf "  │  %-12s : http://localhost:%-5s    │\n" "$svc" "${SVC_PORT[$svc]}"
     done
     echo "  └─────────────────────────────────────────┘"
     echo "  Logs: /tmp/plm-*-$$.log"
@@ -390,13 +286,7 @@ run_local() {
     done
     setsid tail -f "${logs[@]}" &
     LOGS_PID=$!
-
-    if   command -v inotifywait &>/dev/null; then watch_inotify_with local_rebuild
-    elif command -v fswatch     &>/dev/null; then watch_fswatch_with local_rebuild
-    else
-        warn "Neither inotifywait nor fswatch found — no auto-restart on file changes."
-        wait "$LOGS_PID"
-    fi
+    wait "$LOGS_PID"
 }
 
 # ── Package ─────────────────────────────────────────────────
@@ -483,6 +373,8 @@ rewrite_compose_for_dist() {
         s/build:\n\s+context: (.\/[^\n]+)\n\s+dockerfile: Dockerfile\n/build: $1\n/g;
         # Image tags: :dev/:latest → :dist
         s/(image: \S+):(?:dev|latest)/$1:dist/g;
+        # Remove container_name directives (avoids conflicts with dev stack)
+        s/^\s+container_name:.*\n//gm;
     ' docker-compose.yml > "$out"
 }
 
@@ -510,8 +402,6 @@ run_package() {
     mkdir -p "$DIST/frontend/html"
     for svc in "${SVC_NAMES[@]}"; do mkdir -p "$DIST/$svc"; done
 
-    # Vault config + bootstrap script (demo-only — consumed by vault + vault-bootstrap
-    # services in dist/docker-compose.yml)
     mkdir -p "$DIST/vault"
     cp vault/config.hcl   "$DIST/vault/config.hcl"
     cp vault/bootstrap.sh "$DIST/vault/bootstrap.sh"
@@ -526,7 +416,10 @@ run_package() {
     log "Building pre-compiled distribution in ./$DIST/"
     echo ""
 
-    # Track which services were actually built (native mode may skip some)
+    # Each service Dockerfile's builder stage expects the shared base image.
+    build_platform_lib_image || exit 1
+    echo ""
+
     local BUILT_SVCS=()
 
     if $NATIVE_MODE; then
@@ -546,7 +439,6 @@ run_package() {
     else
         for svc in "${SVC_NAMES[@]}"; do
             local build_args=""
-            # -Pdist only passed if the service actually defines the profile
             if grep -q '<id>dist</id>' "$svc/pom.xml" 2>/dev/null; then
                 build_args="--build-arg MAVEN_EXTRA_OPTS=-Pdist"
             fi
@@ -565,17 +457,14 @@ run_package() {
         done
     fi
 
-    # Replace SVC_NAMES with successfully-built services for subsequent steps
     SVC_NAMES=("${BUILT_SVCS[@]}")
 
-    # Frontend (same for both modes)
     extract_from_builder "frontend" "frontend" "plm-fe-pkg-builder" \
         "/app/dist/." "$DIST/frontend/html"
     cp frontend/nginx.conf           "$DIST/frontend/nginx.conf"
     cp frontend/docker-entrypoint.sh "$DIST/frontend/docker-entrypoint.sh"
     echo ""
 
-    # Per-service runtime Dockerfile
     log "Writing runtime Dockerfiles…"
     for svc in "${SVC_NAMES[@]}"; do
         if $NATIVE_MODE; then
@@ -586,17 +475,62 @@ run_package() {
     done
     write_frontend_dockerfile "$DIST/frontend/Dockerfile"
 
-    # docker-compose.yml — rewrite dev compose with dist build contexts
     log "Writing dist/docker-compose.yml…"
     rewrite_compose_for_dist "$DIST/docker-compose.yml"
 
-    # .env.example
     cat > "$DIST/.env.example" << 'EOF'
 # Copy to .env and set strong values before first launch.
 PG_PASSWORD=changeme
 # Must be >= 32 bytes — generate with: openssl rand -base64 32
 PLM_SERVICE_SECRET=
 EOF
+
+    echo ""
+    log "=== Verifying packaged distribution ==="
+
+    cat > "$DIST/.env" <<EOF
+PG_PASSWORD=$(openssl rand -hex 16)
+PLM_SERVICE_SECRET=$(openssl rand -base64 32)
+EOF
+
+    log "Building and starting dist/docker-compose.yml…"
+
+    local DIST_COMPOSE="docker compose -f $DIST/docker-compose.yml -p plm-dist-verify"
+
+    if ! $DIST_COMPOSE up -d --build; then
+        err "dist compose failed to start — package may be broken"
+        $DIST_COMPOSE down --volumes 2>/dev/null || true
+        exit 1
+    fi
+
+    local verify_ok=true
+    for svc in "${SVC_NAMES[@]}"; do
+        local port="${SVC_PORT[$svc]:-}"
+        [[ -z "$port" ]] && continue
+        log "   Waiting for $svc health on :$port (max ${HEALTH_TIMEOUT}s)…"
+        local elapsed=0
+        while (( elapsed < HEALTH_TIMEOUT )); do
+            if curl -sf "http://localhost:$port/actuator/health" >/dev/null 2>&1; then
+                ok "$svc healthy after ${elapsed}s"
+                break
+            fi
+            sleep 3; (( elapsed += 3 )); printf '.'
+        done
+        if (( elapsed >= HEALTH_TIMEOUT )); then
+            echo ""
+            err "$svc did NOT become healthy within ${HEALTH_TIMEOUT}s"
+            verify_ok=false
+        fi
+    done
+
+    log "Stopping verification containers…"
+    $DIST_COMPOSE down --volumes
+
+    if ! $verify_ok; then
+        err "Verification failed — one or more services unhealthy"
+        exit 1
+    fi
+    ok "All services started and passed health checks"
 
     echo ""
     if $NATIVE_MODE; then
@@ -625,88 +559,92 @@ EOF
 }
 
 # ── Main ─────────────────────────────────────────────────────
-trap cleanup INT TERM
-
 CMD="${1:-}"
 
-# Handle package (pre-build JARs + frontend, write dist/ for compiler-free deploy)
-if [[ "$CMD" == "package" || "$CMD" == "--package" ]]; then
-    run_package "$@"
-    exit 0
-fi
-
-# Handle down
-if [[ "$CMD" == "down" || "$CMD" == "--down" ]]; then
-    log "Stopping containers…"
-    docker compose down
-    exit 0
-fi
-
-# Handle local (native java + node, no Docker)
-if [[ "$CMD" == "local" || "$CMD" == "--local" ]]; then
-    run_local
-    exit 0
-fi
-
-DO_BUILD=false
-
-# Handle reset (wipe volumes, then build + watch)
-if [[ "$CMD" == "reset" || "$CMD" == "--reset" ]]; then
-    warn "This will destroy all database volumes and seed data."
-    read -rp "  Continue? [y/N] " confirm
-    if [[ "${confirm,,}" != "y" ]]; then
-        log "Aborted."
+case "$CMD" in
+    package|--package)
+        run_package "$@"
         exit 0
-    fi
-    log "Stopping containers and wiping volumes…"
-    docker compose down --volumes --remove-orphans
-    DO_BUILD=true
-fi
+        ;;
+    down|--down)
+        log "Stopping containers…"
+        docker compose down
+        exit 0
+        ;;
+    local|--local)
+        run_local
+        exit 0
+        ;;
+esac
 
-if [[ "$CMD" == "build" || "$CMD" == "--build" ]]; then
-    DO_BUILD=true
+# Default / build / reset paths — compose up-then-exit-when-healthy
+TARGETS=()
+DO_BUILD=false
+BUILD_ALL=false
+
+case "$CMD" in
+    reset|--reset)
+        warn "This will destroy all database volumes and seed data."
+        read -rp "  Continue? [y/N] " confirm
+        [[ "${confirm,,}" != "y" ]] && { log "Aborted."; exit 0; }
+        log "Stopping containers and wiping volumes…"
+        docker compose down --volumes --remove-orphans
+        DO_BUILD=true
+        BUILD_ALL=true
+        ;;
+    build|--build)
+        DO_BUILD=true
+        shift
+        if [[ "${1:-}" == "all" ]]; then
+            BUILD_ALL=true
+        elif [[ $# -gt 0 ]]; then
+            TARGETS=("$@")
+        fi
+        ;;
+    "") ;;
+    *)
+        err "Unknown command: $CMD"
+        echo "Usage: $0 [build [all|<svc>...] | reset | down | local | package [-y|--native]]"
+        exit 1
+        ;;
+esac
+
+# platform-lib base image must exist before any service build. Cheap no-op
+# when platform-lib/ source is unchanged (Docker layer cache).
+build_platform_lib_image || exit 1
+
+if $DO_BUILD; then
+    if $BUILD_ALL; then
+        log "Rebuilding all images…"
+        docker compose build
+    elif [[ ${#TARGETS[@]} -gt 0 ]]; then
+        log "Rebuilding: ${TARGETS[*]}"
+        docker compose build "${TARGETS[@]}"
+    else
+        # Auto-detect via git
+        mapfile -t TARGETS < <(detect_changed_services)
+        if [[ ${#TARGETS[@]} -eq 0 ]]; then
+            ok "No project changes detected — skipping build."
+        else
+            log "Rebuilding changed projects: ${TARGETS[*]}"
+            docker compose build "${TARGETS[@]}"
+        fi
+    fi
 fi
 
 log "Starting services…"
-if $DO_BUILD; then
-    docker compose up -d --build
+if [[ ${#TARGETS[@]} -gt 0 ]] && ! $BUILD_ALL; then
+    # Force-recreate just the rebuilt services so the new images are picked up,
+    # and bring the rest up with their existing images.
+    docker compose up -d --no-deps --force-recreate "${TARGETS[@]}"
+    docker compose up -d
 else
     docker compose up -d
 fi
 
-echo ""
-echo "  ┌─────────────────────────────────────────┐"
-echo "  │  Frontend : http://localhost:3000        │"
-for svc in "${SVC_NAMES[@]}"; do
-    printf "  │  %-8s : http://localhost:%-5s        │\n" "$svc" "${SVC_PORT[$svc]}"
-done
-echo "  └─────────────────────────────────────────┘"
-echo ""
-echo "  DBeaver connection (PostgreSQL):"
-echo "  ┌─────────────────────────────────────────┐"
-echo "  │  Host     : localhost                    │"
-echo "  │  Port     : 5432                         │"
-echo "  │  Database : plmdb                        │"
-echo "  │  User     : plm                          │"
-echo "  │  Password : ${PG_PASSWORD:-changeme}"
-echo "  └─────────────────────────────────────────┘"
-echo ""
-
-if   command -v xdg-open &>/dev/null; then xdg-open http://localhost:3000 &>/dev/null &
-elif command -v open     &>/dev/null; then open     http://localhost:3000 &>/dev/null &
+if ! wait_all_healthy; then
+    err "Some services did not become healthy. Check logs:  docker compose logs -f"
+    exit 1
 fi
 
-setsid docker compose logs -f &
-LOGS_PID=$!
-
-echo ""
-
-if   command -v inotifywait &>/dev/null; then watch_inotify_with rebuild
-elif command -v fswatch     &>/dev/null; then watch_fswatch_with rebuild
-else
-    warn "Neither inotifywait nor fswatch found — no auto-rebuild."
-    warn "  Linux : sudo dnf install inotify-tools"
-    warn "  macOS : brew install fswatch"
-    log "Running without watch. Press Ctrl+C to stop log tailing (containers keep running)."
-    wait "$LOGS_PID"
-fi
+print_banner

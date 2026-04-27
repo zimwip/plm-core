@@ -4,7 +4,6 @@ import com.plm.shared.security.PlmUserContext;
 import com.plm.node.NodeService;
 import com.plm.node.baseline.internal.BaselineService;
 import com.plm.node.lifecycle.internal.LifecycleService;
-import com.plm.node.metamodel.internal.MetaModelService;
 import com.plm.node.signature.internal.SignatureService;
 import com.plm.node.transaction.internal.LockService;
 import com.plm.node.transaction.internal.PlmTransactionService;
@@ -37,7 +36,6 @@ class PlmExtendedTest {
     @Autowired LifecycleService        lifecycleService;
     @Autowired SignatureService        signatureService;
     @Autowired BaselineService         baselineService;
-    @Autowired MetaModelService        metaModelService;
     @Autowired PlmTransactionService   txService;
 
     static final String PS_DEFAULT = "ps-default";
@@ -219,77 +217,6 @@ class PlmExtendedTest {
         var diffs = baselineService.compareBaselines(blA, blB);
         assertThat(diffs).isNotEmpty();
         assertThat(diffs.get(0).get("status")).isEqualTo("CHANGED");
-    }
-
-    // ================================================================
-    // META-MODEL
-    // ================================================================
-
-    @Test
-    @DisplayName("MetaModel : création d'un NodeType avec attributs et règles état")
-    void testMetaModelCreation() {
-        String lcId = metaModelService.createLifecycle("Custom LC", "Test lifecycle");
-        String s1   = metaModelService.addState(lcId, "Draft",    true,  Map.of(), 1, null);
-        String s2   = metaModelService.addState(lcId, "Released", false, Map.of("frozen", "false", "released", "true"), 2, null);
-        metaModelService.addTransition(lcId, "Release", s1, s2, null, null, null);
-
-        String ntId  = metaModelService.createNodeType("Component", "A component", lcId);
-        String atId  = metaModelService.createAttributeDefinition(ntId, Map.of(
-            "name", "serialNumber", "label", "Serial Number",
-            "dataType", "STRING", "required", 1,
-            "namingRegex", "[A-Z]{2}-\\d{4}",
-            "displayOrder", 1, "displaySection", "Identity",
-            "widgetType", "TEXT"
-        ));
-
-        // Règle : serialNumber requis en Released, non éditable
-        metaModelService.setAttributeStateRule(atId, s2, true, false, true);
-
-        var matrix = metaModelService.getAttributeStateMatrix(ntId);
-        assertThat(matrix).isNotEmpty();
-
-        // Vérifier la règle
-        var rule = matrix.stream()
-            .filter(r -> s2.equals(r.get("lifecycle_state_id", String.class)))
-            .findFirst();
-        assertThat(rule).isPresent();
-        assertThat(rule.get().get("editable", Integer.class)).isEqualTo(0);
-        assertThat(rule.get().get("required", Integer.class)).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("MetaModel : LinkType avec contraintes de cardinalité")
-    void testLinkTypeCardinality() {
-        String ltId = metaModelService.createLinkType(
-            "uses", "Usage link",
-            nodeTypeId, nodeTypeId,
-            "VERSION_TO_VERSION",
-            0, 3, // max 3 liens
-            null, null
-        );
-
-        String parent = setupNode("alice", Map.of(attrNameId, "A"));
-        String child1 = setupNode("alice", Map.of(attrNameId, "B"));
-        String child2 = setupNode("alice", Map.of(attrNameId, "C"));
-        String child3 = setupNode("alice", Map.of(attrNameId, "D"));
-        String child4 = setupNode("alice", Map.of(attrNameId, "E"));
-
-        // Version à pointer pour V2V
-        String v1 = versionService.getCurrentVersion(child1).get("id", String.class);
-        String v2 = versionService.getCurrentVersion(child2).get("id", String.class);
-        String v3 = versionService.getCurrentVersion(child3).get("id", String.class);
-        String v4 = versionService.getCurrentVersion(child4).get("id", String.class);
-
-        // Links require a valid txId for lock validation (checkout is called regardless of policy)
-        String linkTx = txService.openTransaction("alice");
-        nodeService.createLink(ltId, parent, child1, v1, "alice", linkTx, uid());
-        nodeService.createLink(ltId, parent, child2, v2, "alice", linkTx, uid());
-        nodeService.createLink(ltId, parent, child3, v3, "alice", linkTx, uid());
-
-        // 4ème lien doit échouer (max=3)
-        assertThatThrownBy(() -> nodeService.createLink(ltId, parent, child4, v4, "alice", linkTx, uid()))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("cardinality");
     }
 
     // -------------------------------------------------------

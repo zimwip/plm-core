@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.LongAdder;
  * Collects per-algorithm execution statistics in memory.
  * Thread-safe — uses atomic operations for concurrent updates.
  *
- * Periodically flushed to the {@code algorithm_stat} table by
+ * Periodically drained and shipped over NATS to psa by
  * {@link AlgorithmStatsService}.
  */
 public class AlgorithmStats {

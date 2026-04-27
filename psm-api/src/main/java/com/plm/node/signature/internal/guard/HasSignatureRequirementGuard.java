@@ -3,10 +3,12 @@ import com.plm.action.guard.ActionGuardContext;
 
 import com.plm.algorithm.AlgorithmBean;
 import com.plm.action.guard.ActionGuard;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.LifecycleConfig;
+import com.plm.platform.config.dto.LifecycleTransitionConfig;
 import com.plm.shared.guard.GuardEffect;
 import com.plm.shared.guard.GuardViolation;
 import lombok.RequiredArgsConstructor;
-import org.jooq.DSLContext;
 
 import java.util.List;
 
@@ -19,7 +21,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class HasSignatureRequirementGuard implements ActionGuard {
 
-    private final DSLContext dsl;
+    private final ConfigCache configCache;
 
     @Override
     public String code() { return "has_signature_requirement"; }
@@ -28,10 +30,19 @@ public class HasSignatureRequirementGuard implements ActionGuard {
     public List<GuardViolation> evaluate(ActionGuardContext ctx) {
         if (ctx.currentStateId() == null) return List.of();
 
-        boolean hasReq = dsl.fetchCount(dsl.selectOne()
-            .from("lifecycle_transition lt")
-            .join("signature_requirement sr").on("sr.lifecycle_transition_id = lt.id")
-            .where("lt.from_state_id = ?", ctx.currentStateId())) > 0;
+        boolean hasReq = false;
+        for (LifecycleConfig lc : configCache.getAllLifecycles()) {
+            if (lc.transitions() == null) continue;
+            for (LifecycleTransitionConfig t : lc.transitions()) {
+                if (ctx.currentStateId().equals(t.fromStateId())
+                        && t.signatureRequirements() != null
+                        && !t.signatureRequirements().isEmpty()) {
+                    hasReq = true;
+                    break;
+                }
+            }
+            if (hasReq) break;
+        }
 
         if (!hasReq) {
             return List.of(new GuardViolation(code(),

@@ -1,9 +1,9 @@
 package com.plm.node;
-import com.plm.shared.authorization.PolicyPort;
+import com.plm.platform.authz.PolicyPort;
 import com.plm.permission.ViewService;
 import com.plm.node.link.internal.GraphValidationService;
 import com.plm.node.link.internal.LinkService;
-import com.plm.node.metamodel.internal.MetaModelCache;
+import com.plm.node.metamodel.MetaModelCachePort;
 import com.plm.node.metamodel.internal.ValidationService;
 import com.plm.node.version.internal.FingerPrintService;
 import com.plm.node.version.internal.VersionService;
@@ -12,13 +12,19 @@ import com.plm.node.transaction.internal.LockService;
 
 import static java.util.Map.entry;
 
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.LifecycleConfig;
+import com.plm.platform.config.dto.LifecycleStateConfig;
+import com.plm.platform.config.dto.LinkTypeConfig;
+import com.plm.platform.config.dto.NodeTypeConfig;
 import com.plm.shared.metadata.Metadata;
 import com.plm.shared.metadata.MetadataService;
 import com.plm.shared.model.Enums.ChangeType;
 import com.plm.shared.model.Enums.VersionStrategy;
 import com.plm.shared.model.ResolvedAttribute;
 import com.plm.shared.action.PlmAction;
-import com.plm.shared.authorization.PlmPermission;
+import com.plm.platform.authz.KeyExpr;
+import com.plm.platform.authz.PlmPermission;
 import com.plm.shared.security.SecurityContextPort;
 import com.plm.shared.event.PlmEventPublisher;
 import java.time.LocalDateTime;
@@ -61,15 +67,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class NodeService {
 
     private final DSLContext                      dsl;
+    private final ConfigCache                     configCache;
     private final LockService                     lockService;
     private final VersionService                  versionService;
     private final PlmTransactionService           txService;
-    private final com.plm.shared.authorization.PolicyPort policyService;
+    private final com.plm.platform.authz.PolicyPort policyService;
     private final ViewService                     viewService;
     private final ValidationService               validationService;
     private final FingerPrintService              fingerPrintService;
     private final PlmEventPublisher               eventPublisher;
-    private final MetaModelCache                  metaModelCache;
+    private final MetaModelCachePort               metaModelCache;
     private final LinkService                     linkService;
     private final GraphValidationService          graphValidationService;
     private final SecurityContextPort             secCtx;
@@ -90,14 +97,10 @@ public class NodeService {
         String logicalId,
         String externalId
     ) {
-        Record nodeType = dsl
-            .select()
-            .from("node_type")
-            .where("id = ?", nodeTypeId)
-            .fetchOne();
-        if (nodeType == null) throw new IllegalArgumentException(
-            "NodeType not found: " + nodeTypeId
-        );
+        NodeTypeConfig nodeType = configCache.getNodeType(nodeTypeId)
+            .orElseThrow(() -> new IllegalArgumentException(
+                "NodeType not found: " + nodeTypeId
+            ));
 
         if (logicalId != null && !logicalId.isBlank()) {
             int dup = dsl.fetchCount(
@@ -137,15 +140,16 @@ public class NodeService {
             creationTxId = txService.openTransaction(userId);
         }
 
-        String lifecycleId = nodeType.get("lifecycle_id", String.class);
+        String lifecycleId = nodeType.lifecycleId();
         String initialState = null;
         if (lifecycleId != null) {
-            initialState = dsl
-                .select()
-                .from("lifecycle_state")
-                .where("lifecycle_id = ?", lifecycleId)
-                .and("is_initial = 1")
-                .fetchOne("id", String.class);
+            initialState = configCache.getLifecycle(lifecycleId)
+                .map(LifecycleConfig::states)
+                .flatMap(states -> states.stream()
+                    .filter(LifecycleStateConfig::isInitial)
+                    .map(LifecycleStateConfig::id)
+                    .findFirst())
+                .orElse(null);
         }
 
         // Version initiale — appartient à la transaction OPEN de l'utilisateur
@@ -165,6 +169,10 @@ public class NodeService {
             userId
         );
 
+        // Hard schema + value-shape check (always blocking).
+        // No nodeId yet — only node-type attrs are valid at create time.
+        validationService.assertWritable(nodeTypeId, attributes, (String) null);
+
         for (Map.Entry<String, String> e : attributes.entrySet()) {
             dsl.execute(
                 "INSERT INTO node_version_attribute (ID, NODE_VERSION_ID, ATTRIBUTE_DEF_ID, VALUE) VALUES (?,?,?,?)",
@@ -175,16 +183,9 @@ public class NodeService {
             );
         }
 
-        // Always validate: identity pattern + required/regex on attributes.
-        // stateId may be null when the node type has no lifecycle — that's fine.
-        List<String> violations = validationService.collectContentViolations(
-            nodeId,
-            initialState,
-            attributes
-        );
-        if (!violations.isEmpty()) {
-            throw new ValidationService.ValidationException(violations);
-        }
+        // Soft validations (required, regex, enum, identity pattern) are non-blocking
+        // at write time — they will be enforced at commit by the PreCommitValidator.
+        // The handler may surface them to the client as feedback.
 
         // Store fingerprint immediately so future on-the-fly re-computation isn't needed.
         String fp = fingerPrintService.compute(nodeId, versionId);
@@ -217,41 +218,58 @@ public class NodeService {
     /**
      * Legacy overload for backward compatibility — returns page 0, size 50.
      */
-    public PagedResult<Record> listNodes(String projectSpaceId) {
+    public PagedResult<Map<String, Object>> listNodes(String projectSpaceId) {
         return listNodes(projectSpaceId, 0, 50);
     }
 
-    public PagedResult<Record> listNodes(String projectSpaceId, int page, int size) {
+    public PagedResult<Map<String, Object>> listNodes(String projectSpaceId, int page, int size) {
         // Resolve descendant spaces for hierarchy visibility
         List<String> spaceIds = pnoProjectSpaceClient.getDescendants(projectSpaceId);
         String placeholders = String.join(",", spaceIds.stream().map(s -> "?").toList());
 
-        // Full query (no LIMIT yet — permission filter may reduce count)
-        // All versions (COMMITTED and OPEN) are visible to everyone.
+        // Authorization gate (SQL-side): READ_NODE per nodeType. Get distinct node
+        // type IDs in the visible spaces, run a batch permission check, then re-query
+        // restricted to readable types. No row leaves the DB unless authorized.
+        Set<String> distinctNodeTypeIds = new java.util.HashSet<>(dsl.fetch(
+            "SELECT DISTINCT node_type_id FROM node WHERE project_space_id IN (%s)".formatted(placeholders),
+            spaceIds.toArray()
+        ).getValues("node_type_id", String.class));
+        Map<String, Boolean> readableByNodeType = policyService.canOnNodeTypes("READ_NODE", distinctNodeTypeIds);
+        Set<String> readableNodeTypeIds = readableByNodeType.entrySet().stream()
+            .filter(Map.Entry::getValue)
+            .map(Map.Entry::getKey)
+            .collect(java.util.stream.Collectors.toSet());
+
+        if (readableNodeTypeIds.isEmpty()) {
+            return new PagedResult<>(List.of(), page, size, 0);
+        }
+
+        String ntPlaceholders = String.join(",", readableNodeTypeIds.stream().map(s -> "?").toList());
+        Object[] args = new Object[spaceIds.size() + readableNodeTypeIds.size()];
+        int idx = 0;
+        for (String s : spaceIds)            args[idx++] = s;
+        for (String nt : readableNodeTypeIds) args[idx++] = nt;
+
         // children_count counts links from all committed or open versions.
         List<Record> rows = dsl.fetch(
             """
-            SELECT n.id, n.node_type_id, nt.name AS node_type_name,
+            SELECT n.id, n.node_type_id,
+                   nv.id AS version_id,
                    nv.lifecycle_state_id, nv.revision, nv.iteration, nv.version_number,
                    n.logical_id, n.external_id,
                    n.created_at, n.created_by,
                    n.locked_by,
                    pt.status AS tx_status,
-                   nva_name.value AS display_name,
                    (SELECT COUNT(*) FROM node_version_link nvl
                     JOIN node_version nv_lnk ON nv_lnk.id = nvl.source_node_version_id
                     JOIN plm_transaction pt_lnk ON pt_lnk.id = nv_lnk.tx_id
                     WHERE nv_lnk.node_id = n.id
                       AND pt_lnk.status IN ('COMMITTED', 'OPEN')) AS children_count
             FROM node n
-            JOIN node_type nt ON nt.id = n.node_type_id
             JOIN node_version nv ON nv.node_id = n.id
             JOIN plm_transaction pt ON pt.id = nv.tx_id
-            LEFT JOIN attribute_definition ad_name
-                   ON ad_name.node_type_id = n.node_type_id AND ad_name.as_name = 1
-            LEFT JOIN node_version_attribute nva_name
-                   ON nva_name.node_version_id = nv.id AND nva_name.attribute_def_id = ad_name.id
             WHERE n.project_space_id IN (%s)
+              AND n.node_type_id IN (%s)
               AND pt.status IN ('COMMITTED', 'OPEN')
               AND nv.version_number = (
                 SELECT MAX(nv2.version_number) FROM node_version nv2
@@ -259,29 +277,25 @@ public class NodeService {
                 WHERE nv2.node_id = n.id
                   AND pt2.status IN ('COMMITTED', 'OPEN'))
             ORDER BY n.created_at DESC
-            """.formatted(placeholders),
-            spaceIds.toArray()
+            """.formatted(placeholders, ntPlaceholders),
+            args
         );
 
-        // Batch permission check: load all readable node type IDs in a single call
-        Set<String> allNodeTypeIds = rows.stream()
-            .map(r -> r.get("node_type_id", String.class))
-            .filter(Objects::nonNull)
-            .collect(java.util.stream.Collectors.toSet());
-        // Direct call instead of @PlmPermission: batch permission check filters a list of node types,
-        // not a single node — cannot be expressed as a method-level annotation.
-        Map<String, Boolean> readableByNodeType = policyService.canOnNodeTypes("READ_NODE", allNodeTypeIds);
-
-        List<Record> filtered = rows.stream()
-            .filter(r -> {
-                String ntId = r.get("node_type_id", String.class);
-                return Boolean.TRUE.equals(readableByNodeType.get(ntId));
+        List<Map<String, Object>> all = rows.stream()
+            .map(r -> {
+                Map<String, Object> m = new LinkedHashMap<>(r.intoMap());
+                String ntId = (String) m.get("node_type_id");
+                m.put("node_type_name", configCache.getNodeType(ntId)
+                    .map(NodeTypeConfig::name).orElse(ntId));
+                String versionId = (String) m.get("version_id");
+                m.put("display_name", resolveAsNameValue(ntId, versionId));
+                return m;
             })
             .toList();
 
-        int total = filtered.size();
+        int total = all.size();
         int offset = page * size;
-        List<Record> pageItems = filtered.stream()
+        List<Map<String, Object>> pageItems = all.stream()
             .skip(offset)
             .limit(size)
             .toList();
@@ -293,12 +307,12 @@ public class NodeService {
     // HISTORIQUE — toutes les versions d'un noeud
     // ================================================================
 
-    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
-    public List<Record> getVersionHistory(String nodeId) {
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
+    public List<Map<String, Object>> getVersionHistory(String nodeId) {
         return dsl.fetch(
             """
             SELECT nv.id, nv.version_number, nv.revision, nv.iteration,
-                   nv.lifecycle_state_id, ls.name AS state_name,
+                   nv.lifecycle_state_id,
                    nv.change_type, nv.change_description,
                    nv.version_reason, nv.previous_version_id,
                    nv.previous_version_fingerprint, nv.branch, nv.created_by,
@@ -309,20 +323,24 @@ public class NodeService {
                    pt.status         AS tx_status
             FROM node_version nv
             JOIN plm_transaction pt ON pt.id = nv.tx_id
-            LEFT JOIN lifecycle_state ls ON ls.id = nv.lifecycle_state_id
             WHERE nv.node_id = ?
               AND pt.status IN ('COMMITTED', 'OPEN')
             ORDER BY nv.version_number
             """,
             nodeId
-        );
+        ).stream().map(r -> {
+            Map<String, Object> m = new LinkedHashMap<>(r.intoMap());
+            String stateId = (String) m.get("lifecycle_state_id");
+            m.put("state_name", resolveStateName(stateId));
+            return m;
+        }).toList();
     }
 
     // ================================================================
     // DIFF — comparaison de deux versions
     // ================================================================
 
-    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public Map<String, Object> getVersionDiff(
         String nodeId,
         int v1Num,
@@ -368,69 +386,62 @@ public class NodeService {
         String v1Id = v1.get("id", String.class);
         String v2Id = v2.get("id", String.class);
 
-        // Fetch attributes for both versions (with label from attribute_definition)
-        var v1Attrs = dsl.fetch(
-            """
-            SELECT ad.id AS attr_id, ad.name, ad.label, nva.value
-            FROM node_version_attribute nva
-            JOIN attribute_definition ad ON ad.id = nva.attribute_def_id
-            WHERE nva.node_version_id = ?
-            ORDER BY ad.name
-            """,
-            v1Id
-        );
+        // Fetch raw attributes for both versions, resolve name/label from ConfigCache
+        String nodeTypeId = dsl.select().from("node").where("id = ?", nodeId)
+            .fetchOne("node_type_id", String.class);
+        var resolvedType = metaModelCache.get(nodeTypeId);
+        Map<String, ResolvedAttribute> attrById = new LinkedHashMap<>();
+        if (resolvedType != null) {
+            resolvedType.attributes().forEach(a -> attrById.put(a.id(), a));
+        }
 
-        var v2Attrs = dsl.fetch(
-            """
-            SELECT ad.id AS attr_id, ad.name, ad.label, nva.value
-            FROM node_version_attribute nva
-            JOIN attribute_definition ad ON ad.id = nva.attribute_def_id
-            WHERE nva.node_version_id = ?
-            ORDER BY ad.name
-            """,
-            v2Id
-        );
+        var v1Raw = dsl.fetch(
+            "SELECT attribute_def_id, value FROM node_version_attribute WHERE node_version_id = ? ORDER BY attribute_def_id",
+            v1Id);
+        var v2Raw = dsl.fetch(
+            "SELECT attribute_def_id, value FROM node_version_attribute WHERE node_version_id = ? ORDER BY attribute_def_id",
+            v2Id);
 
-        // Build attribute maps
+        // Build attribute maps keyed by attribute code (slug)
         Map<String, String> v1AttrMap = new java.util.LinkedHashMap<>();
         Map<String, String> v1LabelMap = new java.util.LinkedHashMap<>();
-        for (var r : v1Attrs) {
-            String name = r.get("name", String.class);
-            v1AttrMap.put(name, r.get("value", String.class));
-            v1LabelMap.put(
-                name,
-                Objects.toString(r.get("label", String.class), name)
-            );
+        for (var r : v1Raw) {
+            String attrCode = r.get("attribute_def_id", String.class);
+            ResolvedAttribute attr = attrById.get(attrCode);
+            String label = (attr != null && attr.label() != null && !attr.label().isBlank())
+                ? attr.label() : attrCode;
+            v1AttrMap.put(attrCode, r.get("value", String.class));
+            v1LabelMap.put(attrCode, label);
         }
         Map<String, String> v2AttrMap = new java.util.LinkedHashMap<>();
         Map<String, String> v2LabelMap = new java.util.LinkedHashMap<>();
-        for (var r : v2Attrs) {
-            String name = r.get("name", String.class);
-            v2AttrMap.put(name, r.get("value", String.class));
-            v2LabelMap.put(
-                name,
-                Objects.toString(r.get("label", String.class), name)
-            );
+        for (var r : v2Raw) {
+            String attrCode = r.get("attribute_def_id", String.class);
+            ResolvedAttribute attr = attrById.get(attrCode);
+            String label = (attr != null && attr.label() != null && !attr.label().isBlank())
+                ? attr.label() : attrCode;
+            v2AttrMap.put(attrCode, r.get("value", String.class));
+            v2LabelMap.put(attrCode, label);
         }
 
-        // Build diff list — union of all attribute names
-        var allAttrNames = new java.util.LinkedHashSet<String>();
-        allAttrNames.addAll(v1AttrMap.keySet());
-        allAttrNames.addAll(v2AttrMap.keySet());
+        // Build diff list — union of all attribute codes
+        var allAttrCodes = new java.util.LinkedHashSet<String>();
+        allAttrCodes.addAll(v1AttrMap.keySet());
+        allAttrCodes.addAll(v2AttrMap.keySet());
 
         var attrDiff = new ArrayList<Map<String, Object>>();
-        for (var name : allAttrNames) {
-            String oldVal = v1AttrMap.get(name);
-            String newVal = v2AttrMap.get(name);
+        for (var code : allAttrCodes) {
+            String oldVal = v1AttrMap.get(code);
+            String newVal = v2AttrMap.get(code);
             String label = v2LabelMap.getOrDefault(
-                name,
-                v1LabelMap.getOrDefault(name, name)
+                code,
+                v1LabelMap.getOrDefault(code, code)
             );
             boolean changed = !Objects.equals(oldVal, newVal);
             attrDiff.add(
                 Map.of(
-                    "name",
-                    name,
+                    "code",
+                    code,
                     "label",
                     label,
                     "v1Value",
@@ -527,21 +538,19 @@ public class NodeService {
         return dsl
             .fetch(
                 """
-                SELECT nl.id AS link_id, nl.link_type_id, lt.name AS link_type_name, lt.link_policy,
-                       nl.target_node_id, n.logical_id AS target_logical_id, nt.name AS target_node_type,
+                SELECT nl.id AS link_id, nl.link_type_id,
+                       nl.target_node_id, n.logical_id AS target_logical_id, n.node_type_id AS target_node_type_id,
                        nl.pinned_version_id,
                        pv.revision AS pinned_revision, pv.iteration AS pinned_iteration
                 FROM node_version_link nl
-                JOIN link_type lt        ON lt.id  = nl.link_type_id
                 JOIN node n              ON n.id   = nl.target_node_id
-                JOIN node_type nt        ON nt.id  = n.node_type_id
                 LEFT JOIN node_version pv ON pv.id = nl.pinned_version_id
                 JOIN node_version src    ON src.id = nl.source_node_version_id
                 JOIN plm_transaction spt ON spt.id = src.tx_id
                 WHERE src.node_id = ?
                   AND (spt.status = 'COMMITTED' OR (spt.status = 'OPEN' AND spt.owner_id = ?))
                   AND src.version_number <= ?
-                ORDER BY lt.name, n.logical_id
+                ORDER BY n.logical_id
                 """,
                 nodeId,
                 currentUserId,
@@ -551,8 +560,10 @@ public class NodeService {
             .map(r -> {
                 var m = new LinkedHashMap<String, Object>();
                 m.put("linkId", r.get("link_id", String.class));
-                m.put("linkTypeName", r.get("link_type_name", String.class));
-                m.put("linkPolicy", r.get("link_policy", String.class));
+                String ltId = r.get("link_type_id", String.class);
+                var lt = configCache.getLinkType(ltId);
+                m.put("linkTypeName", lt.map(LinkTypeConfig::name).orElse(ltId));
+                m.put("linkPolicy", lt.map(LinkTypeConfig::linkPolicy).orElse(""));
                 m.put("targetNodeId", r.get("target_node_id", String.class));
                 m.put(
                     "targetLogicalId",
@@ -561,9 +572,11 @@ public class NodeService {
                         ""
                     )
                 );
+                String targetNtId = r.get("target_node_type_id", String.class);
                 m.put(
                     "targetNodeType",
-                    r.get("target_node_type", String.class)
+                    configCache.getNodeType(targetNtId)
+                        .map(NodeTypeConfig::name).orElse(targetNtId)
                 );
                 m.put(
                     "pinnedVersionId",
@@ -600,6 +613,7 @@ public class NodeService {
 
         // 1. Acquérir le lock sur le noeud (atomique via SELECT FOR UPDATE, sans dépendance tx)
         lockService.tryLock(nodeId, userId);
+        eventPublisher.lockAcquired(nodeId, userId);
 
         // 2. Trouver ou créer une transaction
         if (txId == null) {
@@ -645,6 +659,13 @@ public class NodeService {
     ) {
         assertNotFrozen(nodeId);
         lockService.tryLock(nodeId, userId);
+
+        // Hard schema + value-shape check (always blocking).
+        // Pass nodeId so the writable scope unions domain attrs across all versions
+        // (committed + OPEN) — covers domains freshly attached to the OPEN version.
+        String nodeTypeId = dsl.select().from("node").where("id = ?", nodeId)
+            .fetchOne("node_type_id", String.class);
+        validationService.assertWritable(nodeTypeId, attributes, nodeId);
 
         VersionStrategy effective =
             strategy != null ? strategy : VersionStrategy.ITERATE;
@@ -720,7 +741,7 @@ public class NodeService {
      * Pipeline : règle d'état → override de vue → can_write → filtrage des actions par rôle.
      */
     /** Backward-compatible overload — no historical version pinning. */
-    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public Map<String, Object> buildObjectDescription(
         String nodeId,
         String userId,
@@ -735,7 +756,7 @@ public class NodeService {
      * @param versionNumber when non-null, pins the view to that specific historical version
      *                      (all attributes are forced read-only, actions list is empty).
      */
-    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public Map<String, Object> buildObjectDescription(
         String nodeId,
         String userId,
@@ -775,10 +796,7 @@ public class NodeService {
             .fetchOne("node_type_id", String.class);
         String currentStateId = current.get("lifecycle_state_id", String.class);
         String currentStateName = currentStateId != null
-            ? dsl.select(DSL.field("name"))
-                  .from("lifecycle_state")
-                  .where("id = ?", currentStateId)
-                  .fetchOne("name", String.class)
+            ? findStateName(currentStateId)
             : null;
         String revision = current.get("revision", String.class);
         int iteration = current.get("iteration", Integer.class);
@@ -797,20 +815,13 @@ public class NodeService {
         LockService.LockInfo lockInfo = lockService.getLockInfo(nodeId);
 
         // Identity fields — logical_id and external_id are on node (not versioned)
-        Record nodeTypeRecord = dsl
-            .select()
-            .from("node_type")
-            .where("id = ?", nodeTypeId)
-            .fetchOne();
-        String lifecycleId = nodeTypeRecord.get("lifecycle_id", String.class);
-        String logicalIdLabel = nodeTypeRecord.get(
-            "logical_id_label",
-            String.class
-        );
-        String logicalIdPattern = nodeTypeRecord.get(
-            "logical_id_pattern",
-            String.class
-        );
+        NodeTypeConfig nodeTypeConfig = configCache.getNodeType(nodeTypeId)
+            .orElseThrow(() -> new IllegalStateException(
+                "NodeType not found in config cache: " + nodeTypeId
+            ));
+        String lifecycleId = nodeTypeConfig.lifecycleId();
+        String logicalIdLabel = nodeTypeConfig.logicalIdLabel();
+        String logicalIdPattern = nodeTypeConfig.logicalIdPattern();
 
         Record nodeRecord = dsl
             .select()
@@ -869,14 +880,14 @@ public class NodeService {
             .map(attr -> {
                 String attrId = attr.id();
                 // Use scoped state rule — child type's override first, then owner's rule
-                Record rule = currentStateId != null
-                    ? metaModelCache.getStateRule(nodeTypeId, attrId, currentStateId)
+                MetaModelCachePort.StateRuleInfo rule = currentStateId != null
+                    ? metaModelCache.getStateRuleInfo(nodeTypeId, attrId, currentStateId)
                     : null;
 
                 boolean stateEditable =
-                    rule == null || rule.get("editable", Integer.class) == 1;
+                    rule == null || rule.editable();
                 boolean stateVisible =
-                    rule == null || rule.get("visible", Integer.class) == 1;
+                    rule == null || rule.visible();
 
                 ViewService.AttributeOverride ov =
                     viewService.applyViewOverride(
@@ -891,12 +902,12 @@ public class NodeService {
                 if (!ov.visible()) return null;
 
                 boolean requiredByState =
-                    rule != null && rule.get("required", Integer.class) == 1;
+                    rule != null && rule.required();
                 boolean requiredGlobal = attr.required();
 
                 return Map.<String, Object>ofEntries(
                     entry("id", attrId),
-                    entry("name", attr.name()),
+                    entry("code", attrId),
                     entry("label", attr.label()),
                     entry("value", currentValues.getOrDefault(attrId, "")),
                     entry("type", attr.dataType()),
@@ -984,12 +995,13 @@ public class NodeService {
         result.put("attributes", attributes);
         // Domain assignments
         List<Map<String, Object>> domainList = new ArrayList<>();
+        var domainInfos = metaModelCache.getAllDomainInfos();
         for (String domId : assignedDomainIds) {
-            var domRec = metaModelCache.getAllDomains().get(domId);
-            if (domRec != null) {
+            var domInfo = domainInfos.get(domId);
+            if (domInfo != null) {
                 domainList.add(Map.of(
                     "id", domId,
-                    "name", domRec.get("name", String.class) != null ? domRec.get("name", String.class) : ""
+                    "name", domInfo.name() != null ? domInfo.name() : ""
                 ));
             }
         }
@@ -1039,7 +1051,7 @@ public class NodeService {
     /**
      * Retourne les liens sortants du noeud (BOM / enfants).
      */
-    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public List<Map<String, Object>> getChildLinks(String nodeId) {
         return linkService.getChildLinks(nodeId);
     }
@@ -1047,7 +1059,7 @@ public class NodeService {
     /**
      * Retourne les liens entrants vers ce noeud (Where Used / parents).
      */
-    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public List<Map<String, Object>> getParentLinks(String nodeId) {
         return linkService.getParentLinks(nodeId);
     }
@@ -1076,6 +1088,34 @@ public class NodeService {
     // ================================================================
     // Helpers
     // ================================================================
+
+    /** Resolves the as_name attribute value for a node version from ConfigCache + DB. */
+    private String resolveAsNameValue(String nodeTypeId, String versionId) {
+        if (nodeTypeId == null || versionId == null) return null;
+        var nt = metaModelCache.get(nodeTypeId);
+        if (nt == null) return null;
+        String asNameAttrId = nt.attributes().stream()
+            .filter(ResolvedAttribute::asName)
+            .map(ResolvedAttribute::id)
+            .findFirst().orElse(null);
+        if (asNameAttrId == null) return null;
+        return dsl.select(DSL.field("value")).from("node_version_attribute")
+            .where("node_version_id = ?", versionId)
+            .and("attribute_def_id = ?", asNameAttrId)
+            .fetchOne("value", String.class);
+    }
+
+    private String resolveStateName(String stateId) {
+        if (stateId == null) return "";
+        for (LifecycleConfig lc : configCache.getAllLifecycles()) {
+            if (lc.states() != null) {
+                for (LifecycleStateConfig st : lc.states()) {
+                    if (stateId.equals(st.id())) return st.name();
+                }
+            }
+        }
+        return stateId;
+    }
 
     /**
      * Retourne l'id de la version OPEN de ce noeud dans cette transaction, ou null.
@@ -1111,11 +1151,10 @@ public class NodeService {
         String current = typeId;
         while (current != null) {
             if (expectedTypeId.equals(current)) return true;
-            current = dsl
-                .select()
-                .from("node_type")
-                .where("id = ?", current)
-                .fetchOne("parent_node_type_id", String.class);
+            String finalCurrent = current;
+            current = configCache.getNodeType(finalCurrent)
+                .map(NodeTypeConfig::parentNodeTypeId)
+                .orElse(null);
         }
         return false;
     }
@@ -1136,23 +1175,44 @@ public class NodeService {
      *   RELEASE → VersionStrategy.REVISE  (new revision, A.x → B.1)
      */
     private VersionStrategy resolveCheckoutStrategy(String nodeId) {
-        org.jooq.Record row = dsl.fetchOne(
-            """
-            SELECT nt.version_policy
-            FROM node n
-            JOIN node_type nt ON nt.id = n.node_type_id
-            WHERE n.id = ?
-            """,
-            nodeId
-        );
-        String policy =
-            row != null ? row.get("version_policy", String.class) : null;
+        String nodeTypeId = dsl
+            .select()
+            .from("node")
+            .where("id = ?", nodeId)
+            .fetchOne("node_type_id", String.class);
+        String policy = nodeTypeId != null
+            ? configCache.getNodeType(nodeTypeId)
+                  .map(NodeTypeConfig::versionPolicy)
+                  .orElse(null)
+            : null;
         if (policy == null) return VersionStrategy.ITERATE;
         return switch (policy) {
             case "NONE" -> VersionStrategy.NONE;
             case "RELEASE" -> VersionStrategy.REVISE;
             default -> VersionStrategy.ITERATE;
         };
+    }
+
+    /**
+     * Finds a lifecycle state by its ID, searching across all lifecycles in the config cache.
+     */
+    private LifecycleStateConfig findState(String stateId) {
+        for (LifecycleConfig lc : configCache.getAllLifecycles()) {
+            if (lc.states() != null) {
+                for (LifecycleStateConfig s : lc.states()) {
+                    if (s.id().equals(stateId)) return s;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns the display name of a lifecycle state, or null if not found.
+     */
+    private String findStateName(String stateId) {
+        LifecycleStateConfig state = findState(stateId);
+        return state != null ? state.name() : null;
     }
 
     /**

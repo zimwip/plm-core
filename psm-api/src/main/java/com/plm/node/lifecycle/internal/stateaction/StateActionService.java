@@ -1,10 +1,12 @@
 package com.plm.node.lifecycle.internal.stateaction;
 
 import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.ConfigSnapshotUpdatedEvent;
+import com.plm.platform.config.dto.AlgorithmConfig;
+import com.plm.platform.config.dto.AlgorithmInstanceConfig;
+import com.plm.platform.config.dto.StateActionConfig;
 import lombok.extern.slf4j.Slf4j;
-import org.jooq.DSLContext;
-import org.jooq.Record;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -29,7 +31,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Service
 public class StateActionService {
 
-    private final DSLContext         dsl;
+    private final ConfigCache        configCache;
     private final ApplicationContext appCtx;
 
     private AlgorithmRegistry algorithmRegistry() {
@@ -43,13 +45,13 @@ public class StateActionService {
 
     private final ReentrantReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
-    public StateActionService(DSLContext dsl, ApplicationContext appCtx) {
-        this.dsl = dsl;
+    public StateActionService(ConfigCache configCache, ApplicationContext appCtx) {
+        this.configCache = configCache;
         this.appCtx = appCtx;
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void loadCache() {
+    @EventListener(ConfigSnapshotUpdatedEvent.class)
+    public void onConfigSnapshotUpdated(ConfigSnapshotUpdatedEvent event) {
         rebuildCache();
     }
 
@@ -148,45 +150,54 @@ public class StateActionService {
         Map<StateKey, List<ResolvedStateAction>> newStateActions = new HashMap<>();
         Map<NodeTypeStateKey, List<ResolvedStateAction>> newNodeTypeActions = new HashMap<>();
 
-        // Tier 1: lifecycle_state_action
-        List<Record> stateActionRows = dsl.fetch("""
-            SELECT lsa.lifecycle_state_id, lsa.algorithm_instance_id,
-                   lsa.trigger, lsa.execution_mode, lsa.display_order,
-                   ai.algorithm_id, a.code AS algorithm_code
-            FROM lifecycle_state_action lsa
-            JOIN algorithm_instance ai ON ai.id = lsa.algorithm_instance_id
-            JOIN algorithm a ON a.id = ai.algorithm_id
-            ORDER BY lsa.lifecycle_state_id, lsa.display_order
-            """);
+        // Build instanceId → algorithm code lookup
+        Map<String, String> instanceToCode = new HashMap<>();
+        for (AlgorithmConfig alg : configCache.getAllAlgorithms()) {
+            if (alg.instances() != null) {
+                for (AlgorithmInstanceConfig inst : alg.instances()) {
+                    instanceToCode.put(inst.id(), alg.code());
+                }
+            }
+        }
 
-        for (Record row : stateActionRows) {
-            String stateId = row.get("lifecycle_state_id", String.class);
-            StateActionTrigger trigger = StateActionTrigger.valueOf(row.get("trigger", String.class));
-            StateKey key = new StateKey(stateId, trigger);
-            ResolvedStateAction rsa = resolveFromRow(row, "ADD");
+        // Tier 1: lifecycle state actions (nodeTypeId == null)
+        for (StateActionConfig sa : configCache.getSnapshot() != null
+                ? configCache.getSnapshot().stateActions() != null
+                    ? configCache.getSnapshot().stateActions() : List.<StateActionConfig>of()
+                : List.<StateActionConfig>of()) {
+
+            if (sa.nodeTypeId() != null) continue; // tier 2 handled below
+
+            StateActionTrigger trigger = StateActionTrigger.valueOf(sa.trigger());
+            StateKey key = new StateKey(sa.lifecycleStateId(), trigger);
+            String code = instanceToCode.get(sa.algorithmInstanceId());
+            if (code == null) {
+                log.warn("State action instance '{}' has no algorithm mapping — skipping", sa.algorithmInstanceId());
+                continue;
+            }
+            ResolvedStateAction rsa = resolveFromConfig(sa, code, "ADD");
             if (rsa != null) {
                 newStateActions.computeIfAbsent(key, k -> new ArrayList<>()).add(rsa);
             }
         }
 
-        // Tier 2: node_type_state_action
-        List<Record> nodeTypeRows = dsl.fetch("""
-            SELECT ntsa.node_type_id, ntsa.lifecycle_state_id, ntsa.algorithm_instance_id,
-                   ntsa.trigger, ntsa.execution_mode, ntsa.override_action, ntsa.display_order,
-                   ai.algorithm_id, a.code AS algorithm_code
-            FROM node_type_state_action ntsa
-            JOIN algorithm_instance ai ON ai.id = ntsa.algorithm_instance_id
-            JOIN algorithm a ON a.id = ai.algorithm_id
-            ORDER BY ntsa.node_type_id, ntsa.lifecycle_state_id, ntsa.display_order
-            """);
+        // Tier 2: node-type state actions (nodeTypeId != null)
+        for (StateActionConfig sa : configCache.getSnapshot() != null
+                ? configCache.getSnapshot().stateActions() != null
+                    ? configCache.getSnapshot().stateActions() : List.<StateActionConfig>of()
+                : List.<StateActionConfig>of()) {
 
-        for (Record row : nodeTypeRows) {
-            String nodeTypeId = row.get("node_type_id", String.class);
-            String stateId = row.get("lifecycle_state_id", String.class);
-            StateActionTrigger trigger = StateActionTrigger.valueOf(row.get("trigger", String.class));
-            String overrideAction = row.get("override_action", String.class);
-            NodeTypeStateKey key = new NodeTypeStateKey(nodeTypeId, stateId, trigger);
-            ResolvedStateAction rsa = resolveFromRow(row, overrideAction);
+            if (sa.nodeTypeId() == null) continue; // tier 1 handled above
+
+            StateActionTrigger trigger = StateActionTrigger.valueOf(sa.trigger());
+            NodeTypeStateKey key = new NodeTypeStateKey(sa.nodeTypeId(), sa.lifecycleStateId(), trigger);
+            String code = instanceToCode.get(sa.algorithmInstanceId());
+            if (code == null) {
+                log.warn("State action instance '{}' has no algorithm mapping — skipping", sa.algorithmInstanceId());
+                continue;
+            }
+            String overrideAction = sa.overrideAction();
+            ResolvedStateAction rsa = resolveFromConfig(sa, code, overrideAction);
             if (rsa != null) {
                 newNodeTypeActions.computeIfAbsent(key, k -> new ArrayList<>()).add(rsa);
             }
@@ -205,35 +216,29 @@ public class StateActionService {
             newNodeTypeActions.values().stream().mapToInt(List::size).sum());
     }
 
-    private ResolvedStateAction resolveFromRow(Record row, String overrideAction) {
-        String code = row.get("algorithm_code", String.class);
-        String instanceId = row.get("algorithm_instance_id", String.class);
-        StateActionMode mode = StateActionMode.valueOf(row.get("execution_mode", String.class));
-        int displayOrder = row.get("display_order", Integer.class);
+    private ResolvedStateAction resolveFromConfig(StateActionConfig sa, String algorithmCode, String overrideAction) {
+        StateActionMode mode = StateActionMode.valueOf(sa.executionMode());
+        int displayOrder = sa.displayOrder();
 
-        if (!algorithmRegistry().hasBean(code)) {
-            log.warn("State action algorithm '{}' has no Spring bean — skipping", code);
+        if (!algorithmRegistry().hasBean(algorithmCode)) {
+            log.warn("State action algorithm '{}' has no Spring bean — skipping", algorithmCode);
             return null;
         }
 
         StateAction bean;
         try {
-            bean = algorithmRegistry().resolve(code, StateAction.class);
+            bean = algorithmRegistry().resolve(algorithmCode, StateAction.class);
         } catch (IllegalArgumentException e) {
-            log.warn("Algorithm '{}' does not implement StateAction — skipping (wrong attachment?)", code);
+            log.warn("Algorithm '{}' does not implement StateAction — skipping (wrong attachment?)", algorithmCode);
             return null;
         }
 
-        Map<String, String> params = new HashMap<>();
-        dsl.fetch("""
-            SELECT ap.param_name, aipv.value
-            FROM algorithm_instance_param_value aipv
-            JOIN algorithm_parameter ap ON ap.id = aipv.algorithm_parameter_id
-            WHERE aipv.algorithm_instance_id = ?
-            """, instanceId)
-            .forEach(r -> params.put(r.get("param_name", String.class), r.get("value", String.class)));
+        // Params from instance config
+        Map<String, String> params = configCache.getInstance(sa.algorithmInstanceId())
+            .map(AlgorithmInstanceConfig::paramValues)
+            .orElse(Map.of());
 
-        return new ResolvedStateAction(instanceId, bean, mode, displayOrder, overrideAction, Map.copyOf(params));
+        return new ResolvedStateAction(sa.algorithmInstanceId(), bean, mode, displayOrder, overrideAction, Map.copyOf(params));
     }
 
     // ================================================================

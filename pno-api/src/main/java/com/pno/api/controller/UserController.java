@@ -1,6 +1,8 @@
 package com.pno.api.controller;
 
+import com.pno.domain.service.PnoEventPublisher;
 import com.pno.domain.service.UserService;
+import com.pno.infrastructure.security.PnoSecurityContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -8,11 +10,12 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/pno/users")
+@RequestMapping("/users")
 @RequiredArgsConstructor
 public class UserController {
 
     private final UserService userService;
+    private final PnoEventPublisher eventPublisher;
 
     @GetMapping
     public ResponseEntity<?> listUsers() {
@@ -31,6 +34,7 @@ public class UserController {
         String displayName = (String) body.get("displayName");
         String email       = (String) body.get("email");
         userService.updateUser(userId, displayName, email);
+        eventPublisher.userChanged("UPDATED", userId, currentUserId());
         return ResponseEntity.ok(Map.of("status", "updated"));
     }
 
@@ -39,12 +43,15 @@ public class UserController {
         String username    = (String) body.get("username");
         String displayName = (String) body.get("displayName");
         String email       = (String) body.get("email");
-        return ResponseEntity.ok(userService.createUser(username, displayName, email));
+        var user = userService.createUser(username, displayName, email);
+        eventPublisher.userChanged("CREATED", (String) user.get("id"), currentUserId());
+        return ResponseEntity.ok(user);
     }
 
     @DeleteMapping("/{userId}")
     public ResponseEntity<?> deactivateUser(@PathVariable String userId) {
         userService.deactivateUser(userId);
+        eventPublisher.userChanged("DEACTIVATED", userId, currentUserId());
         return ResponseEntity.noContent().build();
     }
 
@@ -57,6 +64,7 @@ public class UserController {
                                         @PathVariable String roleId,
                                         @RequestParam String projectSpaceId) {
         userService.assignRole(userId, roleId, projectSpaceId);
+        eventPublisher.userChanged("ROLE_ASSIGNED", userId, currentUserId());
         return ResponseEntity.ok(Map.of("status", "assigned"));
     }
 
@@ -68,6 +76,7 @@ public class UserController {
                                         @PathVariable String roleId,
                                         @RequestParam String projectSpaceId) {
         userService.removeRole(userId, roleId, projectSpaceId);
+        eventPublisher.userChanged("ROLE_REMOVED", userId, currentUserId());
         return ResponseEntity.noContent().build();
     }
 
@@ -92,7 +101,13 @@ public class UserController {
         Boolean isAdmin = (Boolean) body.get("isAdmin");
         if (isAdmin == null) return ResponseEntity.badRequest().body(Map.of("error", "isAdmin required"));
         userService.setAdmin(userId, isAdmin);
+        eventPublisher.userChanged("ADMIN_CHANGED", userId, currentUserId());
         return ResponseEntity.ok(Map.of("status", "updated"));
+    }
+
+    private String currentUserId() {
+        var ctx = PnoSecurityContext.get();
+        return ctx != null ? ctx.getUserId() : "unknown";
     }
 
     /**

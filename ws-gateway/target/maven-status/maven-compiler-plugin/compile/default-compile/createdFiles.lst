@@ -1,0 +1,8 @@
+com/plm/wsgateway/config/WebSocketConfig$JwtHandshakeInterceptor.class
+com/plm/wsgateway/handler/SessionRegistry.class
+com/plm/wsgateway/security/JwtVerifier.class
+com/plm/wsgateway/config/WebSocketConfig.class
+com/plm/wsgateway/handler/PlmWebSocketHandler.class
+com/plm/wsgateway/handler/SessionRegistry$SessionEntry.class
+com/plm/wsgateway/security/JwtVerifier$UserInfo.class
+com/plm/wsgateway/WsGatewayApplication.class

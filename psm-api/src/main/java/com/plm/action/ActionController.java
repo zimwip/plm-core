@@ -20,7 +20,7 @@ import java.util.Map;
  * Path IDs are interpreted by the action's scope definition.
  */
 @RestController
-@RequestMapping("/api/psm/actions")
+@RequestMapping("/actions")
 @RequiredArgsConstructor
 public class ActionController {
 
@@ -62,11 +62,16 @@ public class ActionController {
     }
 
     /**
-     * Extracts path segments after {@code /api/psm/actions/{actionCode}/}.
+     * Extracts path segments after {@code /actions/{actionCode}/} (relative
+     * to the service context-path).
      */
     private List<String> extractPathIds(HttpServletRequest request, String actionCode) {
         String path = request.getRequestURI();
-        String prefix = "/api/psm/actions/" + actionCode + "/";
+        String ctx = request.getContextPath();
+        if (ctx != null && !ctx.isEmpty() && path.startsWith(ctx)) {
+            path = path.substring(ctx.length());
+        }
+        String prefix = "/actions/" + actionCode + "/";
         int idx = path.indexOf(prefix);
         if (idx < 0) return List.of();
         String rest = path.substring(idx + prefix.length());

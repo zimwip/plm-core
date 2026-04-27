@@ -19,7 +19,7 @@ import java.util.Map;
  * Ce contrôleur gère les opérations de consultation et d'ouverture.
  */
 @RestController
-@RequestMapping("/api/psm/transactions")
+@RequestMapping("/transactions")
 @RequiredArgsConstructor
 public class TransactionController {
 

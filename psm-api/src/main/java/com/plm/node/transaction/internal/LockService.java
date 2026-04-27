@@ -1,5 +1,7 @@
 package com.plm.node.transaction.internal;
 import com.plm.node.NodeService;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.LinkTypeConfig;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,7 +13,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Lock pessimiste sur les noeuds PLM.
@@ -34,11 +38,12 @@ import java.util.List;
 public class LockService {
 
     private final DSLContext dsl;
+    private final ConfigCache configCache;
 
     /**
      * Self-reference via Spring proxy for cascade calls.
      * Ensures that {@link #tryLock} calls within {@link #tryLockCascade}
-     * are intercepted by AOP (including any future {@link com.plm.shared.authorization.PlmAction} annotations).
+     * are intercepted by AOP (including any future {@link com.plm.platform.authz.PlmAction} annotations).
      * {@code @Lazy} breaks the circular dependency.
      */
     @Lazy
@@ -156,31 +161,40 @@ public class LockService {
     /**
      * Resolves all VERSION_TO_MASTER descendants of a node using a single recursive CTE query.
      * Returns the flat list of all descendant nodeIds (excluding the root itself).
+     *
+     * <p>VERSION_TO_MASTER link type IDs are resolved from ConfigCache (no JOIN on link_type table).
      */
     private List<String> resolveV2MDescendants(String nodeId) {
-        return dsl.fetch(
-            """
-            WITH RECURSIVE descendants AS (
-              SELECT nl.target_node_id AS node_id
-              FROM node_version_link nl
-              JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
-              JOIN link_type lt ON lt.id = nl.link_type_id
-              WHERE nv_src.node_id = ?
-                AND lt.link_policy = 'VERSION_TO_MASTER'
-                AND nl.pinned_version_id IS NULL
-              UNION ALL
-              SELECT nl2.target_node_id
-              FROM node_version_link nl2
-              JOIN node_version nv_src2 ON nv_src2.id = nl2.source_node_version_id
-              JOIN link_type lt2 ON lt2.id = nl2.link_type_id
-              JOIN descendants d ON nv_src2.node_id = d.node_id
-              WHERE lt2.link_policy = 'VERSION_TO_MASTER'
-                AND nl2.pinned_version_id IS NULL
-            )
-            SELECT DISTINCT node_id FROM descendants
-            """,
-            nodeId
-        ).getValues("node_id", String.class);
+        List<String> v2mLinkTypeIds = configCache.getAllLinkTypes().stream()
+            .filter(lt -> "VERSION_TO_MASTER".equals(lt.linkPolicy()))
+            .map(LinkTypeConfig::id)
+            .toList();
+        if (v2mLinkTypeIds.isEmpty()) return new ArrayList<>();
+
+        String placeholders = v2mLinkTypeIds.stream().map(id -> "?").collect(Collectors.joining(", "));
+        List<Object> params = new ArrayList<>();
+        params.add(nodeId);
+        params.addAll(v2mLinkTypeIds);
+        params.addAll(v2mLinkTypeIds);
+
+        String sql = "WITH RECURSIVE descendants AS ("
+            + "  SELECT nl.target_node_id AS node_id"
+            + "  FROM node_version_link nl"
+            + "  JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id"
+            + "  WHERE nv_src.node_id = ?"
+            + "    AND nl.link_type_id IN (" + placeholders + ")"
+            + "    AND nl.pinned_version_id IS NULL"
+            + "  UNION ALL"
+            + "  SELECT nl2.target_node_id"
+            + "  FROM node_version_link nl2"
+            + "  JOIN node_version nv_src2 ON nv_src2.id = nl2.source_node_version_id"
+            + "  JOIN descendants d ON nv_src2.node_id = d.node_id"
+            + "  WHERE nl2.link_type_id IN (" + placeholders + ")"
+            + "    AND nl2.pinned_version_id IS NULL"
+            + ") SELECT DISTINCT node_id FROM descendants";
+
+        return dsl.fetch(sql, params.toArray())
+            .getValues("node_id", String.class);
     }
 
     // ================================================================

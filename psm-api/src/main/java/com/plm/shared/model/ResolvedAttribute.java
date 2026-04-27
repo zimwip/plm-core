@@ -2,7 +2,7 @@ package com.plm.shared.model;
 
 /**
  * Fully resolved attribute definition, including inheritance metadata.
- * Built by MetaModelCache from the attribute_definition table, walking the
+ * Built from config snapshots provided by psm-admin, walking the
  * parent_node_type_id chain.
  *
  * @param inherited        true when this attribute is defined in an ancestor type

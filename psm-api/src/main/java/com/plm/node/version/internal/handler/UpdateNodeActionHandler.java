@@ -32,8 +32,9 @@ public class UpdateNodeActionHandler implements ActionHandler {
         String versionId = nodeService.modifyNode(
             ctx.nodeId(), ctx.userId(), ctx.txId(), attributes, description);
 
-        // Dry-run validation: surface constraint violations without blocking
-        List<String> violations = validationService.collectVersionViolations(ctx.nodeId(), versionId);
+        // Dry-run validation: surface soft constraint violations without blocking
+        List<ValidationService.Violation> violations =
+            validationService.collectVersionViolations(ctx.nodeId(), versionId);
 
         return ActionResult.ok(Map.of(
             "nodeId",     ctx.nodeId(),

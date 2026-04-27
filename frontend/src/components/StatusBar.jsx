@@ -69,6 +69,21 @@ function fmtMs(n) {
   return `${(n / 1000).toFixed(2)}s`;
 }
 
+function fmtCount(n) {
+  if (n == null) return '—';
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function fmtBytes(b) {
+  if (b == null) return '—';
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 function latencyClass(ms) {
   if (ms < 100) return 'lat-fast';
   if (ms < 400) return 'lat-ok';
@@ -153,7 +168,9 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
   const [status, setStatus] = useState(null);
   const [error,  setError]  = useState(null);
   const [open,   setOpen]   = useState(false);
-  const [tab,    setTab]    = useState('services'); // 'services' | 'perf'
+  const [tab,    setTab]    = useState('services'); // 'services' | 'perf' | 'nats'
+  const [nats,   setNats]   = useState(null);
+  const [natsErr, setNatsErr] = useState(null);
   const [stats,  setStats]  = useState(getApiStats());
   const [perfWindow, setPerfWindow] = useState(() => getWindowStats(PERF_WINDOW_MS));
 
@@ -189,6 +206,24 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
     const unsub = subscribeApiStats(() => setStats(getApiStats()));
     return unsub;
   }, [open]);
+
+  // Fetch NATS stats when NATS tab is active (poll every 5s)
+  const fetchNats = useCallback(async () => {
+    try {
+      const n = await speApi.getNatsStatus();
+      setNats(n);
+      setNatsErr(null);
+    } catch (e) {
+      setNatsErr(e.message || String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open || tab !== 'nats') return;
+    fetchNats();
+    const id = setInterval(fetchNats, 5000);
+    return () => clearInterval(id);
+  }, [open, tab, fetchNats]);
 
   const overall = error ? 'down' : (status?.overall || 'unknown');
   const color   = COLOR[overall] || COLOR.unknown;
@@ -269,6 +304,10 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
                 className={`status-tab${tab === 'perf' ? ' status-tab-active' : ''}`}
                 onClick={() => setTab('perf')}
               >API Perf ({stats.overall.total})</button>
+              <button
+                className={`status-tab${tab === 'nats' ? ' status-tab-active' : ''}`}
+                onClick={() => setTab('nats')}
+              >NATS</button>
             </div>
 
             {tab === 'services' && (
@@ -444,6 +483,103 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
                       </tbody>
                     </table>
                   </div>
+                )}
+              </>
+            )}
+
+            {tab === 'nats' && (
+              <>
+                <div className="status-modal-summary">
+                  {nats ? (
+                    <>
+                      <span className="status-dot" style={{ background: nats.status === 'up' ? '#4dd4a0' : '#fc8181' }} />
+                      <span className="status-modal-overall" style={{ color: nats.status === 'up' ? '#4dd4a0' : '#fc8181' }}>
+                        {nats.status === 'up' ? 'UP' : 'DOWN'}
+                      </span>
+                      {nats.version && <span className="status-modal-uptime">v{nats.version}</span>}
+                      {nats.uptime && <span className="status-modal-uptime">uptime: {nats.uptime}</span>}
+                    </>
+                  ) : (
+                    <span className="muted">{natsErr ? `Error: ${natsErr}` : 'Loading...'}</span>
+                  )}
+                  <button className="status-modal-refresh" onClick={fetchNats}>refresh</button>
+                </div>
+
+                {nats && (
+                  <>
+                    <div className="nats-stats-grid">
+                      <div className="nats-stat">
+                        <span className="nats-stat-label">Connections</span>
+                        <span className="nats-stat-value">{nats.connections ?? 0}</span>
+                        <span className="nats-stat-sub">total: {nats.totalConnections ?? 0}</span>
+                      </div>
+                      <div className="nats-stat">
+                        <span className="nats-stat-label">Subscriptions</span>
+                        <span className="nats-stat-value">{nats.subscriptions ?? 0}</span>
+                      </div>
+                      <div className="nats-stat">
+                        <span className="nats-stat-label">Messages In</span>
+                        <span className="nats-stat-value">{fmtCount(nats.inMsgs)}</span>
+                        <span className="nats-stat-sub">{fmtBytes(nats.inBytes)}</span>
+                      </div>
+                      <div className="nats-stat">
+                        <span className="nats-stat-label">Messages Out</span>
+                        <span className="nats-stat-value">{fmtCount(nats.outMsgs)}</span>
+                        <span className="nats-stat-sub">{fmtBytes(nats.outBytes)}</span>
+                      </div>
+                      <div className="nats-stat">
+                        <span className="nats-stat-label">Slow Consumers</span>
+                        <span className={`nats-stat-value${nats.slowConsumers > 0 ? ' lat-bad' : ''}`}>
+                          {nats.slowConsumers ?? 0}
+                        </span>
+                      </div>
+                      <div className="nats-stat">
+                        <span className="nats-stat-label">Sub Cache</span>
+                        <span className="nats-stat-value">{nats.numCache ?? 0}</span>
+                        <span className="nats-stat-sub">matches: {fmtCount(nats.numMatches)}</span>
+                      </div>
+                    </div>
+
+                    {nats.connectionDetails && nats.connectionDetails.length > 0 && (
+                      <>
+                        <h4 className="nats-section-title">Client Connections ({nats.numConnections})</h4>
+                        <div className="status-perf-scroll">
+                          <table className="status-table status-table-sticky">
+                            <thead>
+                              <tr>
+                                <th>CID</th>
+                                <th>Name</th>
+                                <th>Lang</th>
+                                <th>Subs</th>
+                                <th>Msgs In</th>
+                                <th>Msgs Out</th>
+                                <th>Bytes In</th>
+                                <th>Bytes Out</th>
+                                <th>Uptime</th>
+                                <th>Idle</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {nats.connectionDetails.map(c => (
+                                <tr key={c.cid}>
+                                  <td><code>{c.cid}</code></td>
+                                  <td><code title={c.name}>{c.name || '—'}</code></td>
+                                  <td>{c.lang || '—'}</td>
+                                  <td>{typeof c.subscriptions === 'number' ? c.subscriptions : (Array.isArray(c.subscriptions) ? c.subscriptions.length : '—')}</td>
+                                  <td>{fmtCount(c.inMsgs)}</td>
+                                  <td>{fmtCount(c.outMsgs)}</td>
+                                  <td>{fmtBytes(c.inBytes)}</td>
+                                  <td>{fmtBytes(c.outBytes)}</td>
+                                  <td>{c.uptime || '—'}</td>
+                                  <td>{c.idle || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </>
                 )}
               </>
             )}

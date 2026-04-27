@@ -3,7 +3,9 @@ import com.plm.node.metamodel.internal.ValidationService;
 import com.plm.node.version.internal.FingerPrintService;
 import com.plm.node.version.internal.VersionService;
 
-import com.plm.shared.authorization.PlmPermission;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.NodeTypeConfig;
+import com.plm.platform.authz.PlmPermission;
 import com.plm.shared.exception.AccessDeniedException;
 import com.plm.shared.hook.*;
 import com.plm.shared.security.PlmUserContext;
@@ -53,6 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PlmTransactionService {
 
     private final DSLContext         dsl;
+    private final ConfigCache        configCache;
     private final LockService        lockService;
     private final ValidationService  validationService;
     private final FingerPrintService fingerPrintService;
@@ -115,7 +118,7 @@ public class PlmTransactionService {
                     List<CommitViolation> violations =
                         new java.util.ArrayList<>();
                     for (CommitContext.NodeVersionRef ref : ctx.versions()) {
-                        List<String> msgs =
+                        List<ValidationService.Violation> msgs =
                             validationService.collectVersionViolations(
                                 ref.nodeId(),
                                 ref.versionId(),
@@ -123,12 +126,14 @@ public class PlmTransactionService {
                             );
                         String prefix =
                             "[" + ref.revision() + "." + ref.iteration() + "] ";
-                        for (String m : msgs)
+                        for (ValidationService.Violation v : msgs)
                             violations.add(
                                 new CommitViolation(
                                     ref.nodeId(),
                                     ref.versionId(),
-                                    prefix + m
+                                    v.attrCode(),
+                                    v.attrLabel(),
+                                    prefix + v.message()
                                 )
                             );
                     }
@@ -337,7 +342,13 @@ public class PlmTransactionService {
         }
         if (!allViolations.isEmpty()) {
             throw new ValidationService.ValidationException(
-                allViolations.stream().map(CommitViolation::toString).toList()
+                allViolations.stream()
+                    .map(cv -> new ValidationService.Violation(
+                        "COMMIT_VIOLATION",
+                        cv.attrCode(),
+                        cv.attrLabel(),
+                        cv.message()))
+                    .toList()
             );
         }
 
@@ -656,11 +667,11 @@ public class PlmTransactionService {
     /**
      * Retourne un résumé des noeuds modifiés dans la transaction :
      * une ligne par noeud (dernière version dans la tx), avec logical_id
-     * et node_type_name résolus.
+     * et node_type_name résolus depuis ConfigCache.
      *
      * Utilisé par le panneau de navigation du frontend.
      */
-    public List<Record> getTransactionNodes(String txId) {
+    public List<Map<String, Object>> getTransactionNodes(String txId) {
         getTransaction(txId); // applique les règles de visibilité
 
         return dsl.fetch(
@@ -669,14 +680,12 @@ public class PlmTransactionService {
                 n.id                  AS node_id,
                 n.logical_id,
                 n.node_type_id,
-                nt.name               AS node_type_name,
                 nv.revision,
                 nv.iteration,
                 nv.change_type,
                 nv.lifecycle_state_id
             FROM node_version nv
             JOIN node      n  ON n.id  = nv.node_id
-            JOIN node_type nt ON nt.id = n.node_type_id
             WHERE nv.tx_id = ?
               AND nv.version_number = (
                   SELECT MAX(nv2.version_number)
@@ -688,7 +697,13 @@ public class PlmTransactionService {
             """,
             txId,
             txId
-        );
+        ).stream().map(r -> {
+            Map<String, Object> m = new LinkedHashMap<>(r.intoMap());
+            String ntId = (String) m.get("node_type_id");
+            m.put("node_type_name", configCache.getNodeType(ntId)
+                .map(NodeTypeConfig::name).orElse(ntId));
+            return m;
+        }).toList();
     }
 
     // ================================================================

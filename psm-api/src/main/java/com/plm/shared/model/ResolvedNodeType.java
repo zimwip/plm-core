@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * Fully resolved node type, including merged attributes from the inheritance chain.
- * Built by MetaModelCache.
+ * Built from config snapshots provided by psm-admin.
  *
  * @param ancestorChain ordered list starting with this type's id, followed by
  *                      parent, grandparent, etc.

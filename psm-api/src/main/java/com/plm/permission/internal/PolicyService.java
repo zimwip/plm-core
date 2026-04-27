@@ -1,208 +1,116 @@
 package com.plm.permission.internal;
 
+import com.plm.platform.authz.PolicyEnforcer;
+import com.plm.platform.authz.PolicyPort;
+import com.plm.platform.authz.PolicyDeniedException;
 import com.plm.shared.exception.AccessDeniedException;
-import com.plm.shared.security.PlmUserContext;
-import com.plm.shared.security.SecurityContextPort;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.casbin.jcasbin.main.Enforcer;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Single authority for permission enforcement.
- *
- * <p>Delegates to JCasbin {@link Enforcer} for policy evaluation.
- * Policies are loaded from {@code authorization_policy} at startup and
- * reloaded on admin mutations via {@link #reloadPolicies()}.
- *
- * <p>Admin users bypass all checks.
+ * Legacy {@link PolicyPort} façade for the psm-api permission module. Methods
+ * delegate to the scope-agnostic {@link PolicyEnforcer} in platform-lib;
+ * translation to the psm-api {@link AccessDeniedException} lives here so call
+ * sites remain unchanged.
  */
 @Slf4j
 @Service
-public class PolicyService implements com.plm.shared.authorization.PolicyPort {
+@RequiredArgsConstructor
+public class PolicyService implements PolicyPort {
 
-    private final Enforcer            enforcer;
-    private final DSLContext           dsl;
-    private final SecurityContextPort  secCtx;
-    private final ReadWriteLock        rwLock = new ReentrantReadWriteLock();
+    private final PolicyEnforcer enforcer;
+    private final DSLContext     dsl;
 
-    public PolicyService(Enforcer enforcer, DSLContext dsl, SecurityContextPort secCtx) {
-        this.enforcer = enforcer;
-        this.dsl      = dsl;
-        this.secCtx   = secCtx;
-    }
+    // ──────────────── public asserts ────────────────
 
-    // ================================================================
-    // PUBLIC API — one assert per scope
-    // ================================================================
-
+    @Override
     public void assertGlobal(String permissionCode) {
-        assertPermission(permissionCode, "GLOBAL", null, null);
+        assertWithKeys("GLOBAL", permissionCode, Map.of());
     }
 
+    @Override
     public void assertNode(String permissionCode, String nodeId) {
-        PlmUserContext ctx = secCtx.currentUser();
-        if (ctx.isAdmin()) return;
-
         String nodeTypeId = resolveNodeTypeId(nodeId);
         if (nodeTypeId == null) {
-            throw new AccessDeniedException(
-                "User " + ctx.getUserId() + " cannot " + permissionCode + " — node not found: " + nodeId);
+            throw new AccessDeniedException("Cannot " + permissionCode + " — node not found: " + nodeId);
         }
-
-        if (!canExecuteCore(permissionCode, "NODE", nodeTypeId, null, ctx)) {
-            throw new AccessDeniedException(
-                "User " + ctx.getUserId() + " cannot " + permissionCode + " on node " + nodeId);
-        }
+        assertWithKeys("NODE", permissionCode, Map.of("nodeType", nodeTypeId));
     }
 
+    @Override
     public void assertNodeType(String permissionCode, String nodeTypeId) {
-        assertPermission(permissionCode, "NODE", nodeTypeId, null);
+        assertWithKeys("NODE", permissionCode, Map.of("nodeType", nodeTypeId));
     }
 
+    @Override
     public void assertLifecycle(String permissionCode, String nodeTypeId, String transitionId) {
-        assertPermission(permissionCode, "LIFECYCLE", nodeTypeId, transitionId);
+        Map<String, String> keys = new LinkedHashMap<>();
+        keys.put("nodeType", nodeTypeId);
+        keys.put("transition", transitionId);
+        assertWithKeys("LIFECYCLE", permissionCode, keys);
     }
 
-    // ================================================================
-    // NON-THROWING VARIANTS
-    // ================================================================
-
+    @Override
     public boolean canOnNodeType(String permissionCode, String nodeTypeId) {
-        PlmUserContext ctx = secCtx.currentUser();
-        if (ctx.isAdmin()) return true;
-        if (ctx.getRoleIds().isEmpty()) return false;
-        return canExecuteCore(permissionCode, "NODE", nodeTypeId, null, ctx);
+        return enforcer.canScope("NODE", permissionCode, Map.of("nodeType", nodeTypeId));
     }
 
+    @Override
     public Map<String, Boolean> canOnNodeTypes(String permissionCode, Collection<String> nodeTypeIds) {
         Map<String, Boolean> result = new HashMap<>();
-        if (nodeTypeIds.isEmpty()) return result;
-
-        PlmUserContext ctx = secCtx.currentUser();
-        if (ctx.isAdmin()) {
-            nodeTypeIds.forEach(id -> result.put(id, true));
-            return result;
-        }
-        if (ctx.getRoleIds().isEmpty()) {
-            nodeTypeIds.forEach(id -> result.put(id, false));
-            return result;
-        }
-
+        if (nodeTypeIds == null || nodeTypeIds.isEmpty()) return result;
         for (String nodeTypeId : nodeTypeIds) {
-            result.put(nodeTypeId, canExecuteCore(permissionCode, "NODE", nodeTypeId, null, ctx));
+            result.put(nodeTypeId, enforcer.canScope("NODE", permissionCode, Map.of("nodeType", nodeTypeId)));
         }
         return result;
     }
 
+    @Override
     public void assertTransition(String nodeTypeId, String transitionId) {
-        PlmUserContext ctx = secCtx.currentUser();
-        if (ctx.isAdmin()) return;
-
-        if (!canExecuteCore("TRANSITION", "LIFECYCLE", nodeTypeId, transitionId, ctx)) {
-            throw new AccessDeniedException(
-                "User " + ctx.getUserId() + " cannot trigger transition " + transitionId);
-        }
+        Map<String, String> keys = new LinkedHashMap<>();
+        keys.put("nodeType", nodeTypeId);
+        keys.put("transition", transitionId);
+        assertWithKeys("LIFECYCLE", "TRANSITION", keys);
     }
 
+    @Override
     public void assertTransition(String transitionId) {
-        PlmUserContext ctx = secCtx.currentUser();
-        if (ctx.isAdmin()) return;
-
-        rwLock.readLock().lock();
-        try {
-            // p = [sub, act, node_type, transition]
-            List<List<String>> policies = enforcer.getFilteredPolicy(1, "TRANSITION");
-            for (String roleId : ctx.getRoleIds()) {
-                for (List<String> p : policies) {
-                    if (p.get(0).equals(roleId)
-                        && (p.get(3).equals(transitionId) || p.get(3).equals("*"))
-                        && !p.get(2).equals("*")) {
-                        return; // found a matching grant
-                    }
-                }
-            }
-        } finally {
-            rwLock.readLock().unlock();
+        String nodeTypeId = resolveNodeTypeForTransition(transitionId);
+        if (nodeTypeId == null) {
+            throw new AccessDeniedException("Unknown transition: " + transitionId);
         }
-
-        throw new AccessDeniedException(
-            "User " + ctx.getUserId() + " cannot trigger transition " + transitionId);
+        assertTransition(nodeTypeId, transitionId);
     }
 
-    // ================================================================
-    // GENERIC CHECK
-    // ================================================================
-
+    @Override
     public boolean canExecute(String permissionCode, String scope,
-                       String nodeTypeId, String transitionId) {
-        PlmUserContext ctx = secCtx.currentUser();
-        if (ctx.isAdmin()) return true;
-        return canExecuteCore(permissionCode, scope, nodeTypeId, transitionId, ctx);
+                              String nodeTypeId, String transitionId) {
+        Map<String, String> keys = new LinkedHashMap<>();
+        if (nodeTypeId != null)   keys.put("nodeType", nodeTypeId);
+        if (transitionId != null) keys.put("transition", transitionId);
+        return enforcer.canScope(scope, permissionCode, keys);
     }
 
-    // ================================================================
-    // RELOAD (called by PermissionAdminService after mutations)
-    // ================================================================
-
-    /**
-     * Reloads all policies from the authorization_policy table into the Casbin model.
-     * Thread-safe: acquires write lock to prevent stale reads during reload.
-     */
+    @Override
     public void reloadPolicies() {
-        rwLock.writeLock().lock();
-        try {
-            enforcer.loadPolicy();
-            log.info("Casbin policies reloaded");
-        } finally {
-            rwLock.writeLock().unlock();
-        }
+        enforcer.reload();
     }
 
-    // ================================================================
-    // INTERNALS
-    // ================================================================
+    // ──────────────── internals ────────────────
 
-    private void assertPermission(String permissionCode, String scope,
-                                  String nodeTypeId, String transitionId) {
-        PlmUserContext ctx = secCtx.currentUser();
-        if (ctx.isAdmin()) return;
-
-        if (!canExecuteCore(permissionCode, scope, nodeTypeId, transitionId, ctx)) {
-            throw new AccessDeniedException(
-                "User " + ctx.getUserId() + " cannot execute '" + permissionCode + "'"
-                + (nodeTypeId != null ? " on node type " + nodeTypeId : ""));
-        }
-    }
-
-    private boolean canExecuteCore(String permissionCode, String scope,
-                                   String nodeTypeId, String transitionId,
-                                   PlmUserContext ctx) {
-        Set<String> roleIds = ctx.getRoleIds();
-        if (roleIds.isEmpty()) return false;
-
-        String nodeType   = (nodeTypeId != null)   ? nodeTypeId   : "*";
-        String transition = (transitionId != null)  ? transitionId : "*";
-
-        rwLock.readLock().lock();
+    private void assertWithKeys(String scope, String permissionCode, Map<String, String> keys) {
         try {
-            for (String roleId : roleIds) {
-                if (enforcer.enforce(roleId, permissionCode, nodeType, transition)) {
-                    return true;
-                }
-            }
-            return false;
-        } finally {
-            rwLock.readLock().unlock();
+            enforcer.assertScope(scope, permissionCode, keys);
+        } catch (PolicyDeniedException e) {
+            throw new AccessDeniedException(e.getMessage());
         }
     }
 
@@ -210,5 +118,19 @@ public class PolicyService implements com.plm.shared.authorization.PolicyPort {
         return dsl.select(DSL.field("node_type_id")).from("node")
             .where("id = ?", nodeId)
             .fetchOne(DSL.field("node_type_id"), String.class);
+    }
+
+    /**
+     * Resolve the nodeType owning a given transition via its lifecycle. Any
+     * nodeType bound to that lifecycle qualifies — the caller only needs one.
+     */
+    private String resolveNodeTypeForTransition(String transitionId) {
+        return dsl.select(DSL.field("nt.id").as("id"))
+            .from("lifecycle_transition lt")
+            .join("lifecycle l").on("l.id = lt.lifecycle_id")
+            .join("node_type nt").on("nt.lifecycle_id = l.id")
+            .where("lt.id = ?", transitionId)
+            .limit(1)
+            .fetchOne(DSL.field("id"), String.class);
     }
 }

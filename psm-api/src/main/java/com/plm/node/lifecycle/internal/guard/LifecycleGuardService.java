@@ -1,15 +1,18 @@
 package com.plm.node.lifecycle.internal.guard;
 
 import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.ConfigSnapshotUpdatedEvent;
+import com.plm.platform.config.dto.AlgorithmConfig;
+import com.plm.platform.config.dto.AlgorithmInstanceConfig;
+import com.plm.platform.config.dto.NodeActionGuardConfig;
+import com.plm.platform.config.dto.TransitionGuardConfig;
 import org.springframework.context.ApplicationContext;
 import com.plm.shared.exception.GuardViolationException;
 import com.plm.shared.guard.GuardEffect;
 import com.plm.shared.guard.GuardEvaluation;
 import com.plm.shared.guard.GuardViolation;
 import lombok.extern.slf4j.Slf4j;
-import org.jooq.DSLContext;
-import org.jooq.Record;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
@@ -37,7 +40,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Service
 public class LifecycleGuardService {
 
-    private final DSLContext          dsl;
+    private final ConfigCache          configCache;
     private final ApplicationContext  appCtx;
 
     /** Tier 1: lifecycle-transition guards, keyed by transitionId. */
@@ -47,8 +50,8 @@ public class LifecycleGuardService {
 
     private final ReentrantReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
-    public LifecycleGuardService(DSLContext dsl, ApplicationContext appCtx) {
-        this.dsl = dsl;
+    public LifecycleGuardService(ConfigCache configCache, ApplicationContext appCtx) {
+        this.configCache = configCache;
         this.appCtx = appCtx;
     }
 
@@ -56,8 +59,8 @@ public class LifecycleGuardService {
         return AlgorithmRegistry.getInstance(appCtx);
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void loadCache() {
+    @EventListener(ConfigSnapshotUpdatedEvent.class)
+    public void onConfigSnapshotUpdated(ConfigSnapshotUpdatedEvent event) {
         rebuildCache();
     }
 
@@ -142,44 +145,31 @@ public class LifecycleGuardService {
         Map<String, List<ResolvedGuard>> newTransitionGuards = new HashMap<>();
         Map<NodeTransitionKey, List<ResolvedGuard>> newNodeTransitionGuards = new HashMap<>();
 
-        // Tier 1: lifecycle_transition_guard
-        List<Record> transitionGuardRows = dsl.fetch("""
-            SELECT ltg.lifecycle_transition_id, ltg.algorithm_instance_id, ltg.effect, ltg.display_order,
-                   ai.algorithm_id, a.code AS algorithm_code
-            FROM lifecycle_transition_guard ltg
-            JOIN algorithm_instance ai ON ai.id = ltg.algorithm_instance_id
-            JOIN algorithm a ON a.id = ai.algorithm_id
-            ORDER BY ltg.lifecycle_transition_id, ltg.display_order
-            """);
-
-        for (Record row : transitionGuardRows) {
-            String transitionId = row.get("lifecycle_transition_id", String.class);
-            ResolvedGuard rg = resolveGuardFromRow(row, "ADD");
-            if (rg != null) {
-                newTransitionGuards.computeIfAbsent(transitionId, k -> new ArrayList<>()).add(rg);
+        // Tier 1: transition guards from ConfigCache (indexed by transitionId)
+        // Walk all lifecycles → transitions → guards
+        for (var lifecycle : configCache.getAllLifecycles()) {
+            if (lifecycle.transitions() == null) continue;
+            for (var transition : lifecycle.transitions()) {
+                List<TransitionGuardConfig> guards = configCache.getTransitionGuards(transition.id());
+                for (TransitionGuardConfig tg : guards) {
+                    ResolvedGuard rg = resolveGuardFromConfig(tg.algorithmInstanceId(), tg.effect(), "ADD");
+                    if (rg != null) {
+                        newTransitionGuards.computeIfAbsent(tg.lifecycleTransitionId(), k -> new ArrayList<>()).add(rg);
+                    }
+                }
             }
         }
 
         // Tier 2: node_action_guard WHERE transition_id IS NOT NULL
-        List<Record> nodeTransitionGuardRows = dsl.fetch("""
-            SELECT nag.node_type_id, nag.transition_id,
-                   nag.algorithm_instance_id, nag.effect, nag.override_action, nag.display_order,
-                   ai.algorithm_id, a.code AS algorithm_code
-            FROM node_action_guard nag
-            JOIN algorithm_instance ai ON ai.id = nag.algorithm_instance_id
-            JOIN algorithm a ON a.id = ai.algorithm_id
-            WHERE nag.transition_id IS NOT NULL
-            ORDER BY nag.node_type_id, nag.transition_id, nag.display_order
-            """);
-
-        for (Record row : nodeTransitionGuardRows) {
-            NodeTransitionKey key = new NodeTransitionKey(
-                row.get("node_type_id",  String.class),
-                row.get("transition_id", String.class));
-            String overrideAction = row.get("override_action", String.class);
-            ResolvedGuard rg = resolveGuardFromRow(row, overrideAction);
-            if (rg != null) {
-                newNodeTransitionGuards.computeIfAbsent(key, k -> new ArrayList<>()).add(rg);
+        var snapshot = configCache.getSnapshot();
+        if (snapshot != null && snapshot.nodeActionGuards() != null) {
+            for (NodeActionGuardConfig nag : snapshot.nodeActionGuards()) {
+                if (nag.transitionId() == null) continue;
+                NodeTransitionKey key = new NodeTransitionKey(nag.nodeTypeId(), nag.transitionId());
+                ResolvedGuard rg = resolveGuardFromConfig(nag.algorithmInstanceId(), nag.effect(), nag.overrideAction());
+                if (rg != null) {
+                    newNodeTransitionGuards.computeIfAbsent(key, k -> new ArrayList<>()).add(rg);
+                }
             }
         }
 
@@ -196,10 +186,14 @@ public class LifecycleGuardService {
             newNodeTransitionGuards.values().stream().mapToInt(List::size).sum());
     }
 
-    private ResolvedGuard resolveGuardFromRow(Record row, String overrideAction) {
-        String code = row.get("algorithm_code", String.class);
-        String instanceId = row.get("algorithm_instance_id", String.class);
-        GuardEffect effect = GuardEffect.valueOf(row.get("effect", String.class));
+    private ResolvedGuard resolveGuardFromConfig(String instanceId, String effectStr, String overrideAction) {
+        String code = resolveAlgorithmCode(instanceId);
+        if (code == null) {
+            log.warn("No algorithm found for instance '{}' — skipping", instanceId);
+            return null;
+        }
+
+        GuardEffect effect = GuardEffect.valueOf(effectStr);
 
         if (!algorithmRegistry().hasBean(code)) {
             log.warn("Lifecycle guard algorithm '{}' has no Spring bean — skipping", code);
@@ -214,16 +208,27 @@ public class LifecycleGuardService {
             return null;
         }
 
-        Map<String, String> params = new HashMap<>();
-        dsl.fetch("""
-            SELECT ap.param_name, aipv.value
-            FROM algorithm_instance_param_value aipv
-            JOIN algorithm_parameter ap ON ap.id = aipv.algorithm_parameter_id
-            WHERE aipv.algorithm_instance_id = ?
-            """, instanceId)
-            .forEach(r -> params.put(r.get("param_name", String.class), r.get("value", String.class)));
+        // Params come directly from AlgorithmInstanceConfig — no DB query needed
+        Map<String, String> params = configCache.getInstance(instanceId)
+            .map(AlgorithmInstanceConfig::paramValues)
+            .orElse(Map.of());
 
-        return new ResolvedGuard(instanceId, bean, effect, overrideAction, Map.copyOf(params));
+        return new ResolvedGuard(instanceId, bean, effect, overrideAction, params);
+    }
+
+    /**
+     * Resolves the algorithm code for a given instance id by walking all algorithms.
+     */
+    private String resolveAlgorithmCode(String instanceId) {
+        for (AlgorithmConfig alg : configCache.getAllAlgorithms()) {
+            if (alg.instances() == null) continue;
+            for (AlgorithmInstanceConfig inst : alg.instances()) {
+                if (inst.id().equals(instanceId)) {
+                    return alg.code();
+                }
+            }
+        }
+        return null;
     }
 
     /**

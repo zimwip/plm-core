@@ -1703,6 +1703,32 @@ select.field-input{cursor:pointer;appearance:none;-webkit-appearance:none}
   margin-left:auto;font-size:11px;color:var(--muted);
 }
 
+/* ── NATS tab ───────────────────────────────────────────────────── */
+.nats-stats-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+  margin-bottom:14px;
+}
+.nats-stat{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:10px 8px;border-radius:var(--r);
+  background:var(--surface);border:1px solid var(--border);
+}
+.nats-stat-label{
+  font-size:10px;font-weight:600;letter-spacing:.06em;
+  color:var(--muted);text-transform:uppercase;
+}
+.nats-stat-value{
+  font-family:var(--mono);font-size:18px;font-weight:700;
+  color:var(--text);
+}
+.nats-stat-sub{
+  font-family:var(--mono);font-size:10px;color:var(--muted2);
+}
+.nats-section-title{
+  margin:14px 0 6px;font-size:11px;font-weight:700;
+  letter-spacing:.06em;color:var(--muted);text-transform:uppercase;
+}
+
 /* ── Theme selector ─────────────────────────────────────────────── */
 .theme-selector{
   display:flex;gap:6px;

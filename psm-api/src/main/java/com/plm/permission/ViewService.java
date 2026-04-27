@@ -1,12 +1,20 @@
 package com.plm.permission;
 
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.AttributeViewConfig;
+import com.plm.platform.config.dto.ConfigSnapshot;
+import com.plm.platform.config.dto.ViewAttributeOverrideConfig;
 import com.plm.shared.security.PlmUserContext;
 import com.plm.shared.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jooq.DSLContext;
-import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
+
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Résolution des vues d'attributs en fonction du rôle et de l'état lifecycle.
@@ -23,7 +31,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class ViewService {
 
-    private final DSLContext          dsl;
+    private final ConfigCache        configCache;
     private final SecurityContextPort secCtx;
 
     /**
@@ -36,27 +44,30 @@ public class ViewService {
      */
     public String resolveActiveView(String nodeTypeId, String currentStateId) {
         PlmUserContext ctx = secCtx.currentUser();
+        Set<String> userRoleIds = ctx.getRoleIds();
 
-        var view = dsl.select()
-            .from("attribute_view")
-            .where("node_type_id = ?", nodeTypeId)
-            .and(
-                DSL.field("eligible_role_id").in(ctx.getRoleIds())
-                   .and(DSL.field("eligible_state_id").eq(currentStateId))
-                .or(
-                    DSL.field("eligible_role_id").in(ctx.getRoleIds())
-                       .and(DSL.field("eligible_state_id").isNull())
-                )
-                .or(
-                    DSL.field("eligible_role_id").isNull()
-                       .and(DSL.field("eligible_state_id").eq(currentStateId))
-                )
-            )
-            .orderBy(DSL.field("priority").desc())
-            .limit(1)
-            .fetchOne();
+        return configCache.getAttributeViews(nodeTypeId).stream()
+            .filter(v -> isEligible(v, userRoleIds, currentStateId))
+            .max(Comparator.comparingInt(AttributeViewConfig::priority))
+            .map(AttributeViewConfig::id)
+            .orElse(null);
+    }
 
-        return view != null ? view.get("id", String.class) : null;
+    /**
+     * Replicates the SQL WHERE logic:
+     *   (role matches AND state matches)
+     *   OR (role matches AND state is null)
+     *   OR (role is null AND state matches)
+     */
+    private boolean isEligible(AttributeViewConfig view, Collection<String> userRoleIds, String currentStateId) {
+        boolean roleMatches = view.eligibleRoleId() != null && userRoleIds.contains(view.eligibleRoleId());
+        boolean stateMatches = view.eligibleStateId() != null && view.eligibleStateId().equals(currentStateId);
+        boolean roleNull = view.eligibleRoleId() == null;
+        boolean stateNull = view.eligibleStateId() == null;
+
+        return (roleMatches && stateMatches)
+            || (roleMatches && stateNull)
+            || (roleNull && stateMatches);
     }
 
     /**
@@ -77,25 +88,29 @@ public class ViewService {
             return new AttributeOverride(stateEditable, stateVisible, stateDisplayOrder, stateDisplaySection);
         }
 
-        var override = dsl.select()
-            .from("view_attribute_override")
-            .where("view_id = ?", viewId)
-            .and("attribute_def_id = ?", attributeDefId)
-            .fetchOne();
+        // Find the view by id from the snapshot, then locate the matching override
+        ConfigSnapshot snap = configCache.getSnapshot();
+        List<AttributeViewConfig> allViews = snap != null && snap.attributeViews() != null
+            ? snap.attributeViews() : List.of();
+
+        ViewAttributeOverrideConfig override = allViews.stream()
+            .filter(v -> viewId.equals(v.id()))
+            .findFirst()
+            .flatMap(v -> v.overrides() != null
+                ? v.overrides().stream()
+                    .filter(o -> attributeDefId.equals(o.attributeDefId()))
+                    .findFirst()
+                : Optional.empty())
+            .orElse(null);
 
         if (override == null) {
             return new AttributeOverride(stateEditable, stateVisible, stateDisplayOrder, stateDisplaySection);
         }
 
-        Integer viewEditable = override.get("editable", Integer.class);
-        Integer viewVisible  = override.get("visible", Integer.class);
-        Integer viewOrder    = override.get("display_order", Integer.class);
-        String  viewSection  = override.get("display_section", String.class);
-
-        boolean finalEditable = stateEditable && (viewEditable == null || viewEditable == 1);
-        boolean finalVisible  = stateVisible  && (viewVisible  == null || viewVisible  == 1);
-        int     finalOrder    = viewOrder   != null ? viewOrder   : stateDisplayOrder;
-        String  finalSection  = viewSection != null ? viewSection : stateDisplaySection;
+        boolean finalEditable = stateEditable && (override.editable() == null || override.editable());
+        boolean finalVisible  = stateVisible  && (override.visible()  == null || override.visible());
+        int     finalOrder    = override.displayOrder()   != null ? override.displayOrder()   : stateDisplayOrder;
+        String  finalSection  = override.displaySection() != null ? override.displaySection() : stateDisplaySection;
 
         return new AttributeOverride(finalEditable, finalVisible, finalOrder, finalSection);
     }

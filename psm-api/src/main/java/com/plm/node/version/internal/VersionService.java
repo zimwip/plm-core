@@ -2,6 +2,8 @@ package com.plm.node.version.internal;
 import com.plm.node.metamodel.internal.ValidationService;
 import com.plm.node.transaction.internal.LockService;
 
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.NodeTypeConfig;
 import com.plm.shared.model.Enums.ChangeType;
 import com.plm.shared.model.Enums.VersionStrategy;
 import com.plm.shared.model.numbering.NumberingResult;
@@ -16,7 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -40,6 +44,7 @@ import java.util.UUID;
 public class VersionService {
 
     private final DSLContext         dsl;
+    private final ConfigCache        configCache;
     private final LockService        lockService;
     private final ValidationService  validationService;
     private final FingerPrintService fingerPrintService;
@@ -83,7 +88,32 @@ public class VersionService {
 
         // 3. Valider les attributs si changement d'état
         if (newStateId != null) {
-            validationService.validateAttributesForState(nodeId, newStateId, attributes, current);
+            Record nodeRow = dsl.fetchOne(
+                "SELECT node_type_id, logical_id FROM node WHERE id = ?", nodeId);
+            String txNodeTypeId = nodeRow != null ? nodeRow.get("node_type_id", String.class) : null;
+            String txLogicalId  = nodeRow != null ? nodeRow.get("logical_id",   String.class) : null;
+            String txCurrentStateId = current != null
+                ? current.get("lifecycle_state_id", String.class) : null;
+            String txCurrentVersionId = current != null
+                ? current.get("id", String.class) : null;
+
+            // Build effective values: existing version attrs overridden by submitted ones.
+            Map<String, String> effective = new HashMap<>();
+            if (txCurrentVersionId != null) {
+                dsl.select().from("node_version_attribute")
+                   .where("node_version_id = ?", txCurrentVersionId)
+                   .fetch()
+                   .forEach(r -> effective.put(
+                       r.get("attribute_def_id", String.class),
+                       r.get("value", String.class)));
+            }
+            if (attributes != null) effective.putAll(attributes);
+
+            Set<String> changedKeys = attributes != null ? attributes.keySet() : Collections.emptySet();
+
+            validationService.assertNoViolations(
+                txNodeTypeId, newStateId, effective,
+                txCurrentStateId, txCurrentVersionId, txLogicalId, changedKeys);
         }
 
         // 4. Calculer la nouvelle identité métier
@@ -98,14 +128,12 @@ public class VersionService {
             effective = (changeType == ChangeType.CONTENT) ? VersionStrategy.ITERATE : VersionStrategy.NONE;
         }
 
-        // Resolve numbering scheme from node_type and delegate computation
-        Record schemeRow = dsl.fetchOne("""
-            SELECT nt.numbering_scheme
-            FROM node n
-            JOIN node_type nt ON nt.id = n.node_type_id
-            WHERE n.id = ?
-            """, nodeId);
-        String schemeRaw = schemeRow != null ? schemeRow.get("numbering_scheme", String.class) : null;
+        // Resolve numbering scheme from ConfigCache
+        Record nodeRow = dsl.fetchOne("SELECT node_type_id FROM node WHERE id = ?", nodeId);
+        String ntId = nodeRow != null ? nodeRow.get("node_type_id", String.class) : null;
+        String schemeRaw = ntId != null
+            ? configCache.getNodeType(ntId).map(NodeTypeConfig::numberingScheme).orElse(null)
+            : null;
 
         NumberingResult nr = NumberingStrategyFactory.forSchemeString(schemeRaw)
             .compute(effective, currentRevision, currentIteration);

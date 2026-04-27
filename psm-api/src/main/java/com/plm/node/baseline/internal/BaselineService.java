@@ -1,8 +1,10 @@
 package com.plm.node.baseline.internal;
 import com.plm.node.NodeService;
 import com.plm.node.version.internal.VersionService;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.LinkTypeConfig;
 
-import com.plm.shared.authorization.PlmPermission;
+import com.plm.platform.authz.PlmPermission;
 import com.plm.shared.metadata.Metadata;
 import com.plm.shared.metadata.MetadataService;
 import com.plm.shared.event.PlmEventPublisher;
@@ -43,6 +45,7 @@ import java.util.UUID;
 public class BaselineService {
 
     private final DSLContext        dsl;
+    private final ConfigCache       configCache;
     private final VersionService    versionService;
     private final PlmEventPublisher eventPublisher;
     private final MetadataService   metadataService;
@@ -163,17 +166,18 @@ public class BaselineService {
     private void resolveAndRecord(String baselineId, String parentNodeId) {
         var links = dsl.select(
                 DSL.field("nl.id").as("nl_id"),
-                DSL.field("lt.link_policy").as("lt_link_policy"),
+                DSL.field("nl.link_type_id").as("nl_link_type_id"),
                 DSL.field("nl.target_node_id").as("nl_target_node_id"))
             .from("node_version_link nl")
-            .join("link_type lt").on("nl.link_type_id = lt.id")
             .join("node_version nv_src").on("nv_src.id = nl.source_node_version_id")
             .where("nv_src.node_id = ?", parentNodeId)
             .fetch();
 
         for (Record link : links) {
             String linkId    = link.get("nl_id", String.class);
-            String policy    = link.get("lt_link_policy", String.class);
+            String linkTypeId = link.get("nl_link_type_id", String.class);
+            String policy    = configCache.getLinkType(linkTypeId)
+                .map(LinkTypeConfig::linkPolicy).orElse(null);
             String targetId  = link.get("nl_target_node_id", String.class);
 
             if ("VERSION_TO_MASTER".equals(policy)) {

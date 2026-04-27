@@ -1,25 +1,57 @@
 # CLAUDE.md — Contexte PLM Core
 
+
+## Main rules 
+1. Don’t assume. Don’t hide confusion. Surface tradeoffs.
+
+2. Minimum code that solves the problem. Nothing speculative.
+
+3. Touch only what you must. Clean up only your own mess.
+
+4. Define success criteria. Loop until verified.
+
+
 Fichier contexte PLM Core — reprend conversation avec décisions de conception.
 
 ---
 
 ## Ce qu'on a construit
 
-**PLM (Product Lifecycle Management) minimaliste et extensible**, architecture multi-service :
-- **plm-api** (PSM — Product Structure Management) : noeuds, versions, lifecycle, signatures, baselines, méta-modèle, permissions
-- **pno-api** (PNO — People & Organisation) : utilisateurs, rôles, espaces projet
+**PLM (Product Lifecycle Management) minimaliste et extensible**, architecture multi-service organisée en **trois couches de rôles** :
+
+### 1. Point d'entrée unique — `spe`
+- **spe-api** (gateway + service registry) : **seul point d'entrée** des requêtes externes. Aucun service backend n'est exposé directement. Masque la topologie interne au client (frontend, intégrations).
+- Responsabilités : terminaison TLS (via nginx amont), authentification (login, JWT mint + verify), **load-balancing** round-robin entre instances saines d'un même `serviceCode`, **ségrégation de routes** par convention `/api/<serviceCode>` dérivée de l'environnement (pas de config de routes en dur côté gateway), heartbeat + éviction des instances mortes, snapshot du registry pour les clients.
+- Les routes sont 100% dynamiques : un service apparaît dans le registry → sa route est construite automatiquement à partir de son `serviceCode`.
+
+### 2. Services fondamentaux — `pno`, `settings`
+Services d'infrastructure transverse, consommés par tous les autres. Enregistrés dans spe comme n'importe quel service métier.
+
+- **pno-api** (`pno`) : **source de vérité identité & organisation**. Utilisateurs, rôles, project spaces, hiérarchie de spaces, service tags par space. Tous les contrôles d'accès (JWT mint dans spe, résolution du contexte utilisateur dans psm) s'appuient sur pno via HTTP (cache Caffeine côté consommateur).
+- **platform-api** (`platform`) : **service plateforme central** — agrégateur de la page Settings du frontend + administration Vault (secrets). Agrège les sections de paramètres publiées par tous les services au démarrage (via `SettingsRegistrationClient` de platform-lib), valide les permissions GLOBAL directement, renvoie un arbre groupé. Évite que le frontend parle à N services pour construire la page.
+
+### 3. Services métier — `psa`, `psm`
+Les services qui apportent la valeur fonctionnelle PLM. Suivent un pattern **configuration ↔ données** :
+
+- **psm-admin** (`psa`) : **gestion de configuration centrale**. CRUD du métamodèle — node types, lifecycles, transitions, attributs, algorithmes, domaines, enums, policies d'autorisation. Publie des snapshots de config via `/internal/config/snapshot` (pull) + notifications NATS `env.service.psa.CONFIG_CHANGED` (push). Écritures purement administratives — pas de runtime utilisateur.
+- **psm-api** (`psm`, Product Structure Management) : **moteur de données utilisateur**. Exécute les opérations métier quotidiennes — création/édition de noeuds, versions, checkin/checkout, signatures, baselines, exécution d'actions/transitions. Consomme en lecture seule la config publiée par `psa` (cache local) ; ne stocke jamais de config admin localement. Réplicable (1..N instances par project space).
+
+### Canal asynchrone — `ws`
+- **ws-gateway** (`ws`) : **push unidirectionnel** NATS → WebSocket vers le frontend. Scopé par session authentifiée. Pas d'API REST métier, juste l'upgrade `/api/ws?token=<session>`.
 
 Objectif : base solide avant ajout fonctionnalités métier.
 
 ### Modules Maven
 
-| Module | Rôle |
-|--------|------|
-| **platform-lib** | Librairie partagée. Contient le client d'auto-enregistrement SPE (auto-config Spring Boot) et le DTO `RegisterRequest` (source de vérité consommée par spe-api côté serveur). Toute nouvelle fonction cross-service va ici. |
-| **pno-api** | Service PNO |
-| **psm-api** | Service PSM |
-| **spe-api** | Gateway + registry |
+| Module | Couche | serviceCode | Rôle |
+|--------|--------|-------------|------|
+| **platform-lib** | — | — | Librairie partagée : client d'auto-enregistrement SPE, post-processor de context-path, DTO `RegisterRequest`, clients `ConfigRegistrationClient` / `SettingsRegistrationClient`. Toute nouvelle fonction cross-service va ici. |
+| **spe-api** | Entrée | — (gateway) | Point d'entrée unique, routing, LB, auth |
+| **pno-api** | Fondamental | `pno` | Identité & organisation (users, roles, project spaces) |
+| **platform-api** | Fondamental | `platform` | Agrégateur Settings + Vault admin |
+| **psm-admin** | Métier — config | `psa` | Administration centrale du métamodèle |
+| **psm-api** | Métier — données | `psm` | Moteur runtime des données utilisateur PLM |
+| **ws-gateway** | Canal push | `ws` | WebSocket NATS → frontend |
 
 `platform-lib` se construit comme un JAR Maven standalone (pas d'aggregator pom). Les Dockerfiles de service ajoutent une stage 0 `lib-builder` qui compile et installe `platform-lib` via l'`additional_contexts: platform-lib: ./platform-lib` de docker-compose, puis la stage 1 le résout depuis le cache BuildKit partagé (`--mount=type=cache,id=plm-m2`). `run.sh local` fait l'install natif via `./psm-api/mvnw -f platform-lib/pom.xml install` au démarrage.
 
@@ -31,7 +63,7 @@ HashiCorp Vault est intégré pour stocker les secrets runtime (`plm.service.sec
 
 Pour consommer `platform-lib` dans un nouveau service :
 1. Ajouter `<dependency>com.plm.platform:platform-lib:0.1.0-SNAPSHOT</dependency>` au pom
-2. Configurer `spe.registration.*` dans `application.properties` (service-code, route-prefix, extra-paths, self-base-url, spe-url, service-secret)
+2. Configurer `spe.registration.service-code=<nom-court>` dans `application.properties`. Le `route-prefix` et `server.servlet.context-path` sont dérivés automatiquement (voir "Convention de routage" ci-dessous). Seul `extra-paths` reste explicite pour les endpoints hors `/api/<service-code>` (swagger, api-docs).
 3. Ajouter `additional_contexts: platform-lib: ./platform-lib` au bloc `build:` dans docker-compose.yml
 4. Copier le template de Dockerfile (stage 0 lib-builder + `id=plm-m2` sur les cache mounts des deux stages)
 
@@ -60,24 +92,63 @@ Browser
   │
   └─► nginx (port 3000)
         └── /api/spe/auth          ──► spe-api (port 8082) — login, JWT
-            /api/psm/*             ──► spe-api ─── svc://psm-api ─┬─► psm-api-1:8080
-                                                                  └─► psm-api-2:8080
-            /api/pno/*             ──► spe-api ─── svc://pno-api ──► pno-api:8081
+            /api/psm/*             ──► spe-api ─── svc://psm      ─┬─► psm-api-1:8080
+                                                                   └─► psm-api-2:8080
+            /api/pno/*             ──► spe-api ─── svc://pno      ──► pno-api:8081
+            /api/psa/*             ──► spe-api ─── svc://psa      ──► psm-admin:8083
+            /api/platform/*        ──► spe-api ─── svc://platform ──► platform-api:8084
+            /api/ws                ──► spe-api ─── svc://ws       ──► ws-gateway:8085  (WebSocket)
             /actuator/             ──► spe-api
-            /ws                    ──► spe-api ─── svc://psm-api (WebSocket)
+
+Tous les flux externes passent par spe-api. Aucun service backend n'est exposé directement
+au client. La ségrégation de routes se fait par convention `/api/<serviceCode>` dérivée
+de la config du service (pas de config gateway statique).
 
 spe-api : ServiceRegistry (pool par serviceCode) + SvcLoadBalancerFilter
           (round-robin entre instances saines) + HeartbeatScheduler
           (éviction instance par instance au seuil d'échecs)
 
-plm-api (chaque instance)
-  └── PlmAuthFilter → PnoProjectSpaceClient ──► GET /api/pno/project-spaces/{id}/descendants
+psm-api (chaque instance)
+  └── JwtAuthFilter → PnoProjectSpaceClient ──► GET /api/pno/project-spaces/{id}/descendants
                       (Caffeine 60s)
+
+psm-api ──► psm-admin : GET /api/psa/internal/config/snapshot (bootstrap)
+         └── subscribe NATS env.service.psa.CONFIG_CHANGED (refresh)
 ```
 
-**Règle d'URL :** tout nouveau controller PSM → `@RequestMapping("/api/psm/...")`, PNO → `@RequestMapping("/api/pno/...")`.
+**Convention de routage :** le `serviceCode` est la **seule source de vérité** de l'URL. Le préfixe `/api/<serviceCode>` est appliqué automatiquement par `platform-lib` via Spring `server.servlet.context-path`. Les controllers déclarent uniquement la route relative — **jamais** de `/api/<service>` en dur.
 
-**Auth inter-services :** `PlmAuthFilter` n'accède plus à la base. Appelle `pno-api` via HTTP (cache Caffeine 30 s, 500 entrées). Endpoint `/api/pno/users/{id}/context` exempt d'auth dans `PnoAuthFilter` (appelé avant établissement du contexte utilisateur).
+```
+# application.properties
+spe.registration.service-code=psm    # seule ligne de routage
+# (plus de route-prefix, plus de context-path, plus de /api/... dans les controllers)
+
+# Controller
+@RequestMapping("/nodes")            # URL finale : /api/psm/nodes
+```
+
+`SpeContextPathPostProcessor` (platform-lib) lit `spe.registration.service-code` au bootstrap et injecte `server.servlet.context-path=/api/<code>` dans l'environnement avant démarrage du servlet container. `SpeRegistrationProperties` dérive `routePrefix=/api/<code>/**` et le publie à spe-api. Le gateway forward le path verbatim (pas de rewrite).
+
+Un **garde-fou** au démarrage (`SpeRegistrationClient.assertControllerPathsNotHardcoded`) échoue le boot si un `@RequestMapping` commence par `/api/...` — détecte les régressions immédiatement.
+
+Table des `serviceCode` actuels, regroupés par couche :
+
+| Couche            | serviceCode | URL segment     | Module       | Port | Notes                                      |
+|-------------------|-------------|-----------------|--------------|------|--------------------------------------------|
+| Entrée            | —           | `/api/spe`      | spe-api      | 8082 | Gateway, ne s'enregistre pas dans le registry |
+| Fondamental       | `pno`       | `/api/pno`      | pno-api      | 8081 | Identité & organisation                    |
+| Fondamental       | `platform`  | `/api/platform` | platform-api | 8084 | Agrégateur Settings + Vault admin          |
+| Métier — config   | `psa`       | `/api/psa`      | psm-admin    | 8083 | Métamodèle central                         |
+| Métier — données  | `psm`       | `/api/psm`      | psm-api      | 8080 | PSM runtime, réplicable (1..N)             |
+| Push              | `ws`        | `/api/ws`       | ws-gateway   | 8085 | WebSocket (auth via `?token=`)             |
+
+**Opt-out** : un service peut déclarer explicitement `spe.registration.route-prefix=...` pour court-circuiter la convention — le post-processor et le garde-fou sont alors désactivés.
+
+**Endpoints `/internal/*`** : routes service-à-service (ex: `/internal/config/snapshot` sur psa, `/internal/settings/register` sur settings). Le context-path s'applique aussi, donc l'URL réelle est `/api/psa/internal/config/snapshot`. Les clients dans platform-lib (`ConfigRegistrationClient`, `SettingsRegistrationClient`) incluent ce préfixe en dur — un seul endroit à modifier si le code admin change.
+
+**Actuator** : suit le context-path également. Healthcheck Docker et heartbeat spe-api ciblent donc `/api/<serviceCode>/actuator/health` (pas `/actuator/health` à la racine).
+
+**Auth inter-services :** `PlmAuthFilter` (JwtAuthFilter dans psm-api) n'accède plus à la base. Appelle `pno-api` via HTTP (cache Caffeine 30 s, 500 entrées). Endpoint `/api/pno/users/{id}/context` exempt d'auth dans `PnoAuthFilter` (appelé avant établissement du contexte utilisateur). Les filtres d'auth strippent le context-path avant de matcher les `public-paths` / `/internal/*`.
 
 ### Registry multi-instances & load-balancing (spe-api)
 
@@ -210,7 +281,7 @@ com.plm/
 │
 ├── node/                            # @ApplicationModule(allowedDependencies = {algorithm, permission, shared})
 │   ├── NodeService.java             # API publique du module
-│   ├── NodeController.java          # /api/psm/nodes
+│   ├── NodeController.java          # @RequestMapping("/nodes") → /api/psm/nodes
 │   ├── transaction/
 │   │   ├── TransactionController.java
 │   │   └── internal/               # PlmTransactionService, LockService
@@ -245,13 +316,13 @@ com.plm/
 ├── algorithm/                       # @ApplicationModule(allowedDependencies = {shared})
 │   ├── AlgorithmRegistry.java       # API publique + getInstance() lazy accessor
 │   ├── AlgorithmBean.java, AlgorithmParam.java, AlgorithmType.java
-│   ├── AlgorithmController.java     # /api/psm/algorithms
+│   ├── AlgorithmController.java     # @RequestMapping("/algorithms") → /api/psm/algorithms
 │   └── internal/                    # AlgorithmService, AlgorithmStartupValidator
 │
 ├── permission/                      # @ApplicationModule(allowedDependencies = {shared})
 │   ├── PermissionRegistry.java      # API publique, implements PermissionCatalogPort (DB-loaded cache)
 │   ├── ViewService.java             # API publique
-│   ├── RoleController.java          # /api/psm/admin
+│   ├── RoleController.java          # @RequestMapping("/admin") → /api/psm/admin
 │   └── internal/                    # PolicyService (implements PolicyPort), PlmPermissionAspect (@Order 1),
 │                                    # PlmPermissionValidator, PermissionAdminService
 │
@@ -360,7 +431,7 @@ Header HTTP : `X-PLM-User: user-alice` + `X-PLM-ProjectSpace: ps-default`
 
 ---
 
-## API PSM (plm-api, port 8080)
+## API PSM (psm-api, port 8080, serviceCode `psm`)
 
 ```
 # Noeuds
@@ -392,12 +463,44 @@ GET    /api/psm/baselines
 POST   /api/psm/baselines
 GET    /api/psm/baselines/{id}/content
 
-# Admin PSM (permissions, vues)
+# Admin PSM (permissions, vues) — permissions/views locales au service psm
 PUT    /api/psm/admin/roles/{roleId}/nodetypes/{nodeTypeId}/permissions
 POST   /api/psm/admin/nodetypes/{nodeTypeId}/views
 ```
 
-## API PNO (pno-api, port 8081)
+## API PSA (psm-admin, port 8083) — métamodèle, algorithmes, domains
+
+```
+GET    /api/psa/metamodel/nodetypes
+GET    /api/psa/metamodel/lifecycles
+POST   /api/psa/permissions
+GET    /api/psa/roles/{roleId}/policies
+GET    /api/psa/enums
+GET    /api/psa/algorithms/types
+GET    /api/psa/domains
+
+# Endpoints internes (X-Service-Secret)
+GET    /api/psa/internal/config/snapshot
+```
+
+## API Platform (platform-api, port 8084)
+
+```
+GET    /api/platform/sections           ← agrégateur pour la page Settings du frontend
+GET    /api/platform/admin/secrets      ← administration Vault (MANAGE_SECRETS)
+
+# Endpoints internes
+POST   /api/platform/internal/settings/register
+DELETE /api/platform/internal/settings/register/{serviceCode}/instances/{instanceId}
+```
+
+## WebSocket (ws-gateway, port 8085)
+
+```
+WS     /api/ws?token=<session-token>    ← push events scoped à l'utilisateur authentifié
+```
+
+## API PNO (pno-api, port 8081, serviceCode `pno`)
 
 ```
 GET    /api/pno/users
@@ -514,9 +617,18 @@ Tests injectent contexte via `PlmSecurityContext.set(...)` (dans `shared.securit
 Frontend intentionnellement simple (pas Redux/Zustand). État local à chaque composant + rechargement depuis API. Acceptable pour POC, à revoir si volume données augmente.
 
 ### Séparation des responsabilités PSM / PNO
-- **plm-api** ne gère plus utilisateurs, rôles ni espaces projet. Conserve uniquement `id` (VARCHAR) comme références non-contraintes.
+- **psm-api** ne gère plus utilisateurs, rôles ni espaces projet. Conserve uniquement `id` (VARCHAR) comme références non-contraintes.
 - **pno-api** = source de vérité pour identité et organisation.
-- `RoleController` dans plm-api gère uniquement permissions PSM (node_type_permission, transition_permission, attribute_view) — pas les rôles eux-mêmes.
+- `RoleController` dans psm-api gère uniquement permissions PSM (node_type_permission, transition_permission, attribute_view) — pas les rôles eux-mêmes.
+
+### Ajouter un nouveau service (checklist routage)
+1. `application.properties` → `spe.registration.service-code=<short>` (ex: `myservice`). **Ne pas** définir `route-prefix` ni `server.servlet.context-path`.
+2. Controllers : `@RequestMapping("/foo")` — jamais `/api/myservice/foo`. Le garde-fou au startup échoue le boot sinon.
+3. Si endpoints service-à-service : les placer sous `/internal/<something>` ; l'auth filter du service laisse passer si `X-Service-Secret` matche.
+4. docker-compose :
+   - healthcheck : `wget http://localhost:<port>/api/<code>/actuator/health`
+   - `SPE_EXPECTED_SERVICES` (bloc spe-api) : ajouter `<code>`
+5. Si un autre service appelle `/internal/<x>` de ce nouveau service : ajouter le context-path dans le client correspondant de platform-lib (voir `ConfigRegistrationClient.ADMIN_CONTEXT_PATH` / `SettingsRegistrationClient.SETTINGS_CONTEXT_PATH`).
 
 ---
 

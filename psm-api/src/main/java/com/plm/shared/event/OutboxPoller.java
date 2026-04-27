@@ -1,12 +1,12 @@
 package com.plm.shared.event;
 
+import com.plm.platform.nats.PlmMessageBus;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,21 +14,25 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
- * Polls event_outbox and delivers pending events via WebSocket, then deletes them.
+ * Polls event_outbox and delivers pending events via NATS, then deletes them.
  *
  * Runs every 200 ms. Each poll is its own DB transaction: events are deleted only
- * after the WebSocket send succeeds, guaranteeing at-least-once delivery.
+ * after the NATS publish succeeds, guaranteeing at-least-once delivery.
+ *
+ * Uses FOR UPDATE SKIP LOCKED for multi-instance safety — two psm-api replicas
+ * polling the same DB won't double-deliver the same event.
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(prefix = "plm.nats", name = "enabled", havingValue = "true")
 public class OutboxPoller {
 
     private final DSLContext dsl;
-    private final SimpMessagingTemplate messaging;
+    private final PlmMessageBus messageBus;
 
-    public OutboxPoller(DSLContext dsl, SimpMessagingTemplate messaging) {
+    public OutboxPoller(DSLContext dsl, PlmMessageBus messageBus) {
         this.dsl = dsl;
-        this.messaging = messaging;
+        this.messageBus = messageBus;
     }
 
     // Derived DSL without execute listeners — avoids flooding logs with the
@@ -37,10 +41,6 @@ public class OutboxPoller {
 
     @PostConstruct
     void init() {
-        // Disable JOOQ's LoggerListener for the high-frequency outbox poll (200 ms)
-        // to avoid flooding the log. Settings.executeLogging=false is the JOOQ 3.x
-        // switch that prevents LoggerListener from being registered at all.
-        // The connectionProvider is the Spring-aware one, so @Transactional still works.
         org.jooq.Configuration cfg = dsl.configuration();
         quietDsl = DSL.using(
             cfg.connectionProvider(),
@@ -53,7 +53,7 @@ public class OutboxPoller {
     @Transactional
     public void poll() {
         List<Record> pending = quietDsl.fetch(
-            "SELECT id, destination, payload FROM event_outbox ORDER BY created_at LIMIT 50"
+            "SELECT id, destination, payload FROM event_outbox ORDER BY created_at LIMIT 50 FOR UPDATE SKIP LOCKED"
         );
 
         if (pending.isEmpty()) return;
@@ -63,7 +63,7 @@ public class OutboxPoller {
             String destination = r.get("destination", String.class);
             String payload     = r.get("payload",     String.class);
             try {
-                messaging.convertAndSend(destination, payload);
+                messageBus.publishRaw(destination, payload);
                 quietDsl.execute("DELETE FROM event_outbox WHERE id = ?", id);
             } catch (Exception e) {
                 log.warn("Failed to deliver outbox event id={} destination={}: {}", id, destination, e.getMessage());

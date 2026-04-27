@@ -7,7 +7,7 @@ import com.plm.node.lifecycle.internal.LifecycleService;
 import com.plm.node.signature.internal.SignatureService;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import com.plm.node.version.internal.VersionService;
-import com.plm.shared.authorization.PolicyPort;
+import com.plm.platform.authz.PolicyPort;
 import com.plm.shared.security.PlmProjectSpaceContext;
 import com.plm.shared.security.PlmSecurityContext;
 import org.jooq.DSLContext;
@@ -34,7 +34,7 @@ class PlmRoleAndViewTest {
 
     @Autowired DSLContext            dsl;
     @Autowired NodeService           nodeService;
-    @Autowired com.plm.shared.authorization.PolicyPort policyService;
+    @Autowired com.plm.platform.authz.PolicyPort policyService;
     @Autowired LifecycleService      lifecycleService;
     @Autowired SignatureService      signatureService;
     @Autowired VersionService        versionService;

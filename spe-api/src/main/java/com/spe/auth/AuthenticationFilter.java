@@ -67,9 +67,9 @@ public class AuthenticationFilter implements WebFilter {
         String token = null;
         if (authz != null && authz.startsWith("Bearer ")) {
             token = authz.substring("Bearer ".length()).trim();
-        } else if (path.startsWith("/ws")) {
+        } else if (path.startsWith("/api/ws")) {
             // Browsers cannot set headers on the WebSocket upgrade handshake.
-            // SockJS clients pass the session token as ?token= on the /ws URL.
+            // SockJS clients pass the session token as ?token= on the /api/ws URL.
             token = exchange.getRequest().getQueryParams().getFirst("token");
         }
         if (token == null || token.isBlank()) {

@@ -3,6 +3,8 @@ import com.plm.node.transaction.internal.PlmTransactionService;
 import com.plm.node.transaction.internal.LockService;
 
 import com.plm.action.ActionService;
+import com.plm.platform.config.ConfigCache;
+import com.plm.platform.config.dto.NodeTypeConfig;
 import com.plm.shared.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -25,6 +27,7 @@ import java.util.*;
 public class DashboardService {
 
     private final DSLContext           dsl;
+    private final ConfigCache          configCache;
     private final ActionService        actionService;
     private final LockService          lockService;
     private final PlmTransactionService txService;
@@ -52,12 +55,10 @@ public class DashboardService {
         // Scope to the caller's current project space — nodes from other spaces
         // belonging to the same transaction are excluded from the summary.
         List<Record> rows = dsl.fetch(
-            "SELECT n.id AS node_id, n.logical_id, nt.name AS node_type_name, " +
-            "       nt.id AS node_type_id, " +
+            "SELECT n.id AS node_id, n.logical_id, n.node_type_id, " +
             "       nv.revision, nv.iteration, nv.lifecycle_state_id, nv.change_type " +
             "FROM node_version nv " +
             "JOIN node n  ON n.id  = nv.node_id " +
-            "JOIN node_type nt ON nt.id = n.node_type_id " +
             "WHERE nv.tx_id = ? " +
             "  AND n.project_space_id = ? " +
             "ORDER BY nv.created_at DESC",
@@ -69,8 +70,10 @@ public class DashboardService {
             Map<String, Object> nm = new LinkedHashMap<>();
             nm.put("nodeId",           r.get("node_id",           String.class));
             nm.put("logicalId",        r.get("logical_id",        String.class));
-            nm.put("nodeTypeId",       r.get("node_type_id",      String.class));
-            nm.put("nodeTypeName",     r.get("node_type_name",    String.class));
+            String ntId = r.get("node_type_id", String.class);
+            nm.put("nodeTypeId",       ntId);
+            nm.put("nodeTypeName",     configCache.getNodeType(ntId)
+                .map(NodeTypeConfig::name).orElse(ntId));
             nm.put("revision",         r.get("revision",          String.class));
             nm.put("iteration",        r.get("iteration",         Integer.class));
             nm.put("lifecycleStateId", r.get("lifecycle_state_id",String.class));
@@ -97,10 +100,8 @@ public class DashboardService {
         // (most recently versioned first).
         List<Record> candidates = dsl.fetch(
             "SELECT n.id AS node_id, n.logical_id, n.node_type_id, " +
-            "       nt.name AS node_type_name, " +
             "       nv.revision, nv.iteration, nv.lifecycle_state_id, nv.created_at " +
             "FROM node n " +
-            "JOIN node_type nt     ON nt.id  = n.node_type_id " +
             "JOIN node_version nv  ON nv.node_id = n.id " +
             "JOIN plm_transaction pt ON pt.id = nv.tx_id " +
             "WHERE pt.status = 'COMMITTED' " +
@@ -155,7 +156,8 @@ public class DashboardService {
             item.put("nodeId",           nodeId);
             item.put("logicalId",        r.get("logical_id",     String.class));
             item.put("nodeTypeId",       nodeTypeId);
-            item.put("nodeTypeName",     r.get("node_type_name", String.class));
+            item.put("nodeTypeName",     configCache.getNodeType(nodeTypeId)
+                .map(NodeTypeConfig::name).orElse(nodeTypeId));
             item.put("revision",         r.get("revision",       String.class));
             item.put("iteration",        r.get("iteration",      Integer.class));
             item.put("lifecycleStateId", currentStateId);

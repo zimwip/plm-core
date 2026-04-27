@@ -24,5 +24,12 @@ public record SpeRegistrationProperties(
         if (extraPaths == null) extraPaths = List.of();
         if (speUrl == null || speUrl.isBlank()) speUrl = "http://spe-api:8082";
         if (enabled == null) enabled = Boolean.TRUE;
+        if ((routePrefix == null || routePrefix.isBlank()) && serviceCode != null && !serviceCode.isBlank()) {
+            routePrefix = "/api/" + serviceCode + "/**";
+        }
+    }
+
+    public String contextPath() {
+        return (serviceCode == null || serviceCode.isBlank()) ? "" : "/api/" + serviceCode;
     }
 }

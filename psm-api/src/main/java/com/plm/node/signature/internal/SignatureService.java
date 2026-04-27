@@ -3,7 +3,8 @@ import com.plm.node.version.internal.FingerPrintService;
 import com.plm.node.version.internal.VersionService;
 
 import com.plm.shared.action.PlmAction;
-import com.plm.shared.authorization.PlmPermission;
+import com.plm.platform.authz.KeyExpr;
+import com.plm.platform.authz.PlmPermission;
 import com.plm.shared.event.PlmEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -65,7 +66,7 @@ public class SignatureService {
         return sigId;
     }
 
-    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public List<Record> getSignaturesForCurrentVersion(String nodeId) {
         Record current = versionService.getCurrentVersion(nodeId);
         if (current == null) return List.of();
@@ -81,7 +82,7 @@ public class SignatureService {
             """, currentVersionId);
     }
 
-    @PlmPermission(value = "READ_NODE", nodeIdExpr = "#nodeId")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
     public List<Record> getFullSignatureHistory(String nodeId) {
         return dsl.fetch("""
             SELECT ns.id, ns.node_id, ns.node_version_id, ns.signed_by, ns.signed_at,

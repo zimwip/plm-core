@@ -1,5 +1,7 @@
 package com.pno.api;
 
+import com.plm.platform.authz.dto.ScopeRegistrationResponse;
+import com.pno.domain.scope.ScopeConflictException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -18,5 +20,10 @@ public class GlobalExceptionHandler {
         body.put("path",   req.getMethod() + " " + req.getRequestURI());
         body.put("status", 400);
         return ResponseEntity.status(400).body(body);
+    }
+
+    @ExceptionHandler(ScopeConflictException.class)
+    public ResponseEntity<ScopeRegistrationResponse> handleScopeConflict(ScopeConflictException e) {
+        return ResponseEntity.status(409).body(new ScopeRegistrationResponse(null, e.getConflicts()));
     }
 }

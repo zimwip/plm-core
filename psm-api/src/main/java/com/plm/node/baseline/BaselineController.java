@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/psm/baselines")
+@RequestMapping("/baselines")
 @RequiredArgsConstructor
 public class BaselineController {
 
