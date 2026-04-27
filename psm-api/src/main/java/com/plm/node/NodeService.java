@@ -102,15 +102,29 @@ public class NodeService {
                 "NodeType not found: " + nodeTypeId
             ));
 
-        if (logicalId != null && !logicalId.isBlank()) {
-            int dup = dsl.fetchCount(
-                dsl.selectOne().from("node").where("logical_id = ?", logicalId.trim())
+        String label = (nodeType.logicalIdLabel() == null || nodeType.logicalIdLabel().isBlank())
+            ? "Identifier" : nodeType.logicalIdLabel();
+        String trimmedLogicalId = (logicalId == null) ? "" : logicalId.trim();
+
+        if (trimmedLogicalId.isEmpty()) {
+            throw new IllegalArgumentException("'" + label + "' is required");
+        }
+
+        String pattern = nodeType.logicalIdPattern();
+        if (pattern != null && !pattern.isBlank() && !trimmedLogicalId.matches(pattern)) {
+            throw new IllegalArgumentException(
+                "'" + label + "' value '" + trimmedLogicalId
+                    + "' does not match pattern: " + pattern
             );
-            if (dup > 0) {
-                throw new IllegalArgumentException(
-                    "A node with logical_id '" + logicalId.trim() + "' already exists"
-                );
-            }
+        }
+
+        int dup = dsl.fetchCount(
+            dsl.selectOne().from("node").where("logical_id = ?", trimmedLogicalId)
+        );
+        if (dup > 0) {
+            throw new IllegalArgumentException(
+                "A node with " + label + " '" + trimmedLogicalId + "' already exists"
+            );
         }
 
         String nodeId = UUID.randomUUID().toString();
@@ -123,8 +137,8 @@ public class NodeService {
             nodeId,
             nodeTypeId,
             projectSpaceId,
-            (logicalId != null && !logicalId.isBlank()) ? logicalId : null,
-            (externalId != null && !externalId.isBlank()) ? externalId : null,
+            trimmedLogicalId,
+            (externalId != null && !externalId.isBlank()) ? externalId.trim() : null,
             now,
             userId
         );

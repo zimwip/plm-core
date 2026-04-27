@@ -20,17 +20,39 @@ set -euo pipefail
 if [[ "${1:-}" == "--local" ]]; then
   BASE="http://localhost:8080"
   PSM="/api/psm"
+  MODE="local"
+  # spe-api still issues the JWT even when hitting psm-api directly.
+  SPE_BASE="${SPE_BASE:-http://localhost:8082}"
 else
   BASE="${1:-http://localhost:3000}"
   PSM="/api/psm"
+  MODE="gateway"
+  SPE_BASE="$BASE"
 fi
 
 USER="user-alice"
 PS="ps-default"
-NT="nt-part"
+NT_PART="nt-part"
+NT_ASSEMBLY="nt-assembly"
 LT="lt-composed-of"
-# node_type_action id for CREATE_LINK on Part — from V2__seed_data.sql
-NTA_CREATE_LINK="nta-cl-prt"
+
+# Logical IDs that own composition — created as Assembly. Anything not
+# listed becomes a Part. Set is the source side of every composed_of
+# link in PHASE 3 (i.e. every node that has children).
+ASSEMBLY_LIDS=(
+  P-000001 P-000002 P-000003 P-000007 P-000008 P-000012 P-000016 P-000017
+  P-000020 P-000022 P-000023 P-000028 P-000035 P-000040 P-000041 P-000044
+  P-000047 P-000050 P-000052 P-000055 P-000058 P-000062 P-000066 P-000070
+  P-000073
+)
+
+is_assembly() {
+  local needle="$1" candidate
+  for candidate in "${ASSEMBLY_LIDS[@]}"; do
+    [[ "$candidate" == "$needle" ]] && return 0
+  done
+  return 1
+}
 
 # ── Helpers ──────────────────────────────────────────────────
 
@@ -62,20 +84,21 @@ trap 'rm -f "$_NODE_CTR"' EXIT
 create_node() {
   local lid="$1" name="$2" material="${3:-}" weight="${4:-}" drawing="${5:-}"
 
-  # Keys must be attribute_definition.id values (not the 'name' column)
-  local attrs="{\"ad-part-name\":$(jq_str "$name")"
-  [[ -n "$material" ]] && attrs+=",\"ad-part-material\":$(jq_str "$material")"
-  [[ -n "$weight"   ]] && attrs+=",\"ad-part-weight\":$(jq_str "$weight")"
-  [[ -n "$drawing"  ]] && attrs+=",\"ad-part-drawing\":$(jq_str "$drawing")"
-  attrs+="}"
+  # parameters carries internal keys (_logicalId/_externalId) AND attribute_definition ids
+  local params="\"_logicalId\":$(jq_str "$lid"),\"ad-part-name\":$(jq_str "$name")"
+  [[ -n "$material" ]] && params+=",\"ad-part-material\":$(jq_str "$material")"
+  [[ -n "$weight"   ]] && params+=",\"ad-part-weight\":$(jq_str "$weight")"
+  [[ -n "$drawing"  ]] && params+=",\"ad-part-drawing\":$(jq_str "$drawing")"
 
-  local body="{\"nodeTypeId\":\"$NT\",\"userId\":\"$USER\",\"attributes\":$attrs,\"logicalId\":\"$lid\"}"
+  local body="{\"parameters\":{${params}}}"
+
+  local nt
+  if is_assembly "$lid"; then nt="$NT_ASSEMBLY"; else nt="$NT_PART"; fi
 
   local resp
-  resp=$(curl -sf -X POST "${BASE}${PSM}/nodes" \
+  resp=$(curl -sf -X POST "${BASE}${PSM}/actions/create_node/${nt}" \
     -H "Content-Type: application/json" \
-    -H "X-PLM-User: $USER" \
-    -H "X-PLM-ProjectSpace: $PS" \
+    -H "Authorization: Bearer $TOKEN" \
     -d "$body") || { printf "${RED}✗  Failed to create node %s${NC}\n" "$lid" >&2; exit 1; }
 
   local nid
@@ -89,7 +112,9 @@ create_node() {
   local cnt
   cnt=$(( $(cat "$_NODE_CTR") + 1 ))
   echo "$cnt" > "$_NODE_CTR"
-  printf "    %3d  %-12s  %s\n" "$cnt" "$lid" "$name" >&2
+  local kind
+  if [[ "$nt" == "$NT_ASSEMBLY" ]]; then kind="Assembly"; else kind="Part"; fi
+  printf "    %3d  %-12s  %-9s  %s\n" "$cnt" "$lid" "$kind" "$name" >&2
 
   # Only the node ID goes to stdout — this is what $(...) captures
   echo "$nid"
@@ -109,16 +134,15 @@ create_link() {
   local src="$1" tgt="$2" lid="$3" tx="$4"
 
   local body
-  body="{\"userId\":\"$USER\",\"parameters\":{"
+  body="{\"parameters\":{"
   body+="\"linkTypeId\":\"$LT\","
   body+="\"targetNodeId\":\"$tgt\","
   body+="\"linkLogicalId\":\"$lid\""
   body+="}}"
 
-  curl -sf -X POST "${BASE}${PSM}/nodes/${src}/actions/${NTA_CREATE_LINK}" \
+  curl -sf -X POST "${BASE}${PSM}/actions/create_link/${src}" \
     -H "Content-Type: application/json" \
-    -H "X-PLM-User: $USER" \
-    -H "X-PLM-ProjectSpace: $PS" \
+    -H "Authorization: Bearer $TOKEN" \
     -H "X-PLM-Tx: $tx" \
     -d "$body" > /dev/null \
     || fail "Failed to create link $lid ($src → $tgt)"
@@ -135,9 +159,52 @@ printf "${BOLD}╚════════════════════�
 
 log "Target: ${BASE}${PSM}"
 log "Checking backend health…"
-curl -sf "${BASE}/actuator/health" > /dev/null \
-  || fail "Backend not reachable at ${BASE}/actuator/health — is the stack running?"
+if [[ "$MODE" == "local" ]]; then
+  # Direct psm-api: actuator exposed on the same port.
+  curl -sf "${BASE}${PSM}/actuator/health" > /dev/null \
+    || fail "Backend not reachable at ${BASE}${PSM}/actuator/health — is the stack running?"
+else
+  # Gateway: actuator endpoints of backend services are not exposed externally.
+  # Use spe-api's aggregated platform status and check that psm has a healthy instance.
+  STATUS_URL="${BASE}/api/spe/status"
+  STATUS=$(curl -sf "$STATUS_URL") \
+    || fail "SPE status not reachable at $STATUS_URL — is the stack running?"
+  echo "$STATUS" | grep -qE '"serviceCode":"psm"[^}]*"healthy":true' \
+    || fail "psm service not healthy according to $STATUS_URL"
+fi
 ok "Backend is up"
+
+# ── Login (mint session JWT via spe-api) ─────────────────────
+log "Logging in as $USER (project space $PS)…"
+LOGIN_RESP=$(curl -sf -X POST "${SPE_BASE}/api/spe/auth/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"userId\":\"$USER\",\"projectSpaceId\":\"$PS\"}") \
+  || fail "Login failed at ${SPE_BASE}/api/spe/auth/login"
+TOKEN=$(echo "$LOGIN_RESP" | json_str "token")
+[[ -z "$TOKEN" ]] && fail "Empty token (response: $LOGIN_RESP)"
+ok "Session token acquired"
+
+# ── Rollback any stale OPEN transaction left by a previous run ──
+# create_node uses AUTO_OPEN, so a half-finished demo leaves the user's
+# transaction OPEN. Subsequent runs would reuse it (mixing old + new
+# work) or, worse, hit the "more than one OPEN tx" corruption path.
+# A single rollback per run is enough — only one OPEN tx is allowed.
+STALE=$(curl -s -o /tmp/demo_curtx.$$ -w '%{http_code}' \
+  "${BASE}${PSM}/transactions/current" \
+  -H "Authorization: Bearer $TOKEN") || true
+if [[ "$STALE" == "200" ]]; then
+  STALE_ID=$(json_str "id" < /tmp/demo_curtx.$$)
+  if [[ -n "$STALE_ID" ]]; then
+    log "Rolling back stale transaction $STALE_ID from a previous run…"
+    curl -sf -X POST "${BASE}${PSM}/actions/rollback/${STALE_ID}" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $TOKEN" \
+      -d '{"parameters":{}}' > /dev/null \
+      || fail "Failed to rollback stale transaction $STALE_ID"
+    ok "Stale transaction rolled back"
+  fi
+fi
+rm -f /tmp/demo_curtx.$$
 printf "\n"
 
 # ═════════════════════════════════════════════════════════════
@@ -145,8 +212,8 @@ printf "\n"
 # ═════════════════════════════════════════════════════════════
 
 log "Creating nodes…"
-printf "    %3s  %-12s  %s\n" "#" "Part No." "Name"
-printf "    %s\n" "---  ------------  -----------------------------------------------"
+printf "    %3s  %-12s  %-9s  %s\n" "#" "Part No." "Type" "Name"
+printf "    %s\n" "---  ------------  ---------  -----------------------------------------"
 
 # ── Top level ────────────────────────────────────────────────
 AIRCRAFT=$(create_node  "P-000001" "Aircraft A320-Neo"              "Composite" "78000"  "DWG-A000")
@@ -240,21 +307,23 @@ NODE_COUNT=$(cat "$_NODE_CTR")
 ok "$NODE_COUNT nodes created"
 
 # ═════════════════════════════════════════════════════════════
-# PHASE 2 — OPEN TRANSACTION
+# PHASE 2 — RETRIEVE AUTO-OPENED TRANSACTION
 # ═════════════════════════════════════════════════════════════
+#
+# create_node uses AUTO_OPEN tx_mode: the first call opens a transaction
+# and the rest reuse it. Asking for a second one explicitly would either
+# duplicate or fail, depending on server behaviour. Just pick up the one
+# that already exists.
 
 printf "\n"
-log "Opening transaction…"
-TX_RESP=$(curl -sf -X POST "${BASE}${PSM}/transactions" \
-  -H "Content-Type: application/json" \
-  -H "X-PLM-User: $USER" \
-  -H "X-PLM-ProjectSpace: $PS" \
-  -d "{\"userId\":\"$USER\"}") \
-  || fail "Failed to open transaction"
+log "Retrieving current transaction…"
+TX_RESP=$(curl -sf "${BASE}${PSM}/transactions/current" \
+  -H "Authorization: Bearer $TOKEN") \
+  || fail "Failed to retrieve current transaction"
 
-TX=$(echo "$TX_RESP" | json_str "txId")
-[[ -z "$TX" ]] && fail "Empty txId (response: $TX_RESP)"
-ok "Transaction opened: $TX"
+TX=$(echo "$TX_RESP" | json_str "id")
+[[ -z "$TX" ]] && fail "No open transaction found after creating nodes (response: $TX_RESP)"
+ok "Transaction in use: $TX"
 
 # ═════════════════════════════════════════════════════════════
 # PHASE 3 — CREATE LINKS
@@ -357,11 +426,10 @@ ok "$LINK_COUNT links created"
 
 printf "\n"
 log "Committing transaction…"
-curl -sf -X POST "${BASE}${PSM}/transactions/${TX}/commit" \
+curl -sf -X POST "${BASE}${PSM}/actions/commit/${TX}" \
   -H "Content-Type: application/json" \
-  -H "X-PLM-User: $USER" \
-  -H "X-PLM-ProjectSpace: $PS" \
-  -d "{\"userId\":\"$USER\",\"comment\":\"Demo: Aircraft A320-Neo product breakdown structure (${NODE_COUNT} parts, ${LINK_COUNT} links)\"}" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"parameters\":{\"comment\":\"Demo: Aircraft A320-Neo product breakdown structure (${NODE_COUNT} parts, ${LINK_COUNT} links)\"}}" \
   > /dev/null \
   || fail "Failed to commit transaction $TX"
 ok "Transaction committed"
@@ -374,8 +442,8 @@ printf "\n"
 printf "${BOLD}╔═══════════════════════════════════════════════════════════╗${NC}\n"
 printf "${BOLD}║  Demo complete!                                           ║${NC}\n"
 printf "${BOLD}║                                                           ║${NC}\n"
-printf "${BOLD}║  %2d nodes created (Parts)                               ║${NC}\n" "$NODE_COUNT"
-printf "${BOLD}║  %2d links created (composed_of)                         ║${NC}\n" "$LINK_COUNT"
+printf "${BOLD}║  %2d Assemblies + %2d Parts created                        ║${NC}\n" "${#ASSEMBLY_LIDS[@]}" $(( NODE_COUNT - ${#ASSEMBLY_LIDS[@]} ))
+printf "${BOLD}║  %2d links created (composed_of)                          ║${NC}\n" "$LINK_COUNT"
 printf "${BOLD}║                                                           ║${NC}\n"
 printf "${BOLD}║  Structure:                                               ║${NC}\n"
 printf "${BOLD}║    Aircraft A320-Neo                                      ║${NC}\n"
