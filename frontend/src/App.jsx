@@ -8,7 +8,7 @@ import EditorArea      from './components/EditorArea';
 import SettingsPage    from './components/SettingsPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import CommitModal     from './components/CommitModal';
-import CreateNodeModal from './components/CreateNodeModal';
+import CreateResourceModal from './components/CreateResourceModal';
 import ErrorDetailModal from './components/ErrorDetailModal';
 import StatusBar        from './components/StatusBar';
 
@@ -63,7 +63,8 @@ export default function App() {
 
   // Data — nodes, tx, txNodes live in the global store
   const [nodeTypes,          setNodeTypes]          = useState([]);
-  const [creatableNodeTypes, setCreatableNodeTypes] = useState([]);
+  // Federated catalog from platform-api /resources (psm node types + dst data + future)
+  const [resources, setResources] = useState([]);
   const [stateColorMap,      setStateColorMap]      = useState({});
 
   // Store
@@ -109,7 +110,11 @@ export default function App() {
         refreshNodes();
       } else if (evt.event === 'METAMODEL_CHANGED') {
         refreshNodeTypes();
-        refreshStateColorMap();
+        refreshResources();
+        // Lifecycle state colour map only refreshed if Settings already loaded
+        // it (or has it open); avoids dragging in admin endpoints when the
+        // user never opened Settings.
+        if (Object.keys(stateColorMap || {}).length > 0) refreshStateColorMap();
         if (evt.byUser && evt.byUser !== userId)
           toast(`${evt.byUser} updated the metamodel`, 'info');
       } else if (evt.event === 'PNO_CHANGED') {
@@ -167,11 +172,14 @@ export default function App() {
   function handleToggleSettings() {
     setShowSettings(s => {
       if (!s && userId) {
+        // Settings-only data fetched lazily on mount: section list + state
+        // colour map (lifecycle states drive node-pill colours; admin endpoint).
         api.getSettingsSections(userId).then(groups => {
           setSettingsSections(groups);
           const first = groups?.[0]?.sections?.[0]?.key;
           if (first) setActiveSettingsSection(first);
         }).catch(() => setSettingsSections([]));
+        refreshStateColorMap();
       }
       return !s;
     });
@@ -189,15 +197,32 @@ export default function App() {
   }, [toast]);
 
   // ── Data loading ───────────────────────────────────────────────
+  // Runtime PSM node-type catalog used by the tree, search, and editor tabs.
+  // Derived from the federated browse catalog (`/api/platform/browse`) — that
+  // endpoint is already filtered by READ_NODE per-user, so non-readable types
+  // never reach the UI. The full admin-side metamodel (`/api/psa/metamodel/nodetypes`)
+  // is fetched lazily when Settings opens, by the admin sections themselves.
   const refreshNodeTypes = useCallback(async () => {
     try {
-      const [all, creatable] = await Promise.all([
-        api.getNodeTypes(userId),
-        api.getCreatableNodeTypes(userId),
-      ]);
-      setNodeTypes(Array.isArray(all) ? all : []);
-      setCreatableNodeTypes(Array.isArray(creatable) ? creatable : []);
+      const browse = await api.getBrowse(userId);
+      const psmTypes = (Array.isArray(browse) ? browse : [])
+        .filter(d => d.serviceCode === 'psm' && d.resourceCode === 'node' && d.resourceKey)
+        .map(d => ({
+          id: d.resourceKey,
+          name: d.displayName,
+          description: d.description,
+          color: d.color,
+          icon: d.icon,
+        }));
+      setNodeTypes(psmTypes);
     } catch {}
+  }, [userId]);
+
+  const refreshResources = useCallback(async () => {
+    try {
+      const list = await api.getResources(userId);
+      setResources(Array.isArray(list) ? list : []);
+    } catch { setResources([]); }
   }, [userId]);
 
   const refreshStateColorMap = useCallback(async () => {
@@ -253,9 +278,15 @@ export default function App() {
 
       setAuthReady(true);
       storeSetUserId(userId);
+      // Boot fetch: only the four runtime axes the main UI needs.
+      // - users + project spaces: header selectors
+      // - resources: federated create catalog
+      // - browse-driven nodeTypes: tree grouping + tab/search styling
+      // Settings-only data (sections list, lifecycle state colours, …) is
+      // fetched lazily by handleToggleSettings on Settings mount.
       refreshAll();
       refreshNodeTypes();
-      refreshStateColorMap();
+      refreshResources();
       refreshProjectSpaces();
       refreshUsers();
       if (showSettings) {
@@ -264,6 +295,7 @@ export default function App() {
           const first = groups?.[0]?.sections?.[0]?.key;
           if (first) setActiveSettingsSection(first);
         }).catch(() => setSettingsSections([]));
+        refreshStateColorMap();
       }
     })();
     return () => { cancelled = true; };
@@ -446,7 +478,7 @@ export default function App() {
             activeNodeId={activeNodeId}
             stateColorMap={stateColorMap}
             onNavigate={navigate}
-            canCreateNode={creatableNodeTypes.length > 0}
+            canCreateNode={resources.length > 0}
             onCreateNode={() => setShowCreateNode(true)}
             onCommit={() => setShowCommit(true)}
             onRollback={handleRollback}
@@ -528,11 +560,17 @@ export default function App() {
         />
       )}
 
-      {showCreateNode && creatableNodeTypes.length > 0 && (
-        <CreateNodeModal
-          userId={userId}
-          nodeTypes={creatableNodeTypes}
-          onCreated={async (nodeId) => { await refreshAll(); navigate(nodeId); }}
+      {/* Federated create modal — single window with cascading Source + Type selects.
+          Source defaults to the first group; Type defaults to the first descriptor
+          in that group. Each descriptor's createAction.parameters drive the form.
+          Per-user filtering is delegated to source services by platform-api. */}
+      {showCreateNode && resources.length > 0 && (
+        <CreateResourceModal
+          resources={resources}
+          onCreated={async (result, descriptor) => {
+            await refreshAll();
+            if (descriptor?.serviceCode === 'psm' && result?.nodeId) navigate(result.nodeId);
+          }}
           onClose={() => setShowCreateNode(false)}
           toast={toast}
         />

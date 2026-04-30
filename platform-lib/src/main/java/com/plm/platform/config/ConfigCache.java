@@ -34,6 +34,7 @@ public class ConfigCache {
     private volatile Map<String, AlgorithmInstanceConfig> instancesById = Map.of();
     private volatile Map<String, DomainConfig> domainsById = Map.of();
     private volatile Map<String, EnumDefinitionConfig> enumsById = Map.of();
+    private volatile Map<String, SourceConfig> sourcesById = Map.of();
 
     // Authorization policies
     private volatile List<AuthorizationPolicyConfig> authorizationPolicies = List.of();
@@ -121,6 +122,9 @@ public class ConfigCache {
 
         // Enums
         enumsById = indexBy(s.enums(), EnumDefinitionConfig::id);
+
+        // Sources
+        sourcesById = indexBy(s.sources(), SourceConfig::id);
 
         // Authorization policies
         authorizationPolicies = s.authorizationPolicies() != null
@@ -319,6 +323,22 @@ public class ConfigCache {
     public List<EnumDefinitionConfig> getAllEnumDefinitions() {
         ConfigSnapshot s = snapshot.get();
         return s != null && s.enums() != null ? s.enums() : List.of();
+    }
+
+    /** Get source by id (e.g. "SELF"). */
+    public Optional<SourceConfig> getSource(String id) {
+        return Optional.ofNullable(sourcesById.get(id));
+    }
+
+    /** All sources. */
+    public List<SourceConfig> getAllSources() {
+        ConfigSnapshot s = snapshot.get();
+        return s != null && s.sources() != null ? s.sources() : List.of();
+    }
+
+    /** Resolve the algorithm code for a source's bound resolver, or empty if unknown. */
+    public Optional<String> getResolverCodeForSource(String sourceId) {
+        return getSource(sourceId).map(SourceConfig::resolverAlgorithmCode);
     }
 
     /** Get state rule for a specific context (nodeTypeId, attributeDefId, stateId). */

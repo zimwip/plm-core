@@ -1,14 +1,21 @@
 package com.plm.node.link.internal;
-import com.plm.node.NodeService;
 import com.plm.node.version.internal.FingerPrintService;
 import com.plm.node.version.internal.VersionService;
 import com.plm.node.transaction.internal.LockService;
+import com.plm.source.LinkConstraint;
+import com.plm.source.ResolvedTarget;
+import com.plm.source.SourceResolver;
+import com.plm.source.SourceResolverContext;
+import com.plm.source.SourceResolverRegistry;
 
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.LifecycleConfig;
 import com.plm.platform.config.dto.LifecycleStateConfig;
 import com.plm.platform.config.dto.LinkTypeConfig;
 import com.plm.platform.config.dto.NodeTypeConfig;
+import com.plm.platform.config.dto.SourceConfig;
+import com.plm.shared.guard.GuardEffect;
+import com.plm.shared.guard.GuardViolation;
 import com.plm.shared.model.Enums.ChangeType;
 import com.plm.shared.model.Enums.VersionStrategy;
 import com.plm.shared.action.PlmAction;
@@ -29,10 +36,13 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Manages node links (BOM structure): creation, deletion, update, and read queries.
+ * Manages node links: creation, deletion, update, and read queries.
  *
- * Extracted from NodeService to keep link management separate from node CRUD.
- * All write operations require an open PLM transaction (txId).
+ * Links are triplets {@code (target_source_id, target_type, target_key)} owned by a
+ * source {@code node_version}. Resolver-specific concerns (key parsing, target lookup,
+ * type compatibility, cycle detection) live in the {@link SourceResolver} bound to
+ * each Source. Generic concerns (cardinality, link_logical_id rules, fingerprint)
+ * stay here.
  */
 @Slf4j
 @Service
@@ -43,27 +53,22 @@ public class LinkService {
     private final ConfigCache             configCache;
     private final LockService             lockService;
     private final VersionService          versionService;
-    private final GraphValidationService  graphValidationService;
     private final FingerPrintService      fingerPrintService;
+    private final SourceResolverRegistry  sourceResolverRegistry;
     private final SecurityContextPort     secCtx;
 
     // ================================================================
     // CREATE LINK
     // ================================================================
 
-    /**
-     * Creates a link between two nodes within a transaction.
-     * The source node must be locked in the transaction.
-     *
-     * @param txId transaction PLM ouverte — OBLIGATOIRE
-     */
     @PlmAction(value = "create_link", nodeIdExpr = "#sourceNodeId")
     @Transactional
     public String createLink(
         String linkTypeId,
         String sourceNodeId,
-        String targetNodeId,
-        String pinnedVersionId,
+        String targetSourceCode,
+        String targetType,
+        String targetKey,
         String userId,
         String txId,
         String linkLogicalId
@@ -71,14 +76,31 @@ public class LinkService {
         LinkTypeConfig linkType = configCache.getLinkType(linkTypeId)
             .orElseThrow(() -> new IllegalArgumentException("LinkType not found: " + linkTypeId));
 
-        String expectedSource = linkType.sourceNodeTypeId();
-        String expectedTarget = linkType.targetNodeTypeId();
-        if (expectedSource != null) validateNodeType(sourceNodeId, expectedSource);
-        if (expectedTarget != null) validateNodeType(targetNodeId, expectedTarget);
+        String resolvedSourceCode = (targetSourceCode == null || targetSourceCode.isBlank())
+            ? linkType.targetSourceId() : targetSourceCode;
+        if (resolvedSourceCode == null || resolvedSourceCode.isBlank()) resolvedSourceCode = "SELF";
+        final String sourceCode = resolvedSourceCode;
+        String resolvedType = (targetType == null || targetType.isBlank())
+            ? linkType.targetType() : targetType;
+        if (resolvedType == null) {
+            throw new IllegalArgumentException("targetType is required (none on link_type or request)");
+        }
+        final String type = resolvedType;
+        if (linkType.targetSourceId() != null && !linkType.targetSourceId().equals(sourceCode)) {
+            throw new IllegalArgumentException("Link type " + linkTypeId
+                + " targets source " + linkType.targetSourceId() + ", got " + sourceCode);
+        }
+        if (linkType.targetType() != null && !linkType.targetType().equals(type)) {
+            throw new IllegalArgumentException("Link type " + linkTypeId
+                + " targets type " + linkType.targetType() + ", got " + type);
+        }
+        if (targetKey == null || targetKey.isBlank()) {
+            throw new IllegalArgumentException("targetKey is required");
+        }
+        configCache.getSource(sourceCode)
+            .orElseThrow(() -> new IllegalArgumentException("Unknown source: " + sourceCode));
 
-        graphValidationService.assertNoCycle(sourceNodeId, targetNodeId);
-
-        // Validate link_logical_id — mandatory
+        // ── link_logical_id rules (generic, owner-side) ─────────────
         String pattern = linkType.linkLogicalIdPattern();
         String label   = linkType.linkLogicalIdLabel();
         if (label == null || label.isBlank()) label = "Link ID";
@@ -87,10 +109,10 @@ public class LinkService {
         }
         if (pattern != null && !pattern.isBlank() && !linkLogicalId.matches(pattern)) {
             throw new IllegalArgumentException(
-                "'" + label + "' value '" + linkLogicalId + "' does not match pattern: " + pattern
-            );
+                "'" + label + "' value '" + linkLogicalId + "' does not match pattern: " + pattern);
         }
 
+        // ── cardinality (generic) ───────────────────────────────────
         Integer maxCard = linkType.maxCardinality();
         if (maxCard != null) {
             int existing = dsl.fetchCount(
@@ -101,11 +123,10 @@ public class LinkService {
                     .and("nv_src.node_id = ?", sourceNodeId)
             );
             if (existing >= maxCard) throw new IllegalStateException(
-                "Max cardinality " + maxCard + " reached"
-            );
+                "Max cardinality " + maxCard + " reached");
         }
 
-        // Ensure the source node has an OPEN version in this tx
+        // ── owner-side: ensure open version + lock ──────────────────
         String sourceVersionId = findOpenVersionInTx(sourceNodeId, txId);
         if (sourceVersionId == null) {
             sourceVersionId = versionService.createVersion(
@@ -114,42 +135,50 @@ public class LinkService {
                 null, Map.of(), "Link creation"
             );
         }
-
         lockService.tryLock(sourceNodeId, userId);
 
-        // Uniqueness check on link_logical_id per source_node_version_id
-        if (linkLogicalId != null && !linkLogicalId.isBlank()) {
-            int dup = dsl.fetchCount(
-                dsl.selectOne()
-                    .from("node_version_link")
-                    .where("source_node_version_id = ?", sourceVersionId)
-                    .and("link_logical_id = ?", linkLogicalId)
-            );
-            if (dup > 0) throw new IllegalArgumentException(
-                "'" + label + "' value '" + linkLogicalId + "' is already used by another link on this version"
-            );
+        // ── resolver-side validation (target shape, cycle, type pair) ─
+        SourceResolver resolver = sourceResolverRegistry.getResolverFor(sourceCode);
+        SourceResolverContext rctx = new SourceResolverContext(
+            linkTypeId, type, targetKey, sourceVersionId, sourceNodeId);
+        LinkConstraint constraint = new LinkConstraint(
+            type, linkType.maxCardinality(), linkType.linkPolicy(), linkType.linkLogicalIdPattern());
+        List<GuardViolation> violations = resolver.validate(rctx, constraint);
+        if (violations != null) {
+            for (GuardViolation v : violations) {
+                if (v.effect() == GuardEffect.BLOCK) {
+                    throw new IllegalArgumentException(v.guardCode() + ": " + v.message());
+                }
+            }
         }
+
+        // ── link_logical_id uniqueness on this source version ──────
+        int dup = dsl.fetchCount(
+            dsl.selectOne()
+                .from("node_version_link")
+                .where("source_node_version_id = ?", sourceVersionId)
+                .and("link_logical_id = ?", linkLogicalId)
+        );
+        if (dup > 0) throw new IllegalArgumentException(
+            "'" + label + "' value '" + linkLogicalId + "' is already used by another link on this version");
 
         String linkId = UUID.randomUUID().toString();
         dsl.execute(
             """
             INSERT INTO node_version_link
-              (ID, LINK_TYPE_ID, SOURCE_NODE_VERSION_ID, TARGET_NODE_ID, PINNED_VERSION_ID,
+              (ID, LINK_TYPE_ID, SOURCE_NODE_VERSION_ID, TARGET_SOURCE_ID, TARGET_TYPE, TARGET_KEY,
                LINK_LOGICAL_ID, CREATED_AT, CREATED_BY)
-            VALUES (?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?)
             """,
-            linkId, linkTypeId, sourceVersionId, targetNodeId, pinnedVersionId,
-            (linkLogicalId != null && !linkLogicalId.isBlank()) ? linkLogicalId : null,
-            LocalDateTime.now(), userId
+            linkId, linkTypeId, sourceVersionId, sourceCode, type, targetKey,
+            linkLogicalId, LocalDateTime.now(), userId
         );
 
-        // Recompute fingerprint — link is now part of source version content
         String fp = fingerPrintService.compute(sourceNodeId, sourceVersionId);
         dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
 
-        log.info("Link created: {}→{} type={} policy={} logicalId={}",
-            sourceNodeId, targetNodeId, linkTypeId,
-            pinnedVersionId == null ? "V2M" : "V2V", linkLogicalId);
+        log.info("Link created: {}→{}/{}/{} type={} logicalId={}",
+            sourceNodeId, sourceCode, type, targetKey, linkTypeId, linkLogicalId);
         return linkId;
     }
 
@@ -181,7 +210,9 @@ public class LinkService {
     @Transactional
     public void updateLink(
         String linkId,
-        String newTargetNodeId,
+        String newTargetSourceCode,
+        String newTargetType,
+        String newTargetKey,
         String newLogicalId,
         String userId,
         String txId
@@ -190,6 +221,7 @@ public class LinkService {
         if (link == null) throw new IllegalArgumentException("Link not found: " + linkId);
 
         String sourceVersionId = link.get("source_node_version_id", String.class);
+        String linkTypeId      = link.get("link_type_id", String.class);
         String sourceNodeId = dsl.select().from("node_version")
             .where("id = ?", sourceVersionId)
             .fetchOne("node_id", String.class);
@@ -197,28 +229,43 @@ public class LinkService {
 
         lockService.tryLock(sourceNodeId, userId);
 
-        if (newTargetNodeId != null && !newTargetNodeId.isBlank()) {
-            graphValidationService.assertNoCycle(sourceNodeId, newTargetNodeId);
+        boolean targetChanged = (newTargetSourceCode != null && !newTargetSourceCode.isBlank())
+            || (newTargetType   != null && !newTargetType.isBlank())
+            || (newTargetKey    != null && !newTargetKey.isBlank());
 
-            String linkTypeId = link.get("link_type_id", String.class);
-            String policy = configCache.getLinkType(linkTypeId)
-                .map(LinkTypeConfig::linkPolicy).orElse(null);
-            String pinnedVersionId = null;
-            if ("VERSION_TO_VERSION".equals(policy)) {
-                pinnedVersionId = dsl.select().from("node_version")
-                    .where("node_id = ?", newTargetNodeId)
-                    .and(DSL.exists(
-                        dsl.selectOne().from("plm_transaction")
-                           .where("id = node_version.tx_id")
-                           .and("status = 'COMMITTED'")
-                    ))
-                    .orderBy(DSL.field("version_number").desc())
-                    .limit(1)
-                    .fetchOne("id", String.class);
+        if (targetChanged) {
+            LinkTypeConfig linkType = configCache.getLinkType(linkTypeId)
+                .orElseThrow(() -> new IllegalArgumentException("LinkType not found: " + linkTypeId));
+            String sourceCode = (newTargetSourceCode != null && !newTargetSourceCode.isBlank())
+                ? newTargetSourceCode : link.get("target_source_id", String.class);
+            String type = (newTargetType != null && !newTargetType.isBlank())
+                ? newTargetType : link.get("target_type", String.class);
+            String key  = (newTargetKey != null && !newTargetKey.isBlank())
+                ? newTargetKey : link.get("target_key", String.class);
+            if (linkType.targetSourceId() != null && !linkType.targetSourceId().equals(sourceCode)) {
+                throw new IllegalArgumentException("Link type " + linkTypeId
+                    + " targets source " + linkType.targetSourceId() + ", got " + sourceCode);
+            }
+            if (linkType.targetType() != null && !linkType.targetType().equals(type)) {
+                throw new IllegalArgumentException("Link type " + linkTypeId
+                    + " targets type " + linkType.targetType() + ", got " + type);
+            }
+            SourceResolver resolver = sourceResolverRegistry.getResolverFor(sourceCode);
+            SourceResolverContext rctx = new SourceResolverContext(
+                linkTypeId, type, key, sourceVersionId, sourceNodeId);
+            LinkConstraint constraint = new LinkConstraint(
+                type, linkType.maxCardinality(), linkType.linkPolicy(), linkType.linkLogicalIdPattern());
+            List<GuardViolation> violations = resolver.validate(rctx, constraint);
+            if (violations != null) {
+                for (GuardViolation v : violations) {
+                    if (v.effect() == GuardEffect.BLOCK) {
+                        throw new IllegalArgumentException(v.guardCode() + ": " + v.message());
+                    }
+                }
             }
             dsl.execute(
-                "UPDATE node_version_link SET target_node_id = ?, pinned_version_id = ? WHERE id = ?",
-                newTargetNodeId, pinnedVersionId, linkId
+                "UPDATE node_version_link SET target_source_id = ?, target_type = ?, target_key = ? WHERE id = ?",
+                sourceCode, type, key, linkId
             );
         }
 
@@ -230,15 +277,14 @@ public class LinkService {
                    .and("id != ?", linkId)
             );
             if (dup > 0) throw new IllegalArgumentException(
-                "Link ID '" + newLogicalId + "' is already used by another link on this version"
-            );
+                "Link ID '" + newLogicalId + "' is already used by another link on this version");
             dsl.execute("UPDATE node_version_link SET link_logical_id = ? WHERE id = ?", newLogicalId, linkId);
         }
 
         String fp = fingerPrintService.compute(sourceNodeId, sourceVersionId);
         dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
 
-        log.info("Link {} updated (target={} logicalId={}) by {}", linkId, newTargetNodeId, newLogicalId, userId);
+        log.info("Link {} updated by {}", linkId, userId);
     }
 
     // ================================================================
@@ -246,17 +292,21 @@ public class LinkService {
     // ================================================================
 
     /**
-     * Returns outgoing links from a node (BOM / children).
+     * Outgoing links from a node (BOM / children).
+     * SELF-source links are JOINed for full target detail; non-SELF rows are
+     * routed through their resolver.
      */
     public List<Map<String, Object>> getChildLinks(String nodeId) {
         var ctx = secCtx.currentUser();
         String currentUserId = ctx.getUserId();
         boolean isAdmin = ctx.isAdmin();
         String isAdminStr = String.valueOf(isAdmin);
-        return dsl.fetch(
+
+        // SELF fast-path: full SQL JOIN to node + node_version
+        List<Map<String, Object>> self = dsl.fetch(
             """
             SELECT nl.id AS link_id, nl.link_type_id,
-                   nl.link_logical_id,
+                   nl.link_logical_id, nl.target_source_id, nl.target_type, nl.target_key,
                    n.id AS target_node_id, n.node_type_id AS target_node_type_id,
                    n.logical_id AS target_logical_id,
                    nv.revision, nv.iteration, nv.lifecycle_state_id,
@@ -265,10 +315,16 @@ public class LinkService {
             FROM node_version_link nl
             JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
             JOIN plm_transaction pt_src ON pt_src.id = nv_src.tx_id
-            JOIN node n              ON n.id      = nl.target_node_id
+            JOIN node n              ON n.logical_id = CASE
+                    WHEN POSITION('@' IN nl.target_key) > 0
+                        THEN SUBSTR(nl.target_key, 1, POSITION('@' IN nl.target_key) - 1)
+                    ELSE nl.target_key
+                  END
+                  AND n.node_type_id = nl.target_type
             JOIN node_version nv     ON nv.node_id = n.id
             JOIN plm_transaction pt  ON pt.id     = nv.tx_id
             WHERE nv_src.node_id = ?
+              AND nl.target_source_id = 'SELF'
               AND (pt_src.status = 'COMMITTED'
                    OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
               AND (pt.status = 'COMMITTED'
@@ -296,6 +352,9 @@ public class LinkService {
             m.put("linkTypeIcon",      lt.map(LinkTypeConfig::icon).orElse(null));
             m.put("linkLogicalId",     Objects.toString(r.get("link_logical_id",      String.class), ""));
             m.put("linkLogicalIdLabel",lt.map(LinkTypeConfig::linkLogicalIdLabel).orElse("Link ID"));
+            m.put("targetSourceCode",  r.get("target_source_id", String.class));
+            m.put("targetType",        r.get("target_type", String.class));
+            m.put("targetKey",         r.get("target_key", String.class));
             m.put("targetNodeId",      r.get("target_node_id",      String.class));
             String tntId = r.get("target_node_type_id", String.class);
             m.put("targetNodeType",    configCache.getNodeType(tntId)
@@ -309,20 +368,74 @@ public class LinkService {
             m.put("targetChildrenCount", r.get("target_children_count", Integer.class));
             return m;
         }).toList();
+
+        // Non-SELF rows: route each through its resolver.
+        List<Map<String, Object>> external = dsl.fetch("""
+            SELECT nl.id AS link_id, nl.link_type_id,
+                   nl.link_logical_id, nl.target_source_id, nl.target_type, nl.target_key
+            FROM node_version_link nl
+            JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
+            JOIN plm_transaction pt_src ON pt_src.id = nv_src.tx_id
+            WHERE nv_src.node_id = ?
+              AND nl.target_source_id <> 'SELF'
+              AND (pt_src.status = 'COMMITTED'
+                   OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
+            ORDER BY nl.target_source_id, nl.target_key
+            """, nodeId, currentUserId, isAdminStr).stream().map(r -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("linkId", r.get("link_id", String.class));
+            String ltId = r.get("link_type_id", String.class);
+            var lt = configCache.getLinkType(ltId);
+            m.put("linkTypeName", lt.map(LinkTypeConfig::name).orElse(ltId));
+            m.put("linkPolicy",   lt.map(LinkTypeConfig::linkPolicy).orElse(""));
+            m.put("linkLogicalId", Objects.toString(r.get("link_logical_id", String.class), ""));
+            String sourceCode = r.get("target_source_id", String.class);
+            String type = r.get("target_type", String.class);
+            String key  = r.get("target_key", String.class);
+            m.put("targetSourceCode", sourceCode);
+            m.put("targetType", type);
+            m.put("targetKey", key);
+            m.put("sourceName", configCache.getSource(sourceCode).map(SourceConfig::name).orElse(sourceCode));
+            try {
+                ResolvedTarget rt = sourceResolverRegistry.getResolverFor(sourceCode)
+                    .resolve(new SourceResolverContext(ltId, type, key, null, nodeId));
+                m.put("displayKey", rt.displayId());
+                m.put("targetDetails", rt.details());
+            } catch (RuntimeException e) {
+                m.put("displayKey", key);
+                m.put("resolverError", e.getMessage());
+            }
+            return m;
+        }).toList();
+
+        if (external.isEmpty()) return self;
+        java.util.List<Map<String, Object>> all = new java.util.ArrayList<>(self.size() + external.size());
+        all.addAll(self);
+        all.addAll(external);
+        return all;
     }
 
     /**
-     * Returns incoming links to a node (Where Used / parents).
+     * Incoming links to a node (Where Used / parents).
+     * SELF parents come from the SQL fast-path; cross-source references are
+     * collected by querying each non-SELF resolver's {@code findReferencesTo}.
      */
     public List<Map<String, Object>> getParentLinks(String nodeId) {
         var ctx = secCtx.currentUser();
         String currentUserId = ctx.getUserId();
         boolean isAdmin = ctx.isAdmin();
         String isAdminStr = String.valueOf(isAdmin);
+
+        // Look up the target node's type + logical_id to filter the SELF reverse query.
+        Record self = dsl.select().from("node").where("id = ?", nodeId).fetchOne();
+        if (self == null) return List.of();
+        String targetType = self.get("node_type_id", String.class);
+        String targetLogicalId = self.get("logical_id", String.class);
+
         return dsl.fetch(
             """
             SELECT nl.id AS link_id, nl.link_type_id,
-                   nl.link_logical_id,
+                   nl.link_logical_id, nl.target_key,
                    n.id AS source_node_id, n.node_type_id AS source_node_type_id,
                    n.logical_id AS source_logical_id,
                    nv.revision, nv.iteration, nv.lifecycle_state_id
@@ -332,7 +445,9 @@ public class LinkService {
             JOIN node n              ON n.id      = nv_src.node_id
             JOIN node_version nv     ON nv.node_id = n.id
             JOIN plm_transaction pt  ON pt.id     = nv.tx_id
-            WHERE nl.target_node_id = ?
+            WHERE nl.target_source_id = 'SELF'
+              AND nl.target_type = ?
+              AND (nl.target_key = ? OR nl.target_key LIKE ?)
               AND (pt_src.status = 'COMMITTED'
                    OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
               AND (pt.status = 'COMMITTED'
@@ -345,7 +460,7 @@ public class LinkService {
                        OR (pt2.status = 'OPEN' AND (pt2.owner_id = ? OR ? = 'true'))))
             ORDER BY n.logical_id
             """,
-            nodeId,
+            targetType, targetLogicalId, targetLogicalId + "@%",
             currentUserId, isAdminStr,
             currentUserId, isAdminStr,
             currentUserId, isAdminStr
@@ -406,23 +521,5 @@ public class LinkService {
             .fetchOne("node_id", String.class);
         if (sourceNodeId == null) throw new IllegalArgumentException("Source node not found for link: " + linkId);
         return sourceNodeId;
-    }
-
-    private void validateNodeType(String nodeId, String expectedTypeId) {
-        String actual = dsl.select().from("node").where("id = ?", nodeId)
-            .fetchOne("node_type_id", String.class);
-        if (!isTypeOrDescendant(actual, expectedTypeId)) throw new IllegalArgumentException(
-            "Node " + nodeId + " wrong type, expected " + expectedTypeId
-        );
-    }
-
-    private boolean isTypeOrDescendant(String typeId, String expectedTypeId) {
-        String current = typeId;
-        while (current != null) {
-            if (expectedTypeId.equals(current)) return true;
-            current = configCache.getNodeType(current)
-                .map(NodeTypeConfig::parentNodeTypeId).orElse(null);
-        }
-        return false;
     }
 }

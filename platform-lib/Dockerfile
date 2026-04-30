@@ -8,7 +8,7 @@
 # Rebuild trigger: any change under platform-lib/. Docker layer cache
 # short-circuits a no-op rebuild.
 # ============================================================
-FROM maven:3.9-eclipse-temurin-21-alpine
+FROM docker.io/library/maven:3.9-eclipse-temurin-21-alpine
 WORKDIR /lib
 COPY pom.xml .
 COPY src ./src

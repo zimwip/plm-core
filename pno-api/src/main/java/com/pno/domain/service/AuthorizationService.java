@@ -56,6 +56,41 @@ public class AuthorizationService {
         return dynamic.listGrantsForRoleAndScope(roleId, "GLOBAL");
     }
 
+    /**
+     * List permissions from {@code permission} table. Optional {@code scopeCode}
+     * filter narrows the catalog when the caller only needs one scope's set
+     * (e.g. {@code DATA} for the dst tile in the access-rights page).
+     */
+    public List<Map<String, Object>> listPermissionsByScope(String scopeCode) {
+        if (scopeCode == null || scopeCode.isBlank()) return listPermissions();
+        return dsl.select().from("permission")
+            .where("scope = ?", scopeCode)
+            .orderBy(DSL.field("display_order"), DSL.field("permission_code"))
+            .fetch().intoMaps();
+    }
+
+    /**
+     * Role-only grant in any scope whose effective key list is empty (GLOBAL,
+     * DATA, ...). Generic counterpart of {@link #addRoleGlobalPermission} so
+     * non-PSM scopes (dst's DATA, future services) become grantable from the
+     * admin Access Rights UI without scope-specific endpoints. Validation that
+     * the scope truly has zero keys is enforced by
+     * {@link DynamicAuthorizationService#validate}.
+     */
+    public List<Map<String, Object>> getRoleScopePermissions(String roleId, String scopeCode) {
+        return dynamic.listGrantsForRoleAndScope(roleId, scopeCode);
+    }
+
+    @Transactional
+    public void addRoleScopePermission(String roleId, String permissionCode, String scopeCode) {
+        dynamic.addGrantAllSpaces(permissionCode, scopeCode, roleId, Map.of());
+    }
+
+    @Transactional
+    public void removeRoleScopePermission(String roleId, String permissionCode, String scopeCode) {
+        dynamic.removeGrantAllSpaces(permissionCode, scopeCode, roleId, Map.of());
+    }
+
     public List<String> listPermissionCodesForRoles(Set<String> roleIds, boolean isAdmin) {
         if (isAdmin) {
             return dsl.select(DSL.field("permission_code")).from("permission")

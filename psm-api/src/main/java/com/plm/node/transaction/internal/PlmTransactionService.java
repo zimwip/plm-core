@@ -431,17 +431,15 @@ public class PlmTransactionService {
         if (nodeIds == null || nodeIds.isEmpty()) return;
 
         for (String nodeId : nodeIds) {
-            // 1. baseline_entry → node_link FK
+            // 1. baseline_entry → node_link FK. Pre-source/type/key refactor a
+            // baseline_entry also FK'd resolved_version_id → node_version; that
+            // column no longer exists (pinned target is now stored as the
+            // canonical string resolved_key), so nothing else to clean here.
             dsl.execute(
                 "DELETE FROM baseline_entry WHERE node_link_id IN (SELECT id FROM node_version_link WHERE source_node_version_id IN (SELECT id FROM node_version WHERE tx_id = ? AND node_id = ?))",
                 txId, nodeId
             );
-            // 2. baseline_entry → node_version FK
-            dsl.execute(
-                "DELETE FROM baseline_entry WHERE resolved_version_id IN (SELECT id FROM node_version WHERE tx_id = ? AND node_id = ?)",
-                txId, nodeId
-            );
-            // 3. node_version_attribute
+            // 2. node_version_attribute
             dsl.execute(
                 "DELETE FROM node_version_attribute WHERE node_version_id IN (SELECT id FROM node_version WHERE tx_id = ? AND node_id = ?)",
                 txId, nodeId
@@ -506,19 +504,16 @@ public class PlmTransactionService {
             lockService.unlock(nodeId);
         }
 
-        // 1. baseline_entry → node_link FK
+        // 1. baseline_entry → node_link FK. resolved_version_id was dropped
+        // when baselines moved to string-based resolved_key (source/type/key
+        // refactor), so the second DELETE that previously cleared
+        // baseline_entry.resolved_version_id is no longer needed.
         dsl.execute(
             "DELETE FROM baseline_entry WHERE node_link_id IN (SELECT id FROM node_version_link WHERE source_node_version_id IN (SELECT id FROM node_version WHERE tx_id = ?))",
             txId
         );
 
-        // 2. baseline_entry → node_version FK
-        dsl.execute(
-            "DELETE FROM baseline_entry WHERE resolved_version_id IN (SELECT id FROM node_version WHERE tx_id = ?)",
-            txId
-        );
-
-        // 3. node_version_attribute
+        // 2. node_version_attribute
         int attrsDeleted = dsl.execute(
             "DELETE FROM node_version_attribute WHERE node_version_id IN (SELECT id FROM node_version WHERE tx_id = ?)",
             txId
@@ -784,7 +779,7 @@ public class PlmTransactionService {
 
             // Suppression physique (même sémantique que rollback manuel)
             dsl.execute("DELETE FROM baseline_entry WHERE node_link_id IN (SELECT id FROM node_version_link WHERE source_node_version_id IN (SELECT id FROM node_version WHERE tx_id = ?))", txId);
-            dsl.execute("DELETE FROM baseline_entry WHERE resolved_version_id IN (SELECT id FROM node_version WHERE tx_id = ?)", txId);
+            // resolved_version_id column dropped with source/type/key refactor — no second baseline_entry DELETE needed.
             dsl.execute("DELETE FROM node_version_attribute WHERE node_version_id IN (SELECT id FROM node_version WHERE tx_id = ?)", txId);
             dsl.execute("DELETE FROM node_signature WHERE node_version_id IN (SELECT id FROM node_version WHERE tx_id = ?)", txId);
             dsl.execute("DELETE FROM node_version_link WHERE source_node_version_id IN (SELECT id FROM node_version WHERE tx_id = ?)", txId);

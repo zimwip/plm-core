@@ -162,7 +162,9 @@ public class LockService {
      * Resolves all VERSION_TO_MASTER descendants of a node using a single recursive CTE query.
      * Returns the flat list of all descendant nodeIds (excluding the root itself).
      *
-     * <p>VERSION_TO_MASTER link type IDs are resolved from ConfigCache (no JOIN on link_type table).
+     * <p>Only SELF-source links participate in lock cascade: cross-source links (files,
+     * external systems) cannot be locked through psm-api. V2M is detected by the absence
+     * of an {@code @version} suffix in {@code target_key}.
      */
     private List<String> resolveV2MDescendants(String nodeId) {
         List<String> v2mLinkTypeIds = configCache.getAllLinkTypes().stream()
@@ -177,20 +179,38 @@ public class LockService {
         params.addAll(v2mLinkTypeIds);
         params.addAll(v2mLinkTypeIds);
 
+        // target_key with no '@' is V2M; resolve to node id by joining on (logical_id, type).
+        String targetJoin =
+              "JOIN node n ON n.logical_id = CASE "
+            + "       WHEN POSITION('@' IN nl.target_key) > 0 "
+            + "         THEN SUBSTR(nl.target_key, 1, POSITION('@' IN nl.target_key) - 1) "
+            + "       ELSE nl.target_key "
+            + "     END "
+            + "  AND n.node_type_id = nl.target_type ";
+
         String sql = "WITH RECURSIVE descendants AS ("
-            + "  SELECT nl.target_node_id AS node_id"
+            + "  SELECT n.id AS node_id"
             + "  FROM node_version_link nl"
             + "  JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id"
+            + "  " + targetJoin.replace("nl.", "nl.")  // first leg uses alias nl
             + "  WHERE nv_src.node_id = ?"
             + "    AND nl.link_type_id IN (" + placeholders + ")"
-            + "    AND nl.pinned_version_id IS NULL"
+            + "    AND nl.target_source_id = 'SELF'"
+            + "    AND POSITION('@' IN nl.target_key) = 0"
             + "  UNION ALL"
-            + "  SELECT nl2.target_node_id"
+            + "  SELECT n2.id"
             + "  FROM node_version_link nl2"
             + "  JOIN node_version nv_src2 ON nv_src2.id = nl2.source_node_version_id"
+            + "  JOIN node n2 ON n2.logical_id = CASE "
+            + "       WHEN POSITION('@' IN nl2.target_key) > 0 "
+            + "         THEN SUBSTR(nl2.target_key, 1, POSITION('@' IN nl2.target_key) - 1) "
+            + "       ELSE nl2.target_key "
+            + "     END "
+            + "  AND n2.node_type_id = nl2.target_type"
             + "  JOIN descendants d ON nv_src2.node_id = d.node_id"
             + "  WHERE nl2.link_type_id IN (" + placeholders + ")"
-            + "    AND nl2.pinned_version_id IS NULL"
+            + "    AND nl2.target_source_id = 'SELF'"
+            + "    AND POSITION('@' IN nl2.target_key) = 0"
             + ") SELECT DISTINCT node_id FROM descendants";
 
         return dsl.fetch(sql, params.toArray())

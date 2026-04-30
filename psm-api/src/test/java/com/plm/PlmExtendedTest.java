@@ -181,8 +181,8 @@ class PlmExtendedTest {
 
         // Liens + Frozen dans la même transaction (commit requiert au moins une node_version)
         String transTx = txService.openTransaction("alice");
-        nodeService.createLink(linkTypeId, parentId, child1Id, null, "alice", transTx, uid());
-        nodeService.createLink(linkTypeId, parentId, child2Id, null, "alice", transTx, uid());
+        nodeService.createLink(linkTypeId, parentId, "SELF", nodeTypeId, logicalIdOf(child1Id), "alice", transTx, uid());
+        nodeService.createLink(linkTypeId, parentId, "SELF", nodeTypeId, logicalIdOf(child2Id), "alice", transTx, uid());
         lifecycleService.applyTransition(parentId, transitionToFrozenId, "alice", transTx);
         txService.commitTransaction(transTx, "alice", "Links created and frozen", null);
 
@@ -201,7 +201,7 @@ class PlmExtendedTest {
 
         // Lien + Frozen A dans la même transaction
         String transTx1 = txService.openTransaction("alice");
-        nodeService.createLink(linkTypeId, parentId, childId, null, "alice", transTx1, uid());
+        nodeService.createLink(linkTypeId, parentId, "SELF", nodeTypeId, logicalIdOf(childId), "alice", transTx1, uid());
         lifecycleService.applyTransition(parentId, transitionToFrozenId, "alice", transTx1);
         txService.commitTransaction(transTx1, "alice", "Link created and frozen for BL_A", null);
         String blA = baselineService.createBaseline(parentId, "BL_A", null, "alice");
@@ -230,4 +230,10 @@ class PlmExtendedTest {
     }
 
     private String uid() { return UUID.randomUUID().toString(); }
+
+    private String logicalIdOf(String nodeId) {
+        return dsl.select(org.jooq.impl.DSL.field("logical_id"))
+            .from("node").where("id = ?", nodeId)
+            .fetchOne(org.jooq.impl.DSL.field("logical_id"), String.class);
+    }
 }

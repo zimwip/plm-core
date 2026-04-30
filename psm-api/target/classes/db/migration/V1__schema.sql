@@ -72,14 +72,15 @@ CREATE TABLE node_version_attribute (
 );
 
 CREATE TABLE node_version_link (
-    id                     VARCHAR(36)  NOT NULL PRIMARY KEY,
-    link_type_id           VARCHAR(36)  NOT NULL,  -- references psm-admin link_type
-    source_node_version_id VARCHAR(36)  NOT NULL REFERENCES node_version(id),
-    target_node_id         VARCHAR(36)  NOT NULL REFERENCES node(id),
-    pinned_version_id      VARCHAR(36)  REFERENCES node_version(id),
+    id                     VARCHAR(36)   NOT NULL PRIMARY KEY,
+    link_type_id           VARCHAR(36)   NOT NULL,  -- references psm-admin link_type
+    source_node_version_id VARCHAR(36)   NOT NULL REFERENCES node_version(id),
+    target_source_id       VARCHAR(64)   NOT NULL,  -- references psm-admin source.id (e.g. 'SELF')
+    target_type            VARCHAR(100)  NOT NULL,  -- type within the source (node_type_id for SELF)
+    target_key             VARCHAR(1000) NOT NULL,  -- e.g. 'PART-A' (V2M) or 'PART-A@3' (V2V)
     link_logical_id        VARCHAR(500),
-    created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by             VARCHAR(100) NOT NULL
+    created_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by             VARCHAR(100)  NOT NULL
 );
 
 -- ============================================================
@@ -121,10 +122,10 @@ CREATE TABLE baseline (
 );
 
 CREATE TABLE baseline_entry (
-    id                  VARCHAR(36) NOT NULL PRIMARY KEY,
-    baseline_id         VARCHAR(36) NOT NULL REFERENCES baseline(id),
-    node_link_id        VARCHAR(36) NOT NULL REFERENCES node_version_link(id),
-    resolved_version_id VARCHAR(36) NOT NULL REFERENCES node_version(id)
+    id           VARCHAR(36)   NOT NULL PRIMARY KEY,
+    baseline_id  VARCHAR(36)   NOT NULL REFERENCES baseline(id),
+    node_link_id VARCHAR(36)   NOT NULL REFERENCES node_version_link(id),
+    resolved_key VARCHAR(1000) NOT NULL    -- canonical pinned key (e.g. 'PART-A@3' for SELF)
 );
 
 -- ============================================================
@@ -188,7 +189,7 @@ CREATE INDEX idx_node_version_state  ON node_version(lifecycle_state_id);
 CREATE INDEX idx_node_version_tx     ON node_version(tx_id);
 CREATE INDEX idx_node_version_fp     ON node_version(fingerprint);
 CREATE INDEX idx_link_source         ON node_version_link(source_node_version_id);
-CREATE INDEX idx_link_target         ON node_version_link(target_node_id);
+CREATE INDEX idx_link_target_self    ON node_version_link(target_source_id, target_type, target_key);
 CREATE INDEX idx_baseline_entry      ON baseline_entry(baseline_id);
 CREATE INDEX idx_signature_node      ON node_signature(node_id);
 CREATE INDEX idx_signature_version   ON node_signature(node_version_id);

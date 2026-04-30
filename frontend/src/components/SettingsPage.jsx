@@ -3828,8 +3828,20 @@ function PermissionCatalog({ permissions, userId, canWrite, toast, onReload }) {
     setSaving(false);
   }
 
-  const grouped = { GLOBAL: [], NODE: [], LIFECYCLE: [] };
-  permissions.forEach(p => { if (grouped[p.scope]) grouped[p.scope].push(p); });
+  // Dynamic grouping — surface every scope the catalog actually contains
+  // (GLOBAL, NODE, LIFECYCLE plus any service-contributed scope like DATA).
+  // Order: well-known scopes first, then everything else alphabetically.
+  const KNOWN_ORDER = ['GLOBAL', 'NODE', 'LIFECYCLE'];
+  const grouped = {};
+  permissions.forEach(p => {
+    if (!p.scope) return;
+    if (!grouped[p.scope]) grouped[p.scope] = [];
+    grouped[p.scope].push(p);
+  });
+  const scopeOrder = [
+    ...KNOWN_ORDER.filter(s => grouped[s]),
+    ...Object.keys(grouped).filter(s => !KNOWN_ORDER.includes(s)).sort(),
+  ];
 
   return (
     <div style={{ marginBottom: 16 }}>
@@ -3850,7 +3862,7 @@ function PermissionCatalog({ permissions, userId, canWrite, toast, onReload }) {
 
       {expanded && (
         <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', marginBottom: 8 }}>
-          {['GLOBAL', 'NODE', 'LIFECYCLE'].map(scope => {
+          {scopeOrder.map(scope => {
             const items = grouped[scope] || [];
             if (items.length === 0) return null;
             return (
@@ -3897,9 +3909,11 @@ function PermissionCatalog({ permissions, userId, canWrite, toast, onReload }) {
               <Field label="Scope">
                 <select className="field-input" value={form.scope}
                   onChange={e => setForm(f => ({ ...f, scope: e.target.value }))}>
-                  <option value="GLOBAL">GLOBAL</option>
-                  <option value="NODE">NODE</option>
-                  <option value="LIFECYCLE">LIFECYCLE</option>
+                  {/* Well-known scopes first, then any service-contributed
+                      scope already present in the catalog (DATA, future). */}
+                  {[...KNOWN_ORDER, ...Object.keys(grouped).filter(s => !KNOWN_ORDER.includes(s)).sort()]
+                    .filter((s, i, a) => a.indexOf(s) === i)
+                    .map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </Field>
             </>
@@ -3929,6 +3943,8 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
   const [expandedRole, setExpandedRole] = useState(null);
   // globalPerms: roleId → Set<permissionCode>
   const [globalPerms, setGlobalPerms] = useState({});
+  // scopePerms: roleId → { scopeCode → Set<permissionCode> } for non-GLOBAL/NODE/LIFECYCLE scopes (e.g. dst's DATA).
+  const [scopePerms, setScopePerms] = useState({});
 
   // ── Load everything from backend introspection ──────────────────
   useEffect(() => {
@@ -3979,10 +3995,15 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
     setPermissions(normalized);
   }
 
-  // Split permissions by scope
+  // Split permissions by scope. Anything that isn't GLOBAL/NODE/LIFECYCLE is
+  // treated as a role-only "extra scope" (e.g. dst's DATA) and rendered with
+  // the same toggle UI as GLOBAL via the generic /scope-permissions endpoints.
   const globalPermsSet = permissions.filter(p => p.scope === 'GLOBAL');
   const nodePerms      = permissions.filter(p => p.scope === 'NODE');
   const lcPerms        = permissions.filter(p => p.scope === 'LIFECYCLE');
+  const KNOWN_SCOPES   = new Set(['GLOBAL', 'NODE', 'LIFECYCLE']);
+  const extraScopes    = [...new Set(permissions.map(p => p.scope).filter(s => s && !KNOWN_SCOPES.has(s)))];
+  const permsByScope   = (sc) => permissions.filter(p => p.scope === sc);
 
   async function toggleRole(roleId) {
     if (expandedRole === roleId) { setExpandedRole(null); return; }
@@ -3991,6 +4012,14 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
       const rows = await api.getRoleGlobalPermissions(userId, roleId).catch(() => []);
       const granted = new Set((Array.isArray(rows) ? rows : []).map(r => r.permissionCode || r.permission_code));
       setGlobalPerms(s => ({ ...s, [roleId]: granted }));
+    }
+    if (extraScopes.length > 0 && !scopePerms[roleId]) {
+      const entries = await Promise.all(extraScopes.map(async sc => {
+        const rows = await api.getRoleScopePermissions(userId, roleId, sc).catch(() => []);
+        const set = new Set((Array.isArray(rows) ? rows : []).map(r => r.permissionCode || r.permission_code));
+        return [sc, set];
+      }));
+      setScopePerms(s => ({ ...s, [roleId]: Object.fromEntries(entries) }));
     }
   }
 
@@ -4003,6 +4032,22 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
       else           await api.addRoleGlobalPermission(userId, roleId, permissionCode);
     } catch (e) {
       setGlobalPerms(s => { const n = new Set(s[roleId] || []); isGranted ? n.add(permissionCode) : n.delete(permissionCode); return { ...s, [roleId]: n }; });
+      toast(e, 'error');
+    }
+  }
+
+  async function toggleScopePerm(roleId, scopeCode, permissionCode) {
+    if (!canWrite) return;
+    const cur = (scopePerms[roleId] && scopePerms[roleId][scopeCode]) || new Set();
+    const isGranted = cur.has(permissionCode);
+    const next = new Set(cur);
+    if (isGranted) next.delete(permissionCode); else next.add(permissionCode);
+    setScopePerms(s => ({ ...s, [roleId]: { ...(s[roleId] || {}), [scopeCode]: next } }));
+    try {
+      if (isGranted) await api.removeRoleScopePermission(userId, roleId, scopeCode, permissionCode);
+      else           await api.addRoleScopePermission(userId, roleId, scopeCode, permissionCode);
+    } catch (e) {
+      setScopePerms(s => ({ ...s, [roleId]: { ...(s[roleId] || {}), [scopeCode]: cur } }));
       toast(e, 'error');
     }
   }
@@ -4076,6 +4121,41 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
                     })}
                   </div>
                 )}
+
+                {/* ── Extra (role-only) scope permissions: DATA, future ── */}
+                {extraScopes.map(sc => {
+                  const perms = permsByScope(sc);
+                  if (perms.length === 0) return null;
+                  const granted = (scopePerms[role.id] && scopePerms[role.id][sc]);
+                  return (
+                    <div key={sc} style={{ marginBottom: 14 }}>
+                      <div className="settings-sub-label">{sc} Permissions</div>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6 }}>
+                        Role-only check — scope {sc} has no key context.
+                      </div>
+                      {perms.map(p => {
+                        const isPending = granted === undefined;
+                        const isGranted = !isPending && granted.has(p.permissionCode);
+                        return (
+                          <div key={p.permissionCode} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+                            <button className="panel-icon-btn" disabled={isPending || !canWrite}
+                              title={!canWrite ? 'Requires MANAGE_ROLES' : isGranted ? `Revoke from ${role.name}` : `Grant to ${role.name}`}
+                              onClick={() => toggleScopePerm(role.id, sc, p.permissionCode)}
+                              style={{ flexShrink: 0, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {isPending
+                                ? <span style={{ color: 'var(--muted)', fontSize: 10 }}>…</span>
+                                : isGranted
+                                  ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
+                                  : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="2"><circle cx="12" cy="12" r="9"/></svg>}
+                            </button>
+                            <code style={{ fontSize: 11, color: 'var(--accent)', minWidth: 168 }}>{p.permissionCode}</code>
+                            <span style={{ fontSize: 11, color: 'var(--text)', flex: 1 }}>{p.displayName}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
 
                 {/* ── NODE + LIFECYCLE scope permissions ── */}
                 {(nodePerms.length > 0 || lcPerms.length > 0) && (
@@ -4505,7 +4585,7 @@ export function AlgorithmsSection({ userId, canWrite, toast }) {
               ))}
             </div>
             {timeseries === null && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading…</div>}
-            {timeseries && timeseries.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No windowed data yet. Stats are bucketed every 15 minutes on flush.</div>}
+            {timeseries && timeseries.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No windowed data yet. Stats are bucketed every 15 seconds on flush.</div>}
             {timeseries && timeseries.length > 0 && (
               <div>
                 {/* Global aggregate */}
@@ -5733,6 +5813,188 @@ export function SecretsSection({ userId, canWrite, toast }) {
   );
 }
 
+/* ── Service Registry section ───────────────────────────────────────
+   Read-only operational view of every service known to spe-api: code,
+   instance count, healthy count, per-instance baseUrl/version/health/heartbeat
+   age. Federated catalogs (`/api/platform/resources` + `/api/platform/browse`)
+   fan out across the same set, so this is the source of truth for "what is
+   the platform calling". Auto-refreshes every 5 s. */
+export function ServiceRegistrySection({ userId, toast }) {
+  const [grouped,  setGrouped]  = useState(null);
+  const [tags,     setTags]     = useState(null);
+  const [overview, setOverview] = useState(null);
+  const [error,    setError]    = useState(null);
+
+  async function reload() {
+    try {
+      const [g, t, o] = await Promise.all([
+        api.getRegistryGrouped(userId).catch(() => ({})),
+        api.getRegistryTagsAdmin(userId).catch(() => null),
+        api.getRegistryOverview(userId).catch(() => null),
+      ]);
+      setGrouped(g);
+      setTags(t);
+      setOverview(o);
+      setError(null);
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  }
+
+  useEffect(() => {
+    reload();
+    const t = setInterval(reload, 5000);
+    return () => clearInterval(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (error)        return <div className="settings-empty-row">Failed to load registry: {error}</div>;
+  if (grouped === null) return <div className="settings-loading">Loading…</div>;
+
+  const codes = Object.keys(grouped).sort();
+  const ageSeconds = (iso) => {
+    if (!iso) return null;
+    const ms = Date.now() - new Date(iso).getTime();
+    return Math.max(0, Math.round(ms / 1000));
+  };
+  const fmtAge = (s) => s == null ? '—' : (s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s/60)}m` : `${Math.round(s/3600)}h`);
+
+  const overviewByService = overview?.services || {};
+  const settingsRegs      = overview?.settingsRegistrations || [];
+
+  return (
+    <div className="settings-list">
+      {/* ── Platform federation summary ─────────────────────────── */}
+      <div className="settings-sub-label">Platform Federation</div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+        Per-service summary as seen by platform-api ({overview?.self || 'platform'}). Settings tabs registered, live resource &amp; browse contributions probed via {`/internal/<axis>/visible`}. Refreshes every 5s.
+      </div>
+      <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse', marginBottom: 16 }}>
+        <thead>
+          <tr style={{ color: 'var(--muted)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+            <th style={{ padding: '4px 6px' }}>Service</th>
+            <th style={{ padding: '4px 6px' }}>Instances</th>
+            <th style={{ padding: '4px 6px' }}>Settings tabs</th>
+            <th style={{ padding: '4px 6px' }}>Resource descriptors</th>
+            <th style={{ padding: '4px 6px' }}>Browse descriptors</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Object.keys(overviewByService).sort().map(code => {
+            const e = overviewByService[code] || {};
+            return (
+              <tr key={code} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{code}</td>
+                <td style={{ padding: '4px 6px' }}>{e.instances ?? 0}</td>
+                <td style={{ padding: '4px 6px' }}>{e.settingsSections ?? 0}</td>
+                <td style={{ padding: '4px 6px' }}>{e.resourceDescriptors ?? 0}</td>
+                <td style={{ padding: '4px 6px' }}>{e.browseDescriptors ?? 0}</td>
+              </tr>
+            );
+          })}
+          {Object.keys(overviewByService).length === 0 && (
+            <tr><td colSpan={5} style={{ padding: '4px 6px', color: 'var(--muted2)' }}>No services known.</td></tr>
+          )}
+        </tbody>
+      </table>
+
+      {settingsRegs.length > 0 && (
+        <>
+          <div className="settings-sub-label">Settings Registrations</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+            Sections actively registered by each service against this platform-api.
+          </div>
+          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse', marginBottom: 16 }}>
+            <thead>
+              <tr style={{ color: 'var(--muted)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                <th style={{ padding: '4px 6px' }}>Service</th>
+                <th style={{ padding: '4px 6px' }}>Instance</th>
+                <th style={{ padding: '4px 6px' }}>Sections</th>
+                <th style={{ padding: '4px 6px' }}>Registered at</th>
+              </tr>
+            </thead>
+            <tbody>
+              {settingsRegs.map(r => (
+                <tr key={r.serviceCode + ':' + r.instanceId} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{r.serviceCode}</td>
+                  <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{r.instanceId}</td>
+                  <td style={{ padding: '4px 6px' }}>
+                    {(r.sections || []).map(s => s.key).join(', ') || '—'}
+                  </td>
+                  <td style={{ padding: '4px 6px' }}>{r.registeredAt || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      <div className="settings-sub-label">Registered Services (spe-api)</div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+        Live snapshot from spe-api. {codes.length} service{codes.length === 1 ? '' : 's'} known.
+      </div>
+
+      {codes.length === 0 ? (
+        <div className="settings-empty-row">No services registered.</div>
+      ) : codes.map(code => {
+        const instances = grouped[code] || [];
+        const healthy   = instances.filter(i => i.healthy).length;
+        return (
+          <div key={code} className="settings-card">
+            <div className="settings-card-hd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="settings-card-name" style={{ fontFamily: 'monospace' }}>{code}</span>
+              <span style={{ fontSize: 10, color: healthy === instances.length ? 'var(--success)' : 'var(--warn)' }}>
+                {healthy}/{instances.length} healthy
+              </span>
+            </div>
+            <div className="settings-card-body">
+              <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ color: 'var(--muted)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '4px 6px' }}>Instance</th>
+                    <th style={{ padding: '4px 6px' }}>Base URL</th>
+                    <th style={{ padding: '4px 6px' }}>Version</th>
+                    <th style={{ padding: '4px 6px' }}>Tag</th>
+                    <th style={{ padding: '4px 6px' }}>Health</th>
+                    <th style={{ padding: '4px 6px' }}>Last HB</th>
+                    <th style={{ padding: '4px 6px' }}>Failures</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {instances.map(i => (
+                    <tr key={i.instanceId} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{i.instanceId}</td>
+                      <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{i.baseUrl}</td>
+                      <td style={{ padding: '4px 6px' }}>{i.version || '—'}</td>
+                      <td style={{ padding: '4px 6px' }}>{i.spaceTag || '—'}</td>
+                      <td style={{ padding: '4px 6px', color: i.healthy ? 'var(--success)' : 'var(--danger, #e05252)' }}>
+                        {i.healthy ? 'OK' : 'DOWN'}
+                      </td>
+                      <td style={{ padding: '4px 6px' }}>{fmtAge(ageSeconds(i.lastHeartbeatOk))}</td>
+                      <td style={{ padding: '4px 6px' }}>{i.consecutiveFailures ?? 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+
+      {tags && Object.keys(tags).length > 0 && (
+        <>
+          <div className="settings-sub-label" style={{ marginTop: 16 }}>Project Space Tags</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+            Service ↔ space-tag affinity (used by gateway routing).
+          </div>
+          <pre style={{ fontSize: 11, background: 'var(--bg2)', padding: 8, borderRadius: 4 }}>
+            {JSON.stringify(tags, null, 2)}
+          </pre>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ── Main SettingsPage ───────────────────────────────────────────── */
 export default function SettingsPage({ userId, projectSpaceId, activeSection, onSectionChange, settingsSections, toast }) {
 
@@ -5780,9 +6042,224 @@ export default function SettingsPage({ userId, projectSpaceId, activeSection, on
           {activeSection === 'access-rights' && <AccessRightsSection userId={userId} canWrite={canWrite('access-rights')} toast={toast} />}
           {activeSection === 'algorithms'    && <AlgorithmsSection    userId={userId} canWrite={canWrite('algorithms')} toast={toast} />}
           {activeSection === 'guards'        && <GuardsSection        userId={userId} canWrite={canWrite('guards')} toast={toast} />}
+          {activeSection === 'sources'       && <SourcesSection       userId={userId} canWrite={canWrite('sources')} toast={toast} />}
           {activeSection === 'secrets'       && <SecretsSection       userId={userId} canWrite={canWrite('secrets')} toast={toast} />}
+          {activeSection === 'service-registry' && <ServiceRegistrySection userId={userId} toast={toast} />}
           {activeSection === 'platform-environment' && <PlatformEnvironmentSection userId={userId} canWrite={canWrite('platform-environment')} toast={toast} />}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sources section ─────────────────────────────────────────────────────
+// Lists Source rows from psm-admin and lets admins bind a resolver to each.
+// The built-in SELF source is read-only (lock badge, no edit/delete buttons).
+export function SourcesSection({ userId, canWrite, toast }) {
+  const [sources, setSources] = useState([]);
+  const [resolvers, setResolvers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    const [s, r] = await Promise.all([
+      api.getSourcesAdmin(userId).catch(() => []),
+      api.getSourceResolversAdmin(userId).catch(() => []),
+    ]);
+    setSources(Array.isArray(s) ? s : []);
+    setResolvers(Array.isArray(r) ? r : []);
+  }
+  useEffect(() => { load().finally(() => setLoading(false)); }, [userId]);
+
+  function openCreate() {
+    setForm({
+      id: '', name: '', description: '',
+      resolverInstanceId: resolvers[0]?.instanceId || '',
+      color: '', icon: '',
+    });
+    setModal({ kind: 'create' });
+  }
+  function openEdit(src) {
+    setForm({
+      id: src.id, name: src.name, description: src.description || '',
+      resolverInstanceId: src.resolverInstanceId,
+      color: src.color || '', icon: src.icon || '',
+    });
+    setModal({ kind: 'edit', original: src });
+  }
+  function closeModal() { setModal(null); setForm({}); }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name?.trim(),
+        description: form.description?.trim() || null,
+        resolverInstanceId: form.resolverInstanceId,
+        color: form.color || null,
+        icon: form.icon || null,
+      };
+      if (modal.kind === 'create') {
+        await api.createSource(userId, { id: form.id?.trim(), ...payload });
+        toast('Source created', 'success');
+      } else {
+        await api.updateSource(userId, modal.original.id, payload);
+        toast('Source updated', 'success');
+      }
+      closeModal();
+      await load();
+    } catch (e) { toast(e, 'error'); }
+    finally { setSaving(false); }
+  }
+
+  async function remove(src) {
+    if (!window.confirm(`Delete source "${src.name}" (${src.id})?`)) return;
+    try {
+      await api.deleteSource(userId, src.id);
+      toast('Source deleted', 'success');
+      await load();
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  if (loading) return <div style={{ padding: 16, color: 'var(--muted)' }}>Loading…</div>;
+
+  return (
+    <div style={{ padding: '0 16px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <div style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>
+          Sources declare the systems that host link targets. Each source binds to a resolver
+          (algorithm of type <code>algtype-source-resolver</code>). The built-in{' '}
+          <span className="settings-badge">SELF</span> source targets nodes inside this PLM
+          instance and is not editable.
+        </div>
+        {canWrite && (
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={openCreate}
+            disabled={resolvers.length === 0}
+          >
+            <PlusIcon size={11} strokeWidth={2} /> Add Source
+          </button>
+        )}
+      </div>
+
+      <table className="settings-table">
+        <thead>
+          <tr>
+            <th style={{ width: 40 }}></th>
+            <th style={{ width: 160 }}>ID</th>
+            <th>Name</th>
+            <th>Resolver</th>
+            <th>Description</th>
+            <th style={{ width: 90 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {sources.map(s => {
+            const Ic = s.icon ? NODE_ICONS[s.icon] : null;
+            return (
+              <tr key={s.id}>
+                <td>
+                  {Ic
+                    ? <Ic size={16} strokeWidth={1.8} color={s.color || 'var(--muted)'} />
+                    : <span style={{ color: 'var(--muted2)' }}>—</span>}
+                </td>
+                <td className="settings-td-mono">
+                  {s.id}{' '}
+                  {s.builtin && (
+                    <span className="settings-badge" style={{ marginLeft: 4 }}>built-in</span>
+                  )}
+                </td>
+                <td>{s.name}</td>
+                <td>
+                  <span className="settings-badge">{s.resolverAlgorithmCode}</span>
+                </td>
+                <td style={{ color: 'var(--muted)', fontSize: 12 }}>{s.description}</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {canWrite && !s.builtin && (
+                    <>
+                      <button
+                        className="panel-icon-btn"
+                        title="Edit"
+                        onClick={() => openEdit(s)}
+                      >
+                        <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
+                      </button>
+                      <button
+                        className="panel-icon-btn"
+                        title="Delete"
+                        onClick={() => remove(s)}
+                        style={{ marginLeft: 4 }}
+                      >
+                        <TrashIcon size={12} strokeWidth={2} color="var(--danger)" />
+                      </button>
+                    </>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {modal && (
+        <MetaModal
+          title={modal.kind === 'create' ? 'New Source' : `Edit ${modal.original.name}`}
+          onClose={closeModal}
+          onSave={save}
+          saving={saving || !form.name || !form.resolverInstanceId
+            || (modal.kind === 'create' && !form.id)}
+        >
+          <Field label="ID">
+            <input
+              className="field-input"
+              value={form.id || ''}
+              disabled={modal.kind === 'edit'}
+              onChange={e => setForm(f => ({ ...f, id: e.target.value }))}
+              placeholder="e.g. FILE_LOCAL"
+            />
+          </Field>
+          <Field label="Name">
+            <input
+              className="field-input"
+              value={form.name || ''}
+              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            />
+          </Field>
+          <Field label="Description">
+            <textarea
+              className="field-input"
+              rows={2}
+              value={form.description || ''}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            />
+          </Field>
+          <Field label="Resolver">
+            <select
+              className="field-input"
+              value={form.resolverInstanceId || ''}
+              onChange={e => setForm(f => ({ ...f, resolverInstanceId: e.target.value }))}
+            >
+              <option value="">— select —</option>
+              {resolvers.map(r => (
+                <option key={r.instanceId} value={r.instanceId}>
+                  {r.algorithmCode} — {r.instanceName}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <ColorField
+            label="Color"
+            value={form.color}
+            onChange={c => setForm(f => ({ ...f, color: c }))}
+          />
+          <IconPicker
+            value={form.icon}
+            onChange={i => setForm(f => ({ ...f, icon: i }))}
+          />
+        </MetaModal>
       )}
     </div>
   );

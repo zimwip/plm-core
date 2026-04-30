@@ -91,14 +91,23 @@ public class BaselineService {
      * pour chaque lien VERSION_TO_MASTER, la version résolue au moment du tag.
      */
     public List<Record> getBaselineContent(String baselineId) {
-        return dsl.select()
-            .from("baseline_entry be")
-            .join("node_version_link nl").on("be.node_link_id = nl.id")
-            .join("node_version nv").on("be.resolved_version_id = nv.id")
-            .join("node n").on("nv.node_id = n.id")
-            .where("be.baseline_id = ?", baselineId)
-            .orderBy(DSL.field("n.id"), DSL.field("nv.version_number"))
-            .fetch();
+        // Resolved key has the form 'logical_id@versionNumber'. Splitting it lets us
+        // join back to the SELF node store. Non-SELF entries (future) would need
+        // resolver dispatch — for now we only emit SELF entries from resolveAndRecord.
+        return dsl.fetch("""
+            SELECT be.*, nl.link_type_id, nl.target_source_id, nl.target_type, nl.target_key,
+                   n.id AS node_id, n.logical_id, nv.id AS node_version_id, nv.version_number,
+                   nv.revision, nv.iteration, nv.lifecycle_state_id
+            FROM baseline_entry be
+            JOIN node_version_link nl ON nl.id = be.node_link_id
+            LEFT JOIN node n ON nl.target_source_id = 'SELF'
+                AND n.logical_id = SUBSTR(be.resolved_key, 1, POSITION('@' IN be.resolved_key) - 1)
+                AND n.node_type_id = nl.target_type
+            LEFT JOIN node_version nv ON nv.node_id = n.id
+                AND nv.version_number = CAST(SUBSTR(be.resolved_key, POSITION('@' IN be.resolved_key) + 1) AS INT)
+            WHERE be.baseline_id = ?
+            ORDER BY n.id, nv.version_number
+            """, baselineId);
     }
 
     /**
@@ -164,47 +173,63 @@ public class BaselineService {
      * une entrée baseline pour chaque lien VERSION_TO_MASTER trouvé.
      */
     private void resolveAndRecord(String baselineId, String parentNodeId) {
-        var links = dsl.select(
-                DSL.field("nl.id").as("nl_id"),
-                DSL.field("nl.link_type_id").as("nl_link_type_id"),
-                DSL.field("nl.target_node_id").as("nl_target_node_id"))
-            .from("node_version_link nl")
-            .join("node_version nv_src").on("nv_src.id = nl.source_node_version_id")
-            .where("nv_src.node_id = ?", parentNodeId)
-            .fetch();
+        // Walk SELF V2M children (target_source_id='SELF' and key without '@version').
+        // Non-SELF links don't participate in baseline traversal — files/external systems
+        // are pinned at write time by their resolver. Their baseline_entry row stores
+        // target_key verbatim in resolved_key.
+        var links = dsl.fetch("""
+            SELECT nl.id AS nl_id, nl.link_type_id, nl.target_source_id, nl.target_type, nl.target_key,
+                   n.id AS target_node_id
+            FROM node_version_link nl
+            JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
+            LEFT JOIN node n ON nl.target_source_id = 'SELF'
+                AND n.logical_id = CASE
+                    WHEN POSITION('@' IN nl.target_key) > 0
+                        THEN SUBSTR(nl.target_key, 1, POSITION('@' IN nl.target_key) - 1)
+                    ELSE nl.target_key
+                  END
+                AND n.node_type_id = nl.target_type
+            WHERE nv_src.node_id = ?
+            """, parentNodeId);
 
         for (Record link : links) {
             String linkId    = link.get("nl_id", String.class);
-            String linkTypeId = link.get("nl_link_type_id", String.class);
+            String linkTypeId = link.get("link_type_id", String.class);
+            String targetSource = link.get("target_source_id", String.class);
+            String targetKey = link.get("target_key", String.class);
             String policy    = configCache.getLinkType(linkTypeId)
                 .map(LinkTypeConfig::linkPolicy).orElse(null);
-            String targetId  = link.get("nl_target_node_id", String.class);
 
-            if ("VERSION_TO_MASTER".equals(policy)) {
-                // Résoudre la version courante de la cible
+            if ("SELF".equals(targetSource) && "VERSION_TO_MASTER".equals(policy)
+                && targetKey.indexOf('@') < 0) {
+                String targetId = link.get("target_node_id", String.class);
+                if (targetId == null) {
+                    log.warn("Baseline: cannot resolve SELF target {}/{} — skipping",
+                        link.get("target_type", String.class), targetKey);
+                    continue;
+                }
                 Record currentVersion = versionService.getCurrentVersion(targetId);
                 if (currentVersion == null) {
                     log.warn("No version found for node {} during baseline, skipping", targetId);
                     continue;
                 }
-
-                String resolvedVersionId = currentVersion.get("id", String.class);
-
-                // Enregistrer l'entrée baseline
+                Integer versionNumber = currentVersion.get("version_number", Integer.class);
+                String resolvedKey = targetKey + "@" + versionNumber;
                 dsl.execute("""
-                    INSERT INTO baseline_entry (ID, BASELINE_ID, NODE_LINK_ID, RESOLVED_VERSION_ID)
+                    INSERT INTO baseline_entry (ID, BASELINE_ID, NODE_LINK_ID, RESOLVED_KEY)
                     VALUES (?,?,?,?)
                     """,
-                    UUID.randomUUID().toString(), baselineId, linkId, resolvedVersionId
-                );
-
-                log.debug("Baseline entry: link={} resolvedVersion={}", linkId, resolvedVersionId);
-
-                // Récursion sur l'enfant
+                    UUID.randomUUID().toString(), baselineId, linkId, resolvedKey);
+                log.debug("Baseline entry: link={} resolvedKey={}", linkId, resolvedKey);
                 resolveAndRecord(baselineId, targetId);
-
+            } else {
+                // Already pinned (V2V or non-SELF) — record verbatim, no traversal.
+                dsl.execute("""
+                    INSERT INTO baseline_entry (ID, BASELINE_ID, NODE_LINK_ID, RESOLVED_KEY)
+                    VALUES (?,?,?,?)
+                    """,
+                    UUID.randomUUID().toString(), baselineId, linkId, targetKey);
             }
-            // VERSION_TO_VERSION : rien à faire, le lien pointe déjà une version figée
         }
     }
 
@@ -237,7 +262,7 @@ public class BaselineService {
            .fetch()
            .forEach(r -> result.put(
                r.get("node_link_id", String.class),
-               r.get("resolved_version_id", String.class)
+               r.get("resolved_key", String.class)
            ));
         return result;
     }

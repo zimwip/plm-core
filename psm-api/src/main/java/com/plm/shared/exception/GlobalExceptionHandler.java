@@ -62,6 +62,17 @@ public class GlobalExceptionHandler {
 
     // ── Technical / unexpected exceptions ────────────────────────────────
 
+    /**
+     * Quietly handle 404 on unmapped routes (e.g. federated fan-out probes
+     * from platform-api targeting axes this service doesn't expose).
+     */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(
+            org.springframework.web.servlet.resource.NoResourceFoundException e, HttpServletRequest req) {
+        log.debug("404 on {} {}", req.getMethod(), req.getRequestURI());
+        return functional(404, e, req);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleTechnical(
             Exception e, HttpServletRequest req) {

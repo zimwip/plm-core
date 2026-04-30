@@ -18,7 +18,7 @@ import java.util.List;
  *
  *   state={lifecycle_state_id}
  *   |attrs={attr_def_id}:{value};...   (sorted by attr_def_id)
- *   |links={link_type_id}:{target_node_id}:{pinned_ver|};... (sorted)
+ *   |links={link_type_id}:{target_source_id}:{target_type}:{target_key};... (sorted)
  *
  * Previous version fingerprint is NOT included — it would make every version
  * unique even with identical content, breaking the no-change guard.
@@ -76,9 +76,9 @@ public class FingerPrintService {
               .append(';');
         }
 
-        // 3. Outgoing links (sorted by link_type_id, target_node_id)
+        // 3. Outgoing links (sorted by link_type_id, target_source_id, target_type, target_key)
         List<Record> links = dsl.fetch("""
-            SELECT nl.link_type_id, nl.target_node_id, nl.pinned_version_id
+            SELECT nl.link_type_id, nl.target_source_id, nl.target_type, nl.target_key
             FROM node_version_link nl
             JOIN node_version nv_src    ON nv_src.id  = nl.source_node_version_id
             JOIN plm_transaction pt_src ON pt_src.id  = nv_src.tx_id
@@ -86,14 +86,15 @@ public class FingerPrintService {
               AND (pt_src.status = 'COMMITTED' OR nv_src.id = ?)
               AND nv_src.version_number <= (
                 SELECT version_number FROM node_version WHERE id = ?)
-            ORDER BY nl.link_type_id ASC, nl.target_node_id ASC
+            ORDER BY nl.link_type_id ASC, nl.target_source_id ASC, nl.target_type ASC, nl.target_key ASC
             """, nodeId, nodeVersionId, nodeVersionId);
 
         sb.append("|links=");
         for (Record l : links) {
-            sb.append(l.get("link_type_id",   String.class))
-              .append(':').append(l.get("target_node_id", String.class))
-              .append(':').append(nvl(l.get("pinned_version_id", String.class)))
+            sb.append(l.get("link_type_id",     String.class))
+              .append(':').append(l.get("target_source_id", String.class))
+              .append(':').append(l.get("target_type",      String.class))
+              .append(':').append(l.get("target_key",       String.class))
               .append(';');
         }
 

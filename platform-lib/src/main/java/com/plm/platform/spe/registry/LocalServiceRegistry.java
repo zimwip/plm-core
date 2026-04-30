@@ -74,6 +74,15 @@ public class LocalServiceRegistry {
     }
 
     /**
+     * Snapshot of every known service code. Used by federated aggregators
+     * (resource / browse catalogs in platform-api) that need to fan out to
+     * each registered service in parallel without keeping their own cache.
+     */
+    public java.util.Set<String> allServiceCodes() {
+        return java.util.Set.copyOf(services.keySet());
+    }
+
+    /**
      * Whether at least one snapshot has been received.
      */
     public boolean isPopulated() {

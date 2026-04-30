@@ -6,6 +6,7 @@ import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.core.IntervalFunction;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 
 import java.time.Duration;
@@ -33,6 +34,13 @@ public class ServiceClientResilience {
                 .waitDurationInOpenState(Duration.ofSeconds(cbProps.waitDurationSeconds()))
                 .slidingWindowSize(cbProps.slidingWindowSize())
                 .permittedNumberOfCallsInHalfOpenState(cbProps.permittedCallsInHalfOpen())
+                // 4xx responses are functional errors (resource not found,
+                // validation, permission) — counting them as breaker failures
+                // trips the circuit on legitimate user actions (e.g. linking
+                // to a non-existent dst data UUID). Only treat 5xx, network
+                // and timeout errors as health signals.
+                .recordException(e -> e instanceof RestClientException
+                    && !(e instanceof HttpClientErrorException))
                 .build();
             return CircuitBreaker.of("svc-" + code, config);
         });
@@ -45,9 +53,13 @@ public class ServiceClientResilience {
                 .maxAttempts(retryProps.maxAttempts())
                 .intervalFunction(IntervalFunction.ofExponentialBackoff(
                     retryProps.waitDurationMs(), retryProps.multiplier()))
+                // Same rationale as the breaker: don't retry 4xx — the answer
+                // won't change (404 is 404), and retries amplify the breaker
+                // failure count.
                 .retryOnException(e ->
                     e instanceof RestClientException
-                    && !(e instanceof CallNotPermittedException))
+                    && !(e instanceof CallNotPermittedException)
+                    && !(e instanceof HttpClientErrorException))
                 .build();
             return Retry.of("svc-" + code, config);
         });

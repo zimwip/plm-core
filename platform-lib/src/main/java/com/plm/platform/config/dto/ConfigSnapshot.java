@@ -22,5 +22,6 @@ public record ConfigSnapshot(
     List<AttributeViewConfig> attributeViews,
     List<StateActionConfig> stateActions,
     List<NodeActionGuardConfig> nodeActionGuards,
+    List<SourceConfig> sources,
     Map<String, String> entityMetadata
 ) {}

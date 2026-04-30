@@ -158,9 +158,17 @@ public class MetaModelController {
 
     @PostMapping("/linktypes")
     public ResponseEntity<Map<String, String>> createLinkType(@RequestBody Map<String, Object> body) {
+        // Backwards-compat: targetNodeTypeId still accepted as a shortcut for
+        // (targetSourceId='SELF', targetType=<nodeTypeId>) when callers haven't migrated.
+        String targetSource = (String) body.getOrDefault("targetSourceId", "SELF");
+        String targetType   = (String) body.get("targetType");
+        if (targetType == null || targetType.isBlank()) {
+            targetType = (String) body.get("targetNodeTypeId");
+        }
         String id = metaModelService.createLinkType(
             (String) body.get("name"), (String) body.get("description"),
-            (String) body.get("sourceNodeTypeId"), (String) body.get("targetNodeTypeId"),
+            (String) body.get("sourceNodeTypeId"),
+            targetSource, targetType,
             (String) body.getOrDefault("linkPolicy", "VERSION_TO_MASTER"),
             (int) body.getOrDefault("minCardinality", 0),
             (Integer) body.get("maxCardinality"),

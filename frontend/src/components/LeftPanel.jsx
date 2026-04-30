@@ -13,7 +13,8 @@ import {
   CpuIcon as SCpuIcon, WorkflowIcon as SWorkflowIcon, TerminalIcon as STerminalIcon,
   BookIcon as SBookIcon, UserIcon as SUserIcon,
 } from './Icons';
-import { Database as SDatabaseIcon, List as SListIcon, KeyRound as SKeyIcon, Globe as SGlobeIcon } from 'lucide-react';
+import { Database as SDatabaseIcon, List as SListIcon, KeyRound as SKeyIcon, Globe as SGlobeIcon, Plug as SPlugIcon, Network as SNetworkIcon } from 'lucide-react';
+import FederatedNavSection from './FederatedNavSection';
 
 const SECTION_ICONS = {
   'my-profile':     SUserIcon,
@@ -21,12 +22,14 @@ const SECTION_ICONS = {
   'domains':        SDatabaseIcon,
   'enums':          SListIcon,
   'lifecycles':     SLifecycleIcon,
+  'sources':        SPlugIcon,
   'proj-spaces':    SHexIcon,
   'users-roles':    SUsersIcon,
   'access-rights':  SShieldIcon,
   'algorithms':     SCpuIcon,
   'guards':         SWorkflowIcon,
   'secrets':                SKeyIcon,
+  'service-registry':       SNetworkIcon,
   'platform-environment':   SGlobeIcon,
   'api-playground': STerminalIcon,
   'user-manual':    SBookIcon,
@@ -419,6 +422,9 @@ function LeftPanel({
           )}
         </div>
       </div>
+
+      {/* ── Federated browse (non-PSM sources) ───────────────── */}
+      <FederatedNavSection userId={userId} onNavigate={onNavigate} />
 
       {/* ── Transaction ─────────────────────────────── */}
       <div className="panel-section tx-panel">

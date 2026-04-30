@@ -311,18 +311,22 @@ public class LifecycleService {
         // are eligible. Children in other states (e.g. Released) are silently skipped.
         // Link type cascade and transition info resolved from ConfigCache (no DB tables).
 
-        // 1. Get all V2M links from this node
-        var links = dsl
-            .select(
-                DSL.field("nl.target_node_id").as("child_id"),
-                DSL.field("nl.link_type_id").as("link_type_id")
-            )
-            .from("node_version_link nl")
-            .join("node_version nv_src")
-            .on("nv_src.id = nl.source_node_version_id")
-            .where("nv_src.node_id = ?", nodeId)
-            .and("nl.pinned_version_id IS NULL") // VERSION_TO_MASTER links only
-            .fetch();
+        // 1. Get all SELF V2M links from this node (V2M = key without '@version' suffix).
+        //    Cross-source links never participate in lifecycle cascade.
+        var links = dsl.fetch("""
+            SELECT n.id AS child_id, nl.link_type_id
+            FROM node_version_link nl
+            JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
+            JOIN node n ON n.logical_id = CASE
+                    WHEN POSITION('@' IN nl.target_key) > 0
+                        THEN SUBSTR(nl.target_key, 1, POSITION('@' IN nl.target_key) - 1)
+                    ELSE nl.target_key
+                  END
+                  AND n.node_type_id = nl.target_type
+            WHERE nv_src.node_id = ?
+              AND nl.target_source_id = 'SELF'
+              AND POSITION('@' IN nl.target_key) = 0
+            """, nodeId);
 
         // 2. Build cascade rule records by matching link_type cascades from ConfigCache
         record CascadeRule(String childId, String childFromStateId,

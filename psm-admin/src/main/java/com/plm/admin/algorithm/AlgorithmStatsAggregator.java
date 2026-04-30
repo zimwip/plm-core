@@ -21,8 +21,9 @@ import java.time.temporal.ChronoUnit;
 /**
  * Subscribes to {@code env.service.*.ALGORITHM_STATS} and merges per-instance
  * deltas into the central {@code algorithm_stat} (all-time) and
- * {@code algorithm_stat_window} (15-min buckets) tables. Stat loss is
- * tolerated by design — this is observability data, not a system of record.
+ * {@code algorithm_stat_window} (15-second buckets, aligned with the
+ * 15s publisher flush cadence) tables. Stat loss is tolerated by design —
+ * this is observability data, not a system of record.
  */
 @Slf4j
 @Component
@@ -30,7 +31,7 @@ import java.time.temporal.ChronoUnit;
 @ConditionalOnProperty(prefix = "plm.nats", name = "enabled", havingValue = "true")
 public class AlgorithmStatsAggregator {
 
-    private static final int WINDOW_MINUTES = 15;
+    private static final int WINDOW_SECONDS = 15;
     private static final int RETENTION_HOURS = 48;
     private static final String SUBJECT = "env.service.*." + AlgorithmStatsPublisher.EVENT_TYPE;
 
@@ -119,8 +120,8 @@ public class AlgorithmStatsAggregator {
     }
 
     private static LocalDateTime truncateToWindow(LocalDateTime dt) {
-        LocalDateTime hourStart = dt.truncatedTo(ChronoUnit.HOURS);
-        int minuteBucket = (dt.getMinute() / WINDOW_MINUTES) * WINDOW_MINUTES;
-        return hourStart.plusMinutes(minuteBucket);
+        LocalDateTime minuteStart = dt.truncatedTo(ChronoUnit.MINUTES);
+        int secondBucket = (dt.getSecond() / WINDOW_SECONDS) * WINDOW_SECONDS;
+        return minuteStart.plusSeconds(secondBucket);
     }
 }

@@ -11,7 +11,7 @@
 FROM plm-platform-lib:dev AS lib-builder
 
 # ── Stage 1: build psm-api ───────────────────────────────────
-FROM maven:3.9-eclipse-temurin-21-alpine AS builder
+FROM docker.io/library/maven:3.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /build
 
 # Reuse lib-builder's ~/.m2 so platform-lib resolves locally
@@ -30,7 +30,7 @@ RUN JAR=$(find target -name '*.jar' ! -name '*original*' | head -1) && \
     java -Djarmode=layertools -jar "$JAR" extract --destination target/extracted
 
 # ── Stage 2: runtime ─────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine AS runtime
+FROM docker.io/library/eclipse-temurin:21-jre-alpine AS runtime
 
 RUN addgroup -S plm && adduser -S plm -G plm
 USER plm

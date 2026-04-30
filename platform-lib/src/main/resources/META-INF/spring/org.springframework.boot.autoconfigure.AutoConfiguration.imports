@@ -3,6 +3,8 @@ com.plm.platform.spe.client.ServiceClientAutoConfiguration
 com.plm.platform.config.ConfigRegistrationAutoConfiguration
 com.plm.platform.algorithm.AlgorithmRegistrationAutoConfiguration
 com.plm.platform.settings.SettingsRegistrationAutoConfiguration
+com.plm.platform.resource.ResourceCatalogRegistrationAutoConfiguration
+com.plm.platform.browse.BrowseRegistrationAutoConfiguration
 com.plm.platform.authz.PermissionScopeRegistrationAutoConfiguration
 com.plm.platform.authz.PlatformAuthzAutoConfiguration
 com.plm.platform.nats.NatsAutoConfiguration

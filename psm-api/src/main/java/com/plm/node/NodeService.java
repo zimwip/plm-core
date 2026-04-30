@@ -233,10 +233,14 @@ public class NodeService {
      * Legacy overload for backward compatibility — returns page 0, size 50.
      */
     public PagedResult<Map<String, Object>> listNodes(String projectSpaceId) {
-        return listNodes(projectSpaceId, 0, 50);
+        return listNodes(projectSpaceId, 0, 50, null);
     }
 
     public PagedResult<Map<String, Object>> listNodes(String projectSpaceId, int page, int size) {
+        return listNodes(projectSpaceId, page, size, null);
+    }
+
+    public PagedResult<Map<String, Object>> listNodes(String projectSpaceId, int page, int size, String typeFilter) {
         // Resolve descendant spaces for hierarchy visibility
         List<String> spaceIds = pnoProjectSpaceClient.getDescendants(projectSpaceId);
         String placeholders = String.join(",", spaceIds.stream().map(s -> "?").toList());
@@ -253,6 +257,12 @@ public class NodeService {
             .filter(Map.Entry::getValue)
             .map(Map.Entry::getKey)
             .collect(java.util.stream.Collectors.toSet());
+
+        if (typeFilter != null && !typeFilter.isBlank()) {
+            readableNodeTypeIds = readableNodeTypeIds.stream()
+                .filter(typeFilter::equals)
+                .collect(java.util.stream.Collectors.toSet());
+        }
 
         if (readableNodeTypeIds.isEmpty()) {
             return new PagedResult<>(List.of(), page, size, 0);
@@ -553,14 +563,22 @@ public class NodeService {
             .fetch(
                 """
                 SELECT nl.id AS link_id, nl.link_type_id,
-                       nl.target_node_id, n.logical_id AS target_logical_id, n.node_type_id AS target_node_type_id,
-                       nl.pinned_version_id,
-                       pv.revision AS pinned_revision, pv.iteration AS pinned_iteration
+                       nl.target_source_id, nl.target_type, nl.target_key,
+                       n.id AS target_node_id, n.logical_id AS target_logical_id, n.node_type_id AS target_node_type_id,
+                       pv.id AS pinned_version_id, pv.revision AS pinned_revision, pv.iteration AS pinned_iteration
                 FROM node_version_link nl
-                JOIN node n              ON n.id   = nl.target_node_id
-                LEFT JOIN node_version pv ON pv.id = nl.pinned_version_id
                 JOIN node_version src    ON src.id = nl.source_node_version_id
                 JOIN plm_transaction spt ON spt.id = src.tx_id
+                LEFT JOIN node n ON nl.target_source_id = 'SELF'
+                    AND n.logical_id = CASE
+                        WHEN POSITION('@' IN nl.target_key) > 0
+                            THEN SUBSTR(nl.target_key, 1, POSITION('@' IN nl.target_key) - 1)
+                        ELSE nl.target_key
+                      END
+                    AND n.node_type_id = nl.target_type
+                LEFT JOIN node_version pv ON pv.node_id = n.id
+                    AND POSITION('@' IN nl.target_key) > 0
+                    AND pv.version_number = CAST(SUBSTR(nl.target_key, POSITION('@' IN nl.target_key) + 1) AS INT)
                 WHERE src.node_id = ?
                   AND (spt.status = 'COMMITTED' OR (spt.status = 'OPEN' AND spt.owner_id = ?))
                   AND src.version_number <= ?
@@ -578,6 +596,9 @@ public class NodeService {
                 var lt = configCache.getLinkType(ltId);
                 m.put("linkTypeName", lt.map(LinkTypeConfig::name).orElse(ltId));
                 m.put("linkPolicy", lt.map(LinkTypeConfig::linkPolicy).orElse(""));
+                m.put("targetSourceCode", r.get("target_source_id", String.class));
+                m.put("targetType",       r.get("target_type", String.class));
+                m.put("targetKey",        r.get("target_key", String.class));
                 m.put("targetNodeId", r.get("target_node_id", String.class));
                 m.put(
                     "targetLogicalId",
@@ -731,14 +752,16 @@ public class NodeService {
     public String createLink(
         String linkTypeId,
         String sourceNodeId,
-        String targetNodeId,
-        String pinnedVersionId,
+        String targetSourceCode,
+        String targetType,
+        String targetKey,
         String userId,
         String txId,
         String linkLogicalId
     ) {
         return linkService.createLink(
-            linkTypeId, sourceNodeId, targetNodeId, pinnedVersionId, userId, txId, linkLogicalId
+            linkTypeId, sourceNodeId, targetSourceCode, targetType, targetKey,
+            userId, txId, linkLogicalId
         );
     }
 
@@ -1091,12 +1114,15 @@ public class NodeService {
      */
     public void updateLink(
         String linkId,
-        String newTargetNodeId,
+        String newTargetSourceCode,
+        String newTargetType,
+        String newTargetKey,
         String newLogicalId,
         String userId,
         String txId
     ) {
-        linkService.updateLink(linkId, newTargetNodeId, newLogicalId, userId, txId);
+        linkService.updateLink(linkId, newTargetSourceCode, newTargetType, newTargetKey,
+            newLogicalId, userId, txId);
     }
 
     // ================================================================

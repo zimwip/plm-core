@@ -59,6 +59,10 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/ValidationService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/guard/AllRequiredFilledGuard.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/package-info.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/resource/NodeBrowseContribution.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/resource/NodeBrowseVisibility.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/resource/NodeCatalogContribution.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/resource/NodeResourceVisibility.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/signature/internal/CommentService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/signature/internal/SignatureService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/signature/internal/guard/AllSignaturesDoneGuard.java
@@ -66,6 +70,8 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/signature/internal/guard/NotAlreadySignedGuard.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/signature/internal/guard/SignatureRejectionGuard.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/signature/internal/handler/SignActionHandler.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/source/DataResolver.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/source/SelfNodeResolver.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/transaction/TransactionController.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/transaction/internal/LockService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/transaction/internal/LockWrapper.java
@@ -135,3 +141,12 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/settings/SettingGroup.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/settings/SettingSection.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/settings/SimpleSettingSection.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/source/KeyHint.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/source/LinkConstraint.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/source/Reference.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/source/ResolvedTarget.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/source/SourceQueryController.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/source/SourceResolver.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/source/SourceResolverContext.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/source/SourceResolverRegistry.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/source/package-info.java

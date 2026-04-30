@@ -5,20 +5,15 @@ import com.plm.node.transaction.internal.LockService;
 
 import com.plm.action.ActionService;
 import com.plm.platform.config.ConfigCache;
-import com.plm.platform.config.dto.NodeTypeConfig;
 import com.plm.platform.authz.KeyExpr;
 import com.plm.platform.authz.PlmPermission;
-import com.plm.platform.authz.PolicyPort;
 import com.plm.shared.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * API REST pour les noeuds PLM.
@@ -43,42 +38,16 @@ public class NodeController {
     private final ActionService       actionService;
     private final SecurityContextPort secCtx;
     private final ConfigCache         configCache;
-    private final PolicyPort          policyService;
-
-    // ── Metamodel reads (business context — permission-filtered) ─────
-
-    @GetMapping("/nodetypes/creatable")
-    public ResponseEntity<?> getCreatableNodeTypes() throws InterruptedException {
-        if (!configCache.isPopulated()) {
-            configCache.awaitPopulated(10, java.util.concurrent.TimeUnit.SECONDS);
-        }
-        Set<String> allIds = configCache.getAllNodeTypes().stream()
-            .map(NodeTypeConfig::id).collect(Collectors.toSet());
-        Map<String, Boolean> canCreate = policyService.canOnNodeTypes("CREATE_NODE", allIds);
-        List<Map<String, Object>> result = configCache.getAllNodeTypes().stream()
-            .filter(nt -> Boolean.TRUE.equals(canCreate.get(nt.id())))
-            .map(nt -> {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("id", nt.id());
-                m.put("name", nt.name());
-                m.put("description", nt.description());
-                m.put("color", nt.color());
-                m.put("icon", nt.icon());
-                m.put("lifecycle_id", nt.lifecycleId());
-                return m;
-            })
-            .toList();
-        return ResponseEntity.ok(result);
-    }
 
     // ── Liste ─────────────────────────────────────────────────────────
 
     @GetMapping
     public ResponseEntity<?> listNodes(
         @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "50") int size
+        @RequestParam(defaultValue = "50") int size,
+        @RequestParam(required = false) String type
     ) {
-        return ResponseEntity.ok(nodeService.listNodes(secCtx.requireProjectSpaceId(), page, size));
+        return ResponseEntity.ok(nodeService.listNodes(secCtx.requireProjectSpaceId(), page, size, type));
     }
 
     // ── Lecture (Server-Driven UI) ────────────────────────────────────

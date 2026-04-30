@@ -40,4 +40,9 @@ class PsmAdminSettingSections {
     SettingSectionDto algorithmsSection() {
         return new SettingSectionDto("algorithms", "Algorithms", "PSM", 30, "MANAGE_PSM");
     }
+
+    @Bean
+    SettingSectionDto sourcesSection() {
+        return new SettingSectionDto("sources", "Sources", "PSM", 17, "MANAGE_PSM");
+    }
 }

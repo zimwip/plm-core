@@ -137,7 +137,8 @@ CREATE TABLE link_type (
     name                    VARCHAR(255) NOT NULL,
     description             VARCHAR(1000),
     source_node_type_id     VARCHAR(36)  REFERENCES node_type(id),
-    target_node_type_id     VARCHAR(36)  REFERENCES node_type(id),
+    target_source_id        VARCHAR(64)  NOT NULL DEFAULT 'SELF',
+    target_type             VARCHAR(100) NOT NULL,
     link_policy             VARCHAR(20)  NOT NULL DEFAULT 'VERSION_TO_MASTER',
     min_cardinality         INT          NOT NULL DEFAULT 0,
     max_cardinality         INT,
@@ -193,6 +194,8 @@ CREATE TABLE algorithm (
     name              VARCHAR(200)  NOT NULL,
     description       VARCHAR(1000),
     handler_ref       VARCHAR(500)  NOT NULL,
+    module_name       VARCHAR(100),
+    domain_name       VARCHAR(100),
     created_at        TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_algorithm_code UNIQUE (code)
 );
@@ -223,6 +226,28 @@ CREATE TABLE algorithm_instance_param_value (
     algorithm_parameter_id VARCHAR(100)  NOT NULL REFERENCES algorithm_parameter(id),
     value                  VARCHAR(2000) NOT NULL,
     CONSTRAINT uq_aipv UNIQUE (algorithm_instance_id, algorithm_parameter_id)
+);
+
+-- ============================================================
+-- SOURCE REGISTRY
+-- A Source declares an external (or local) system that hosts link targets.
+-- Each Source is bound to a resolver (algorithm instance of type
+-- 'algtype-source-resolver') which knows how to look up a target from
+-- a (type, key) pair. The built-in 'SELF' source represents the local
+-- PLM node store and is immutable from the UI.
+-- ============================================================
+
+CREATE TABLE source (
+    id                   VARCHAR(64)  NOT NULL PRIMARY KEY,
+    name                 VARCHAR(200) NOT NULL,
+    description          VARCHAR(1000),
+    resolver_instance_id VARCHAR(100) NOT NULL REFERENCES algorithm_instance(id),
+    is_builtin           SMALLINT     NOT NULL DEFAULT 0,
+    is_versioned         SMALLINT     NOT NULL DEFAULT 0,
+    color                VARCHAR(20),
+    icon                 VARCHAR(50),
+    created_at           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_source_name UNIQUE (name)
 );
 
 -- ============================================================
@@ -290,16 +315,6 @@ CREATE TABLE action_required_permission (
     action_id       VARCHAR(100) NOT NULL REFERENCES action(id),
     permission_code VARCHAR(100) NOT NULL REFERENCES permission(permission_code),
     CONSTRAINT action_required_permission_unique UNIQUE (action_id, permission_code)
-);
-
-CREATE TABLE authorization_policy (
-    id               VARCHAR(100) NOT NULL PRIMARY KEY,
-    permission_code  VARCHAR(100) NOT NULL REFERENCES permission(permission_code),
-    scope            VARCHAR(20)  NOT NULL,
-    role_id          VARCHAR(36)  NOT NULL,
-    node_type_id     VARCHAR(36),
-    transition_id    VARCHAR(36),
-    CONSTRAINT uq_authorization_policy UNIQUE (permission_code, role_id, node_type_id, transition_id)
 );
 
 -- ============================================================
@@ -479,9 +494,6 @@ CREATE INDEX idx_ltc_child_state     ON link_type_cascade(child_from_state_id);
 CREATE INDEX idx_event_outbox_ts     ON event_outbox(created_at);
 CREATE INDEX idx_napar_action        ON action_parameter(action_id);
 CREATE INDEX idx_apo_key             ON action_param_override(node_type_id, action_id);
-CREATE INDEX idx_ap_permission_code  ON authorization_policy(permission_code);
-CREATE INDEX idx_ap_nodetype         ON authorization_policy(node_type_id);
-CREATE INDEX idx_ap_role             ON authorization_policy(role_id);
 CREATE INDEX idx_action_guard_action ON action_guard(action_id);
 CREATE INDEX idx_ltg_transition      ON lifecycle_transition_guard(lifecycle_transition_id);
 CREATE INDEX idx_nag_key             ON node_action_guard(node_type_id, action_id, transition_id);

@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -29,6 +30,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleValidation(
             RuntimeException e, HttpServletRequest req) {
         return functional(400, e, req);
+    }
+
+    /**
+     * Quietly handle 404 on routes that aren't mapped (e.g. federated fan-out
+     * probes from platform-api hitting {@code /internal/browse/visible} on a
+     * service that doesn't contribute that axis). Avoids ERROR-spamming the
+     * application log every time a sibling service is checked.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(
+            NoResourceFoundException e, HttpServletRequest req) {
+        log.debug("404 on {} {}", req.getMethod(), req.getRequestURI());
+        return functional(404, e, req);
     }
 
     @ExceptionHandler(Exception.class)

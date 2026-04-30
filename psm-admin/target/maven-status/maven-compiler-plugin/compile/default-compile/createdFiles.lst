@@ -3,6 +3,7 @@ com/plm/admin/domain/DomainController.class
 com/plm/admin/security/PlmAdminUserContext.class
 com/plm/admin/metadata/MetadataController.class
 com/plm/admin/authz/NodeScopeContribution.class
+com/plm/admin/source/SourceDto.class
 com/plm/admin/shared/JacksonConfig$1.class
 com/plm/admin/shared/JacksonConfig.class
 com/plm/admin/shared/PlmFunctionalException.class
@@ -14,6 +15,7 @@ com/plm/admin/enumdef/EnumDefinitionService.class
 com/plm/admin/domain/DomainService.class
 com/plm/admin/config/ConfigSnapshotBuilder.class
 com/plm/admin/metadata/MetadataService.class
+com/plm/admin/source/SourceService.class
 com/plm/admin/metamodel/MetaModelService.class
 com/plm/admin/enumdef/EnumDefinitionController.class
 com/plm/admin/security/PlmAdminSecurityContext.class
@@ -28,6 +30,7 @@ com/plm/admin/algorithm/AlgorithmRegistrationService.class
 com/plm/admin/config/ConfigPushService.class
 com/plm/admin/config/ConfigChangedEvent.class
 com/plm/admin/security/PsmAdminAuthContextBinder.class
+com/plm/admin/source/SourceController.class
 com/plm/admin/metamodel/MetaModelController.class
 com/plm/admin/authz/LifecycleScopeContribution.class
 com/plm/admin/PsmAdminApplication.class

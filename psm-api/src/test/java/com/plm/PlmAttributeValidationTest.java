@@ -114,6 +114,8 @@ class PlmAttributeValidationTest {
             List.of(),
             // nodeActionGuards
             List.of(),
+            // sources
+            List.of(),
             // entityMetadata
             Map.of()
         );

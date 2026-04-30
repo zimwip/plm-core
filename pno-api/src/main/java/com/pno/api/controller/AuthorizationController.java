@@ -37,6 +37,17 @@ public class AuthorizationController {
         return ResponseEntity.ok(authorizationService.listGlobalPermissions());
     }
 
+    /**
+     * Catalog of permissions for a given scope ({@code DATA}, {@code GLOBAL},
+     * {@code NODE}, ...). Used by the admin Access Rights page to surface
+     * permissions contributed by services other than psm.
+     */
+    @GetMapping("/permissions")
+    public ResponseEntity<List<Map<String, Object>>> listPermissionsByScope(
+            @RequestParam(required = false) String scope) {
+        return ResponseEntity.ok(authorizationService.listPermissionsByScope(scope));
+    }
+
     @GetMapping("/my-global-permissions")
     public ResponseEntity<List<String>> getMyGlobalPermissions() {
         PnoUserContext u = PnoSecurityContext.get();
@@ -72,6 +83,40 @@ public class AuthorizationController {
     public ResponseEntity<Void> removeRoleGlobalPermission(
             @PathVariable String roleId, @PathVariable String permissionCode) {
         authorizationService.removeRoleGlobalPermission(roleId, permissionCode);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ── Generic role-only scope grants (DATA, future) ──
+    //
+    // Any scope whose effective key list is empty can be granted with the same
+    // role-only shape as GLOBAL — e.g. dst's DATA (READ_DATA / WRITE_DATA / MANAGE_DATA).
+    // {@link DynamicAuthorizationService#validate} rejects calls against scopes
+    // that actually require keys (NODE, LIFECYCLE), so this surface stays safe
+    // even though it accepts any scope code.
+
+    @GetMapping("/roles/{roleId}/scope-permissions/{scopeCode}")
+    public ResponseEntity<List<Map<String, Object>>> getRoleScopePermissions(
+            @PathVariable String roleId, @PathVariable String scopeCode) {
+        return ResponseEntity.ok(authorizationService.getRoleScopePermissions(roleId, scopeCode));
+    }
+
+    @PostMapping("/roles/{roleId}/scope-permissions/{scopeCode}")
+    public ResponseEntity<Void> addRoleScopePermission(
+            @PathVariable String roleId, @PathVariable String scopeCode,
+            @RequestBody Map<String, String> body) {
+        String permCode = body.get("permissionCode");
+        if (permCode == null || permCode.isBlank()) {
+            throw new IllegalArgumentException("permissionCode required in request body");
+        }
+        authorizationService.addRoleScopePermission(roleId, permCode, scopeCode);
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/roles/{roleId}/scope-permissions/{scopeCode}/{permissionCode}")
+    public ResponseEntity<Void> removeRoleScopePermission(
+            @PathVariable String roleId, @PathVariable String scopeCode,
+            @PathVariable String permissionCode) {
+        authorizationService.removeRoleScopePermission(roleId, permissionCode, scopeCode);
         return ResponseEntity.noContent().build();
     }
 

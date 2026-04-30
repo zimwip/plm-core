@@ -38,14 +38,15 @@ public class ConfigSnapshotBuilder {
         var views = buildAttributeViews();
         var stateActions = buildStateActions();
         var nodeActionGuards = buildNodeActionGuards();
+        var sources = buildSources(algorithms);
         var entityMetadata = buildEntityMetadata();
 
-        log.info("Config snapshot v{} built ({} nodeTypes, {} lifecycles, {} actions, {} algorithms)",
-            version, nodeTypes.size(), lifecycles.size(), actions.size(), algorithms.size());
+        log.info("Config snapshot v{} built ({} nodeTypes, {} lifecycles, {} actions, {} algorithms, {} sources)",
+            version, nodeTypes.size(), lifecycles.size(), actions.size(), algorithms.size(), sources.size());
 
         return new ConfigSnapshot(version, nodeTypes, lifecycles, linkTypes, actions,
             permissions, authPolicies, algorithms, domains, enums, views,
-            stateActions, nodeActionGuards, entityMetadata);
+            stateActions, nodeActionGuards, sources, entityMetadata);
     }
 
     // ── Node types ───────────────────────────────────────────────
@@ -237,7 +238,8 @@ public class ConfigSnapshotBuilder {
 
             result.add(new LinkTypeConfig(
                 ltId, str(lt, "name"), str(lt, "description"),
-                str(lt, "source_node_type_id"), str(lt, "target_node_type_id"),
+                str(lt, "source_node_type_id"),
+                str(lt, "target_source_id"), str(lt, "target_type"),
                 str(lt, "link_policy"), intVal(lt, "min_cardinality"),
                 lt.get("max_cardinality", Integer.class),
                 str(lt, "link_logical_id_label"), str(lt, "link_logical_id_pattern"),
@@ -525,6 +527,32 @@ public class ConfigSnapshotBuilder {
                 str(r, "effect"), str(r, "override_action"),
                 intVal(r, "display_order")
             )).toList();
+    }
+
+    // ── Sources ──────────────────────────────────────────────────
+
+    private List<SourceConfig> buildSources(List<AlgorithmConfig> algorithms) {
+        Map<String, String> instanceToAlgoCode = new LinkedHashMap<>();
+        for (AlgorithmConfig alg : algorithms) {
+            if (alg.instances() != null) {
+                for (AlgorithmInstanceConfig inst : alg.instances()) {
+                    instanceToAlgoCode.put(inst.id(), alg.code());
+                }
+            }
+        }
+
+        List<SourceConfig> result = new ArrayList<>();
+        for (Record s : dsl.select().from("source").fetch()) {
+            String instanceId = str(s, "resolver_instance_id");
+            result.add(new SourceConfig(
+                str(s, "id"), str(s, "name"), str(s, "description"),
+                instanceId, instanceToAlgoCode.get(instanceId),
+                bool(s, "is_builtin"),
+                bool(s, "is_versioned"),
+                str(s, "color"), str(s, "icon")
+            ));
+        }
+        return result;
     }
 
     // ── Entity metadata ──────────────────────────────────────────

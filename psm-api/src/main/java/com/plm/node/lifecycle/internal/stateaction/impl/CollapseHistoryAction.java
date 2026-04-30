@@ -83,17 +83,24 @@ public class CollapseHistoryAction implements StateAction {
             .fetch()
             .map(r -> r.get("nv_id", String.class))
             .stream()
-            // Skip versions pinned by a baseline or VERSION_TO_VERSION link
-            .filter(id ->
-                dsl.fetchCount(
-                    dsl.selectOne().from("baseline_entry")
-                       .where("resolved_version_id = ?", id)
-                ) == 0 &&
-                dsl.fetchCount(
-                    dsl.selectOne().from("node_version_link")
-                       .where("pinned_version_id = ?", id)
-                ) == 0
-            )
+            // Skip versions pinned by a baseline or VERSION_TO_VERSION SELF link.
+            // V2V is now encoded in target_key as 'logical_id@versionNumber'; baseline
+            // entries store the same canonical key in resolved_key.
+            .filter(id -> {
+                org.jooq.Record meta = dsl.fetchOne("""
+                    SELECT n.logical_id, nv.version_number
+                    FROM node_version nv JOIN node n ON n.id = nv.node_id
+                    WHERE nv.id = ?
+                    """, id);
+                if (meta == null) return true;
+                String pinnedKey = meta.get("logical_id", String.class) + "@" + meta.get("version_number", Integer.class);
+                int blRefs = dsl.fetchCount(dsl.selectOne().from("baseline_entry")
+                    .where("resolved_key = ?", pinnedKey));
+                if (blRefs > 0) return false;
+                int linkRefs = dsl.fetchCount(dsl.selectOne().from("node_version_link")
+                    .where("target_source_id = 'SELF'").and("target_key = ?", pinnedKey));
+                return linkRefs == 0;
+            })
             .collect(Collectors.toList());
 
         if (toDelete.isEmpty()) return;

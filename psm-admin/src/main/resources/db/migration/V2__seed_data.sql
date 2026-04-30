@@ -12,7 +12,8 @@ INSERT INTO algorithm_type (id, name, description, java_interface) VALUES
   ('algtype-lifecycle-guard', 'Lifecycle Guard', 'Checks lifecycle transition preconditions',    'com.plm.domain.guard.Guard'),
   ('algtype-state-action',    'State Action',    'Actions executed when entering or exiting a lifecycle state', 'com.plm.domain.stateaction.StateAction'),
   ('algtype-action-wrapper',  'Action Wrapper',  'Middleware wrapping action execution',         'com.plm.action.ActionWrapper'),
-  ('algtype-action-handler',  'Action Handler',  'Executes a PLM action',                       'com.plm.shared.action.ActionHandler');
+  ('algtype-action-handler',  'Action Handler',  'Executes a PLM action',                       'com.plm.shared.action.ActionHandler'),
+  ('algtype-source-resolver', 'Source Resolver', 'Resolves a (type,key) pair to a target object hosted in a Source', 'com.plm.source.SourceResolver');
 
 -- ============================================================
 -- GUARD ALGORITHMS (V2)
@@ -60,6 +61,13 @@ INSERT INTO algorithm (id, algorithm_type_id, code, name, description, handler_r
   ('alg-handler-assign-domain',   'algtype-action-handler', 'assign_domain',   'Assign Domain Handler',   'Attach a domain to a node',   'assignDomainActionHandler'),
   ('alg-handler-unassign-domain', 'algtype-action-handler', 'unassign_domain', 'Unassign Domain Handler', 'Detach a domain from a node', 'unassignDomainActionHandler');
 
+-- Source Resolver Algorithms
+INSERT INTO algorithm (id, algorithm_type_id, code, name, description, handler_ref) VALUES
+  ('alg-self-node-resolver', 'algtype-source-resolver', 'self_node_resolver', 'SELF Node Resolver',
+   'Resolves links targeting nodes inside this PLM instance (logical_id[@version])', 'selfNodeResolver'),
+  ('alg-data-resolver',      'algtype-source-resolver', 'data_resolver',      'DST Data Resolver',
+   'Resolves links targeting binary data objects hosted in the dst service',           'dataResolver');
+
 -- ============================================================
 -- ALGORITHM PARAMETERS (V2)
 -- ============================================================
@@ -100,6 +108,19 @@ INSERT INTO algorithm_instance (id, algorithm_id, name) VALUES
   ('wi-tx-required', 'alg-wrapper-transaction', 'Transaction: REQUIRED'),
   ('wi-tx-auto-open','alg-wrapper-transaction', 'Transaction: AUTO_OPEN'),
   ('wi-tx-isolated', 'alg-wrapper-transaction', 'Transaction: ISOLATED');
+
+-- Source Resolver instances
+INSERT INTO algorithm_instance (id, algorithm_id, name) VALUES
+  ('ri-self-node',  'alg-self-node-resolver', 'SELF Node Resolver'),
+  ('ri-data-local', 'alg-data-resolver',      'DST Data Resolver (default)');
+
+-- Built-in SELF Source — represents the local PLM node store, immutable from UI.
+-- is_versioned governs whether the source's objects support a version axis: SELF=1
+-- (PSM nodes carry version_number), DATA_LOCAL=0 (dst data objects are immutable).
+-- Admin link-type validation rejects VERSION_TO_VERSION on a non-versioned source.
+INSERT INTO source (id, name, description, resolver_instance_id, is_builtin, is_versioned) VALUES
+  ('SELF',       'Self', 'The local PLM node store. Targets are nodes referenced by their logical_id, optionally pinned with @versionNumber.', 'ri-self-node', 1, 1),
+  ('DATA_LOCAL', 'Data Store', 'Binary data objects hosted in the dst service. Target type is filetype; key is the data UUID returned at upload.', 'ri-data-local', 0, 0);
 
 -- Handler instances
 INSERT INTO algorithm_instance (id, algorithm_id, name) VALUES
@@ -156,7 +177,7 @@ INSERT INTO lifecycle_transition (id, lifecycle_id, name, from_state_id, to_stat
 
 INSERT INTO signature_requirement (id, lifecycle_transition_id, role_required, display_order) VALUES
   ('sr-rel-01', 'tr-release', 'role-reviewer', 10),
-  ('sr-rel-02', 'tr-release', 'role-admin',    20);
+  ('sr-rel-02', 'tr-release', 'role-designer', 20);
 
 -- Entity Metadata
 INSERT INTO entity_metadata (id, target_type, target_id, meta_key, meta_value) VALUES
@@ -169,9 +190,10 @@ INSERT INTO entity_metadata (id, target_type, target_id, meta_key, meta_value) V
 -- NODE TYPES + ATTRIBUTES (V3)
 -- ============================================================
 
-INSERT INTO node_type (id, name, description, lifecycle_id, logical_id_label, logical_id_pattern) VALUES
-  ('nt-document', 'Document', 'Technical PLM document', 'lc-standard', 'Document Number', '[A-Z]{3}-\d{4}'),
-  ('nt-part',     'Part',     'Mechanical part or assembly', 'lc-standard', 'Part Number', 'P-\d{6}');
+INSERT INTO node_type (id, name, description, lifecycle_id, logical_id_label, logical_id_pattern, color, icon, parent_node_type_id) VALUES
+  ('nt-document', 'Document', 'Technical PLM document',                                       'lc-standard', 'Document Number', '[A-Z]{3}-\d{4}', '#6366f1', 'FileText', NULL),
+  ('nt-part',     'Part',     'Mechanical part',                                              'lc-standard', 'Part Number',     'P-\d{6}',        '#10b981', 'Cog',      NULL),
+  ('nt-assembly', 'Assembly', 'Composed assembly of Parts and sub-Assemblies (inherits Part)','lc-standard', 'Assembly Number', 'P-\d{6}',        '#f97316', 'Blocks',   'nt-part');
 
 INSERT INTO attribute_definition
   (id, node_type_id, name, label, data_type, required, widget_type, display_order, display_section) VALUES
@@ -231,10 +253,11 @@ INSERT INTO attribute_state_rule (id, attribute_definition_id, lifecycle_state_i
 -- LINK TYPES + CASCADES (V3)
 -- ============================================================
 
-INSERT INTO link_type (id, name, description, source_node_type_id, target_node_type_id, link_policy, link_logical_id_label) VALUES
-  ('lt-composed-of', 'composed_of',   'Part -> Part composition',      'nt-part', 'nt-part',     'VERSION_TO_MASTER',  'Assembly Ref'),
-  ('lt-doc-part',    'documented_by', 'Document references a Part',   'nt-part', 'nt-document', 'VERSION_TO_VERSION', 'Doc Ref'),
-  ('lt-supersedes',  'supersedes',    'Part supersedes another Part', 'nt-part', 'nt-part',     'VERSION_TO_VERSION', 'Supersession Ref');
+INSERT INTO link_type (id, name, description, source_node_type_id, target_source_id, target_type, link_policy, link_logical_id_label) VALUES
+  ('lt-composed-of', 'composed_of',   'Assembly -> Assembly composition', 'nt-assembly', 'SELF', 'nt-assembly', 'VERSION_TO_MASTER',  'Assembly Ref'),
+  ('lt-doc-part',    'documented_by', 'Document references a Part',   'nt-part',     'SELF', 'nt-document', 'VERSION_TO_VERSION', 'Doc Ref'),
+  ('lt-supersedes',  'supersedes',    'Part supersedes another Part', 'nt-part',     'SELF',       'nt-part',     'VERSION_TO_VERSION', 'Supersession Ref'),
+  ('lt-part-data',   'represented_by','Part represented by a binary data object hosted in DST', 'nt-part', 'DATA_LOCAL', 'filetype', 'VERSION_TO_VERSION', 'File Ref');
 
 INSERT INTO link_type_cascade (id, link_type_id, parent_transition_id, child_from_state_id, child_transition_id) VALUES
   ('ltc-composed-freeze', 'lt-composed-of', 'tr-freeze', 'st-inwork', 'tr-freeze');
@@ -299,11 +322,16 @@ INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type,
 INSERT INTO action_parameter (id, action_id, param_name, param_label, data_type, required, widget_type, display_order) VALUES
   ('nap-bl-name', 'act-baseline', 'name',        'Baseline Name', 'STRING', 1, 'TEXT',     1),
   ('nap-bl-desc', 'act-baseline', 'description', 'Description',   'STRING', 0, 'TEXTAREA', 2),
-  ('nap-lnk-type',   'act-create-link', 'linkTypeId',    'Link Type',   'ENUM',     1, 'DROPDOWN', 1),
-  ('nap-lnk-target', 'act-create-link', 'targetNodeId',  'Target Node', 'NODE_REF', 1, 'DROPDOWN', 2),
-  ('nap-lnk-lid',    'act-create-link', 'linkLogicalId', 'Link ID',     'STRING',   1, 'TEXT',     3),
-  ('nap-ul-linkid',  'act-update-link', 'linkId',    'Link ID',         'STRING', 1, 'TEXT', 1),
-  ('nap-ul-logid',   'act-update-link', 'logicalId', 'Link Logical ID', 'STRING', 0, 'TEXT', 2),
+  ('nap-lnk-type',    'act-create-link', 'linkTypeId',        'Link Type',    'ENUM',   1, 'DROPDOWN', 1),
+  ('nap-lnk-src',     'act-create-link', 'targetSourceCode',  'Target Source','STRING', 1, 'DROPDOWN', 2),
+  ('nap-lnk-ttype',   'act-create-link', 'targetType',        'Target Type',  'STRING', 1, 'DROPDOWN', 3),
+  ('nap-lnk-tkey',    'act-create-link', 'targetKey',         'Target Key',   'STRING', 1, 'TEXT',     4),
+  ('nap-lnk-lid',     'act-create-link', 'linkLogicalId',     'Link ID',      'STRING', 1, 'TEXT',     5),
+  ('nap-ul-linkid',   'act-update-link', 'linkId',            'Link ID',      'STRING', 1, 'TEXT', 1),
+  ('nap-ul-src',      'act-update-link', 'targetSourceCode',  'Target Source','STRING', 0, 'DROPDOWN', 2),
+  ('nap-ul-ttype',    'act-update-link', 'targetType',        'Target Type',  'STRING', 0, 'DROPDOWN', 3),
+  ('nap-ul-tkey',     'act-update-link', 'targetKey',         'Target Key',   'STRING', 0, 'TEXT', 4),
+  ('nap-ul-logid',    'act-update-link', 'logicalId',         'Link Logical ID','STRING', 0, 'TEXT', 5),
   ('nap-dl-linkid',  'act-delete-link', 'linkId', 'Link ID', 'STRING', 1, 'TEXT', 1),
   ('nap-ad-domain',  'act-assign-domain',   'domainId', 'Domain', 'ENUM', 1, 'DROPDOWN', 1),
   ('nap-ud-domain',  'act-unassign-domain', 'domainId', 'Domain', 'ENUM', 1, 'DROPDOWN', 1);
@@ -372,7 +400,10 @@ INSERT INTO permission (permission_code, scope, display_name, description, displ
   ('MANAGE_PNO',       'GLOBAL',    'Manage PnO',                 'Access People & Organisation settings',                              0),
   ('MANAGE_PLATFORM',  'GLOBAL',    'Manage Platform',            'Access platform configuration settings',                             0),
   ('MANAGE_PSM',       'GLOBAL',    'Manage PSM',                 'Access application settings',                                        0),
-  ('MANAGE_SECRETS',   'GLOBAL',    'Manage Secrets',             'Administrate Vault-backed secrets',                                  0);
+  ('MANAGE_SECRETS',   'GLOBAL',    'Manage Secrets',             'Administrate Vault-backed secrets',                                  0),
+  ('READ_DATA',        'DATA',      'Read Data',                  'Download stored data and read metadata',                            210),
+  ('WRITE_DATA',       'DATA',      'Write Data',                 'Upload new data into the data store',                               220),
+  ('MANAGE_DATA',      'DATA',      'Manage Data',                'Administer data store entries (delete, purge)',                     230);
 
 -- ============================================================
 -- ACTION -> PERMISSION MAPPINGS (V5 + V6 + V7 + V10)
@@ -395,58 +426,6 @@ INSERT INTO action_required_permission (id, action_id, permission_code) VALUES
   ('arp-create-node-create', 'act-create-node', 'CREATE_NODE'),
   ('arp-assign-domain',   'act-assign-domain',   'UPDATE_NODE'),
   ('arp-unassign-domain', 'act-unassign-domain', 'UPDATE_NODE');
-
--- ============================================================
--- AUTHORIZATION POLICIES (V5 + V6 + V9 + V15 + V16, without project_space_id)
--- ============================================================
-
-INSERT INTO authorization_policy (id, permission_code, scope, role_id, node_type_id, transition_id) VALUES
-  -- READ (GLOBAL)
-  ('ap-read-g-designer', 'READ', 'GLOBAL', 'role-designer', NULL, NULL),
-  ('ap-read-g-reviewer', 'READ', 'GLOBAL', 'role-reviewer', NULL, NULL),
-  ('ap-read-g-reader',   'READ', 'GLOBAL', 'role-reader',   NULL, NULL),
-  -- UPDATE (GLOBAL)
-  ('ap-update-designer', 'UPDATE', 'GLOBAL', 'role-designer', NULL, NULL),
-  ('ap-update-reviewer', 'UPDATE', 'GLOBAL', 'role-reviewer', NULL, NULL),
-  -- READ_NODE
-  ('ap-rn-d-doc', 'READ_NODE', 'NODE', 'role-designer', 'nt-document', NULL),
-  ('ap-rn-d-prt', 'READ_NODE', 'NODE', 'role-designer', 'nt-part',     NULL),
-  ('ap-rn-r-doc', 'READ_NODE', 'NODE', 'role-reviewer', 'nt-document', NULL),
-  ('ap-rn-r-prt', 'READ_NODE', 'NODE', 'role-reviewer', 'nt-part',     NULL),
-  ('ap-rn-o-doc', 'READ_NODE', 'NODE', 'role-reader',   'nt-document', NULL),
-  ('ap-rn-o-prt', 'READ_NODE', 'NODE', 'role-reader',   'nt-part',     NULL),
-  -- CREATE_NODE
-  ('ap-cn-d-doc', 'CREATE_NODE', 'NODE', 'role-designer', 'nt-document', NULL),
-  ('ap-cn-d-prt', 'CREATE_NODE', 'NODE', 'role-designer', 'nt-part',     NULL),
-  -- UPDATE_NODE
-  ('ap-un-d-doc', 'UPDATE_NODE', 'NODE', 'role-designer', 'nt-document', NULL),
-  ('ap-un-d-prt', 'UPDATE_NODE', 'NODE', 'role-designer', 'nt-part',     NULL),
-  -- SIGN
-  ('ap-sg-r-doc', 'SIGN', 'NODE', 'role-reviewer', 'nt-document', NULL),
-  ('ap-sg-r-prt', 'SIGN', 'NODE', 'role-reviewer', 'nt-part',     NULL),
-  -- TRANSITION per transition
-  ('ap-tr-d-doc-freeze',   'TRANSITION', 'LIFECYCLE', 'role-designer', 'nt-document', 'tr-freeze'),
-  ('ap-tr-a-doc-freeze',   'TRANSITION', 'LIFECYCLE', 'role-admin',    'nt-document', 'tr-freeze'),
-  ('ap-tr-d-prt-freeze',   'TRANSITION', 'LIFECYCLE', 'role-designer', 'nt-part',     'tr-freeze'),
-  ('ap-tr-a-prt-freeze',   'TRANSITION', 'LIFECYCLE', 'role-admin',    'nt-part',     'tr-freeze'),
-  ('ap-tr-a-doc-unfreeze', 'TRANSITION', 'LIFECYCLE', 'role-admin',    'nt-document', 'tr-unfreeze'),
-  ('ap-tr-a-prt-unfreeze', 'TRANSITION', 'LIFECYCLE', 'role-admin',    'nt-part',     'tr-unfreeze'),
-  ('ap-tr-r-doc-release',  'TRANSITION', 'LIFECYCLE', 'role-reviewer', 'nt-document', 'tr-release'),
-  ('ap-tr-a-doc-release',  'TRANSITION', 'LIFECYCLE', 'role-admin',    'nt-document', 'tr-release'),
-  ('ap-tr-r-prt-release',  'TRANSITION', 'LIFECYCLE', 'role-reviewer', 'nt-part',     'tr-release'),
-  ('ap-tr-a-prt-release',  'TRANSITION', 'LIFECYCLE', 'role-admin',    'nt-part',     'tr-release'),
-  ('ap-tr-d-doc-revise',   'TRANSITION', 'LIFECYCLE', 'role-designer', 'nt-document', 'tr-revise'),
-  ('ap-tr-a-doc-revise',   'TRANSITION', 'LIFECYCLE', 'role-admin',    'nt-document', 'tr-revise'),
-  ('ap-tr-d-prt-revise',   'TRANSITION', 'LIFECYCLE', 'role-designer', 'nt-part',     'tr-revise'),
-  ('ap-tr-a-prt-revise',   'TRANSITION', 'LIFECYCLE', 'role-admin',    'nt-part',     'tr-revise'),
-  ('ap-tr-a-doc-obsolete', 'TRANSITION', 'LIFECYCLE', 'role-admin',    'nt-document', 'tr-obsolete'),
-  ('ap-tr-a-prt-obsolete', 'TRANSITION', 'LIFECYCLE', 'role-admin',    'nt-part',     'tr-obsolete'),
-  -- GLOBAL admin permissions
-  ('ap-gl-bl-admin',      'MANAGE_BASELINES', 'GLOBAL', 'role-admin', NULL, NULL),
-  ('ap-gl-pno-admin',     'MANAGE_PNO',       'GLOBAL', 'role-admin', NULL, NULL),
-  ('ap-gl-plat-admin',    'MANAGE_PLATFORM',  'GLOBAL', 'role-admin', NULL, NULL),
-  ('ap-gl-psm-admin',     'MANAGE_PSM',       'GLOBAL', 'role-admin', NULL, NULL),
-  ('ap-gl-secrets-admin', 'MANAGE_SECRETS',   'GLOBAL', 'role-admin', NULL, NULL);
 
 -- ============================================================
 -- DOMAIN SEED DATA (V11)

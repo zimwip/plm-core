@@ -52,8 +52,11 @@ export default function NodeEditor({
   const [linkPanel,       setLinkPanel]      = useState(false);
   const [linkTypes,       setLinkTypes]      = useState([]);
   const [allNodes,        setAllNodes]       = useState([]);
+  const [sourcesById,     setSourcesById]    = useState({});
   const [selLinkType,     setSelLinkType]    = useState('');
   const [selTarget,       setSelTarget]      = useState('');
+  const [selTargetKey,    setSelTargetKey]   = useState('');
+  const [keySuggestions,  setKeySuggestions] = useState([]);
   const [linkLogicalId,   setLinkLogicalId]  = useState('');
   const [linkLoading,     setLinkLoading]    = useState(false);
   const [editingLinkId,    setEditingLinkId]    = useState(null);
@@ -233,11 +236,14 @@ export default function NodeEditor({
     // preselect: { nodeId, nodeTypeId, logicalId, typeName } from drag-and-drop
     setSelLinkType('');
     setSelTarget(preselect?.nodeId || '');
+    setSelTargetKey('');
+    setKeySuggestions([]);
     setLinkLogicalId('');
     try {
-      const [lts, nodes] = await Promise.all([
+      const [lts, nodes, srcs] = await Promise.all([
         api.getNodeTypeLinkTypes(userId, desc.nodeTypeId).catch(() => []),
         api.listNodes(userId).catch(() => ({})),
+        api.getSources(userId).catch(() => []),
       ]);
 
       let filteredLts = Array.isArray(lts) ? lts : [];
@@ -258,35 +264,68 @@ export default function NodeEditor({
       setLinkTypes(filteredLts);
       const nodeItems = Array.isArray(nodes) ? nodes : (nodes?.items ?? []);
       setAllNodes(nodeItems.filter(n => (n.id || n.ID) !== nodeId));
+      const byId = {};
+      (Array.isArray(srcs) ? srcs : []).forEach(s => { byId[s.id] = s; });
+      setSourcesById(byId);
       setLinkPanel(true);
     } catch (e) { toast(e, 'error'); }
   }
 
+  // Load resolver-suggested target keys for non-SELF sources as the user types.
+  // Defensive: empty list on failure (sources without a list endpoint return [] anyway).
+  async function loadKeySuggestions(sourceId, type, query) {
+    try {
+      const out = await api.getSourceKeys(userId, sourceId, type, query, 25);
+      setKeySuggestions(Array.isArray(out) ? out : []);
+    } catch {
+      setKeySuggestions([]);
+    }
+  }
+
   async function handleCreateLink() {
-    if (!selLinkType || !selTarget) return;
+    if (!selLinkType) return;
+    const lt = linkTypes.find(l => (l.id || l.ID) === selLinkType);
+    const sourceId  = lt?.target_source_id || lt?.TARGET_SOURCE_ID || 'SELF';
+    const targetType = lt?.target_type     || lt?.TARGET_TYPE     || null;
+    const isSelfSource = sourceId === 'SELF';
+
+    // SELF sources still pick from the in-memory node list (logical_id is the key).
+    // Non-SELF sources collect a free-text / autocomplete key from selTargetKey
+    // and forward (source, type, key) explicitly so the resolver can validate it.
+    let targetKey;
+    if (isSelfSource) {
+      if (!selTarget) return;
+      const tgt = allNodes.find(n => (n.id || n.ID) === selTarget);
+      targetKey = tgt?.logical_id || tgt?.LOGICAL_ID;
+      if (!targetKey) { toast(new Error('Target node has no logical_id'), 'error'); return; }
+    } else {
+      if (!selTargetKey) return;
+      targetKey = selTargetKey;
+    }
+
     setLinkLoading(true);
     try {
-      // Ensure an open transaction exists — auto-open one if not.
-      // The tx stays OPEN after creation: the user must commit explicitly,
-      // consistent with all other write operations.
       const activeTxId = txId || await onAutoOpenTx();
       if (!activeTxId) return;
 
       const createLinkAction = desc.actions?.find(a => a.actionCode === 'create_link');
       if (!createLinkAction) throw new Error('create_link action not available for this node type');
 
-      // V2V pinning is resolved server-side by CreateLinkActionHandler
       await authoringApi.executeAction(nodeId, createLinkAction.actionCode, userId, activeTxId, {
-        linkTypeId:    selLinkType,
-        targetNodeId:  selTarget,
+        linkTypeId:        selLinkType,
+        targetSourceCode:  sourceId,
+        ...(targetType ? { targetType } : {}),
+        targetKey,
         linkLogicalId: linkLogicalId || '',
       });
       toast('Link created', 'success');
       setLinkPanel(false);
       setLinkLogicalId('');
+      setSelTargetKey('');
+      setKeySuggestions([]);
       setPbsLoaded(false);
-      await refreshTx();        // updates activeTx in store before load() reads it
-      await load();             // refresh view to show OPEN version + new link
+      await refreshTx();
+      await load();
     } catch (e) {
       toast(e, 'error');
     } finally { setLinkLoading(false); }
@@ -299,8 +338,14 @@ export default function NodeEditor({
     try {
       const activeTxId = txId || await onAutoOpenTx();
       if (!activeTxId) return;
+      // newTargetNodeId is a node id (legacy); resolve to logical_id and send as targetKey.
+      let targetKey;
+      if (newTargetNodeId) {
+        const tgt = allNodes.find(n => (n.id || n.ID) === newTargetNodeId);
+        targetKey = tgt?.logical_id || tgt?.LOGICAL_ID || newTargetNodeId;
+      }
       await authoringApi.executeAction(nodeId, updateLinkAction.actionCode, userId, activeTxId,
-        { linkId, logicalId: newLogicalId, targetNodeId: newTargetNodeId });
+        { linkId, logicalId: newLogicalId, targetKey });
       setEditingLinkId(null);
       await refreshTx();
       setPbsLoaded(false);
@@ -771,8 +816,12 @@ export default function NodeEditor({
                 : { value: v, label: v })
             : null;
           const enumCodes = enumValues ? enumValues.map(e => e.value) : null;
-          const regexViolation = attr.namingRegex && edits[attr.id] != null &&
-            edits[attr.id] !== '' && !new RegExp(attr.namingRegex).test(edits[attr.id]);
+          const regex = attr.namingRegex
+            ? (() => { try { return new RegExp(attr.namingRegex); } catch { return null; } })()
+            : null;
+          const trimmedVal = (currentVal || '').trim();
+          const regexMatches = !regex || !trimmedVal ? null : regex.test(trimmedVal);
+          const regexViolation = regexMatches === false;
           const requiredViolation = attr.required && edits[attr.id] === '';
           const enumViolation = enumCodes && edits[attr.id] != null &&
             edits[attr.id] !== '' && !enumCodes.includes(edits[attr.id]);
@@ -806,21 +855,48 @@ export default function NodeEditor({
                   {enumValues.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
                 </select>
               ) : (
-                <input
-                  className={`field-input${requiredViolation || enumViolation ? ' error' : ''}`}
-                  readOnly={!isEditable}
-                  title={attr.tooltip || undefined}
-                  value={currentVal}
-                  onChange={e => {
-                    if (!isEditable) return;
-                    const newEdits = { ...edits, [attr.id]: e.target.value };
-                    setEdits(newEdits);
-                    scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
-                  }}
-                />
+                <div className="logical-id-wrap">
+                  <input
+                    className={`field-input${
+                      requiredViolation || enumViolation || regexViolation ? ' error'
+                      : regexMatches === true                                ? ' ok'
+                      : ''
+                    }`}
+                    readOnly={!isEditable}
+                    title={attr.tooltip || undefined}
+                    placeholder={attr.tooltip || (attr.namingRegex ? `pattern: ${attr.namingRegex}` : '')}
+                    value={currentVal}
+                    onChange={e => {
+                      if (!isEditable) return;
+                      const newEdits = { ...edits, [attr.id]: e.target.value };
+                      setEdits(newEdits);
+                      scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
+                    }}
+                  />
+                  {trimmedVal && regex && (
+                    <span className={`logical-id-badge ${regexMatches ? 'ok' : 'err'}`}>
+                      {regexMatches ? '✓' : '✗'}
+                    </span>
+                  )}
+                </div>
               )}
-              {regexViolation && (
-                <span className="field-hint warn">Format: {attr.namingRegex}</span>
+              {!enumValues && attr.namingRegex && (
+                <div className="logical-id-hint">
+                  <span className="logical-id-hint-label">Pattern</span>
+                  <code className="logical-id-hint-code">{attr.namingRegex}</code>
+                  {!trimmedVal && (
+                    <span className="logical-id-hint-idle">start typing to validate</span>
+                  )}
+                  {trimmedVal && regexMatches === false && (
+                    <span className="logical-id-hint-err">no match</span>
+                  )}
+                  {trimmedVal && regexMatches === true && (
+                    <span className="logical-id-hint-ok">matches</span>
+                  )}
+                </div>
+              )}
+              {!attr.namingRegex && attr.tooltip && (
+                <span className="field-hint">{attr.tooltip}</span>
               )}
               {requiredViolation && (
                 <span className="field-hint error">Required</span>
@@ -954,9 +1030,14 @@ export default function NodeEditor({
           {linkPanel && (() => {
             const selectedLt     = linkTypes.find(lt => (lt.id || lt.ID) === selLinkType);
             const ltPolicy       = selectedLt?.link_policy || selectedLt?.LINK_POLICY || null;
+            const ltSourceId     = selectedLt?.target_source_id || selectedLt?.TARGET_SOURCE_ID || 'SELF';
+            const ltTargetType   = selectedLt?.target_type || selectedLt?.TARGET_TYPE || null;
+            const ltSource       = sourcesById[ltSourceId] || null;
+            const isSelfSource   = ltSourceId === 'SELF';
             const ltIdLabel      = selectedLt?.link_logical_id_label  || selectedLt?.LINK_LOGICAL_ID_LABEL  || 'Link ID';
             const ltIdPattern    = selectedLt?.link_logical_id_pattern || selectedLt?.LINK_LOGICAL_ID_PATTERN || null;
             const patternOk      = !ltIdPattern || !linkLogicalId || new RegExp(`^(?:${ltIdPattern})$`).test(linkLogicalId);
+            const targetReady    = isSelfSource ? !!selTarget : !!selTargetKey;
             return (
               <div ref={linkPanelRef} className="link-panel" style={{ flexWrap: 'wrap', rowGap: 6 }}>
                 {!txId && (
@@ -984,26 +1065,58 @@ export default function NodeEditor({
                   </div>
 
                   <div className="field" style={{ margin: 0, flex: 1 }}>
-                    <label className="field-label">Target node</label>
-                    <select
-                      className="field-input"
-                      value={selTarget}
-                      onChange={e => setSelTarget(e.target.value)}
-                    >
-                      <option value="">— select —</option>
-                      {allNodes.map(n => {
-                        const nid  = n.id  || n.ID;
-                        const lid  = n.logical_id  || n.LOGICAL_ID  || '';
-                        const type = n.node_type_name || n.NODE_TYPE_NAME || '';
-                        const rev  = n.revision  || n.REVISION  || '';
-                        const iter = n.iteration ?? n.ITERATION ?? '';
-                        return (
-                          <option key={nid} value={nid}>
-                            {lid || nid.slice(0, 8)} — {type} {iter === 0 ? rev : `${rev}.${iter}`}
-                          </option>
-                        );
-                      })}
-                    </select>
+                    <label className="field-label">
+                      Target {ltSource ? <span style={{ opacity: .55, fontWeight: 400, fontSize: 10 }}>
+                        — source: {ltSource.name}{ltSource.versioned ? '' : ' (immutable)'}
+                      </span> : null}
+                    </label>
+                    {isSelfSource ? (
+                      <select
+                        className="field-input"
+                        value={selTarget}
+                        onChange={e => setSelTarget(e.target.value)}
+                      >
+                        <option value="">— select —</option>
+                        {allNodes.map(n => {
+                          const nid  = n.id  || n.ID;
+                          const lid  = n.logical_id  || n.LOGICAL_ID  || '';
+                          const type = n.node_type_name || n.NODE_TYPE_NAME || '';
+                          const rev  = n.revision  || n.REVISION  || '';
+                          const iter = n.iteration ?? n.ITERATION ?? '';
+                          return (
+                            <option key={nid} value={nid}>
+                              {lid || nid.slice(0, 8)} — {type} {iter === 0 ? rev : `${rev}.${iter}`}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : (
+                      <>
+                        <input
+                          className="field-input"
+                          list={`src-keys-${ltSourceId}`}
+                          type="text"
+                          placeholder={ltTargetType ? `${ltTargetType} key (UUID, path, …)` : 'Target key'}
+                          value={selTargetKey}
+                          onChange={e => {
+                            const v = e.target.value;
+                            setSelTargetKey(v);
+                            if (v.length >= 1) loadKeySuggestions(ltSourceId, ltTargetType, v);
+                            else setKeySuggestions([]);
+                          }}
+                          onFocus={() => loadKeySuggestions(ltSourceId, ltTargetType, selTargetKey)}
+                        />
+                        {keySuggestions.length > 0 && (
+                          <datalist id={`src-keys-${ltSourceId}`}>
+                            {keySuggestions.map(s => (
+                              <option key={s.key || s.KEY} value={s.key || s.KEY}>
+                                {s.label || s.LABEL || s.key || s.KEY}
+                              </option>
+                            ))}
+                          </datalist>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   {ltPolicy && (
@@ -1050,7 +1163,7 @@ export default function NodeEditor({
                   <button
                     className="btn btn-primary btn-sm"
                     style={{ alignSelf: 'flex-end' }}
-                    disabled={!selLinkType || !selTarget || !linkLogicalId || !patternOk || linkLoading}
+                    disabled={!selLinkType || !targetReady || !linkLogicalId || !patternOk || linkLoading}
                     onClick={handleCreateLink}
                   >
                     {linkLoading ? '…' : 'Create'}

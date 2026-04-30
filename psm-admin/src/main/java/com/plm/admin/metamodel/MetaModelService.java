@@ -126,7 +126,10 @@ public class MetaModelService {
         dsl.execute("DELETE FROM attribute_state_rule WHERE attribute_definition_id IN (SELECT id FROM attribute_definition WHERE node_type_id = ?)", nodeTypeId);
         dsl.execute("DELETE FROM view_attribute_override WHERE attribute_def_id IN (SELECT id FROM attribute_definition WHERE node_type_id = ?)", nodeTypeId);
         dsl.execute("DELETE FROM attribute_definition WHERE node_type_id = ?", nodeTypeId);
-        dsl.execute("DELETE FROM link_type WHERE source_node_type_id = ? OR target_node_type_id = ?", nodeTypeId, nodeTypeId);
+        dsl.execute(
+            "DELETE FROM link_type WHERE source_node_type_id = ? "
+            + "OR (target_source_id = 'SELF' AND target_type = ?)",
+            nodeTypeId, nodeTypeId);
         // authorization_policy lives in pno-api — cascade via NATS NODE_TYPE_DELETED handled by AuthorizationCascadeListener.
         dsl.execute("DELETE FROM action_param_override WHERE node_type_id = ?", nodeTypeId);
         dsl.execute("DELETE FROM node_action_guard WHERE node_type_id = ?", nodeTypeId);
@@ -251,28 +254,45 @@ public class MetaModelService {
 
     public List<Record> getLinkTypesByNodeType(String nodeTypeId) {
         return dsl.select().from("link_type")
-            .where("source_node_type_id = ? OR target_node_type_id = ?", nodeTypeId, nodeTypeId)
+            .where("source_node_type_id = ? "
+                 + "OR (target_source_id = 'SELF' AND target_type = ?)",
+                   nodeTypeId, nodeTypeId)
             .orderBy(DSL.field("name"))
             .fetch();
     }
 
     @Transactional
     public String createLinkType(String name, String description,
-                                 String sourceNodeTypeId, String targetNodeTypeId,
+                                 String sourceNodeTypeId,
+                                 String targetSourceId, String targetType,
                                  String linkPolicy, int minCardinality, Integer maxCardinality,
                                  String linkLogicalIdLabel, String linkLogicalIdPattern,
                                  String color, String icon) {
         if (!linkPolicy.equals("VERSION_TO_MASTER") && !linkPolicy.equals("VERSION_TO_VERSION")) {
             throw new IllegalArgumentException("linkPolicy must be VERSION_TO_MASTER or VERSION_TO_VERSION");
         }
+        if (targetType == null || targetType.isBlank()) {
+            throw new IllegalArgumentException("targetType is required");
+        }
+        String src = (targetSourceId == null || targetSourceId.isBlank()) ? "SELF" : targetSourceId;
+        Record srcRow = dsl.select(DSL.field("is_versioned", Integer.class))
+            .from("source").where("id = ?", src).fetchOne();
+        if (srcRow == null) throw new IllegalArgumentException("Unknown source: " + src);
+        boolean versioned = srcRow.get("is_versioned", Integer.class) != null
+            && srcRow.get("is_versioned", Integer.class) != 0;
+        if ("VERSION_TO_VERSION".equals(linkPolicy) && !versioned) {
+            throw new IllegalArgumentException("linkPolicy VERSION_TO_VERSION requires a versioned source; "
+                + src + " is not versioned");
+        }
         String id = UUID.randomUUID().toString();
         dsl.execute("""
-            INSERT INTO link_type (ID, NAME, DESCRIPTION, SOURCE_NODE_TYPE_ID, TARGET_NODE_TYPE_ID,
+            INSERT INTO link_type (ID, NAME, DESCRIPTION, SOURCE_NODE_TYPE_ID,
+               TARGET_SOURCE_ID, TARGET_TYPE,
                LINK_POLICY, MIN_CARDINALITY, MAX_CARDINALITY,
                LINK_LOGICAL_ID_LABEL, LINK_LOGICAL_ID_PATTERN, COLOR, ICON, CREATED_AT)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            id, name, description, sourceNodeTypeId, targetNodeTypeId,
+            id, name, description, sourceNodeTypeId, src, targetType,
             linkPolicy, minCardinality, maxCardinality,
             (linkLogicalIdLabel != null && !linkLogicalIdLabel.isBlank()) ? linkLogicalIdLabel : "Link ID",
             (linkLogicalIdPattern != null && !linkLogicalIdPattern.isBlank()) ? linkLogicalIdPattern : null,
@@ -291,6 +311,20 @@ public class MetaModelService {
         String pattern = (String) params.get("linkLogicalIdPattern");
         String color = (String) params.get("color");
         String icon  = (String) params.get("icon");
+        if ("VERSION_TO_VERSION".equals(policy)) {
+            String src = dsl.select(DSL.field("target_source_id", String.class))
+                .from("link_type").where("id = ?", linkTypeId)
+                .fetchOne(DSL.field("target_source_id", String.class));
+            if (src != null) {
+                Integer versioned = dsl.select(DSL.field("is_versioned", Integer.class))
+                    .from("source").where("id = ?", src)
+                    .fetchOne(DSL.field("is_versioned", Integer.class));
+                if (versioned == null || versioned == 0) {
+                    throw new IllegalArgumentException("linkPolicy VERSION_TO_VERSION requires a versioned source; "
+                        + src + " is not versioned");
+                }
+            }
+        }
         dsl.execute("""
             UPDATE link_type SET NAME = ?, DESCRIPTION = ?, LINK_POLICY = ?,
               MIN_CARDINALITY = ?, MAX_CARDINALITY = ?,

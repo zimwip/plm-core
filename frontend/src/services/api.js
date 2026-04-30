@@ -159,6 +159,43 @@ async function platformRequest(method, path, _userId, body) {
   return doFetch(BASE_PLATFORM, method, path, body);
 }
 
+// Generic resource-create dispatcher used by the federated create modal.
+// `values` is the form payload, possibly including File objects for MULTIPART.
+async function submitResourceCreate(action, values) {
+  const url = action.path;
+  const method = (action.httpMethod || 'POST').toUpperCase();
+  const headers = {};
+  if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
+  if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+
+  let body;
+  if ((action.bodyShape || 'RAW').toUpperCase() === 'MULTIPART') {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(values || {})) {
+      if (v == null || v === '') continue;
+      fd.append(k, v);
+    }
+    body = fd; // browser sets multipart Content-Type with boundary
+  } else {
+    headers['Content-Type'] = 'application/json';
+    const payload = (action.bodyShape || 'RAW').toUpperCase() === 'WRAPPED'
+      ? { parameters: values || {} }
+      : (values || {});
+    body = JSON.stringify(payload);
+  }
+
+  const res = await timedFetch(url, { method, headers, body }, method);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ error: res.statusText }));
+    const err = new Error(detail.error || `HTTP ${res.status}`);
+    err.detail = detail;
+    if (_onError) _onError(err);
+    throw err;
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
 async function request(method, path, _userId, body, psOverride) {
   return doFetch(BASE, method, path, body, { psOverride });
 }
@@ -210,10 +247,6 @@ export const api = {
   // Lister les types de noeuds disponibles
   getNodeTypes: (userId) =>
     adminRequest('GET', '/metamodel/nodetypes', userId),
-
-  // Lister les types de noeuds que l'utilisateur courant peut créer (permission-filtered, served by psm-api)
-  getCreatableNodeTypes: (userId) =>
-    request('GET', '/nodes/nodetypes/creatable', userId),
 
   // Lister tous les noeuds (dernière version committée)
   listNodes: (userId, page = 0, size = 50) =>
@@ -269,6 +302,56 @@ export const api = {
 
   getNodeTypeLinkTypes: (userId, nodeTypeId) =>
     adminRequest('GET', `/metamodel/nodetypes/${nodeTypeId}/linktypes`, userId),
+
+  // Service registry / federation overview — proxied via platform-api so the
+  // browser doesn't need spe-api's X-Service-Secret. Admin only.
+  getRegistryGrouped: (userId) =>
+    platformRequest('GET', '/admin/registry/grouped', userId),
+  getRegistryTagsAdmin: (userId) =>
+    platformRequest('GET', '/admin/registry/tags', userId),
+  getRegistryOverview: (userId) =>
+    platformRequest('GET', '/admin/registry/overview', userId),
+
+  // Federated browse catalog from platform-api: listable descriptors aggregated
+  // and filtered per user across all source services. Frontend then calls each
+  // descriptor's listAction.path (already gateway-relative) to fetch items.
+  getBrowse: (userId) =>
+    platformRequest('GET', '/browse', userId),
+
+  // Generic federated list call: hits descriptor.listAction.path with paging.
+  // The path is gateway-relative ('/api/<svc>/...') so we call it directly via
+  // fetch and prepend the standard auth + project-space headers.
+  fetchListableItems: async (_userId, listAction, page = 0, size = 50) => {
+    const sep = listAction.path.includes('?') ? '&' : '?';
+    const pageParam = listAction.pageParam || 'page';
+    const sizeParam = listAction.sizeParam || 'size';
+    const url = `${listAction.path}${sep}${pageParam}=${page}&${sizeParam}=${size}`;
+    const headers = {};
+    if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
+    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+    const res = await timedFetch(url, { method: 'GET', headers }, 'GET');
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({ error: res.statusText }));
+      const err = new Error(detail.error || `HTTP ${res.status}`);
+      err.detail = detail;
+      throw err;
+    }
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  },
+
+  // Sources — federated source metadata (id, name, versioned, ...)
+  getSources: (userId) =>
+    request('GET', '/sources', userId),
+
+  // Suggest target keys for a non-SELF source (resolver-driven autocomplete).
+  getSourceKeys: (userId, sourceId, type, q = '', limit = 25) => {
+    const params = new URLSearchParams();
+    if (type) params.set('type', type);
+    if (q)    params.set('q', q);
+    params.set('limit', String(limit));
+    return request('GET', `/sources/${encodeURIComponent(sourceId)}/keys?${params.toString()}`, userId);
+  },
 
   // Liens d'un noeud — lecture
   getChildLinks: (userId, nodeId) =>
@@ -399,6 +482,37 @@ export const api = {
 
   createLinkType: (userId, body) =>
     adminRequest('POST', '/metamodel/linktypes', userId, body),
+
+  // Sources (psm-admin: full CRUD; psm-api: read-only runtime queries)
+  getSourcesAdmin: (userId) =>
+    adminRequest('GET', '/sources', userId),
+
+  getSourceResolversAdmin: (userId) =>
+    adminRequest('GET', '/sources/resolvers', userId),
+
+  createSource: (userId, body) =>
+    adminRequest('POST', '/sources', userId, body),
+
+  updateSource: (userId, id, body) =>
+    adminRequest('PUT', `/sources/${id}`, userId, body),
+
+  deleteSource: (userId, id) =>
+    adminRequest('DELETE', `/sources/${id}`, userId),
+
+  // Runtime resolver-backed queries (psm-api)
+  getSources: (userId) =>
+    request('GET', '/sources', userId),
+
+  getSourceTypes: (userId, sourceCode) =>
+    request('GET', `/sources/${sourceCode}/types`, userId),
+
+  suggestSourceKeys: (userId, sourceCode, type, query, limit = 25) => {
+    const qs = new URLSearchParams();
+    if (type)  qs.set('type', type);
+    if (query) qs.set('q', query);
+    qs.set('limit', String(limit));
+    return request('GET', `/sources/${sourceCode}/keys?${qs.toString()}`, userId);
+  },
 
   // Action registry (meta-model)
   getAllActions: (userId) =>
@@ -596,6 +710,18 @@ export const api = {
   getSettingsSections: (userId) =>
     platformRequest('GET', '/sections', userId),
 
+  // Federated resource catalog (psm nodes, dst data files, future services)
+  getResources: (userId) =>
+    platformRequest('GET', '/resources', userId),
+
+  // Generic create entry-point — dispatches the descriptor's createAction.
+  // bodyShape:
+  //   - WRAPPED  → JSON `{ parameters: {...values} }` (psm action convention)
+  //   - RAW      → JSON `{ ...values }`
+  //   - MULTIPART→ multipart/form-data with one part per value (Files passthrough)
+  createResource: (descriptor, values) =>
+    submitResourceCreate(descriptor.createAction, values),
+
   /** Returns the GLOBAL action permissions held by a specific role. pno-api (Phase D4+). */
   getRoleGlobalPermissions: (userId, roleId) =>
     pnoRequest('GET', `/roles/${roleId}/global-permissions`, userId),
@@ -607,6 +733,14 @@ export const api = {
   /** Revokes a GLOBAL permission from a role. Requires MANAGE_ROLES. pno-api (Phase D4+). */
   removeRoleGlobalPermission: (userId, roleId, permissionCode) =>
     pnoRequest('DELETE', `/roles/${roleId}/global-permissions/${permissionCode}`, userId),
+
+  /** Generic role-only scope grants (DATA, future scopes with empty key list). */
+  getRoleScopePermissions: (userId, roleId, scopeCode) =>
+    pnoRequest('GET', `/roles/${roleId}/scope-permissions/${scopeCode}`, userId),
+  addRoleScopePermission: (userId, roleId, scopeCode, permissionCode) =>
+    pnoRequest('POST', `/roles/${roleId}/scope-permissions/${scopeCode}`, userId, { permissionCode }),
+  removeRoleScopePermission: (userId, roleId, scopeCode, permissionCode) =>
+    pnoRequest('DELETE', `/roles/${roleId}/scope-permissions/${scopeCode}/${permissionCode}`, userId),
 
   // ── Secrets (Vault-backed, served by platform-api at /api/platform/admin/secrets) ──
 
@@ -734,7 +868,7 @@ export const api = {
   getAlgorithmStats: (userId) =>
     adminRequest('GET', '/algorithms/stats', userId),
 
-  /** Returns time-series stats in 15-min windows. */
+  /** Returns time-series stats in 15-second windows. */
   getAlgorithmTimeseries: (userId, hours = 24) =>
     adminRequest('GET', `/algorithms/stats/timeseries?hours=${hours}`, userId),
 
