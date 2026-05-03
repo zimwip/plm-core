@@ -6,39 +6,63 @@ import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Builds a full {@link ConfigSnapshot} from the admin database.
- * Used for initial push to psm-data instances and for the /internal/config/snapshot endpoint.
+ * Actions, algorithms, permissions, and transition guards are fetched from
+ * platform-api (authoritative source). Metamodel data (node types, lifecycles,
+ * link types, domains, enums, views, state actions, sources) is read locally.
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class ConfigSnapshotBuilder {
 
     private final DSLContext dsl;
+    private final RestTemplate rest;
+    private final String platformUrl;
+    private final String serviceSecret;
     private final AtomicLong versionCounter = new AtomicLong(0);
+
+    private static final String PLATFORM_ACTIONS_PATH = "/api/platform/internal/config/actions?serviceCode=psm";
+
+    public ConfigSnapshotBuilder(DSLContext dsl, RestTemplateBuilder restBuilder,
+                                 @Value("${plm.settings.settings-url:http://platform-api:8084}") String platformUrl,
+                                 @Value("${plm.auth.service-secret:}") String serviceSecret) {
+        this.dsl           = dsl;
+        this.rest          = restBuilder.build();
+        this.platformUrl   = platformUrl;
+        this.serviceSecret = serviceSecret;
+    }
 
     public ConfigSnapshot buildFullSnapshot() {
         long version = versionCounter.incrementAndGet();
 
-        var nodeTypes = buildNodeTypes();
-        var lifecycles = buildLifecycles();
-        var linkTypes = buildLinkTypes();
-        var actions = buildActions();
-        var permissions = buildPermissions();
-        var authPolicies = buildAuthorizationPolicies();
-        var algorithms = buildAlgorithms();
-        var domains = buildDomains();
-        var enums = buildEnumDefinitions();
-        var views = buildAttributeViews();
-        var stateActions = buildStateActions();
-        var nodeActionGuards = buildNodeActionGuards();
-        var sources = buildSources(algorithms);
+        PlatformActionSnapshot platform = safeFetchPlatformSnapshot();
+
+        var actions      = platform.actions()    != null ? platform.actions()    : List.<ActionConfig>of();
+        var algorithms   = platform.algorithms() != null ? platform.algorithms() : List.<AlgorithmConfig>of();
+        var permissions  = platform.permissions() != null ? platform.permissions() : List.<PermissionConfig>of();
+
+        var nodeTypes     = buildNodeTypes();
+        var lifecycles    = buildLifecycles();
+        var linkTypes     = buildLinkTypes();
+        var authPolicies  = List.<AuthorizationPolicyConfig>of();
+        var domains       = buildDomains();
+        var enums         = buildEnumDefinitions();
+        var views         = buildAttributeViews();
+        var stateActions  = buildStateActions();
+        var sources       = buildSources(algorithms);
         var entityMetadata = buildEntityMetadata();
 
         log.info("Config snapshot v{} built ({} nodeTypes, {} lifecycles, {} actions, {} algorithms, {} sources)",
@@ -46,7 +70,7 @@ public class ConfigSnapshotBuilder {
 
         return new ConfigSnapshot(version, nodeTypes, lifecycles, linkTypes, actions,
             permissions, authPolicies, algorithms, domains, enums, views,
-            stateActions, nodeActionGuards, sources, entityMetadata);
+            stateActions, sources, entityMetadata);
     }
 
     // ── Node types ───────────────────────────────────────────────
@@ -56,7 +80,6 @@ public class ConfigSnapshotBuilder {
         Map<String, Record> typeById = new LinkedHashMap<>();
         for (Record t : types) typeById.put(str(t, "id"), t);
 
-        // Attributes grouped by node_type_id (exclude domain attrs)
         Map<String, List<Record>> attrsByType = new LinkedHashMap<>();
         dsl.select().from("attribute_definition")
            .where("node_type_id IS NOT NULL")
@@ -66,7 +89,6 @@ public class ConfigSnapshotBuilder {
                .computeIfAbsent(str(a, "node_type_id"), k -> new ArrayList<>())
                .add(a));
 
-        // State rules grouped by node_type_id (nullable)
         List<Record> allRules = dsl.select().from("attribute_state_rule").fetch();
 
         List<NodeTypeConfig> result = new ArrayList<>();
@@ -74,7 +96,6 @@ public class ConfigSnapshotBuilder {
             String typeId = str(type, "id");
             List<String> chain = buildAncestorChain(typeId, typeById);
 
-            // Merge attributes with inheritance
             LinkedHashSet<String> seenNames = new LinkedHashSet<>();
             List<AttributeConfig> mergedAttrs = new ArrayList<>();
             for (String ancestorId : chain) {
@@ -100,7 +121,6 @@ public class ConfigSnapshotBuilder {
                 }
             }
 
-            // Collect state rules relevant to this type
             List<AttributeStateRuleConfig> typeRules = new ArrayList<>();
             for (Record r : allRules) {
                 String ruleNtId = str(r, "node_type_id");
@@ -144,16 +164,25 @@ public class ConfigSnapshotBuilder {
     // ── Lifecycles ───────────────────────────────────────────────
 
     private List<LifecycleConfig> buildLifecycles() {
-        List<Record> lifecycles = dsl.select().from("lifecycle").fetch();
-        List<Record> states = dsl.select().from("lifecycle_state").fetch();
+        List<Record> lifecycles  = dsl.select().from("lifecycle").fetch();
+        List<Record> states      = dsl.select().from("lifecycle_state").fetch();
         List<Record> transitions = dsl.select().from("lifecycle_transition").fetch();
-        List<Record> sigReqs = dsl.select().from("signature_requirement").fetch();
-        List<Record> transGuards = dsl.select().from("lifecycle_transition_guard").fetch();
+        List<Record> sigReqs     = dsl.select().from("signature_requirement").fetch();
+        List<Record> ltgRows     = dsl.select().from("lifecycle_transition_guard").fetch();
 
-        Map<String, List<Record>> statesByLc = groupBy(states, "lifecycle_id");
-        Map<String, List<Record>> transByLc = groupBy(transitions, "lifecycle_id");
-        Map<String, List<Record>> sigReqsByTrans = groupBy(sigReqs, "lifecycle_transition_id");
-        Map<String, List<Record>> guardsByTrans = groupBy(transGuards, "lifecycle_transition_id");
+        Map<String, List<Record>> statesByLc     = groupBy(states,      "lifecycle_id");
+        Map<String, List<Record>> transByLc      = groupBy(transitions, "lifecycle_id");
+        Map<String, List<Record>> sigReqsByTrans = groupBy(sigReqs,     "lifecycle_transition_id");
+
+        Map<String, List<TransitionGuardConfig>> guardsByTrans = new LinkedHashMap<>();
+        for (Record r : ltgRows) {
+            TransitionGuardConfig g = new TransitionGuardConfig(
+                str(r, "id"), str(r, "lifecycle_transition_id"),
+                str(r, "algorithm_instance_id"), str(r, "effect"),
+                intVal(r, "display_order")
+            );
+            guardsByTrans.computeIfAbsent(g.lifecycleTransitionId(), k -> new ArrayList<>()).add(g);
+        }
 
         List<LifecycleConfig> result = new ArrayList<>();
         for (Record lc : lifecycles) {
@@ -179,13 +208,8 @@ public class ConfigSnapshotBuilder {
                     ));
                 }
 
-                List<TransitionGuardConfig> guards = new ArrayList<>();
-                for (Record g : guardsByTrans.getOrDefault(transId, List.of())) {
-                    guards.add(new TransitionGuardConfig(
-                        str(g, "id"), transId, str(g, "algorithm_instance_id"),
-                        str(g, "effect"), intVal(g, "display_order")
-                    ));
-                }
+                List<TransitionGuardConfig> guards = new ArrayList<>(
+                    guardsByTrans.getOrDefault(transId, List.of()));
 
                 transConfigs.add(new LifecycleTransitionConfig(
                     transId, lcId, str(t, "name"),
@@ -207,10 +231,10 @@ public class ConfigSnapshotBuilder {
 
     private List<LinkTypeConfig> buildLinkTypes() {
         List<Record> linkTypes = dsl.select().from("link_type").fetch();
-        List<Record> attrs = dsl.select().from("link_type_attribute").fetch();
-        List<Record> cascades = dsl.select().from("link_type_cascade").fetch();
+        List<Record> attrs     = dsl.select().from("link_type_attribute").fetch();
+        List<Record> cascades  = dsl.select().from("link_type_cascade").fetch();
 
-        Map<String, List<Record>> attrsByLt = groupBy(attrs, "link_type_id");
+        Map<String, List<Record>> attrsByLt = groupBy(attrs,    "link_type_id");
         Map<String, List<Record>> cascsByLt = groupBy(cascades, "link_type_id");
 
         List<LinkTypeConfig> result = new ArrayList<>();
@@ -244,156 +268,6 @@ public class ConfigSnapshotBuilder {
                 lt.get("max_cardinality", Integer.class),
                 str(lt, "link_logical_id_label"), str(lt, "link_logical_id_pattern"),
                 str(lt, "color"), str(lt, "icon"), ltAttrs, ltCascades
-            ));
-        }
-        return result;
-    }
-
-    // ── Actions ──────────────────────────────────────────────────
-
-    private List<ActionConfig> buildActions() {
-        List<Record> actions = dsl.select().from("action").fetch();
-        List<Record> params = dsl.select().from("action_parameter").fetch();
-        List<Record> overrides = dsl.select().from("action_param_override").fetch();
-        List<Record> reqPerms = dsl.select().from("action_required_permission").fetch();
-        List<Record> guards = dsl.select().from("action_guard").fetch();
-        List<Record> wrappers = dsl.select().from("action_wrapper").fetch();
-
-        Map<String, List<Record>> paramsByAction = groupBy(params, "action_id");
-        Map<String, List<Record>> overridesByAction = groupBy(overrides, "action_id");
-        Map<String, List<Record>> permsByAction = groupBy(reqPerms, "action_id");
-        Map<String, List<Record>> guardsByAction = groupBy(guards, "action_id");
-        Map<String, List<Record>> wrappersByAction = groupBy(wrappers, "action_id");
-
-        List<ActionConfig> result = new ArrayList<>();
-        for (Record a : actions) {
-            String actionId = str(a, "id");
-
-            List<ActionParameterConfig> actionParams = new ArrayList<>();
-            for (Record p : paramsByAction.getOrDefault(actionId, List.of())) {
-                actionParams.add(new ActionParameterConfig(
-                    str(p, "id"), actionId, str(p, "param_name"), str(p, "param_label"),
-                    str(p, "data_type"), bool(p, "required"), str(p, "default_value"),
-                    str(p, "allowed_values"), str(p, "widget_type"), str(p, "validation_regex"),
-                    str(p, "min_value"), str(p, "max_value"), str(p, "visibility"),
-                    intVal(p, "display_order"), str(p, "tooltip")
-                ));
-            }
-
-            List<ActionParamOverrideConfig> actionOverrides = new ArrayList<>();
-            for (Record o : overridesByAction.getOrDefault(actionId, List.of())) {
-                actionOverrides.add(new ActionParamOverrideConfig(
-                    str(o, "id"), str(o, "node_type_id"), actionId, str(o, "parameter_id"),
-                    str(o, "default_value"), str(o, "allowed_values"),
-                    o.get("required", Integer.class) != null
-                        ? Integer.valueOf(1).equals(o.get("required", Integer.class))
-                        : null
-                ));
-            }
-
-            List<String> requiredPerms = new ArrayList<>();
-            for (Record rp : permsByAction.getOrDefault(actionId, List.of())) {
-                requiredPerms.add(str(rp, "permission_code"));
-            }
-
-            List<ActionGuardConfig> actionGuards = new ArrayList<>();
-            for (Record g : guardsByAction.getOrDefault(actionId, List.of())) {
-                actionGuards.add(new ActionGuardConfig(
-                    str(g, "id"), str(g, "algorithm_instance_id"),
-                    str(g, "effect"), intVal(g, "display_order"),
-                    "ACTION", actionId, null, null, null
-                ));
-            }
-
-            List<ActionWrapperConfig> actionWrappers = new ArrayList<>();
-            for (Record w : wrappersByAction.getOrDefault(actionId, List.of())) {
-                actionWrappers.add(new ActionWrapperConfig(
-                    str(w, "id"), actionId, str(w, "algorithm_instance_id"),
-                    intVal(w, "execution_order")
-                ));
-            }
-
-            result.add(new ActionConfig(
-                actionId, str(a, "action_code"), str(a, "scope"),
-                str(a, "display_name"), str(a, "description"),
-                str(a, "display_category"), intVal(a, "display_order"),
-                str(a, "managed_with"), str(a, "handler_instance_id"),
-                actionParams, actionOverrides, requiredPerms, actionGuards, actionWrappers
-            ));
-        }
-        return result;
-    }
-
-    // ── Permissions ──────────────────────────────────────────────
-
-    private List<PermissionConfig> buildPermissions() {
-        return dsl.select().from("permission").fetch().stream()
-            .map(r -> new PermissionConfig(
-                str(r, "permission_code"), str(r, "scope"),
-                str(r, "display_name"), str(r, "description"),
-                intVal(r, "display_order")
-            )).toList();
-    }
-
-    private List<AuthorizationPolicyConfig> buildAuthorizationPolicies() {
-        // Phase D4: authorization_policy moved to pno-api. psm-admin no longer stores grants.
-        // Returning an empty list keeps the ConfigSnapshot schema stable — psm-api pulls
-        // grants directly from /api/pno/internal/authorization/snapshot now.
-        return List.of();
-    }
-
-    // ── Algorithms ───────────────────────────────────────────────
-
-    private List<AlgorithmConfig> buildAlgorithms() {
-        List<Record> algorithms = dsl.select().from("algorithm").fetch();
-        List<Record> params = dsl.select().from("algorithm_parameter").fetch();
-        List<Record> instances = dsl.select().from("algorithm_instance").fetch();
-        List<Record> paramValues = dsl.select().from("algorithm_instance_param_value").fetch();
-
-        Map<String, List<Record>> paramsByAlgo = groupBy(params, "algorithm_id");
-        Map<String, List<Record>> instByAlgo = groupBy(instances, "algorithm_id");
-
-        // Build param value lookup: instanceId → { paramId → value }
-        Map<String, Map<String, String>> pvByInstance = new LinkedHashMap<>();
-        // Also need paramId → paramName mapping
-        Map<String, String> paramNameById = new LinkedHashMap<>();
-        for (Record p : params) {
-            paramNameById.put(str(p, "id"), str(p, "param_name"));
-        }
-        for (Record pv : paramValues) {
-            String instId = str(pv, "algorithm_instance_id");
-            String paramId = str(pv, "algorithm_parameter_id");
-            String paramName = paramNameById.getOrDefault(paramId, paramId);
-            pvByInstance.computeIfAbsent(instId, k -> new LinkedHashMap<>())
-                .put(paramName, str(pv, "value"));
-        }
-
-        List<AlgorithmConfig> result = new ArrayList<>();
-        for (Record alg : algorithms) {
-            String algId = str(alg, "id");
-
-            List<AlgorithmParameterConfig> algParams = new ArrayList<>();
-            for (Record p : paramsByAlgo.getOrDefault(algId, List.of())) {
-                algParams.add(new AlgorithmParameterConfig(
-                    str(p, "id"), algId, str(p, "param_name"), str(p, "param_label"),
-                    str(p, "data_type"), bool(p, "required"),
-                    str(p, "default_value"), intVal(p, "display_order")
-                ));
-            }
-
-            List<AlgorithmInstanceConfig> algInstances = new ArrayList<>();
-            for (Record inst : instByAlgo.getOrDefault(algId, List.of())) {
-                String instId = str(inst, "id");
-                algInstances.add(new AlgorithmInstanceConfig(
-                    instId, algId, str(inst, "name"),
-                    pvByInstance.getOrDefault(instId, Map.of())
-                ));
-            }
-
-            result.add(new AlgorithmConfig(
-                algId, str(alg, "algorithm_type_id"), str(alg, "code"),
-                str(alg, "name"), str(alg, "description"), str(alg, "handler_ref"),
-                algParams, algInstances
             ));
         }
         return result;
@@ -462,7 +336,7 @@ public class ConfigSnapshotBuilder {
     // ── Attribute views ──────────────────────────────────────────
 
     private List<AttributeViewConfig> buildAttributeViews() {
-        List<Record> views = dsl.select().from("attribute_view").fetch();
+        List<Record> views     = dsl.select().from("attribute_view").fetch();
         List<Record> overrides = dsl.select().from("view_attribute_override").fetch();
         Map<String, List<Record>> overridesByView = groupBy(overrides, "view_id");
 
@@ -494,39 +368,14 @@ public class ConfigSnapshotBuilder {
 
     private List<StateActionConfig> buildStateActions() {
         List<StateActionConfig> result = new ArrayList<>();
-
-        // Tier 1: lifecycle-level state actions
         for (Record r : dsl.select().from("lifecycle_state_action").fetch()) {
             result.add(new StateActionConfig(
                 str(r, "id"), str(r, "lifecycle_state_id"),
                 str(r, "algorithm_instance_id"), str(r, "trigger"),
-                str(r, "execution_mode"), intVal(r, "display_order"),
-                null, null
-            ));
-        }
-
-        // Tier 2: node-type-specific state actions
-        for (Record r : dsl.select().from("node_type_state_action").fetch()) {
-            result.add(new StateActionConfig(
-                str(r, "id"), str(r, "lifecycle_state_id"),
-                str(r, "algorithm_instance_id"), str(r, "trigger"),
-                str(r, "execution_mode"), intVal(r, "display_order"),
-                str(r, "node_type_id"), str(r, "override_action")
+                str(r, "execution_mode"), intVal(r, "display_order")
             ));
         }
         return result;
-    }
-
-    // ── Node action guards ───────────────────────────────────────
-
-    private List<NodeActionGuardConfig> buildNodeActionGuards() {
-        return dsl.select().from("node_action_guard").fetch().stream()
-            .map(r -> new NodeActionGuardConfig(
-                str(r, "id"), str(r, "node_type_id"), str(r, "action_id"),
-                str(r, "transition_id"), str(r, "algorithm_instance_id"),
-                str(r, "effect"), str(r, "override_action"),
-                intVal(r, "display_order")
-            )).toList();
     }
 
     // ── Sources ──────────────────────────────────────────────────
@@ -565,6 +414,30 @@ public class ConfigSnapshotBuilder {
                 meta.put(key, str(r, "meta_value"));
             });
         return meta;
+    }
+
+    // ── Platform fetch ───────────────────────────────────────────
+
+    private record PlatformActionSnapshot(
+        List<ActionConfig> actions,
+        List<AlgorithmConfig> algorithms,
+        List<PermissionConfig> permissions
+    ) {}
+
+    private PlatformActionSnapshot safeFetchPlatformSnapshot() {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Service-Secret", serviceSecret);
+            var resp = rest.exchange(
+                platformUrl + PLATFORM_ACTIONS_PATH,
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                new ParameterizedTypeReference<PlatformActionSnapshot>() {});
+            if (resp.getBody() != null) return resp.getBody();
+        } catch (Exception e) {
+            log.warn("Failed to fetch config from platform-api: {} — returning empty snapshot", e.getMessage());
+        }
+        return new PlatformActionSnapshot(List.of(), List.of(), List.of());
     }
 
     // ── Helpers ──────────────────────────────────────────────────

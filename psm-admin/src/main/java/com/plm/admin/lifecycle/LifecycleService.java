@@ -2,6 +2,7 @@ package com.plm.admin.lifecycle;
 
 import com.plm.admin.config.ConfigChangedEvent;
 import com.plm.admin.metadata.MetadataService;
+import com.plm.admin.shared.MapKeyUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -189,13 +190,10 @@ public class LifecycleService {
 
     @Transactional
     public void deleteLifecycle(String lifecycleId) {
-        dsl.execute("DELETE FROM node_type_state_action WHERE lifecycle_state_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM lifecycle_state_action WHERE lifecycle_state_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM entity_metadata WHERE target_type = 'LIFECYCLE_STATE' AND target_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM attribute_state_rule WHERE lifecycle_state_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM signature_requirement WHERE lifecycle_transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
-        dsl.execute("DELETE FROM lifecycle_transition_guard WHERE lifecycle_transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
-        dsl.execute("DELETE FROM node_action_guard WHERE transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM lifecycle_transition WHERE lifecycle_id = ?", lifecycleId);
         dsl.execute("DELETE FROM lifecycle_state WHERE lifecycle_id = ?", lifecycleId);
         dsl.execute("DELETE FROM lifecycle WHERE id = ?", lifecycleId);
@@ -207,7 +205,6 @@ public class LifecycleService {
         int inTransitions = dsl.fetchCount(dsl.selectOne().from("lifecycle_transition")
             .where("from_state_id = ?", stateId).or("to_state_id = ?", stateId));
         if (inTransitions > 0) throw new IllegalStateException("State is referenced by " + inTransitions + " transition(s)");
-        dsl.execute("DELETE FROM node_type_state_action WHERE lifecycle_state_id = ?", stateId);
         dsl.execute("DELETE FROM lifecycle_state_action WHERE lifecycle_state_id = ?", stateId);
         dsl.execute("DELETE FROM attribute_state_rule WHERE lifecycle_state_id = ?", stateId);
         metadataService.removeAll("LIFECYCLE_STATE", stateId);
@@ -219,8 +216,6 @@ public class LifecycleService {
     public void deleteTransition(String transitionId) {
         // authorization_policy TRANSITION rows cascade via NATS notification (owned by pno-api).
         dsl.execute("DELETE FROM signature_requirement WHERE lifecycle_transition_id = ?", transitionId);
-        dsl.execute("DELETE FROM lifecycle_transition_guard WHERE lifecycle_transition_id = ?", transitionId);
-        dsl.execute("DELETE FROM node_action_guard WHERE transition_id = ?", transitionId);
         dsl.execute("DELETE FROM lifecycle_transition WHERE id = ?", transitionId);
         publishChange("DELETE", "LIFECYCLE_TRANSITION", transitionId);
     }
@@ -228,13 +223,10 @@ public class LifecycleService {
     // ── Lifecycle state actions (tier 1, lifecycle_state_action table) ──
 
     public List<Map<String, Object>> listStateActions(String stateId) {
-        return dsl.fetch(
-            "SELECT lsa.*, ai.name AS instance_name, a.code AS algorithm_code " +
-            "FROM lifecycle_state_action lsa " +
-            "JOIN algorithm_instance ai ON ai.id = lsa.algorithm_instance_id " +
-            "JOIN algorithm a ON a.id = ai.algorithm_id " +
-            "WHERE lsa.lifecycle_state_id = ? ORDER BY lsa.display_order",
-            stateId).intoMaps();
+        return MapKeyUtil.camelize(dsl.fetch(
+            "SELECT * FROM lifecycle_state_action " +
+            "WHERE lifecycle_state_id = ? ORDER BY display_order",
+            stateId).intoMaps());
     }
 
     @Transactional
