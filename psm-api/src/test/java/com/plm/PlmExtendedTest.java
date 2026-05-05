@@ -221,10 +221,17 @@ class PlmExtendedTest {
 
     // -------------------------------------------------------
 
-    /** Creates a node for the given user and immediately commits the creation transaction. */
+    /**
+     * Creates a node for the given user, populates initial attributes via
+     * update_node within the auto-opened creation transaction, then commits.
+     */
     private String setupNode(String userId, Map<String, String> attrs) {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, userId, attrs, null, null);
+        String logicalId = "NODE-" + uid().substring(0, 8);
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, userId, logicalId, null);
         String txId = txService.findOpenTransaction(userId);
+        if (attrs != null && !attrs.isEmpty()) {
+            nodeService.modifyNode(nodeId, userId, txId, attrs, "Initial attributes");
+        }
         txService.commitTransaction(txId, userId, "Initial creation", null);
         return nodeId;
     }

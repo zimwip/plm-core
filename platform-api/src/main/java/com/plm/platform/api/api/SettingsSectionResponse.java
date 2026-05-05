@@ -6,5 +6,7 @@ package com.plm.platform.api.api;
 public record SettingsSectionResponse(
     String key,
     String label,
-    boolean canWrite
+    boolean canWrite,
+    String serviceCode,
+    String icon
 ) {}

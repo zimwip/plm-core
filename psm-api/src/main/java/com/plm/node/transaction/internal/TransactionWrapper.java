@@ -3,8 +3,8 @@ package com.plm.node.transaction.internal;
 import com.plm.action.ActionWrapper;
 import com.plm.algorithm.AlgorithmBean;
 import com.plm.algorithm.AlgorithmParam;
-import com.plm.shared.action.ActionContext;
-import com.plm.shared.action.ActionResult;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 

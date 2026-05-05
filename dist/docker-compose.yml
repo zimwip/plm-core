@@ -321,15 +321,31 @@ services:
     environment:
       VAULT_ADDR:                          http://vault:8200
       VAULT_TOKEN:                         plm-demo-services
-      SPE_API_URL:                         http://spe-api:8082
       SPE_SELF_BASE_URL:                   http://platform-api:8084
+      PLM_PLATFORM_URL:                    http://platform-api:8084
       MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
       LOGGING_LEVEL_ROOT:                  INFO
+      NATS_URL:                            nats://nats:4222
+      NATS_MONITORING_URL:                 http://nats:8222
+      PLM_NATS_ENABLED:                    "true"
+      PLATFORM_EXPECTED_SERVICES:          psm,pno,psa,platform,ws,spe,dst
+      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
+      SPRING_DATASOURCE_USERNAME:          plm
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     platform
+      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
+      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        platform
+      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
     depends_on:
       vault-bootstrap:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       jaeger:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8084/api/platform/actuator/health || exit 1"]
@@ -350,7 +366,7 @@ services:
     environment:
       VAULT_ADDR:                          http://vault:8200
       VAULT_TOKEN:                         plm-demo-services
-      SPE_API_URL:                         http://spe-api:8082
+      PLM_PLATFORM_URL:                    http://platform-api:8084
       SPE_SELF_BASE_URL:                   http://ws-gateway:8085
       NATS_URL:                            nats://nats:4222
       MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
@@ -374,6 +390,58 @@ services:
       - plm-net
 
   # ============================================================
+  # DST — Data Store. Stores binary blobs on a local volume; SHA-256
+  # computed at upload, every action audited via standard application log.
+  # ============================================================
+  dst:
+    build: ./dst
+    image: dst:dist
+    environment:
+      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
+      SPRING_DATASOURCE_USERNAME:          plm
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     dst
+      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
+      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        dst
+      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
+      SPE_API_URL:                         http://spe-api:8082
+      SPE_SELF_BASE_URL:                   http://dst:8086
+      PNO_API_URL:                         http://pno-api:8081
+      PLM_PERMISSION_ENABLED:              "true"
+      PLM_PLATFORM_URL:                    http://platform-api:8084
+      PLM_SETTINGS_ENABLED:                "true"
+      DST_STORAGE_ROOT:                    /var/lib/dst-data
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_DST:               INFO
+      NATS_URL:                            nats://nats:4222
+      PLM_NATS_ENABLED:                    "true"
+    volumes:
+      - plm-dst-data:/var/lib/dst-data
+    depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8086/api/dst/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  # ============================================================
   # SPE API — Gateway, service registry, auth (sole external entry)
   # ============================================================
   spe-api:
@@ -386,7 +454,6 @@ services:
       VAULT_ADDR:                          http://vault:8200
       VAULT_TOKEN:                         plm-demo-services
       PNO_API_URL:                         http://pno-api:8081
-      SPE_EXPECTED_SERVICES:               psm,pno,psa,platform,ws
       MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
       LOGGING_LEVEL_ROOT:                  INFO
@@ -394,7 +461,7 @@ services:
       LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_CLOUD_GATEWAY: INFO
       PLM_SETTINGS_ENABLED:                "true"
       PLM_PLATFORM_URL:                    http://platform-api:8084
-      NATS_MONITORING_URL:                 http://nats:8222
+      SPE_SELF_BASE_URL:                   http://spe-api:8082
       NATS_URL:                            nats://nats:4222
       PLM_NATS_ENABLED:                    "true"
     depends_on:
@@ -403,6 +470,8 @@ services:
       jaeger:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      platform-api:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
@@ -439,4 +508,6 @@ volumes:
   plm-vault-file:
     driver: local
   plm-vault-init:
+    driver: local
+  plm-dst-data:
     driver: local

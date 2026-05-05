@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.ActionConfig;
-import com.plm.platform.config.dto.ActionParamOverrideConfig;
 import com.plm.platform.config.dto.ActionParameterConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,11 +14,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Validates user-supplied action parameters against the schema defined in
- * ConfigCache (ActionParameterConfig), applying ActionParamOverrideConfig when a
- * node_type_action context is provided.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -28,14 +22,6 @@ public class ActionParameterValidator {
     private final ConfigCache  configCache;
     private final ObjectMapper mapper;
 
-    /**
-     * Validates params and returns the (possibly defaulted) map.
-     * Throws {@link ValidationException} with all violations if anything is wrong.
-     *
-     * @param actionId    the {@code action.id}
-     * @param nodeTypeId  the target node's type (for override resolution), may be null
-     * @param rawParams   user-supplied parameters (may be null)
-     */
     public Map<String, String> validate(String actionId, String nodeTypeId,
                                         Map<String, String> rawParams) {
         Map<String, String> params = rawParams != null ? new HashMap<>(rawParams) : new HashMap<>();
@@ -43,16 +29,6 @@ public class ActionParameterValidator {
         ActionConfig action = configCache.getActionById(actionId).orElse(null);
         List<ActionParameterConfig> schema = action != null && action.parameters() != null
             ? action.parameters() : List.of();
-
-        // Build override map keyed by parameterId
-        Map<String, ActionParamOverrideConfig> overridesByParamId = new HashMap<>();
-        if (nodeTypeId != null && action != null && action.paramOverrides() != null) {
-            for (ActionParamOverrideConfig ov : action.paramOverrides()) {
-                if (nodeTypeId.equals(ov.nodeTypeId())) {
-                    overridesByParamId.put(ov.parameterId(), ov);
-                }
-            }
-        }
 
         List<String> violations = new ArrayList<>();
 
@@ -64,19 +40,9 @@ public class ActionParameterValidator {
             String minV     = param.minValue();
             String maxV     = param.maxValue();
 
-            Boolean effectiveRequired        = null;
-            String effectiveDefault          = param.defaultValue();
-            String effectiveAllowedValues    = param.allowedValues();
-            boolean baseRequired             = param.required();
-
-            ActionParamOverrideConfig ov = overridesByParamId.get(param.id());
-            if (ov != null) {
-                if (ov.required()      != null) effectiveRequired      = ov.required();
-                if (ov.defaultValue()  != null) effectiveDefault       = ov.defaultValue();
-                if (ov.allowedValues() != null) effectiveAllowedValues = ov.allowedValues();
-            }
-
-            boolean required = effectiveRequired != null ? effectiveRequired : baseRequired;
+            String effectiveDefault       = param.defaultValue();
+            String effectiveAllowedValues = param.allowedValues();
+            boolean required              = param.required();
 
             // Apply default if param absent
             String value = params.get(name);

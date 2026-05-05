@@ -86,6 +86,7 @@ export default function NodeEditor({
   const refreshAll         = usePlmStore(s => s.refreshAll);
   const refreshNodes       = usePlmStore(s => s.refreshNodes);
   const refreshTx          = usePlmStore(s => s.refreshTx);
+  const storeNodes         = usePlmStore(s => s.nodes);
 
   const txId = tx?.ID || tx?.id || null;
 
@@ -240,11 +241,11 @@ export default function NodeEditor({
     setKeySuggestions([]);
     setLinkLogicalId('');
     try {
-      const [lts, nodes, srcs] = await Promise.all([
+      const [lts, srcs] = await Promise.all([
         api.getNodeTypeLinkTypes(userId, desc.nodeTypeId).catch(() => []),
-        api.listNodes(userId).catch(() => ({})),
         api.getSources(userId).catch(() => []),
       ]);
+      const nodes = storeNodes;
 
       let filteredLts = Array.isArray(lts) ? lts : [];
 
@@ -262,8 +263,7 @@ export default function NodeEditor({
       }
 
       setLinkTypes(filteredLts);
-      const nodeItems = Array.isArray(nodes) ? nodes : (nodes?.items ?? []);
-      setAllNodes(nodeItems.filter(n => (n.id || n.ID) !== nodeId));
+      setAllNodes(nodes.filter(n => (n.id || n.ID) !== nodeId));
       const byId = {};
       (Array.isArray(srcs) ? srcs : []).forEach(s => { byId[s.id] = s; });
       setSourcesById(byId);
@@ -311,13 +311,16 @@ export default function NodeEditor({
       const createLinkAction = desc.actions?.find(a => a.actionCode === 'create_link');
       if (!createLinkAction) throw new Error('create_link action not available for this node type');
 
-      await authoringApi.executeAction(nodeId, createLinkAction.actionCode, userId, activeTxId, {
+      const createLinkParams = {
         linkTypeId:        selLinkType,
         targetSourceCode:  sourceId,
         ...(targetType ? { targetType } : {}),
         targetKey,
         linkLogicalId: linkLogicalId || '',
-      });
+      };
+      await (createLinkAction.path
+        ? authoringApi.executeViaDescriptor(createLinkAction, nodeId, userId, activeTxId, createLinkParams)
+        : authoringApi.executeAction(nodeId, createLinkAction.actionCode, userId, activeTxId, createLinkParams));
       toast('Link created', 'success');
       setLinkPanel(false);
       setLinkLogicalId('');
@@ -344,8 +347,10 @@ export default function NodeEditor({
         const tgt = allNodes.find(n => (n.id || n.ID) === newTargetNodeId);
         targetKey = tgt?.logical_id || tgt?.LOGICAL_ID || newTargetNodeId;
       }
-      await authoringApi.executeAction(nodeId, updateLinkAction.actionCode, userId, activeTxId,
-        { linkId, logicalId: newLogicalId, targetKey });
+      const updateLinkParams = { linkId, logicalId: newLogicalId, targetKey };
+      await (updateLinkAction.path
+        ? authoringApi.executeViaDescriptor(updateLinkAction, nodeId, userId, activeTxId, updateLinkParams)
+        : authoringApi.executeAction(nodeId, updateLinkAction.actionCode, userId, activeTxId, updateLinkParams));
       setEditingLinkId(null);
       await refreshTx();
       setPbsLoaded(false);
@@ -366,7 +371,9 @@ export default function NodeEditor({
     try {
       const activeTxId = txId || await onAutoOpenTx();
       if (!activeTxId) return;
-      await authoringApi.executeAction(nodeId, deleteLinkAction.actionCode, userId, activeTxId, { linkId });
+      await (deleteLinkAction.path
+        ? authoringApi.executeViaDescriptor(deleteLinkAction, nodeId, userId, activeTxId, { linkId })
+        : authoringApi.executeAction(nodeId, deleteLinkAction.actionCode, userId, activeTxId, { linkId }));
       await refreshTx();
       setPbsLoaded(false);
       await Promise.all([
@@ -386,8 +393,10 @@ export default function NodeEditor({
     setActionDialog(null);
     setLoading(true);
     try {
-      const result = await authoringApi.executeAction(
-        nodeId, action.actionCode, userId, txId, params, action.transitionId);
+      const result = action.path
+        ? await authoringApi.executeViaDescriptor(action, nodeId, userId, txId, params)
+        : await authoringApi.executeAction(
+            nodeId, action.actionCode, userId, txId, params, action.transitionId);
 
       if (result?.message) toast(result.message, 'success');
 
@@ -415,13 +424,13 @@ export default function NodeEditor({
     }
   }
 
-  async function autoSave(pendingEdits, currentTxId, updateActionCode) {
+  async function autoSave(pendingEdits, currentTxId, updateAction) {
     setSaveStatus('saving');
+    const saveParams = { ...pendingEdits, _description: 'Auto-save' };
     try {
-      const result = await authoringApi.executeAction(
-        nodeId, updateActionCode, userId, currentTxId,
-        { ...pendingEdits, _description: 'Auto-save' }
-      );
+      const result = await (updateAction?.path
+        ? authoringApi.executeViaDescriptor(updateAction, nodeId, userId, currentTxId, saveParams)
+        : authoringApi.executeAction(nodeId, updateAction?.actionCode ?? updateAction, userId, currentTxId, saveParams));
       patchNodeDescAttrs(nodeId, pendingEdits);
       setEdits({});
       setSaveViolations(result?.violations || []);
@@ -435,10 +444,10 @@ export default function NodeEditor({
     }
   }
 
-  function scheduleAutoSave(pendingEdits, currentTxId, updateActionCode) {
+  function scheduleAutoSave(pendingEdits, currentTxId, updateAction) {
     clearTimeout(saveTimer.current);
     setSaveStatus(null);
-    saveTimer.current = setTimeout(() => autoSave(pendingEdits, currentTxId, updateActionCode), 800);
+    saveTimer.current = setTimeout(() => autoSave(pendingEdits, currentTxId, updateAction), 800);
   }
 
   // Fetch historical version description when user clicks eye icon in history table
@@ -643,7 +652,7 @@ export default function NodeEditor({
         <div className="node-actions">
           {headerActions.map(a => {
             const isBlocked = guardBlocked(a);
-            const tooltip   = guardTooltip(a);
+            const tooltip   = isBlocked ? guardTooltip(a) : (a.description || a.name);
             const color     = a.displayColor; // handler-provided color override
             const catClass  = color ? ''
                             : a.displayCategory === 'DANGEROUS' ? 'btn-danger'
@@ -848,7 +857,7 @@ export default function NodeEditor({
                     if (!isEditable) return;
                     const newEdits = { ...edits, [attr.id]: e.target.value };
                     setEdits(newEdits);
-                    scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
+                    scheduleAutoSave(newEdits, txId, updateNodeAction);
                   }}
                 >
                   <option value="">—</option>
@@ -870,7 +879,7 @@ export default function NodeEditor({
                       if (!isEditable) return;
                       const newEdits = { ...edits, [attr.id]: e.target.value };
                       setEdits(newEdits);
-                      scheduleAutoSave(newEdits, txId, updateNodeAction?.actionCode);
+                      scheduleAutoSave(newEdits, txId, updateNodeAction);
                     }}
                   />
                   {trimmedVal && regex && (
@@ -1285,9 +1294,7 @@ export default function NodeEditor({
                                     setEditLinkTargetId(c.targetNodeId || '');
                                     setDeletingLinkId(null);
                                     if (allNodes.length === 0) {
-                                      const nodesResp = await api.listNodes(userId).catch(() => ({}));
-                                      const nodeItems = Array.isArray(nodesResp) ? nodesResp : (nodesResp?.items ?? []);
-                                      setAllNodes(nodeItems.filter(n => (n.id || n.ID) !== nodeId));
+                                      setAllNodes(storeNodes.filter(n => (n.id || n.ID) !== nodeId));
                                     }
                                   }}>
                                   ✎

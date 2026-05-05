@@ -16,7 +16,6 @@ public record ActionConfig(
     String managedWith,
     String handlerInstanceId,
     List<ActionParameterConfig> parameters,
-    List<ActionParamOverrideConfig> paramOverrides,
     List<String> requiredPermissions,
     List<ActionGuardConfig> guards,
     List<ActionWrapperConfig> wrappers

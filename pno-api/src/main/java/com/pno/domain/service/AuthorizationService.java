@@ -30,10 +30,21 @@ public class AuthorizationService {
     private final DSLContext dsl;
     private final DynamicAuthorizationService dynamic;
 
-    // ── Permission catalog (read-only mirror; psm-admin owns the master) ──
+    // ── Permission catalog (pno-api is the single source of truth) ──
+
     public List<Map<String, Object>> listPermissions() {
         return dsl.select().from("permission").orderBy(DSL.field("display_order"), DSL.field("permission_code"))
             .fetch().intoMaps();
+    }
+
+    public List<Map<String, Object>> listPermissions(String scopeCode, String serviceCode) {
+        List<String> clauses = new java.util.ArrayList<>();
+        List<Object> params  = new java.util.ArrayList<>();
+        if (scopeCode    != null && !scopeCode.isBlank())    { clauses.add("scope = ?");        params.add(scopeCode); }
+        if (serviceCode  != null && !serviceCode.isBlank())  { clauses.add("service_code = ?"); params.add(serviceCode); }
+        String where = clauses.isEmpty() ? "" : " WHERE " + String.join(" AND ", clauses);
+        return dsl.fetch("SELECT * FROM permission" + where +
+            " ORDER BY service_code, display_order, permission_code", params.toArray()).intoMaps();
     }
 
     public List<Map<String, Object>> listGlobalPermissions() {
@@ -41,6 +52,22 @@ public class AuthorizationService {
             .where("scope = 'GLOBAL'")
             .orderBy(DSL.field("display_order"), DSL.field("permission_code"))
             .fetch().intoMaps();
+    }
+
+    @Transactional
+    public void createPermission(String code, String serviceCode, String scope,
+                                  String displayName, String description, int displayOrder) {
+        if (code == null || code.isBlank()) throw new IllegalArgumentException("permissionCode required");
+        dsl.execute(
+            "INSERT INTO permission (permission_code, service_code, scope, display_name, description, display_order) " +
+            "VALUES (?,?,?,?,?,?) ON CONFLICT (permission_code) DO NOTHING",
+            code, serviceCode, scope, displayName, description, displayOrder);
+    }
+
+    @Transactional
+    public void updatePermission(String code, String displayName, String description, int displayOrder) {
+        dsl.execute("UPDATE permission SET display_name = ?, description = ?, display_order = ? WHERE permission_code = ?",
+            displayName, description, displayOrder, code);
     }
 
     // ── Policy queries (legacy flat shape) ──

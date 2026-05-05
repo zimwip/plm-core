@@ -2,7 +2,7 @@ package com.plm.node.signature.internal;
 import com.plm.node.version.internal.FingerPrintService;
 import com.plm.node.version.internal.VersionService;
 
-import com.plm.shared.action.PlmAction;
+import com.plm.platform.action.PlmAction;
 import com.plm.platform.authz.KeyExpr;
 import com.plm.platform.authz.PlmPermission;
 import com.plm.shared.event.PlmEventPublisher;
@@ -33,7 +33,7 @@ public class SignatureService {
     private final FingerPrintService fingerPrintService;
     private final PlmEventPublisher  eventPublisher;
 
-    @PlmAction(value = "sign", nodeIdExpr = "#nodeId")
+    @PlmAction("sign")
     @Transactional
     public String sign(String nodeId, String userId, String meaning, String comment) {
 

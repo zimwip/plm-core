@@ -1,7 +1,9 @@
 package com.plm.platform.action;
 
 import com.plm.platform.action.guard.ActionGuard;
+import com.plm.platform.nats.NatsListenerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -32,13 +34,15 @@ public class ActionCatalogRegistrationAutoConfiguration {
             RestTemplateBuilder restTemplateBuilder,
             @org.springframework.beans.factory.annotation.Value("${platform.registration.platform-url:http://platform-api:8084}") String platformUrl,
             @org.springframework.beans.factory.annotation.Value("${platform.registration.service-code}") String serviceCode,
-            @org.springframework.beans.factory.annotation.Value("${platform.registration.service-secret:${plm.service.secret:}}") String serviceSecret) {
+            @org.springframework.beans.factory.annotation.Value("${platform.registration.service-secret:${plm.service.secret:}}") String serviceSecret,
+            @Autowired(required = false) NatsListenerFactory natsListenerFactory) {
 
         List<ActionHandler> handlers = handlerProvider.orderedStream().toList();
         List<ActionGuard> guards = guardProvider.orderedStream().toList();
         List<AlgorithmCatalogContribution> contributions = contributionProvider.orderedStream().toList();
 
         return new ActionCatalogRegistrationClient(
-            platformUrl, serviceCode, serviceSecret, restTemplateBuilder.build(), handlers, guards, contributions);
+            platformUrl, serviceCode, serviceSecret, restTemplateBuilder.build(),
+            handlers, guards, contributions, natsListenerFactory);
     }
 }

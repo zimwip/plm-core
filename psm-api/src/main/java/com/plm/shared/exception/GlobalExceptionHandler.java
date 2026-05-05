@@ -1,7 +1,6 @@
 package com.plm.shared.exception;
 
 import com.plm.shared.exception.PlmFunctionalException;
-import com.plm.node.metamodel.internal.ValidationService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,9 +34,9 @@ public class GlobalExceptionHandler {
 
     // ── Functional exceptions (PlmFunctionalException hierarchy) ─────────
 
-    @ExceptionHandler(ValidationService.ValidationException.class)
+    @ExceptionHandler(PlmValidationException.class)
     public ResponseEntity<Map<String, Object>> handleValidationException(
-            ValidationService.ValidationException e, HttpServletRequest req) {
+            PlmValidationException e, HttpServletRequest req) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("category",   "FUNCTIONAL");
         body.put("error",      e.getMessage());

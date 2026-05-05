@@ -2,8 +2,8 @@ package com.plm.node.source;
 
 import com.plm.algorithm.AlgorithmBean;
 import com.plm.platform.spe.client.ServiceClient;
-import com.plm.shared.guard.GuardEffect;
-import com.plm.shared.guard.GuardViolation;
+import com.plm.platform.action.guard.GuardEffect;
+import com.plm.platform.action.guard.GuardViolation;
 import com.plm.source.KeyHint;
 import com.plm.source.LinkConstraint;
 import com.plm.source.Reference;

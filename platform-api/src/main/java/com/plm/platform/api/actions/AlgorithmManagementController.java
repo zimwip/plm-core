@@ -171,4 +171,26 @@ public class AlgorithmManagementController {
         actionService.detachGuard(guardId);
         return ResponseEntity.noContent().build();
     }
+
+    // Stats
+
+    @GetMapping("/stats")
+    public ResponseEntity<List<Map<String, Object>>> getStats(
+            @RequestParam(required = false) String serviceCode) {
+        return ResponseEntity.ok(algorithmService.getStats(serviceCode));
+    }
+
+    @GetMapping("/stats/timeseries")
+    public ResponseEntity<List<Map<String, Object>>> getTimeseries(
+            @RequestParam(required = false) String serviceCode,
+            @RequestParam(defaultValue = "24") int hours) {
+        return ResponseEntity.ok(algorithmService.getTimeseries(serviceCode, hours));
+    }
+
+    @DeleteMapping("/stats")
+    public ResponseEntity<Void> resetStats(
+            @RequestParam(required = false) String serviceCode) {
+        algorithmService.resetStats(serviceCode);
+        return ResponseEntity.noContent().build();
+    }
 }

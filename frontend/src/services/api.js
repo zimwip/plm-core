@@ -2,10 +2,13 @@
 
 import { recordApiCall } from './apiStats';
 
-const BASE          = '/api/psm';
-const BASE_ADMIN    = '/api/psa';
-const BASE_PNO      = '/api/pno';
 const BASE_PLATFORM = '/api/platform';
+
+// Derive service base URL from service code by convention (/api/<serviceCode>).
+// Only BASE_PLATFORM and /api/spe (auth) are hardcoded — all others are
+// resolved at call-site via this helper so no hardcoded service codes leak
+// into top-level constants.
+function serviceBase(code) { return `/api/${code}`; }
 
 // Wrap fetch to record timing + status into apiStats.
 async function timedFetch(url, init, method) {
@@ -24,6 +27,34 @@ async function timedFetch(url, init, method) {
   }
   recordApiCall({ method, endpoint, status: res.status, durationMs, ok: res.ok });
   return res;
+}
+
+// Coerce a list endpoint response into a uniform page shape.
+// Handles three native shapes: Spring Page ({content, totalElements, ...}),
+// wrapped ({items: [...]}), or flat array. Anything unrecognised → empty page.
+function normalisePage(body, page, size) {
+  if (Array.isArray(body)) {
+    return { items: body, totalElements: body.length, totalPages: 1, page, size };
+  }
+  if (body && Array.isArray(body.content)) {
+    return {
+      items: body.content,
+      totalElements: body.totalElements ?? body.content.length,
+      totalPages: body.totalPages ?? 1,
+      page: body.number ?? page,
+      size: body.size ?? size,
+    };
+  }
+  if (body && Array.isArray(body.items)) {
+    return {
+      items: body.items,
+      totalElements: body.totalElements ?? body.items.length,
+      totalPages: body.totalPages ?? 1,
+      page: body.page ?? page,
+      size: body.size ?? size,
+    };
+  }
+  return { items: [], totalElements: 0, totalPages: 0, page, size };
 }
 
 // Module-level project space context — updated by App when user selects a space
@@ -107,6 +138,53 @@ function onBackendUnreachable() {
   }, 3000);
 }
 
+// Generic gateway call. Used by descriptor-driven detail / action paths
+// that already carry the full {@code /api/<svc>/...} path. Same auth +
+// project-space + retry-on-401 semantics as {@link doFetch}, no base URL
+// prefix or path manipulation.
+async function gatewayJson(method, fullPath, body, isRetry = false) {
+  const h = {};
+  if (_sessionToken) h['Authorization'] = `Bearer ${_sessionToken}`;
+  if (_projectSpaceId) h['X-PLM-ProjectSpace'] = _projectSpaceId;
+  if (body !== undefined) h['Content-Type'] = 'application/json';
+
+  let res;
+  try {
+    res = await timedFetch(fullPath, {
+      method,
+      headers: h,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    }, method);
+  } catch {
+    onBackendUnreachable();
+    const err = new Error('Backend unreachable');
+    if (_onError) _onError(err);
+    throw err;
+  }
+
+  if (res.status === 401 && !isRetry && _onAuthExpired) {
+    const newToken = await _onAuthExpired().catch(() => null);
+    if (newToken) {
+      _sessionToken = newToken;
+      return gatewayJson(method, fullPath, body, true);
+    }
+  }
+
+  if (!res.ok) {
+    if (res.status === 502 || res.status === 503) onBackendUnreachable();
+    const payload = await res.json().catch(() => ({ error: res.statusText }));
+    const msg = payload.violations?.length
+      ? payload.violations.join('; ')
+      : (payload.error || payload.message || `HTTP ${res.status}`);
+    const err = new Error(msg);
+    err.detail = payload;
+    if (_onError) _onError(err);
+    throw err;
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
 // Core request helper — session token carries user identity.
 // On 401 it calls _onAuthExpired to obtain a fresh token and retries once.
 async function doFetch(baseUrl, method, path, body, { txId, psOverride } = {}, isRetry = false) {
@@ -141,7 +219,10 @@ async function doFetch(baseUrl, method, path, body, { txId, psOverride } = {}, i
   if (!res.ok) {
     if (res.status === 502 || res.status === 503) onBackendUnreachable();
     const payload = await res.json().catch(() => ({ error: res.statusText }));
-    const err = new Error(payload.error || `HTTP ${res.status}`);
+    const msg = payload.violations?.length
+      ? payload.violations.join('; ')
+      : (payload.error || payload.message || `HTTP ${res.status}`);
+    const err = new Error(msg);
     err.detail = payload;
     if (_onError) _onError(err);
     throw err;
@@ -152,17 +233,20 @@ async function doFetch(baseUrl, method, path, body, { txId, psOverride } = {}, i
 
 // userId args kept for API compatibility but no longer sent — the session token identifies the user.
 async function pnoRequest(method, path, _userId, body) {
-  return doFetch(BASE_PNO, method, path, body);
+  return doFetch(serviceBase('pno'), method, path, body);
 }
 
 async function platformRequest(method, path, _userId, body) {
   return doFetch(BASE_PLATFORM, method, path, body);
 }
 
-// Generic resource-create dispatcher used by the federated create modal.
+// Generic item-create dispatcher used by the federated create modal.
 // `values` is the form payload, possibly including File objects for MULTIPART.
-async function submitResourceCreate(action, values) {
-  const url = action.path;
+// `descriptor.create.path` is service-relative (e.g. /actions/create_node/nt-part).
+// serviceBase(descriptor.serviceCode) prepends the gateway prefix (/api/<code>).
+async function submitItemCreate(descriptor, values) {
+  const action = descriptor.create;
+  const url = serviceBase(descriptor.serviceCode) + action.path;
   const method = (action.httpMethod || 'POST').toUpperCase();
   const headers = {};
   if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
@@ -187,7 +271,10 @@ async function submitResourceCreate(action, values) {
   const res = await timedFetch(url, { method, headers, body }, method);
   if (!res.ok) {
     const detail = await res.json().catch(() => ({ error: res.statusText }));
-    const err = new Error(detail.error || `HTTP ${res.status}`);
+    const msg = detail.violations?.length
+      ? detail.violations.join('; ')
+      : (detail.error || detail.message || `HTTP ${res.status}`);
+    const err = new Error(msg);
     err.detail = detail;
     if (_onError) _onError(err);
     throw err;
@@ -197,43 +284,42 @@ async function submitResourceCreate(action, values) {
 }
 
 async function request(method, path, _userId, body, psOverride) {
-  return doFetch(BASE, method, path, body, { psOverride });
+  return doFetch(serviceBase('psm'), method, path, body, { psOverride });
 }
 
 async function adminRequest(method, path, _userId, body) {
-  return doFetch(BASE_ADMIN, method, path, body);
+  return doFetch(serviceBase('psa'), method, path, body);
 }
 
-// ── SPE (gateway) platform status ──────────────────────────────────
+// ── Platform status surface ────────────────────────────────────────
+// All cluster-state endpoints (status, nats, environment registry,
+// expected-services config) live on platform-api now — see
+// project_central_control_plane.md. The `speApi` name is kept for call-site
+// stability but every method targets `/api/platform/...` except auth, which
+// remains on the gateway (spe-api mints/verifies session JWTs).
 export const speApi = {
   getStatus: async () => {
-    const res = await timedFetch('/api/spe/status', { cache: 'no-store' }, 'GET');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    return doFetch(BASE_PLATFORM, 'GET', '/status');
   },
+  // Tags served by platform-api (admin only).
   getRegistryTags: async () => {
-    const res = await timedFetch('/api/spe/registry/tags', { cache: 'no-store' }, 'GET');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    return doFetch(BASE_PLATFORM, 'GET', '/admin/registry/tags');
   },
 
-  // Environment config (expected services)
   getEnvironment: async () => {
-    return doFetch('/api/spe', 'GET', '/config/environment');
+    return doFetch(BASE_PLATFORM, 'GET', '/admin/environment/expected-services');
   },
   updateEnvironment: async (expectedServices) => {
-    return doFetch('/api/spe', 'PUT', '/config/environment', { expectedServices });
+    return doFetch(BASE_PLATFORM, 'PUT', '/admin/environment/expected-services', { expectedServices });
   },
   addExpectedService: async (serviceCode) => {
-    return doFetch('/api/spe', 'POST', '/config/environment/services', { serviceCode });
+    return doFetch(BASE_PLATFORM, 'POST', '/admin/environment/expected-services/services', { serviceCode });
   },
   removeExpectedService: async (serviceCode) => {
-    return doFetch('/api/spe', 'DELETE', `/config/environment/services/${serviceCode}`);
+    return doFetch(BASE_PLATFORM, 'DELETE', `/admin/environment/expected-services/services/${serviceCode}`);
   },
   getNatsStatus: async () => {
-    const res = await timedFetch('/api/spe/status/nats', { cache: 'no-store' }, 'GET');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    return doFetch(BASE_PLATFORM, 'GET', '/status/nats');
   },
 };
 
@@ -247,10 +333,6 @@ export const api = {
   // Lister les types de noeuds disponibles
   getNodeTypes: (userId) =>
     adminRequest('GET', '/metamodel/nodetypes', userId),
-
-  // Lister tous les noeuds (dernière version committée)
-  listNodes: (userId, page = 0, size = 50) =>
-    request('GET', `/nodes?page=${page}&size=${size}`, userId),
 
   // Historique complet des versions d'un noeud
   getVersionHistory: (userId, nodeId) =>
@@ -312,32 +394,44 @@ export const api = {
   getRegistryOverview: (userId) =>
     platformRequest('GET', '/admin/registry/overview', userId),
 
-  // Federated browse catalog from platform-api: listable descriptors aggregated
-  // and filtered per user across all source services. Frontend then calls each
-  // descriptor's listAction.path (already gateway-relative) to fetch items.
-  getBrowse: (userId) =>
-    platformRequest('GET', '/browse', userId),
+  // Federated item catalog from platform-api: one descriptor per item with
+  // applicable actions (create / list / get) attached. Each action carries a
+  // gateway-relative path; the frontend prepends /api/<serviceCode>.
+  getItems: (userId) =>
+    platformRequest('GET', '/items', userId),
 
-  // Generic federated list call: hits descriptor.listAction.path with paging.
-  // The path is gateway-relative ('/api/<svc>/...') so we call it directly via
-  // fetch and prepend the standard auth + project-space headers.
-  fetchListableItems: async (_userId, listAction, page = 0, size = 50) => {
+  // Generic gateway call (escape hatch for descriptor-declared detail and
+  // action paths). Plugins should prefer this over service-specific helpers
+  // so the surface stays uniform across user services.
+  gatewayJson: (method, fullPath, body) => gatewayJson(method, fullPath, body),
+
+  // Generic federated list call: hits descriptor.list.path with paging.
+  // Returns { items, totalElements, totalPages, page, size } so the caller
+  // can render counts and paginate uniformly regardless of the source's
+  // native response shape (flat array, Spring Page, or { items: [] }).
+  fetchListableItems: async (_userId, descriptor, page = 0, size = 50) => {
+    const listAction = descriptor.list;
+    const base = descriptor.serviceCode ? serviceBase(descriptor.serviceCode) : '';
     const sep = listAction.path.includes('?') ? '&' : '?';
     const pageParam = listAction.pageParam || 'page';
     const sizeParam = listAction.sizeParam || 'size';
-    const url = `${listAction.path}${sep}${pageParam}=${page}&${sizeParam}=${size}`;
+    const url = `${base}${listAction.path}${sep}${pageParam}=${page}&${sizeParam}=${size}`;
     const headers = {};
     if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
     if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
     const res = await timedFetch(url, { method: 'GET', headers }, 'GET');
     if (!res.ok) {
       const detail = await res.json().catch(() => ({ error: res.statusText }));
-      const err = new Error(detail.error || `HTTP ${res.status}`);
+      const msg = detail.violations?.length
+        ? detail.violations.join('; ')
+        : (detail.error || detail.message || `HTTP ${res.status}`);
+      const err = new Error(msg);
       err.detail = detail;
       throw err;
     }
     const text = await res.text();
-    return text ? JSON.parse(text) : null;
+    const body = text ? JSON.parse(text) : null;
+    return normalisePage(body, page, size);
   },
 
   // Sources — federated source metadata (id, name, versioned, ...)
@@ -682,17 +776,17 @@ export const api = {
 
   // ── Permissions & Policies (Access Rights section) ──────────────────
 
-  /** Returns full permission catalog: code, scope, displayName. */
+  /** Returns full permission catalog: code, scope, displayName. Owned by pno-api. */
   listPermissions: (userId) =>
-    adminRequest('GET', '/permissions', userId),
+    pnoRequest('GET', '/permissions', userId),
 
-  /** Creates a new permission. */
+  /** Creates a new permission. Owned by pno-api. */
   createPermission: (userId, permissionCode, scope, displayName, description, displayOrder) =>
-    adminRequest('POST', '/permissions', userId, { permissionCode, scope, displayName, description, displayOrder }),
+    pnoRequest('POST', '/permissions', userId, { permissionCode, scope, displayName, description, displayOrder }),
 
-  /** Updates permission display metadata. */
+  /** Updates permission display metadata. Owned by pno-api. */
   updatePermission: (userId, permissionCode, displayName, description, displayOrder) =>
-    adminRequest('PUT', `/permissions/${permissionCode}`, userId, { displayName, description, displayOrder }),
+    pnoRequest('PUT', `/permissions/${permissionCode}`, userId, { displayName, description, displayOrder }),
 
   /** Returns ALL authorization_policy rows for a role. Owned by pno-api (Phase D4+). */
   getRolePolicies: (userId, roleId) =>
@@ -710,17 +804,13 @@ export const api = {
   getSettingsSections: (userId) =>
     platformRequest('GET', '/sections', userId),
 
-  // Federated resource catalog (psm nodes, dst data files, future services)
-  getResources: (userId) =>
-    platformRequest('GET', '/resources', userId),
-
-  // Generic create entry-point — dispatches the descriptor's createAction.
+  // Generic create entry-point — dispatches the descriptor's create action.
   // bodyShape:
   //   - WRAPPED  → JSON `{ parameters: {...values} }` (psm action convention)
   //   - RAW      → JSON `{ ...values }`
   //   - MULTIPART→ multipart/form-data with one part per value (Files passthrough)
   createResource: (descriptor, values) =>
-    submitResourceCreate(descriptor.createAction, values),
+    submitItemCreate(descriptor, values),
 
   /** Returns the GLOBAL action permissions held by a specific role. pno-api (Phase D4+). */
   getRoleGlobalPermissions: (userId, roleId) =>
@@ -759,122 +849,98 @@ export const api = {
   deleteSecret: (userId, key) =>
     platformRequest('DELETE', `/admin/secrets/${encodeURIComponent(key)}`, userId),
 
-  // ── Algorithms & Guards ─────────────────────────────────────────────
-
-  listAlgorithmTypes: (userId) =>
-    adminRequest('GET', '/algorithms/types', userId),
-
-  listAlgorithms: (userId) =>
-    adminRequest('GET', '/algorithms', userId),
-
-  listAlgorithmsByType: (userId, typeId) =>
-    adminRequest('GET', `/algorithms/by-type/${typeId}`, userId),
-
-  listAlgorithmParameters: (userId, algorithmId) =>
-    adminRequest('GET', `/algorithms/${algorithmId}/parameters`, userId),
+  // ── Lifecycle-transition guards (used by LifecyclesSection) ──
 
   listAllInstances: (userId) =>
-    adminRequest('GET', '/algorithms/instances', userId),
-
-  listInstances: (userId, algorithmId) =>
-    adminRequest('GET', `/algorithms/${algorithmId}/instances`, userId),
-
-  createInstance: (userId, algorithmId, name) =>
-    adminRequest('POST', '/algorithms/instances', userId, { algorithmId, name }),
-
-  updateInstance: (userId, instanceId, name) =>
-    adminRequest('PUT', `/algorithms/instances/${instanceId}`, userId, { name }),
-
-  deleteInstance: (userId, instanceId) =>
-    adminRequest('DELETE', `/algorithms/instances/${instanceId}`, userId),
-
-  getInstanceParams: (userId, instanceId) =>
-    adminRequest('GET', `/algorithms/instances/${instanceId}/params`, userId),
-
-  setInstanceParam: (userId, instanceId, parameterId, value) =>
-    adminRequest('PUT', `/algorithms/instances/${instanceId}/params/${parameterId}`, userId, { value }),
-
-  listActionGuards: (userId, actionId) =>
-    adminRequest('GET', `/algorithms/actions/${actionId}/guards`, userId),
-
-  attachActionGuard: (userId, actionId, instanceId, effect, displayOrder) =>
-    adminRequest('POST', `/algorithms/actions/${actionId}/guards`, userId, { instanceId, effect, displayOrder }),
-
-  updateActionGuard: (userId, actionId, guardId, effect) =>
-    adminRequest('PUT', `/algorithms/actions/${actionId}/guards/${guardId}`, userId, { effect }),
-
-  detachActionGuard: (userId, actionId, guardId) =>
-    adminRequest('DELETE', `/algorithms/actions/${actionId}/guards/${guardId}`, userId),
-
-  // Action wrappers (middleware pipeline)
-  listActionWrappers: (userId, actionId) =>
-    adminRequest('GET', `/algorithms/actions/${actionId}/wrappers`, userId),
-
-  attachActionWrapper: (userId, actionId, instanceId, executionOrder) =>
-    adminRequest('POST', `/algorithms/actions/${actionId}/wrappers`, userId, { instanceId, executionOrder }),
-
-  detachActionWrapper: (userId, actionId, wrapperId) =>
-    adminRequest('DELETE', `/algorithms/actions/${actionId}/wrappers/${wrapperId}`, userId),
+    platformRequest('GET', '/algorithms/instances', userId),
 
   listTransitionGuards: (userId, transitionId) =>
-    adminRequest('GET', `/algorithms/transitions/${transitionId}/guards`, userId),
+    platformRequest('GET', `/algorithms/transitions/${transitionId}/guards`, userId),
 
   attachTransitionGuard: (userId, transitionId, instanceId, effect, displayOrder) =>
-    adminRequest('POST', `/algorithms/transitions/${transitionId}/guards`, userId,
+    platformRequest('POST', `/algorithms/transitions/${transitionId}/guards`, userId,
       { instanceId, effect, displayOrder }),
 
   updateTransitionGuard: (userId, guardId, effect) =>
-    adminRequest('PUT', `/algorithms/transitions/guards/${guardId}`, userId, { effect }),
+    platformRequest('PUT', `/algorithms/transitions/guards/${guardId}`, userId, { effect }),
 
   detachTransitionGuard: (userId, guardId) =>
-    adminRequest('DELETE', `/algorithms/transitions/guards/${guardId}`, userId),
+    platformRequest('DELETE', `/algorithms/transitions/guards/${guardId}`, userId),
+};
 
-  listNodeActionGuards: (userId, nodeTypeId, actionCode, transitionId) =>
-    adminRequest('GET',
-      `/algorithms/node-actions/${nodeTypeId}/${actionCode}/guards${transitionId ? `?transitionId=${encodeURIComponent(transitionId)}` : ''}`,
-      userId),
+export const platformActionsApi = {
+  // Actions
+  listActions: (userId, serviceCode) =>
+    platformRequest('GET', `/actions${serviceCode ? `?serviceCode=${encodeURIComponent(serviceCode)}` : ''}`, userId),
+  getAction: (userId, actionId) =>
+    platformRequest('GET', `/actions/${actionId}`, userId),
+  createAction: (userId, body) =>
+    platformRequest('POST', '/actions', userId, body),
+  updateAction: (userId, actionId, body) =>
+    platformRequest('PUT', `/actions/${actionId}`, userId, body),
+  deleteAction: (userId, actionId) =>
+    platformRequest('DELETE', `/actions/${actionId}`, userId),
 
-  attachNodeActionGuard: (userId, nodeTypeId, actionCode, transitionId, instanceId, effect, overrideAction, displayOrder) =>
-    adminRequest('POST', `/algorithms/node-actions/${nodeTypeId}/${actionCode}/guards`, userId,
-      { transitionId: transitionId || null, instanceId, effect, overrideAction, displayOrder }),
+  // Action parameters
+  listParameters: (userId, actionId) =>
+    platformRequest('GET', `/actions/${actionId}/parameters`, userId),
+  addParameter: (userId, actionId, body) =>
+    platformRequest('POST', `/actions/${actionId}/parameters`, userId, body),
 
-  updateNodeActionGuard: (userId, guardId, effect) =>
-    adminRequest('PUT', `/algorithms/node-actions/guards/${guardId}`, userId, { effect }),
+  // Action guards
+  listActionGuards: (userId, actionId) =>
+    platformRequest('GET', `/actions/${actionId}/guards`, userId),
+  attachActionGuard: (userId, actionId, instanceId, effect, displayOrder) =>
+    platformRequest('POST', `/actions/${actionId}/guards`, userId, { instanceId, effect, displayOrder }),
+  updateActionGuard: (userId, actionId, guardId, effect) =>
+    platformRequest('PUT', `/actions/${actionId}/guards/${guardId}`, userId, { effect }),
+  detachActionGuard: (userId, actionId, guardId) =>
+    platformRequest('DELETE', `/actions/${actionId}/guards/${guardId}`, userId),
 
-  detachNodeActionGuard: (userId, guardId) =>
-    adminRequest('DELETE', `/algorithms/node-actions/guards/${guardId}`, userId),
+  // Algorithms
+  listAlgorithmTypes: (userId, serviceCode) =>
+    platformRequest('GET', `/algorithms/types${serviceCode ? `?serviceCode=${encodeURIComponent(serviceCode)}` : ''}`, userId),
+  listAlgorithms: (userId, serviceCode) =>
+    platformRequest('GET', `/algorithms${serviceCode ? `?serviceCode=${encodeURIComponent(serviceCode)}` : ''}`, userId),
+  listAlgorithmParameters: (userId, algorithmId) =>
+    platformRequest('GET', `/algorithms/${algorithmId}/parameters`, userId),
+  listAllInstances: (userId, serviceCode) =>
+    platformRequest('GET', `/algorithms/instances${serviceCode ? `?serviceCode=${encodeURIComponent(serviceCode)}` : ''}`, userId),
+  createInstance: (userId, algorithmId, name, serviceCode) =>
+    platformRequest('POST', '/algorithms/instances', userId, { algorithmId, name, serviceCode }),
+  updateInstance: (userId, instanceId, name) =>
+    platformRequest('PUT', `/algorithms/instances/${instanceId}`, userId, { name }),
+  deleteInstance: (userId, instanceId) =>
+    platformRequest('DELETE', `/algorithms/instances/${instanceId}`, userId),
+  getInstanceParams: (userId, instanceId) =>
+    platformRequest('GET', `/algorithms/instances/${instanceId}/params`, userId),
+  setInstanceParam: (userId, instanceId, parameterId, value) =>
+    platformRequest('PUT', `/algorithms/instances/${instanceId}/params/${parameterId}`, userId, { value }),
 
-  // ── Node-type state action overrides (tier 2) ──
+  // Algorithm stats
+  getAlgorithmStats: (userId, serviceCode) =>
+    platformRequest('GET', `/algorithms/stats${serviceCode ? `?serviceCode=${encodeURIComponent(serviceCode)}` : ''}`, userId),
+  getAlgorithmTimeseries: (userId, hours = 24, serviceCode) =>
+    platformRequest('GET', `/algorithms/stats/timeseries?hours=${hours}${serviceCode ? `&serviceCode=${encodeURIComponent(serviceCode)}` : ''}`, userId),
+  resetAlgorithmStats: (userId, serviceCode) =>
+    platformRequest('DELETE', `/algorithms/stats${serviceCode ? `?serviceCode=${encodeURIComponent(serviceCode)}` : ''}`, userId),
 
-  listNodeTypeStateActions: (userId, nodeTypeId, stateId) =>
-    adminRequest('GET', `/algorithms/node-types/${nodeTypeId}/states/${stateId}/actions`, userId),
+  // Action wrappers
+  listActionWrappers: (userId, actionId) =>
+    platformRequest('GET', `/algorithms/actions/${actionId}/wrappers`, userId),
+  attachActionWrapper: (userId, actionId, instanceId, executionOrder, serviceCode) =>
+    platformRequest('POST', `/algorithms/actions/${actionId}/wrappers`, userId, { instanceId, executionOrder, serviceCode }),
+  detachActionWrapper: (userId, actionId, wrapperId) =>
+    platformRequest('DELETE', `/algorithms/actions/${actionId}/wrappers/${wrapperId}`, userId),
 
-  attachNodeTypeStateAction: (userId, nodeTypeId, stateId, instanceId, trigger, executionMode, overrideAction, displayOrder = 0) =>
-    adminRequest('POST', `/algorithms/node-types/${nodeTypeId}/states/${stateId}/actions`, userId,
-      { instanceId, trigger, executionMode, overrideAction, displayOrder }),
+  // Service codes that have actions in the DB (authoritative, works without services running)
+  getRegisteredServices: () =>
+    platformRequest('GET', '/actions/services', null),
 
-  detachNodeTypeStateAction: (userId, attachmentId) =>
-    adminRequest('DELETE', `/algorithms/node-type-state-actions/${attachmentId}`, userId),
-
-  // ── Managed-with ──
-
-  setManagedWith: (userId, actionId, managedWith) =>
-    adminRequest('PUT', `/metamodel/actions/${actionId}/managed-with`, userId, { managedWith: managedWith || '' }),
-
-  getManagedActions: (userId, actionId) =>
-    adminRequest('GET', `/metamodel/actions/${actionId}/managed-actions`, userId),
-
-  /** Returns persisted + in-memory merged stats. */
-  getAlgorithmStats: (userId) =>
-    adminRequest('GET', '/algorithms/stats', userId),
-
-  /** Returns time-series stats in 15-second windows. */
-  getAlgorithmTimeseries: (userId, hours = 24) =>
-    adminRequest('GET', `/algorithms/stats/timeseries?hours=${hours}`, userId),
-
-  /** Resets all stats (memory + DB). */
-  resetAlgorithmStats: (userId) =>
-    adminRequest('DELETE', '/algorithms/stats', userId),
+  // Full catalog for one service (handlers + guards from in-memory registry)
+  getServiceCatalog: (serviceCode) =>
+    platformRequest('GET', '/registry/actions', null)
+      .then(data => data?.services?.[serviceCode] || { handlers: [], guards: [] }),
 };
 
 // ── Transactions ────────────────────────────────────────────────────
@@ -925,7 +991,7 @@ export function authHeaders(_userId, txId) {
 
 /** request variant that includes the txId header. */
 export async function txRequest(method, path, _userId, txId, body) {
-  return doFetch(BASE, method, path, body, { txId });
+  return doFetch(serviceBase('psm'), method, path, body, { txId });
 }
 
 // All write operations go through the central action controller.
@@ -937,5 +1003,17 @@ export const authoringApi = {
       ? `/actions/${actionCode}/${nodeId}/${transitionId}`
       : `/actions/${actionCode}/${nodeId}`;
     return txRequest('POST', path, userId, txId, { parameters: parameters || {} });
+  },
+
+  // Use httpMethod + path from ActionDescriptor instead of constructing the URL.
+  // path is a full gateway path (e.g. /api/psm/actions/checkout/{id}); strip the
+  // service prefix before passing to txRequest which prepends /api/psm itself.
+  executeViaDescriptor: (action, nodeId, userId, txId, parameters) => {
+    const template = (action.path || '').replace(/^\/api\/psm/, '');
+    const path = template
+      .replace('{id}', nodeId)
+      .replace('{transitionId}', action.transitionId || '');
+    const method = action.httpMethod || 'POST';
+    return txRequest(method, path, userId, txId, { parameters: parameters || {} });
   },
 };

@@ -1,7 +1,7 @@
 package com.plm.source;
 
 import com.plm.algorithm.AlgorithmType;
-import com.plm.shared.guard.GuardViolation;
+import com.plm.platform.action.guard.GuardViolation;
 
 import java.util.List;
 

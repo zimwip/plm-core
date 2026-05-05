@@ -7,9 +7,10 @@ import com.plm.node.domain.internal.DomainService;
 import com.plm.node.version.internal.FingerPrintService;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.DomainConfig;
-import com.plm.shared.action.ActionContext;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionRouteDescriptor;
 import com.plm.shared.action.ActionHandler;
-import com.plm.shared.action.ActionResult;
+import com.plm.platform.action.ActionResult;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 
@@ -18,6 +19,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 @AlgorithmBean(code = "assign_domain", name = "Assign Domain Handler")
@@ -33,6 +35,11 @@ public class AssignDomainActionHandler implements ActionHandler {
 
     @Override
     public String actionCode() { return "assign_domain"; }
+
+    @Override
+    public Optional<ActionRouteDescriptor> route() {
+        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/assign_domain/{id}").metadataOnly());
+    }
 
     @Override
     public ActionResult execute(ActionContext ctx, Map<String, String> params) {

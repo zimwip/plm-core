@@ -1,8 +1,8 @@
 package com.plm.action;
 
 import com.plm.algorithm.AlgorithmType;
-import com.plm.shared.action.ActionContext;
-import com.plm.shared.action.ActionResult;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionResult;
 
 import java.util.Map;
 

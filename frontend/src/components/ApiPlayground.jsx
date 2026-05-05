@@ -247,7 +247,7 @@ function EndpointRow({ method, path, operation, userId, projectSpaceId, basePath
   );
 }
 
-// Normalise service path from /api/spe/status: trim trailing slash for
+// Normalise service path from /api/platform/status: trim trailing slash for
 // consistent URL composition downstream.
 function normalizeBasePath(p) {
   if (!p) return '';
@@ -274,9 +274,9 @@ export default function ApiPlayground({ userId, projectSpaceId }) {
   const loadServices = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch('/api/spe/status', { headers: authHeader(), cache: 'no-store' })
+    fetch('/api/platform/status', { headers: authHeader(), cache: 'no-store' })
       .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status} on /api/spe/status`);
+        if (!r.ok) throw new Error(`HTTP ${r.status} on /api/platform/status`);
         return r.json();
       })
       .then(data => {
@@ -284,7 +284,7 @@ export default function ApiPlayground({ userId, projectSpaceId }) {
         // itself (spe-api, path = /api/spe/) exposes no OpenAPI spec; skip it.
         // ws-gateway is WebSocket-only; also skip.
         const usable = (data.services || [])
-          .filter(s => s.registered && s.path && s.serviceCode !== 'spe-api' && s.serviceCode !== 'ws')
+          .filter(s => s.registered && s.path && s.serviceCode !== 'spe' && s.serviceCode !== 'ws')
           .sort((a, b) => a.serviceCode.localeCompare(b.serviceCode));
         setServices(usable);
         if (usable.length === 0) {

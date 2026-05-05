@@ -1,7 +1,7 @@
 package com.plm.action;
 
 import com.plm.action.internal.ActionDispatcher;
-import com.plm.shared.action.ActionResult;
+import com.plm.platform.action.ActionResult;
 import com.plm.shared.security.SecurityContextPort;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;

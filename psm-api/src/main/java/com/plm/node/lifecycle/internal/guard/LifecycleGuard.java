@@ -1,15 +1,13 @@
 package com.plm.node.lifecycle.internal.guard;
 
 import com.plm.algorithm.AlgorithmType;
-import com.plm.shared.guard.GuardViolation;
+import com.plm.platform.action.guard.GuardViolation;
 
 import java.util.List;
 
 /**
  * Lifecycle guard — evaluates a precondition for a lifecycle transition.
- *
- * Checks transition-level preconditions (required fields, signatures).
- * Independent from action guards — different domain, different context.
+ * Pure PSM concept; registered with platform-api via {@link LifecycleGuardCatalogContribution}.
  */
 @AlgorithmType(id = "algtype-lifecycle-guard",
     name = "Lifecycle Guard",

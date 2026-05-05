@@ -1,8 +1,8 @@
 package com.plm.node.transaction.internal;
 
-import com.plm.shared.action.ActionContext;
+import com.plm.platform.action.ActionContext;
 import com.plm.shared.action.ActionScope;
-import com.plm.shared.action.ScopeSegment;
+import com.plm.platform.action.ScopeSegment;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

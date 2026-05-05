@@ -4,7 +4,7 @@ import com.plm.platform.authz.dto.ScopeRegistration;
 import com.plm.platform.authz.dto.ScopeRegistrationRequest;
 import com.plm.platform.authz.dto.ScopeRegistrationResponse;
 import com.plm.platform.spe.PlatformPaths;
-import com.plm.platform.spe.SpeRegistrationProperties;
+import com.plm.platform.environment.PlatformRegistrationProperties;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
  * then 30s∞ retry; periodic re-register every 300s.
  *
  * <p>Service identity ({@code serviceCode}, {@code selfBaseUrl},
- * {@code serviceSecret}) is read from {@link SpeRegistrationProperties} — the
+ * {@code serviceSecret}) is read from {@link PlatformRegistrationProperties} — the
  * single source of truth for sidecar identity across all platform-lib clients.
  *
  * <p><strong>Conflict handling:</strong> a 409 response means another service
@@ -48,7 +48,7 @@ public class PermissionScopeRegistrationClient {
     private static final String REGISTER_URL = PlatformPaths.internalPath(PNO_SERVICE_CODE, "/scopes/register");
 
     private final PermissionScopeRegistrationProperties props;
-    private final SpeRegistrationProperties speProps;
+    private final PlatformRegistrationProperties platformProps;
     private final RestTemplate rest;
     private final List<PermissionScopeContribution> contributions;
 
@@ -56,14 +56,14 @@ public class PermissionScopeRegistrationClient {
     private volatile String instanceId;
 
     public PermissionScopeRegistrationClient(PermissionScopeRegistrationProperties props,
-                                             SpeRegistrationProperties speProps,
+                                             PlatformRegistrationProperties platformProps,
                                              RestTemplate rest,
                                              List<PermissionScopeContribution> contributions) {
         this.props = props;
-        this.speProps = speProps;
+        this.platformProps = platformProps;
         this.rest = rest;
         this.contributions = contributions;
-        this.instanceId = computeInstanceId(speProps.selfBaseUrl());
+        this.instanceId = computeInstanceId(platformProps.selfBaseUrl());
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -96,11 +96,11 @@ public class PermissionScopeRegistrationClient {
                 .collect(Collectors.toList());
 
             HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Service-Secret", speProps.serviceSecret());
+            headers.set("X-Service-Secret", platformProps.serviceSecret());
             headers.set("Content-Type", "application/json");
 
             ScopeRegistrationRequest body = new ScopeRegistrationRequest(
-                speProps.serviceCode(), instanceId, scopes
+                platformProps.serviceCode(), instanceId, scopes
             );
 
             ResponseEntity<ScopeRegistrationResponse> resp = rest.exchange(

@@ -250,33 +250,4 @@ public class MetaModelController {
         return ResponseEntity.ok(Map.of("id", id));
     }
 
-    // ── Action catalog ──
-
-    @GetMapping("/actions")
-    public ResponseEntity<List<Map<String, Object>>> listAllActions() {
-        return ResponseEntity.ok(metaModelService.listAllActions());
-    }
-
-    @PostMapping("/actions")
-    public ResponseEntity<Map<String, String>> registerCustomAction(@RequestBody Map<String, Object> body) {
-        String id = metaModelService.createAction(body);
-        return ResponseEntity.ok(Map.of("id", id));
-    }
-
-    @GetMapping("/nodetypes/{nodeTypeId}/actions")
-    public ResponseEntity<List<Map<String, Object>>> listActionsForNodeType(@PathVariable String nodeTypeId) {
-        return ResponseEntity.ok(metaModelService.listActionsForNodeType(nodeTypeId));
-    }
-
-    @PutMapping("/actions/{actionId}/managed-with")
-    public ResponseEntity<Void> setActionManagedWith(
-            @PathVariable String actionId, @RequestBody Map<String, String> body) {
-        metaModelService.setActionManagedWith(actionId, body.get("managedWith"));
-        return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/actions/{actionId}/managed-actions")
-    public ResponseEntity<List<Map<String, Object>>> listManagedActions(@PathVariable String actionId) {
-        return ResponseEntity.ok(metaModelService.listManagedActions(actionId));
-    }
 }

@@ -22,7 +22,7 @@ import com.plm.shared.metadata.MetadataService;
 import com.plm.shared.model.Enums.ChangeType;
 import com.plm.shared.model.Enums.VersionStrategy;
 import com.plm.shared.model.ResolvedAttribute;
-import com.plm.shared.action.PlmAction;
+import com.plm.platform.action.PlmAction;
 import com.plm.platform.authz.KeyExpr;
 import com.plm.platform.authz.PlmPermission;
 import com.plm.shared.security.SecurityContextPort;
@@ -56,8 +56,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * Opérations sans txId (lecture seule) : buildObjectDescription
  *
- * createNode est un cas particulier : la version initiale est directement COMMITTED
- * (création = acte atomique, pas de review nécessaire).
+ * createNode prend uniquement le logical_id (et un externalId optionnel) :
+ * la version initiale est créée OPEN, vide, dans la transaction courante de
+ * l'utilisateur. Les attributs sont alimentés ensuite via {@link #modifyNode}
+ * et la complétude (required/regex/enum) est vérifiée au commit.
  */
 @Metadata(key = "frozen", target = "LIFECYCLE_STATE",
     description = "Blocks content modifications (checkout, attribute changes)")
@@ -84,16 +86,16 @@ public class NodeService {
     private final com.plm.shared.security.PnoProjectSpaceClient pnoProjectSpaceClient;
 
     // ================================================================
-    // CRÉATION (pas de txId — version initiale directement COMMITTED)
+    // CRÉATION — only logical_id (+ optional external_id) are accepted.
+    // Domain attributes are populated via update_node before checkin.
     // ================================================================
 
-    @PlmAction(value = "create_node", nodeTypeIdExpr = "#nodeTypeId")
+    @PlmAction("create_node")
     @Transactional
     public String createNode(
         String projectSpaceId,
         String nodeTypeId,
         String userId,
-        Map<String, String> attributes,
         String logicalId,
         String externalId
     ) {
@@ -166,7 +168,8 @@ public class NodeService {
                 .orElse(null);
         }
 
-        // Version initiale — appartient à la transaction OPEN de l'utilisateur
+        // Initial version — empty, OPEN. Attributes are added via update_node;
+        // required/regex/enum checks fire at commit (PreCommitValidator).
         String versionId = UUID.randomUUID().toString();
         dsl.execute(
             """
@@ -183,25 +186,6 @@ public class NodeService {
             userId
         );
 
-        // Hard schema + value-shape check (always blocking).
-        // No nodeId yet — only node-type attrs are valid at create time.
-        validationService.assertWritable(nodeTypeId, attributes, (String) null);
-
-        for (Map.Entry<String, String> e : attributes.entrySet()) {
-            dsl.execute(
-                "INSERT INTO node_version_attribute (ID, NODE_VERSION_ID, ATTRIBUTE_DEF_ID, VALUE) VALUES (?,?,?,?)",
-                UUID.randomUUID().toString(),
-                versionId,
-                e.getKey(),
-                e.getValue()
-            );
-        }
-
-        // Soft validations (required, regex, enum, identity pattern) are non-blocking
-        // at write time — they will be enforced at commit by the PreCommitValidator.
-        // The handler may surface them to the client as feedback.
-
-        // Store fingerprint immediately so future on-the-fly re-computation isn't needed.
         String fp = fingerPrintService.compute(nodeId, versionId);
         dsl.execute(
             "UPDATE node_version SET fingerprint = ? WHERE id = ?",
@@ -641,7 +625,7 @@ public class NodeService {
      * @param txId  transaction existante, ou {@code null} pour en trouver/créer une automatiquement
      * @return id de la version OPEN (nouvelle ou existante)
      */
-    @PlmAction(value = "checkout", nodeIdExpr = "#nodeId")  // action_code = 'checkout' in action
+    @PlmAction("checkout")
     @Transactional
     public String checkout(String nodeId, String userId, String txId) {
         assertNotFrozen(nodeId);
@@ -682,7 +666,7 @@ public class NodeService {
      * @param txId      transaction PLM ouverte — OBLIGATOIRE
      * @param strategy  stratégie de numérotation (null = ITERATE par défaut)
      */
-    @PlmAction(value = "update_node", nodeIdExpr = "#nodeId")
+    @PlmAction("update_node")
     @Transactional
     public String modifyNode(
         String nodeId,
@@ -729,7 +713,7 @@ public class NodeService {
     }
 
     /** Overload without strategy — defaults to ITERATE. */
-    @PlmAction(value = "update_node", nodeIdExpr = "#nodeId")
+    @PlmAction("update_node")
     @Transactional
     public String modifyNode(
         String nodeId,

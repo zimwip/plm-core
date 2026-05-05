@@ -4,8 +4,8 @@ import com.plm.algorithm.AlgorithmBean;
 import com.plm.node.NodeService;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.NodeTypeConfig;
-import com.plm.shared.guard.GuardEffect;
-import com.plm.shared.guard.GuardViolation;
+import com.plm.platform.action.guard.GuardEffect;
+import com.plm.platform.action.guard.GuardViolation;
 import com.plm.source.KeyHint;
 import com.plm.source.LinkConstraint;
 import com.plm.source.Reference;
@@ -120,7 +120,9 @@ public class SelfNodeResolver implements SourceResolver {
                 "Target node not found: " + p.logicalId, GuardEffect.BLOCK));
             return violations;
         }
-        if (constraint.allowedType() != null && !isTypeOrDescendant(actualType, constraint.allowedType())) {
+        if (constraint.allowedType() != null
+                && !isTypeOrDescendant(actualType, constraint.allowedType())
+                && !hasAncestorOfType(p.logicalId, constraint.allowedType())) {
             violations.add(new GuardViolation("SELF_WRONG_TYPE",
                 "Target " + p.logicalId + " is " + actualType + ", expected " + constraint.allowedType(),
                 GuardEffect.BLOCK));
@@ -197,6 +199,42 @@ public class SelfNodeResolver implements SourceResolver {
         while (current != null) {
             if (expected.equals(current)) return true;
             current = configCache.getNodeType(current).map(NodeTypeConfig::parentNodeTypeId).orElse(null);
+        }
+        return false;
+    }
+
+    /**
+     * BFS upward through the committed SELF-link parent hierarchy of {@code logicalId}.
+     * Returns true if any ancestor node has a type that is {@code expectedType} or a
+     * descendant of it. This allows linking to a part that lives inside an assembly
+     * when the link type declares nt-assembly as the allowed target type.
+     */
+    private boolean hasAncestorOfType(String logicalId, String expectedType) {
+        java.util.Set<String> visited = new java.util.HashSet<>();
+        java.util.Deque<String> queue = new java.util.ArrayDeque<>();
+        queue.add(logicalId);
+        visited.add(logicalId);
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            // Find committed nodes that have `current` as a SELF child target.
+            var parents = dsl.fetch("""
+                SELECT DISTINCT n.logical_id AS parent_logical_id, n.node_type_id AS parent_type
+                FROM node_version_link nl
+                JOIN node_version nv ON nv.id = nl.source_node_version_id
+                JOIN plm_transaction pt ON pt.id = nv.tx_id
+                JOIN node n ON n.id = nv.node_id
+                WHERE pt.status = 'COMMITTED'
+                  AND nl.target_source_id = 'SELF'
+                  AND (nl.target_key = ? OR nl.target_key LIKE ?)
+                """, current, current + "@%");
+            for (Record r : parents) {
+                String parentType    = r.get("parent_type", String.class);
+                String parentLogical = r.get("parent_logical_id", String.class);
+                if (isTypeOrDescendant(parentType, expectedType)) return true;
+                if (parentLogical != null && visited.add(parentLogical)) {
+                    queue.add(parentLogical);
+                }
+            }
         }
         return false;
     }

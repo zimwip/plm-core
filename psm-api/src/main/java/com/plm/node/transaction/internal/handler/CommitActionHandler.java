@@ -1,14 +1,16 @@
 package com.plm.node.transaction.internal.handler;
 
-import com.plm.shared.action.ActionContext;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionRouteDescriptor;
 import com.plm.shared.action.ActionHandler;
-import com.plm.shared.action.ActionResult;
+import com.plm.platform.action.ActionResult;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import lombok.RequiredArgsConstructor;
 import com.plm.algorithm.AlgorithmBean;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @AlgorithmBean(code = "commit", name = "COMMIT Handler")
 @RequiredArgsConstructor
@@ -18,6 +20,11 @@ public class CommitActionHandler implements ActionHandler {
 
     @Override
     public String actionCode() { return "commit"; }
+
+    @Override
+    public Optional<ActionRouteDescriptor> route() {
+        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/commit/{id}").metadataOnly());
+    }
 
     @Override
     public ActionResult execute(ActionContext ctx, Map<String, String> params) {

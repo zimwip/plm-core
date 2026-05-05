@@ -1,6 +1,6 @@
 package com.plm.platform.authz;
 
-import com.plm.platform.spe.SpeRegistrationProperties;
+import com.plm.platform.environment.PlatformRegistrationProperties;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -18,7 +18,7 @@ import java.util.List;
  * the auto-mounted scope-value endpoint when {@code plm.permission.enabled=true}.
  *
  * <p>Sidecar identity ({@code serviceCode}, {@code selfBaseUrl}, {@code serviceSecret})
- * is reused from {@link SpeRegistrationProperties} so each service declares it once.
+ * is reused from {@link PlatformRegistrationProperties} so each service declares it once.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PermissionScopeRegistrationProperties.class)
@@ -30,12 +30,12 @@ public class PermissionScopeRegistrationAutoConfiguration {
     @ConditionalOnMissingBean
     public PermissionScopeRegistrationClient permissionScopeRegistrationClient(
             PermissionScopeRegistrationProperties props,
-            SpeRegistrationProperties speProps,
+            PlatformRegistrationProperties platformProps,
             RestTemplateBuilder restTemplateBuilder,
             org.springframework.beans.factory.ObjectProvider<List<PermissionScopeContribution>> contributionsProvider) {
         RestTemplate rest = restTemplateBuilder.build();
         List<PermissionScopeContribution> contributions = contributionsProvider.getIfAvailable(Collections::emptyList);
-        return new PermissionScopeRegistrationClient(props, speProps, rest, contributions);
+        return new PermissionScopeRegistrationClient(props, platformProps, rest, contributions);
     }
 
     @Bean

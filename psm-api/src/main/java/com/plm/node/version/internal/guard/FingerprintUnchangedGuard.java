@@ -1,10 +1,10 @@
 package com.plm.node.version.internal.guard;
-import com.plm.action.guard.ActionGuardContext;
+import com.plm.platform.action.guard.ActionGuardContext;
 
 import com.plm.algorithm.AlgorithmBean;
 import com.plm.action.guard.ActionGuard;
-import com.plm.shared.guard.GuardEffect;
-import com.plm.shared.guard.GuardViolation;
+import com.plm.platform.action.guard.GuardEffect;
+import com.plm.platform.action.guard.GuardViolation;
 import com.plm.node.version.internal.FingerPrintService;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;

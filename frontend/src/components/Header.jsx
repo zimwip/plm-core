@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { HexIcon } from './Icons';
 import { NODE_ICONS } from './Icons';
+import { psmNodeDescriptor } from '../plugins/psmNodePlugin';
 
 const USER_PALETTE = ['#5b9cf6', '#56d18e', '#e8c547', '#a78bfa', '#f87171', '#34d399', '#fb923c', '#60a5fa'];
 
@@ -53,7 +54,9 @@ function Header({
     onSearchChange('');
     setShowSug(false);
     setSuggestions([]);
-    if (onNavigate) onNavigate(id);
+    // Header search results are always PSM nodes (search hits
+    // /api/psm/nodes/search), so pass the canonical PSM descriptor.
+    if (onNavigate) onNavigate(id, undefined, psmNodeDescriptor);
   }, [onSearchChange, onNavigate]);
 
   const handleKeyDown = useCallback((e) => {

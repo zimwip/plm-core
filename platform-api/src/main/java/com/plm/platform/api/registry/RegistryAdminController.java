@@ -1,37 +1,33 @@
 package com.plm.platform.api.registry;
 
+import com.plm.platform.api.environment.EnvironmentRegistry;
+import com.plm.platform.api.environment.ServiceRegistration;
 import com.plm.platform.api.security.SettingsSecurityContext;
 import com.plm.platform.api.security.SettingsUserContext;
-import com.plm.platform.browse.dto.ListableDescriptor;
-import com.plm.platform.resource.dto.ResourceDescriptor;
-import com.plm.platform.resource.dto.ResourceVisibilityContext;
+import com.plm.platform.environment.PlatformRegistrationProperties;
+import com.plm.platform.item.dto.ItemDescriptor;
+import com.plm.platform.item.dto.ItemVisibilityContext;
 import com.plm.platform.spe.PlatformPaths;
-import com.plm.platform.spe.SpeRegistrationProperties;
 import com.plm.platform.spe.client.ServiceClient;
 import com.plm.platform.spe.registry.LocalServiceRegistry;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * Read-only admin proxy over spe-api's registry. Spe-api gates
- * {@code /api/spe/registry/**} behind {@code X-Service-Secret}, which the
- * browser cannot carry; this controller forwards the call from server-side
- * with the secret injected by {@link ServiceClient} and gates exposure
- * behind the platform admin user context.
+ * Admin view over the environment registry. Reads directly from the
+ * in-process {@link EnvironmentRegistry} — no longer a cross-service proxy.
  *
  * <p>Backs the "Service Registry" Settings tab.
  */
@@ -42,127 +38,107 @@ public class RegistryAdminController {
 
     private static final String REQUIRED_PERMISSION = "MANAGE_PLATFORM";
 
+    private final EnvironmentRegistry environmentRegistry;
     private final ServiceClient serviceClient;
     private final LocalServiceRegistry localRegistry;
     private final SettingsSectionRegistry settingsRegistry;
-    private final SpeRegistrationProperties speProps;
+    private final PlatformRegistrationProperties platformProps;
     private final com.plm.platform.api.client.PnoApiClient pnoApiClient;
-    /**
-     * Direct client to spe-api. spe-api never registers itself in its own
-     * registry, so the registry-aware {@link ServiceClient} cannot resolve
-     * "spe" (would throw ServiceUnavailableException). The proxy uses
-     * {@link SpeRegistrationProperties#speUrl()} as the well-known base URL
-     * and injects {@code X-Service-Secret} manually — same auth that gates
-     * spe-api's {@code /api/spe/registry/**} endpoints.
-     */
-    private final RestTemplate speDirectClient;
 
-    public RegistryAdminController(ServiceClient serviceClient,
+    public RegistryAdminController(EnvironmentRegistry environmentRegistry,
+                                   ServiceClient serviceClient,
                                    LocalServiceRegistry localRegistry,
                                    SettingsSectionRegistry settingsRegistry,
-                                   SpeRegistrationProperties speProps,
-                                   com.plm.platform.api.client.PnoApiClient pnoApiClient,
-                                   RestTemplateBuilder restTemplateBuilder) {
+                                   PlatformRegistrationProperties platformProps,
+                                   com.plm.platform.api.client.PnoApiClient pnoApiClient) {
+        this.environmentRegistry = environmentRegistry;
         this.serviceClient = serviceClient;
         this.localRegistry = localRegistry;
         this.settingsRegistry = settingsRegistry;
-        this.speProps = speProps;
+        this.platformProps = platformProps;
         this.pnoApiClient = pnoApiClient;
-        this.speDirectClient = restTemplateBuilder.build();
     }
 
     @GetMapping("/grouped")
     public ResponseEntity<?> grouped() {
         if (!isAdmin()) return ResponseEntity.status(403).build();
-        try {
-            Map<String, List<Map<String, Object>>> body = speGet(
-                "/api/spe/registry/grouped",
-                new ParameterizedTypeReference<Map<String, List<Map<String, Object>>>>() {});
-            return ResponseEntity.ok(body != null ? body : Map.of());
-        } catch (Exception e) {
-            log.warn("Registry proxy /grouped failed: {}", e.getMessage());
-            return ResponseEntity.status(502).body(Map.of("error", e.getMessage()));
+        Map<String, List<Map<String, Object>>> body = new LinkedHashMap<>();
+        Instant now = Instant.now();
+        for (var entry : environmentRegistry.allInstancesByService().entrySet()) {
+            List<Map<String, Object>> instances = entry.getValue().stream()
+                .map(r -> serializeInstance(r, now))
+                .toList();
+            body.put(entry.getKey(), instances);
         }
+        return ResponseEntity.ok(body);
     }
 
     @GetMapping("/tags")
     public ResponseEntity<?> tags() {
         if (!isAdmin()) return ResponseEntity.status(403).build();
-        try {
-            Map<String, Object> body = speGet(
-                "/api/spe/registry/tags",
-                new ParameterizedTypeReference<Map<String, Object>>() {});
-            return ResponseEntity.ok(body != null ? body : Map.of());
-        } catch (Exception e) {
-            log.warn("Registry proxy /tags failed: {}", e.getMessage());
-            return ResponseEntity.status(502).body(Map.of("error", e.getMessage()));
-        }
+        return ResponseEntity.ok(environmentRegistry.tagsByService());
     }
 
-    private <T> T speGet(String path, ParameterizedTypeReference<T> type) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("X-Service-Secret", speProps.serviceSecret());
-        ResponseEntity<T> resp = speDirectClient.exchange(
-            speProps.speUrl() + path, HttpMethod.GET, new HttpEntity<>(headers), type);
-        return resp.getBody();
+    private Map<String, Object> serializeInstance(ServiceRegistration r, Instant now) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("instanceId", r.instanceId());
+        m.put("serviceCode", r.serviceCode());
+        m.put("baseUrl", r.baseUrl());
+        m.put("version", r.version());
+        m.put("spaceTag", r.spaceTag());
+        m.put("untagged", r.isUntagged());
+        m.put("registeredAt", r.registeredAt().toString());
+        m.put("lastHeartbeatOk", r.lastHeartbeatOk() != null ? r.lastHeartbeatOk().toString() : null);
+        m.put("consecutiveFailures", r.consecutiveFailures());
+        m.put("healthy", r.consecutiveFailures() == 0);
+        m.put("ageSeconds", r.lastHeartbeatOk() != null
+            ? Duration.between(r.lastHeartbeatOk(), now).toSeconds() : null);
+        return m;
     }
 
-    /**
-     * Platform-side view: per-service summary of what this platform-api knows
-     * about — settings tabs registered, live resource/browse contributions,
-     * registry membership. Useful operational counterpart to {@code /grouped}
-     * which only mirrors spe-api.
-     */
     @GetMapping("/overview")
     public ResponseEntity<?> overview() {
         if (!isAdmin()) return ResponseEntity.status(403).build();
 
         SettingsUserContext ctx = SettingsSecurityContext.get();
-        ResourceVisibilityContext probeCtx = new ResourceVisibilityContext(
+        ItemVisibilityContext probeCtx = new ItemVisibilityContext(
             ctx.getUserId(), null, true, ctx.getRoleIds(), ctx.getGlobalPermissions());
 
         Set<String> serviceCodes = localRegistry.allServiceCodes();
         Map<String, Map<String, Object>> byService = new LinkedHashMap<>();
 
         for (String code : serviceCodes) {
+            List<ItemDescriptor> items = probeItems(code, probeCtx);
+            int creatable = (int) items.stream().filter(d -> d.create() != null).count();
+            int listable  = (int) items.stream().filter(d -> d.list()   != null).count();
+
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("instances", localRegistry.getInstances(code).size());
             entry.put("settingsSections", settingsRegistry.getSectionsForService(code).size());
-            entry.put("resourceDescriptors", probeAxis(code, "/resources/visible", true, probeCtx));
-            entry.put("browseDescriptors",   probeAxis(code, "/browse/visible",    false, probeCtx));
+            entry.put("itemDescriptors", items.size());
+            entry.put("creatableItems", creatable);
+            entry.put("listableItems",  listable);
             byService.put(code, entry);
         }
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("self", speProps.serviceCode());
+        body.put("self", platformProps.serviceCode());
         body.put("services", byService);
         body.put("settingsRegistrations", settingsRegistry.allRegistrations());
         return ResponseEntity.ok(body);
     }
 
-    private int probeAxis(String serviceCode, String relPath, boolean resource,
-                          ResourceVisibilityContext context) {
+    private List<ItemDescriptor> probeItems(String serviceCode, ItemVisibilityContext context) {
         try {
-            String path = PlatformPaths.internalPath(serviceCode, relPath);
-            if (resource) {
-                List<ResourceDescriptor> body = serviceClient.post(serviceCode, path, context,
-                    new ParameterizedTypeReference<List<ResourceDescriptor>>() {});
-                return body == null ? 0 : body.size();
-            }
-            List<ListableDescriptor> body = serviceClient.post(serviceCode, path, context,
-                new ParameterizedTypeReference<List<ListableDescriptor>>() {});
-            return body == null ? 0 : body.size();
+            String path = PlatformPaths.internalPath(serviceCode, "/items/visible");
+            List<ItemDescriptor> body = serviceClient.post(serviceCode, path, context,
+                new ParameterizedTypeReference<List<ItemDescriptor>>() {});
+            return body == null ? List.of() : body;
         } catch (Exception e) {
-            return 0;
+            return List.of();
         }
     }
 
-    /**
-     * Allow access if either the JWT principal is admin, or the user holds
-     * the {@link #REQUIRED_PERMISSION} global grant pulled live from pno-api.
-     * Mirrors the gating logic of {@code SettingsSectionsController}: admin
-     * bypass, otherwise per-permission check.
-     */
     private boolean isAdmin() {
         SettingsUserContext u = SettingsSecurityContext.getOrNull();
         if (u == null) {

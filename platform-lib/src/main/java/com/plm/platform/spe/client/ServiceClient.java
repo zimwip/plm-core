@@ -1,6 +1,6 @@
 package com.plm.platform.spe.client;
 
-import com.plm.platform.spe.SpeRegistrationProperties;
+import com.plm.platform.environment.PlatformRegistrationProperties;
 import com.plm.platform.spe.dto.ServiceInstanceInfo;
 import com.plm.platform.spe.registry.LocalServiceRegistry;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -36,12 +36,12 @@ public class ServiceClient {
 
     private final LocalServiceRegistry registry;
     private final ServiceClientResilience resilience;
-    private final SpeRegistrationProperties props;
+    private final PlatformRegistrationProperties props;
     private final RestTemplate restTemplate;
 
     public ServiceClient(LocalServiceRegistry registry,
                          ServiceClientResilience resilience,
-                         SpeRegistrationProperties props,
+                         PlatformRegistrationProperties props,
                          RestTemplate restTemplate) {
         this.registry = registry;
         this.resilience = resilience;

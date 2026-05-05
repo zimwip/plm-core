@@ -140,14 +140,14 @@ public class DashboardService {
             List<Map<String, Object>> actionSummary = new ArrayList<>();
             for (Map<String, Object> a : actions) {
                 if (!Boolean.TRUE.equals(a.get("authorized"))) continue;
-                List<?> violations = (List<?>) a.get("guardViolations");
-                if (violations != null && !violations.isEmpty()) continue;
 
                 Map<String, Object> summary = new LinkedHashMap<>();
                 summary.put("id",              a.get("id"));
                 summary.put("actionCode",      a.get("actionCode"));
                 summary.put("name",            a.get("name"));
+                summary.put("description",     a.get("description"));
                 summary.put("displayCategory", a.get("displayCategory"));
+                summary.put("guardViolations", a.get("guardViolations"));
                 actionSummary.add(summary);
             }
             if (actionSummary.isEmpty()) continue;

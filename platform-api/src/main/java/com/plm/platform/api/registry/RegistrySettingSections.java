@@ -18,7 +18,12 @@ import org.springframework.context.annotation.Configuration;
 class RegistrySettingSections {
 
     @Bean
+    SettingSectionDto platformEnvironmentSection() {
+        return new SettingSectionDto("platform-environment", "Environment", "PLATFORM", 5, "MANAGE_PLATFORM", "globe");
+    }
+
+    @Bean
     SettingSectionDto serviceRegistrySection() {
-        return new SettingSectionDto("service-registry", "Service Registry", "PLATFORM", 20, "MANAGE_PLATFORM");
+        return new SettingSectionDto("service-registry", "Service Registry", "PLATFORM", 20, "MANAGE_PLATFORM", "network");
     }
 }

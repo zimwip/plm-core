@@ -5,13 +5,13 @@ import { api } from '../services/api';
  * Federated create form. First row exposes two selects (Source then Type),
  * mirroring the historical "Object type" dropdown but extended across services.
  *
- * Source = `groupKey` (PLM, DATA, ...). Type = one descriptor within that source
+ * Source = `sourceLabel` (PLM, DATA, ...). Type = one descriptor within that source
  * (Document / Part / Assembly for PLM; Data file for DATA). Both default to the
  * first available entry when the modal opens.
  *
- * Below the cascade, the descriptor's `createAction.parameters` drive the form.
+ * Below the cascade, the descriptor's `create.parameters` drive the form.
  * Parameters carry `displayOrder` and `displaySection` — the form sorts by
- * order then groups under a header per section. NodeCatalogContribution emits
+ * order then groups under a header per section. NodeItemContribution emits
  * the identifier fields (logical_id / external_id) at displayOrder 0..n with
  * section "Identity", so they always render before attribute groups.
  *
@@ -27,7 +27,7 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
     const seen = new Set();
     const out = [];
     for (const d of resources || []) {
-      const k = d.groupKey || 'OTHER';
+      const k = d.sourceLabel || 'OTHER';
       if (!seen.has(k)) { seen.add(k); out.push(k); }
     }
     return out;
@@ -36,7 +36,7 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
   const [source, setSource] = useState(sources[0] || '');
 
   const types = useMemo(
-    () => (resources || []).filter(d => (d.groupKey || 'OTHER') === source),
+    () => (resources || []).filter(d => (d.sourceLabel || 'OTHER') === source),
     [resources, source]
   );
 
@@ -67,7 +67,7 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
     );
   }
 
-  const action = descriptor.createAction;
+  const action = descriptor.create;
   const params = (action?.parameters || []).slice().sort(
     (a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)
   );
@@ -114,7 +114,7 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
     setLoading(true);
     try {
       const result = await api.createResource(descriptor, values);
-      toast(`${descriptor.displayName || descriptor.resourceCode} created`, 'success');
+      toast(`${descriptor.displayName || descriptor.itemCode} created`, 'success');
       onCreated?.(result, descriptor);
       onClose();
     } catch (err) {
@@ -255,16 +255,16 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
               <select
                 id="rc-type"
                 className="field-input"
-                value={descriptor ? `${descriptor.serviceCode}/${descriptor.resourceCode}/${descriptor.resourceKey || ''}` : ''}
+                value={descriptor ? `${descriptor.serviceCode}/${descriptor.itemCode}/${descriptor.itemKey || ''}` : ''}
                 onChange={e => {
                   const id = e.target.value;
                   const next = types.find(d =>
-                    `${d.serviceCode}/${d.resourceCode}/${d.resourceKey || ''}` === id);
+                    `${d.serviceCode}/${d.itemCode}/${d.itemKey || ''}` === id);
                   if (next) setDescriptor(next);
                 }}
               >
                 {types.map(d => {
-                  const id = `${d.serviceCode}/${d.resourceCode}/${d.resourceKey || ''}`;
+                  const id = `${d.serviceCode}/${d.itemCode}/${d.itemKey || ''}`;
                   return <option key={id} value={id}>{d.displayName}</option>;
                 })}
               </select>

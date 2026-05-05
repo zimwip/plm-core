@@ -264,10 +264,19 @@ class PlmIntegrationTest {
 
     // -------------------------------------------------------
 
-    /** Creates a node for ALICE and immediately commits the creation transaction. */
+    /**
+     * Creates a node for ALICE, populates initial attributes via update_node
+     * within the auto-opened creation transaction, then commits.
+     * Mirrors the UI flow where create only takes the identifier and content
+     * is filled before checkin.
+     */
     private String setupNode(Map<String, String> attrs) {
-        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, attrs, null, null);
+        String logicalId = "DOC-" + uid().substring(0, 8);
+        String nodeId = nodeService.createNode(PS_DEFAULT, nodeTypeId, ALICE, logicalId, null);
         String txId = txService.findOpenTransaction(ALICE);
+        if (attrs != null && !attrs.isEmpty()) {
+            nodeService.modifyNode(nodeId, ALICE, txId, attrs, "Initial attributes");
+        }
         txService.commitTransaction(txId, ALICE, "Initial creation", null);
         return nodeId;
     }

@@ -14,11 +14,11 @@ import com.plm.platform.config.dto.LifecycleStateConfig;
 import com.plm.platform.config.dto.LinkTypeConfig;
 import com.plm.platform.config.dto.NodeTypeConfig;
 import com.plm.platform.config.dto.SourceConfig;
-import com.plm.shared.guard.GuardEffect;
-import com.plm.shared.guard.GuardViolation;
+import com.plm.platform.action.guard.GuardEffect;
+import com.plm.platform.action.guard.GuardViolation;
 import com.plm.shared.model.Enums.ChangeType;
 import com.plm.shared.model.Enums.VersionStrategy;
-import com.plm.shared.action.PlmAction;
+import com.plm.platform.action.PlmAction;
 import com.plm.shared.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -61,11 +61,11 @@ public class LinkService {
     // CREATE LINK
     // ================================================================
 
-    @PlmAction(value = "create_link", nodeIdExpr = "#sourceNodeId")
+    @PlmAction("create_link")
     @Transactional
     public String createLink(
         String linkTypeId,
-        String sourceNodeId,
+        String nodeId,
         String targetSourceCode,
         String targetType,
         String targetKey,
@@ -120,27 +120,27 @@ public class LinkService {
                     .from("node_version_link nl")
                     .join("node_version nv_src").on("nv_src.id = nl.source_node_version_id")
                     .where("nl.link_type_id = ?", linkTypeId)
-                    .and("nv_src.node_id = ?", sourceNodeId)
+                    .and("nv_src.node_id = ?", nodeId)
             );
             if (existing >= maxCard) throw new IllegalStateException(
                 "Max cardinality " + maxCard + " reached");
         }
 
         // ── owner-side: ensure open version + lock ──────────────────
-        String sourceVersionId = findOpenVersionInTx(sourceNodeId, txId);
+        String sourceVersionId = findOpenVersionInTx(nodeId, txId);
         if (sourceVersionId == null) {
             sourceVersionId = versionService.createVersion(
-                sourceNodeId, userId, txId,
+                nodeId, userId, txId,
                 ChangeType.CONTENT, VersionStrategy.ITERATE,
                 null, Map.of(), "Link creation"
             );
         }
-        lockService.tryLock(sourceNodeId, userId);
+        lockService.tryLock(nodeId, userId);
 
         // ── resolver-side validation (target shape, cycle, type pair) ─
         SourceResolver resolver = sourceResolverRegistry.getResolverFor(sourceCode);
         SourceResolverContext rctx = new SourceResolverContext(
-            linkTypeId, type, targetKey, sourceVersionId, sourceNodeId);
+            linkTypeId, type, targetKey, sourceVersionId, nodeId);
         LinkConstraint constraint = new LinkConstraint(
             type, linkType.maxCardinality(), linkType.linkPolicy(), linkType.linkLogicalIdPattern());
         List<GuardViolation> violations = resolver.validate(rctx, constraint);
@@ -174,11 +174,11 @@ public class LinkService {
             linkLogicalId, LocalDateTime.now(), userId
         );
 
-        String fp = fingerPrintService.compute(sourceNodeId, sourceVersionId);
+        String fp = fingerPrintService.compute(nodeId, sourceVersionId);
         dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
 
         log.info("Link created: {}→{}/{}/{} type={} logicalId={}",
-            sourceNodeId, sourceCode, type, targetKey, linkTypeId, linkLogicalId);
+            nodeId, sourceCode, type, targetKey, linkTypeId, linkLogicalId);
         return linkId;
     }
 
@@ -186,7 +186,7 @@ public class LinkService {
     // DELETE LINK
     // ================================================================
 
-    @PlmAction(value = "delete_link", linkIdExpr = "#linkId")
+    @PlmAction("delete_link")
     @Transactional
     public void deleteLink(String linkId, String userId, String txId) {
         String sourceNodeId = resolveLinkSourceNodeId(linkId);
@@ -206,7 +206,7 @@ public class LinkService {
     // UPDATE LINK
     // ================================================================
 
-    @PlmAction(value = "update_link", linkIdExpr = "#linkId")
+    @PlmAction("update_link")
     @Transactional
     public void updateLink(
         String linkId,

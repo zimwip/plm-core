@@ -34,9 +34,9 @@ public class GlobalExceptionHandler {
 
     /**
      * Quietly handle 404 on routes that aren't mapped (e.g. federated fan-out
-     * probes from platform-api hitting {@code /internal/browse/visible} on a
-     * service that doesn't contribute that axis). Avoids ERROR-spamming the
-     * application log every time a sibling service is checked.
+     * probes from platform-api hitting {@code /internal/items/visible} on a
+     * service that doesn't contribute the item catalog). Avoids ERROR-spamming
+     * the application log every time a sibling service is checked.
      */
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(

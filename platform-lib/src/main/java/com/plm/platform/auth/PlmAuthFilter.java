@@ -84,6 +84,7 @@ public class PlmAuthFilter implements Filter {
         }
 
         try {
+            req.setAttribute("plm.principal", principal.get());
             for (PlmAuthContextBinder b : binders) {
                 b.bind(principal.get(), req);
             }

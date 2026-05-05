@@ -1,7 +1,7 @@
 package com.plm.platform.spe.client;
 
-import com.plm.platform.spe.SpeRegistrationAutoConfiguration;
-import com.plm.platform.spe.SpeRegistrationProperties;
+import com.plm.platform.environment.PlatformRegistrationAutoConfiguration;
+import com.plm.platform.environment.PlatformRegistrationProperties;
 import com.plm.platform.spe.registry.LocalServiceRegistry;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -12,9 +12,9 @@ import org.springframework.context.annotation.Bean;
 
 /**
  * Auto-configures the registry-aware ServiceClient with Resilience4j.
- * Only active when SPE registration is enabled (same guard as the registration client).
+ * Active when registration is enabled (platform-api or subscribe-only mode).
  */
-@AutoConfiguration(after = SpeRegistrationAutoConfiguration.class)
+@AutoConfiguration(after = PlatformRegistrationAutoConfiguration.class)
 @EnableConfigurationProperties(ServiceClientProperties.class)
 @ConditionalOnBean(LocalServiceRegistry.class)
 public class ServiceClientAutoConfiguration {
@@ -30,7 +30,7 @@ public class ServiceClientAutoConfiguration {
     public ServiceClient serviceClient(
             LocalServiceRegistry registry,
             ServiceClientResilience resilience,
-            SpeRegistrationProperties props,
+            PlatformRegistrationProperties props,
             RestTemplateBuilder restTemplateBuilder) {
         return new ServiceClient(registry, resilience, props, restTemplateBuilder.build());
     }

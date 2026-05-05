@@ -1,12 +1,14 @@
 package com.plm.node.lifecycle.internal;
 
-import com.plm.shared.action.ActionContext;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionNodeContextPort;
 import com.plm.shared.action.ActionScope;
-import com.plm.shared.action.ScopeSegment;
+import com.plm.platform.action.ScopeSegment;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * LIFECYCLE scope — expects nodeId + transitionId path segments.
@@ -37,5 +39,12 @@ public class LifecycleScope implements ActionScope {
         String transitionId = pathIds.get(1);
         return new ActionContext(nodeId, null, actionId, actionCode, transitionId, userId, null,
                 Map.of("nodeId", nodeId, "transitionId", transitionId));
+    }
+
+    @Override
+    public Optional<ActionNodeContextPort.NodeCtx> resolveNodeCtx(
+            Map<String, String> ids, String userId, ActionNodeContextPort port) {
+        String nodeId = ids.get("nodeId");
+        return nodeId == null ? Optional.empty() : port.resolveFromNodeId(nodeId, userId);
     }
 }

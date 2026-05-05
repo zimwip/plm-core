@@ -3,14 +3,15 @@ import { api, txApi } from '../services/api';
 
 /**
  * Global PLM store — single source of truth for navigation tree,
- * active transaction, and open node descriptions.
+ * active transaction, open node descriptions, and shared metadata.
  *
  * Flux contract:
- *   WS event arrives → dispatch store action (refreshNodeDesc / refreshNodes / refreshTx)
+ *   WS event arrives → dispatch store action
  *   → Zustand updates state → subscribed components re-render
  *
- * Components must NOT fetch node descriptions independently; they subscribe to
- * activeNodeDescs[nodeId] and call refreshNodeDesc(nodeId) to trigger a reload.
+ * Metadata slices (items, nodeTypes, resources, stateColorMap,
+ * projectSpaces, users) are loaded once at boot and refreshed on
+ * matching WS events. Components must NOT fetch these independently.
  */
 export const usePlmStore = create((set, get) => ({
 
@@ -18,38 +19,118 @@ export const usePlmStore = create((set, get) => ({
   userId: null,
   setUserId: (id) => set({ userId: id }),
 
-  // Navigation tree
-  nodes: [],
-  _nodePage: 0,
-  _nodeHasMore: false,
+  // ── Metadata: platform/items ──────────────────────────────────────
+  // Raw item descriptors from platform-api. Derived slices:
+  //   nodeTypes: PSM listable items (tree grouping + search styling)
+  //   resources: items with create action (create modal)
+  // Single fetch populates all three; refreshNodes reuses the cached
+  // items array so no second getItems call is ever needed.
+  items: [],
+  nodeTypes: [],
+  resources: [],
+  itemsStatus: 'idle', // 'idle' | 'loading' | 'loaded'
 
-  refreshNodes: async () => {
+  refreshItems: async () => {
+    const { userId } = get();
+    if (!userId) return;
+    set({ itemsStatus: 'loading' });
+    try {
+      const rawItems = await api.getItems(userId);
+      const arr = Array.isArray(rawItems) ? rawItems : [];
+      const nodeTypes = arr
+        .filter(d => d.serviceCode === 'psm' && d.itemCode === 'node' && d.itemKey && d.list)
+        .map(d => ({
+          id:          d.itemKey,
+          name:        d.displayName,
+          description: d.description,
+          color:       d.color,
+          icon:        d.icon,
+        }));
+      const resources = arr.filter(d => d.create);
+      // Refresh the node list using the just-fetched descriptors — no second getItems call.
+      const psmDescs = arr.filter(d => d.serviceCode === 'psm' && d.itemCode === 'node' && d.list);
+      const pages = await Promise.all(
+        psmDescs.map(d => api.fetchListableItems(userId, d, 0, 50)
+          .then(r => r.items || [])
+          .catch(() => []))
+      );
+      set({ items: arr, nodeTypes, resources, itemsStatus: 'loaded', nodes: pages.flat() });
+    } catch {
+      set({ items: [], nodeTypes: [], resources: [], itemsStatus: 'idle' });
+    }
+  },
+
+  // ── Metadata: lifecycle state colours ────────────────────────────
+  // Loaded lazily (only when Settings opens or a stateColorMap consumer
+  // is mounted for the first time). Refreshed on METAMODEL_CHANGED if
+  // already loaded (stateColorMapLoaded === true).
+  stateColorMap: {},
+  stateColorMapLoaded: false,
+
+  refreshStateColorMap: async () => {
     const { userId } = get();
     if (!userId) return;
     try {
-      const data = await api.listNodes(userId, 0, 50);
-      const items = Array.isArray(data) ? data : (data?.items ?? []);
-      const total = data?.total ?? items.length;
-      set({ nodes: items, _nodePage: 0, _nodeHasMore: items.length < total });
-    } catch (_) { /* callers handle toasts */ }
+      const lcs = await api.getLifecycles(userId);
+      if (!Array.isArray(lcs)) return;
+      const stateLists = await Promise.all(
+        lcs.map(lc => api.getLifecycleStates(userId, lc.id || lc.ID).catch(() => []))
+      );
+      const map = {};
+      stateLists.forEach(states => states.forEach(s => {
+        const id = s.id || s.ID, color = s.color || s.COLOR;
+        if (id && color) map[id] = color;
+      }));
+      set({ stateColorMap: map, stateColorMapLoaded: true });
+    } catch {}
   },
 
-  loadMoreNodes: async () => {
-    const { userId, _nodePage, _nodeHasMore, nodes } = get();
-    if (!userId || !_nodeHasMore) return;
-    const nextPage = _nodePage + 1;
+  // ── Metadata: PNO (users, project spaces) ────────────────────────
+  projectSpaces: [],
+  users: [],
+
+  refreshProjectSpaces: async () => {
+    const { userId } = get();
+    if (!userId) return;
     try {
-      const data = await api.listNodes(userId, nextPage, 50);
-      const items = Array.isArray(data) ? data : (data?.items ?? []);
-      const total = data?.total ?? items.length;
-      const merged = [...nodes, ...items];
-      set({ nodes: merged, _nodePage: nextPage, _nodeHasMore: merged.length < total });
-    } catch (_) {}
+      const d = await api.listProjectSpaces(userId);
+      set({ projectSpaces: Array.isArray(d) ? d : [] });
+    } catch {}
   },
 
-  // Current open transaction
+  refreshUsers: async () => {
+    const { userId } = get();
+    if (!userId) return;
+    try {
+      const d = await api.listUsers(userId);
+      set({ users: Array.isArray(d) ? d.filter(u => u.active !== false) : [] });
+    } catch {}
+  },
+
+  // ── PSM node list ─────────────────────────────────────────────────
+  // Used by the global Header search dropdown only.
+  // Lightweight refresh: reuses cached items, only re-fetches node pages.
+  // Call refreshItems() instead when the item catalog itself may have changed.
+  nodes: [],
+
+  refreshNodes: async () => {
+    const { userId, items } = get();
+    if (!userId) return;
+    try {
+      const psmDescs = items.filter(d => d.serviceCode === 'psm' && d.itemCode === 'node' && d.list);
+      const pages = await Promise.all(
+        psmDescs.map(d => api.fetchListableItems(userId, d, 0, 50)
+          .then(r => r.items || [])
+          .catch(() => []))
+      );
+      set({ nodes: pages.flat() });
+    } catch {}
+  },
+
+  // ── Transaction ───────────────────────────────────────────────────
   activeTx: null,
   txNodes: [],
+
   refreshTx: async () => {
     const { userId } = get();
     if (!userId) return;
@@ -62,46 +143,36 @@ export const usePlmStore = create((set, get) => ({
       } else {
         set({ activeTx: null, txNodes: [] });
       }
-    } catch (_) {
+    } catch {
       set({ activeTx: null, txNodes: [] });
     }
   },
 
-  // Convenience: refresh nodes + tx in parallel
-  refreshAll: async () => {
-    const { refreshNodes, refreshTx } = get();
-    await Promise.all([refreshNodes(), refreshTx()]);
-  },
-
-  // Imperative clear (e.g. immediately after rollback)
   clearTx: () => set({ activeTx: null, txNodes: [] }),
 
-  // Node description cache
+  // Full refresh: items (+ nodes derived) + tx in parallel.
+  // Replaces the previous refreshNodes+refreshTx pair so a single
+  // api.getItems() call serves both the node list and the UI catalog.
+  refreshAll: async () => {
+    const { refreshItems, refreshTx } = get();
+    await Promise.all([refreshItems(), refreshTx()]);
+  },
+
+  // ── Node description cache ────────────────────────────────────────
   // Keyed by nodeId. Populated when a NodeEditor tab opens; evicted when closed.
   // WS events and explicit refreshes update this map so all subscribers re-render.
   activeNodeDescs: {},
 
   // Sequence counter per nodeId — incremented on every refreshNodeDesc call.
   // Only the response to the latest request is applied; stale concurrent responses
-  // (e.g. a WS-triggered fetch without txId racing against an action-triggered fetch
-  // with txId) are silently discarded.
+  // are silently discarded.
   _nodeDescSeq: {},
 
-  /**
-   * Fetch (or re-fetch) the description for nodeId and store it.
-   * Reads userId and activeTx from the store — always call refreshTx/refreshAll
-   * before this when you know the tx context has changed.
-   *
-   * Uses a per-node sequence counter so a slower concurrent response from a
-   * WS-triggered call (lacking txId) cannot overwrite a faster response from an
-   * action-triggered call that already carries the correct txId.
-   */
   refreshNodeDesc: async (nodeId) => {
     const { userId, activeTx, _nodeDescSeq } = get();
     const txId = activeTx?.ID || activeTx?.id || null;
     if (!nodeId || !userId) return;
 
-    // Stamp this request; only apply result if no newer request was issued
     const seq = (_nodeDescSeq[nodeId] || 0) + 1;
     set(state => ({ _nodeDescSeq: { ...state._nodeDescSeq, [nodeId]: seq } }));
 
@@ -112,13 +183,9 @@ export const usePlmStore = create((set, get) => ({
           activeNodeDescs: { ...state.activeNodeDescs, [nodeId]: desc },
         }));
       }
-    } catch (_) {}
+    } catch {}
   },
 
-  /**
-   * Optimistic patch: update attribute values in-place after an auto-save
-   * so inputs don't snap back to stale server values while the next refresh is in-flight.
-   */
   patchNodeDescAttrs: (nodeId, pendingEdits) => set(state => {
     const prev = state.activeNodeDescs[nodeId];
     if (!prev) return state;
@@ -133,17 +200,12 @@ export const usePlmStore = create((set, get) => ({
     };
   }),
 
-  /** Remove a node description from the cache (called when a tab is closed). */
   evictNodeDesc: (nodeId) => set(state => {
     const copy = { ...state.activeNodeDescs };
     delete copy[nodeId];
     return { activeNodeDescs: copy };
   }),
 
-  /**
-   * Re-fetch all currently cached node descriptions.
-   * Call after TX_COMMITTED / TX_ROLLED_BACK so open editors reflect the new state.
-   */
   refreshAllNodeDescs: async () => {
     const { activeNodeDescs, refreshNodeDesc } = get();
     const nodeIds = Object.keys(activeNodeDescs);

@@ -1,7 +1,7 @@
 package com.plm.action;
+import com.plm.platform.action.PlmAction;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.ActionConfig;
-import com.plm.shared.action.PlmAction;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

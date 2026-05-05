@@ -1,5 +1,7 @@
 package com.plm.shared.action;
 
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ScopeSegment;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

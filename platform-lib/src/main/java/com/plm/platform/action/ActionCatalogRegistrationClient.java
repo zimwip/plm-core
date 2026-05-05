@@ -1,5 +1,6 @@
 package com.plm.platform.action;
 
+import com.plm.platform.nats.NatsListenerFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -25,6 +26,7 @@ import java.util.Optional;
 public class ActionCatalogRegistrationClient {
 
     private static final String REGISTER_PATH = "/api/platform/internal/registry/actions";
+    private static final String PLATFORM_RESTARTED_SUBJECT = "env.global.PLATFORM_RESTARTED";
 
     private final String platformUrl;
     private final String serviceCode;
@@ -33,6 +35,7 @@ public class ActionCatalogRegistrationClient {
     private final List<ActionHandler> handlers;
     private final List<com.plm.platform.action.guard.ActionGuard> guards;
     private final List<AlgorithmCatalogContribution> contributions;
+    private final NatsListenerFactory natsListenerFactory;
 
     private volatile boolean registered = false;
 
@@ -40,7 +43,8 @@ public class ActionCatalogRegistrationClient {
                                            RestTemplate rest,
                                            List<ActionHandler> handlers,
                                            List<com.plm.platform.action.guard.ActionGuard> guards,
-                                           List<AlgorithmCatalogContribution> contributions) {
+                                           List<AlgorithmCatalogContribution> contributions,
+                                           NatsListenerFactory natsListenerFactory) {
         this.platformUrl = platformUrl;
         this.serviceCode = serviceCode;
         this.serviceSecret = serviceSecret;
@@ -48,11 +52,29 @@ public class ActionCatalogRegistrationClient {
         this.handlers = handlers;
         this.guards = guards;
         this.contributions = contributions;
+        this.natsListenerFactory = natsListenerFactory;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
         new Thread(this::attemptWithBackoff, "action-catalog-registration").start();
+        subscribePlatformRestarted();
+    }
+
+    private void subscribePlatformRestarted() {
+        if (natsListenerFactory == null) return;
+        try {
+            natsListenerFactory.subscribe(PLATFORM_RESTARTED_SUBJECT, msg -> {
+                log.info("PLATFORM_RESTARTED received — re-registering action catalog for {}", serviceCode);
+                new Thread(() -> {
+                    try { Thread.sleep(2_000L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                    postRegistration();
+                }, "action-catalog-reregistration").start();
+            });
+            log.debug("Subscribed to {}", PLATFORM_RESTARTED_SUBJECT);
+        } catch (Exception e) {
+            log.warn("Failed to subscribe to {}: {}", PLATFORM_RESTARTED_SUBJECT, e.getMessage());
+        }
     }
 
     @Scheduled(fixedDelay = 300_000L, initialDelay = 300_000L)

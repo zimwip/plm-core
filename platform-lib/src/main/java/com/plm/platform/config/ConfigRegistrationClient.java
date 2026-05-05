@@ -4,11 +4,9 @@ import com.plm.platform.config.dto.ConfigSnapshot;
 import com.plm.platform.nats.NatsListenerFactory;
 import com.plm.platform.spe.PlatformPaths;
 import io.nats.client.Dispatcher;
-import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.event.EventListener;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -20,15 +18,19 @@ import org.springframework.web.client.RestTemplate;
  * Bootstraps {@link ConfigCache} from psm-admin on startup (pull with backoff)
  * and subscribes to NATS for config change notifications.
  *
+ * <p>Implements {@link SmartLifecycle} at phase 0 so the initial pull completes
+ * synchronously before the web server opens its port (phase Integer.MAX_VALUE-1).
+ * This guarantees ConfigCache is populated before the first request is served.
+ *
  * <p>Flow:
  * <ol>
- *   <li>On startup → pull snapshot from {@code GET /internal/config/snapshot}</li>
+ *   <li>On startup → pull snapshot from {@code GET /internal/config/snapshot} (sync)</li>
  *   <li>Subscribe to NATS {@code env.service.psm-admin.CONFIG_CHANGED}</li>
  *   <li>On NATS message → re-pull snapshot to refresh cache</li>
  * </ol>
  */
 @Slf4j
-public class ConfigRegistrationClient {
+public class ConfigRegistrationClient implements SmartLifecycle {
 
     /** Service-code of psm-admin. Keep in sync with its {@code spe.registration.service-code}. */
     private static final String ADMIN_SERVICE_CODE = "psa";
@@ -42,6 +44,7 @@ public class ConfigRegistrationClient {
     private final ApplicationEventPublisher eventPublisher;
 
     private volatile Dispatcher natsDispatcher;
+    private volatile boolean running = false;
 
     public ConfigRegistrationClient(ConfigRegistrationProperties props,
                                     RestTemplate rest,
@@ -55,10 +58,51 @@ public class ConfigRegistrationClient {
         this.eventPublisher = eventPublisher;
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void onReady() {
-        // Bootstrap: pull initial snapshot in background thread
-        new Thread(this::bootstrapWithBackoff, "config-bootstrap").start();
+    // ---- SmartLifecycle ----
+
+    @Override
+    public void start() {
+        running = true;
+        // Synchronous bootstrap: psm-admin is guaranteed healthy via compose depends_on,
+        // so the first attempt should succeed before the web server opens its port.
+        if (!bootstrapSync()) {
+            // Unexpected: psm-admin unreachable despite depends_on. Keep retrying in background.
+            new Thread(this::bootstrapWithBackoff, "config-bootstrap").start();
+        }
+    }
+
+    @Override
+    public void stop() {
+        running = false;
+        if (natsDispatcher != null && natsListenerFactory != null) {
+            natsListenerFactory.close(natsDispatcher);
+        }
+    }
+
+    @Override
+    public boolean isRunning() {
+        return running;
+    }
+
+    @Override
+    public int getPhase() {
+        return 0; // Before web server (WebServerStartStopLifecycle runs at Integer.MAX_VALUE - 1)
+    }
+
+    // ---- Bootstrap ----
+
+    /** Tries synchronously with short backoff. Returns true if cache was populated. */
+    private boolean bootstrapSync() {
+        long[] backoffMs = { 500L, 1_000L, 2_000L, 4_000L, 8_000L };
+        for (int attempt = 0; attempt < backoffMs.length; attempt++) {
+            if (pullConfigSnapshot(attempt + 1)) {
+                subscribeToNats();
+                return true;
+            }
+            try { Thread.sleep(backoffMs[attempt]); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
+        }
+        log.error("Config cache bootstrap failed after {} sync attempts — service will start without config", backoffMs.length);
+        return false;
     }
 
     private void bootstrapWithBackoff() {
@@ -70,7 +114,6 @@ public class ConfigRegistrationClient {
             }
             try { Thread.sleep(backoffMs[attempt]); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
         }
-        // Infinite retry every 30s
         int attempt = backoffMs.length;
         while (true) {
             attempt++;
@@ -116,12 +159,5 @@ public class ConfigRegistrationClient {
             pullConfigSnapshot(0);
         });
         log.info("Subscribed to NATS subject: {}", NATS_SUBJECT);
-    }
-
-    @PreDestroy
-    public void onShutdown() {
-        if (natsDispatcher != null && natsListenerFactory != null) {
-            natsListenerFactory.close(natsDispatcher);
-        }
     }
 }

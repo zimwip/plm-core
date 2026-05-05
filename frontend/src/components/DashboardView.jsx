@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../services/api';
 import { NODE_ICONS } from './Icons';
+import { psmNodeDescriptor } from '../plugins/psmNodePlugin';
 
 const CHANGE_BADGE = {
   CONTENT:   { label: 'edit',  bg: 'rgba(106,172,255,.15)', color: 'var(--accent)'  },
@@ -96,7 +97,7 @@ function TxSection({ userId, stateColorMap, nodeTypes, onNavigate }) {
                   <button
                     key={n.nodeId}
                     className="dash-tx-node"
-                    onClick={() => onNavigate(n.nodeId, n.logicalId || n.nodeId)}
+                    onClick={() => onNavigate(n.nodeId, n.logicalId || n.nodeId, psmNodeDescriptor)}
                   >
                     <StateDot lifecycleStateId={n.lifecycleStateId} stateColorMap={stateColorMap} />
                     <span className="dash-node-lid">{n.logicalId || n.nodeId}</span>
@@ -158,7 +159,7 @@ function WorkItemsSection({ userId, stateColorMap, nodeTypes, onNavigate }) {
             <button
               key={item.nodeId}
               className="dash-work-item"
-              onClick={() => onNavigate(item.nodeId, item.logicalId || item.nodeId)}
+              onClick={() => onNavigate(item.nodeId, item.logicalId || item.nodeId, psmNodeDescriptor)}
             >
               <div className="dash-work-row">
                 <StateDot lifecycleStateId={item.lifecycleStateId} stateColorMap={stateColorMap} />
@@ -167,15 +168,25 @@ function WorkItemsSection({ userId, stateColorMap, nodeTypes, onNavigate }) {
                 <NodeTypeChip nodeTypeId={item.nodeTypeId} nodeTypeName={item.nodeTypeName} nodeTypes={nodeTypes} />
               </div>
               <div className="dash-action-chips">
-                {item.actions.map(a => (
-                  <span
-                    key={a.id}
-                    className="dash-action-chip"
-                    style={{ color: CATEGORY_COLOR[a.displayCategory] || 'var(--muted)' }}
-                  >
-                    {a.name}
-                  </span>
-                ))}
+                {item.actions.map(a => {
+                  const blocked = a.guardViolations?.length > 0;
+                  const tip = blocked
+                    ? 'Blocked: ' + a.guardViolations.map(v => v.message || v.guardCode).join('; ')
+                    : (a.description || a.name);
+                  return (
+                    <span
+                      key={a.id}
+                      className="dash-action-chip"
+                      title={tip}
+                      style={{
+                        color: CATEGORY_COLOR[a.displayCategory] || 'var(--muted)',
+                        opacity: blocked ? 0.45 : 1,
+                      }}
+                    >
+                      {a.name}
+                    </span>
+                  );
+                })}
               </div>
             </button>
           ))}

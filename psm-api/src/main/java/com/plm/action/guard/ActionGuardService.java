@@ -1,16 +1,17 @@
 package com.plm.action.guard;
 
 import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.action.guard.ActionGuardContext;
+import com.plm.platform.action.guard.ActionGuardPort;
+import com.plm.platform.action.guard.GuardEffect;
+import com.plm.platform.action.guard.GuardEvaluation;
+import com.plm.platform.action.guard.GuardViolation;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.ConfigSnapshotUpdatedEvent;
 import com.plm.platform.config.dto.ActionGuardConfig;
 import com.plm.platform.config.dto.AlgorithmConfig;
 import com.plm.platform.config.dto.AlgorithmInstanceConfig;
-import com.plm.platform.config.dto.NodeActionGuardConfig;
 import com.plm.shared.exception.GuardViolationException;
-import com.plm.shared.guard.GuardEffect;
-import com.plm.shared.guard.GuardEvaluation;
-import com.plm.shared.guard.GuardViolation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
@@ -20,28 +21,18 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-/**
- * Evaluates guards for actions. Maintains an in-memory cache of the guard
- * attachment graph (action -> guards, (node_type, action, transition) -> guards)
- * loaded at startup from {@link ConfigCache}.
- *
- * Cache is invalidated via {@link #evictCache()} when admin changes guard config.
- */
 @Slf4j
 @Service
-public class ActionGuardService {
+public class ActionGuardService implements ActionGuardPort {
 
     private final ConfigCache         configCache;
     private final ApplicationContext  appCtx;
 
-    /** Action-level guards (global across node types), keyed by actionId. */
+    /** Action-level guards, keyed by actionId. */
     private Map<String, List<ResolvedGuard>> actionGuardsCache = Map.of();
-    /** Per-node-type guards, keyed by {@link NodeActionKey}. */
-    private Map<NodeActionKey, List<ResolvedGuard>> nodeActionGuardsCache = Map.of();
 
     private final ReentrantReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
@@ -61,6 +52,28 @@ public class ActionGuardService {
     public void onConfigSnapshotUpdated(ConfigSnapshotUpdatedEvent event) {
         rebuildCache();
     }
+
+    // ================================================================
+    // ActionGuardPort — interface methods (actionCode ignored; PSM uses actionId)
+    // ================================================================
+
+    @Override
+    public GuardEvaluation evaluate(String actionCode, String actionId,
+                                    String nodeTypeId, String transitionId,
+                                    boolean isAdmin, ActionGuardContext ctx) {
+        return evaluate(actionId, nodeTypeId, transitionId, isAdmin, ctx);
+    }
+
+    @Override
+    public void assertGuards(String actionCode, String actionId,
+                             String nodeTypeId, String transitionId,
+                             boolean isAdmin, ActionGuardContext ctx) {
+        assertGuards(actionId, nodeTypeId, transitionId, isAdmin, ctx);
+    }
+
+    // ================================================================
+    // Internal methods (used by PlmActionAspect and ActionService directly)
+    // ================================================================
 
     /**
      * Evaluates all effective guards for the given action context.
@@ -127,9 +140,9 @@ public class ActionGuardService {
      * HIDE guards resolved from hideActionId (the manager).
      * BLOCK guards resolved from blockActionId (the managee itself).
      */
-    public GuardEvaluation evaluate(String hideActionId, String blockActionId,
-                                    String nodeTypeId, String transitionId,
-                                    boolean isAdmin, ActionGuardContext ctx) {
+    public GuardEvaluation evaluateSplit(String hideActionId, String blockActionId,
+                                         String nodeTypeId, String transitionId,
+                                         boolean isAdmin, ActionGuardContext ctx) {
         // Evaluate HIDE guards from manager
         List<ResolvedGuard> hideGuards = resolveEffectiveGuards(hideActionId, nodeTypeId, transitionId)
             .stream().filter(rg -> rg.effect() == GuardEffect.HIDE).toList();
@@ -163,9 +176,9 @@ public class ActionGuardService {
      * Split assertion for managed actions at execution time.
      * Only BLOCK guards from blockActionId are enforced.
      */
-    public void assertGuards(String hideActionId, String blockActionId,
-                             String nodeTypeId, String transitionId,
-                             boolean isAdmin, ActionGuardContext ctx) {
+    public void assertSplit(String hideActionId, String blockActionId,
+                            String nodeTypeId, String transitionId,
+                            boolean isAdmin, ActionGuardContext ctx) {
         if (isAdmin) return;
 
         List<ResolvedGuard> blockGuards = resolveEffectiveGuards(blockActionId, nodeTypeId, transitionId)
@@ -195,7 +208,6 @@ public class ActionGuardService {
 
     private void rebuildCache() {
         Map<String, List<ResolvedGuard>> newActionGuards = new HashMap<>();
-        Map<NodeActionKey, List<ResolvedGuard>> newNodeActionGuards = new HashMap<>();
 
         // Build reverse index: algorithm id → code
         Map<String, String> codeById = new HashMap<>();
@@ -204,27 +216,11 @@ public class ActionGuardService {
         }
         algorithmCodeById = Map.copyOf(codeById);
 
-        // Action-level guards (from ActionConfig.guards())
         for (var action : configCache.getAllActions()) {
             for (ActionGuardConfig ag : configCache.getActionGuards(action.id())) {
-                ResolvedGuard rg = resolveGuardFromConfig(ag.algorithmInstanceId(), ag.effect(), "ADD");
+                ResolvedGuard rg = resolveGuardFromConfig(ag.algorithmInstanceId(), ag.effect());
                 if (rg != null) {
                     newActionGuards.computeIfAbsent(action.id(), k -> new ArrayList<>()).add(rg);
-                }
-            }
-        }
-
-        // Node-action-level guards (from ConfigSnapshot.nodeActionGuards)
-        ConfigCache cache = configCache;
-        var snapshot = cache.getSnapshot();
-        if (snapshot != null && snapshot.nodeActionGuards() != null) {
-            for (NodeActionGuardConfig nag : snapshot.nodeActionGuards()) {
-                NodeActionKey key = new NodeActionKey(
-                    nag.nodeTypeId(), nag.actionId(), nag.transitionId());
-                String overrideAction = nag.overrideAction();
-                ResolvedGuard rg = resolveGuardFromConfig(nag.algorithmInstanceId(), nag.effect(), overrideAction);
-                if (rg != null) {
-                    newNodeActionGuards.computeIfAbsent(key, k -> new ArrayList<>()).add(rg);
                 }
             }
         }
@@ -232,14 +228,13 @@ public class ActionGuardService {
         cacheLock.writeLock().lock();
         try {
             actionGuardsCache = Map.copyOf(newActionGuards);
-            nodeActionGuardsCache = Map.copyOf(newNodeActionGuards);
         } finally {
             cacheLock.writeLock().unlock();
         }
 
-        log.info("Action guard cache loaded: {} action, {} node-action entries",
+        log.info("Action guard cache loaded: {} guards across {} actions",
             newActionGuards.values().stream().mapToInt(List::size).sum(),
-            newNodeActionGuards.values().stream().mapToInt(List::size).sum());
+            newActionGuards.size());
     }
 
     /**
@@ -247,7 +242,7 @@ public class ActionGuardService {
      * Looks up the algorithm code via instanceId → algorithmId → code, then resolves the
      * Spring bean and collects instance parameters.
      */
-    private ResolvedGuard resolveGuardFromConfig(String instanceId, String effectStr, String overrideAction) {
+    private ResolvedGuard resolveGuardFromConfig(String instanceId, String effectStr) {
         String code = resolveAlgorithmCode(instanceId);
         if (code == null) {
             log.warn("Cannot resolve algorithm code for instance '{}' -- skipping", instanceId);
@@ -274,7 +269,7 @@ public class ActionGuardService {
             .map(AlgorithmInstanceConfig::paramValues)
             .orElse(Map.of());
 
-        return new ResolvedGuard(instanceId, bean, effect, overrideAction, params);
+        return new ResolvedGuard(instanceId, bean, effect, params);
     }
 
     /**
@@ -287,60 +282,13 @@ public class ActionGuardService {
         return algorithmCodeById.get(instance.get().algorithmId());
     }
 
-    /**
-     * Two-tier merge:
-     *   1. action_guard          -- global (per action)
-     *   2. node_action_guard     -- per-type override (ADD or DISABLE),
-     *      with transition_id IS NULL or matching
-     */
     private List<ResolvedGuard> resolveEffectiveGuards(String actionId, String nodeTypeId,
                                                        String transitionId) {
         cacheLock.readLock().lock();
         try {
-            List<ResolvedGuard> base = new ArrayList<>(
-                actionGuardsCache.getOrDefault(actionId, List.of()));
-
-            if (nodeTypeId == null) return base;
-
-            // Tier 2: per-type overrides
-            List<ResolvedGuard> overrides = new ArrayList<>();
-            List<ResolvedGuard> exact = nodeActionGuardsCache.get(
-                new NodeActionKey(nodeTypeId, actionId, transitionId));
-            if (exact != null) overrides.addAll(exact);
-
-            if (transitionId != null) {
-                List<ResolvedGuard> allTransitions = nodeActionGuardsCache.get(
-                    new NodeActionKey(nodeTypeId, actionId, null));
-                if (allTransitions != null) overrides.addAll(allTransitions);
-            }
-
-            if (overrides.isEmpty()) return base;
-
-            List<ResolvedGuard> effective = new ArrayList<>(base);
-            for (ResolvedGuard override : overrides) {
-                if ("DISABLE".equals(override.overrideAction())) {
-                    effective.removeIf(g ->
-                        g.algorithmInstanceId().equals(override.algorithmInstanceId()));
-                } else {
-                    effective.add(override);
-                }
-            }
-            return effective;
+            return new ArrayList<>(actionGuardsCache.getOrDefault(actionId, List.of()));
         } finally {
             cacheLock.readLock().unlock();
-        }
-    }
-
-    /** Composite cache key: (node_type, action, transition) with null transition allowed. */
-    record NodeActionKey(String nodeTypeId, String actionId, String transitionId) {
-        @Override public boolean equals(Object o) {
-            if (!(o instanceof NodeActionKey k)) return false;
-            return Objects.equals(nodeTypeId, k.nodeTypeId)
-                && Objects.equals(actionId, k.actionId)
-                && Objects.equals(transitionId, k.transitionId);
-        }
-        @Override public int hashCode() {
-            return Objects.hash(nodeTypeId, actionId, transitionId);
         }
     }
 
@@ -348,7 +296,6 @@ public class ActionGuardService {
         String algorithmInstanceId,
         ActionGuard bean,
         GuardEffect effect,
-        String overrideAction,
         Map<String, String> parameters
     ) {}
 }

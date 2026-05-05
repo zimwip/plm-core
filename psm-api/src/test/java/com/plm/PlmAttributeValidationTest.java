@@ -88,10 +88,10 @@ class PlmAttributeValidationTest {
             List.of(
                 new ActionConfig("act-create", "create_node", "NODE_TYPE", "Create Node", null,
                     "STRUCTURAL", 0, null, "hi-create",
-                    List.of(), List.of(), List.of("CREATE_NODE"), List.of(), List.of()),
+                    List.of(), List.of("CREATE_NODE"), List.of(), List.of()),
                 new ActionConfig("act-update", "update_node", "NODE", "Update Node", null,
                     "PRIMARY", 10, null, "hi-update",
-                    List.of(), List.of(), List.of("UPDATE_NODE"), List.of(), List.of())
+                    List.of(), List.of("UPDATE_NODE"), List.of(), List.of())
             ),
             // permissions
             List.of(
@@ -112,8 +112,6 @@ class PlmAttributeValidationTest {
             List.of(),
             // stateActions
             List.of(),
-            // nodeActionGuards
-            List.of(),
             // sources
             List.of(),
             // entityMetadata
@@ -124,58 +122,14 @@ class PlmAttributeValidationTest {
     }
 
     // ================================================================
-    // CREATE — unknown attributes
+    // CREATE — only logical_id is accepted; attributes flow via update_node
     // ================================================================
 
     @Test
-    @DisplayName("Create node with valid attributes succeeds")
-    void createWithValidAttributes() {
-        String nodeId = nodeService.createNode(PS, NT_DOC, USER,
-            Map.of(ATTR_NAME, "My Document", ATTR_DESC, "A test document"),
-            null, null);
-
+    @DisplayName("Create node with only logical_id succeeds and yields an empty initial version")
+    void createWithLogicalIdOnly() {
+        String nodeId = nodeService.createNode(PS, NT_DOC, USER, "DOC-001", null);
         assertThat(nodeId).isNotNull();
-    }
-
-    @Test
-    @DisplayName("Create node with unknown attribute ID raises validation error")
-    void createWithUnknownAttributeRejected() {
-        assertThatThrownBy(() ->
-            nodeService.createNode(PS, NT_DOC, USER,
-                Map.of(
-                    ATTR_NAME, "My Document",
-                    "unknown-attr-id", "some value"
-                ),
-                null, null)
-        )
-            .isInstanceOf(ValidationService.ValidationException.class)
-            .satisfies(ex -> {
-                var ve = (ValidationService.ValidationException) ex;
-                assertThat(ve.getErrors()).hasSize(1);
-                assertThat(ve.getErrors().get(0).code()).isEqualTo("UNKNOWN_ATTRIBUTE");
-                assertThat(ve.getErrors().get(0).attrCode()).isEqualTo("unknown-attr-id");
-                assertThat(ve.getErrors().get(0).message())
-                    .isEqualTo("Attribute 'unknown-attr-id' is not part of the data model");
-            });
-    }
-
-    @Test
-    @DisplayName("Create node with only unknown attributes raises error listing all unknowns")
-    void createWithOnlyUnknownAttributesRejected() {
-        assertThatThrownBy(() ->
-            nodeService.createNode(PS, NT_DOC, USER,
-                Map.of(
-                    "bogus-1", "val1",
-                    "bogus-2", "val2"
-                ),
-                null, null)
-        )
-            .isInstanceOf(ValidationService.ValidationException.class)
-            .satisfies(ex -> {
-                var ve = (ValidationService.ValidationException) ex;
-                assertThat(ve.getErrors()).hasSize(2);
-                assertThat(ve.getErrors()).allMatch(e -> "UNKNOWN_ATTRIBUTE".equals(e.code()));
-            });
     }
 
     // ================================================================
@@ -240,9 +194,10 @@ class PlmAttributeValidationTest {
     // ================================================================
 
     private String createAndCommitNode() {
-        String nodeId = nodeService.createNode(PS, NT_DOC, USER,
-            Map.of(ATTR_NAME, "Test Doc"), null, null);
+        String nodeId = nodeService.createNode(PS, NT_DOC, USER, "DOC-001", null);
         String txId = txService.findOpenTransaction(USER);
+        nodeService.modifyNode(nodeId, USER, txId,
+            Map.of(ATTR_NAME, "Test Doc"), "Initial attributes");
         txService.commitTransaction(txId, USER, "Initial creation", null);
         return nodeId;
     }

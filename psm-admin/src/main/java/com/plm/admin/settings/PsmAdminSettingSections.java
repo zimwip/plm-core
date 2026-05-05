@@ -13,36 +13,26 @@ class PsmAdminSettingSections {
 
     @Bean
     SettingSectionDto nodeTypesSection() {
-        return new SettingSectionDto("node-types", "Node Types", "PSM", 10, "MANAGE_PSM");
+        return new SettingSectionDto("node-types", "Node Types", "PSM", 10, "MANAGE_PSM", "layers");
     }
 
     @Bean
     SettingSectionDto domainsSection() {
-        return new SettingSectionDto("domains", "Domains", "PSM", 15, "MANAGE_PSM");
+        return new SettingSectionDto("domains", "Domains", "PSM", 15, "MANAGE_PSM", "database");
     }
 
     @Bean
     SettingSectionDto enumsSection() {
-        return new SettingSectionDto("enums", "Enumerations", "PSM", 18, "MANAGE_PSM");
+        return new SettingSectionDto("enums", "Enumerations", "PSM", 18, "MANAGE_PSM", "list");
     }
 
     @Bean
     SettingSectionDto lifecyclesSection() {
-        return new SettingSectionDto("lifecycles", "Lifecycles", "PSM", 20, "MANAGE_PSM");
-    }
-
-    @Bean
-    SettingSectionDto guardsSection() {
-        return new SettingSectionDto("guards", "Actions & Guards", "PSM", 25, "MANAGE_PSM");
-    }
-
-    @Bean
-    SettingSectionDto algorithmsSection() {
-        return new SettingSectionDto("algorithms", "Algorithms", "PSM", 30, "MANAGE_PSM");
+        return new SettingSectionDto("lifecycles", "Lifecycles", "PSM", 20, "MANAGE_PSM", "lifecycle");
     }
 
     @Bean
     SettingSectionDto sourcesSection() {
-        return new SettingSectionDto("sources", "Sources", "PSM", 17, "MANAGE_PSM");
+        return new SettingSectionDto("sources", "Sources", "PSM", 17, "MANAGE_PSM", "plug");
     }
 }

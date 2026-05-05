@@ -1,11 +1,10 @@
 package com.spe.gateway;
 
+import com.plm.platform.spe.dto.ServiceInstanceInfo;
+import com.plm.platform.spe.registry.LocalServiceRegistry;
 import com.spe.auth.AuthenticationFilter;
 import com.spe.auth.ProjectSpaceTagClient;
-import com.spe.auth.ProjectSpaceTagClient.ProjectSpaceTagConfig;
 import com.spe.auth.SpeUserContext;
-import com.spe.registry.ServiceRegistration;
-import com.spe.registry.ServiceRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -19,16 +18,19 @@ import reactor.core.publisher.Mono;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Resolves {@code svc://<serviceCode>} URIs set by {@link GatewayRouteConfig} to a
- * concrete instance picked round-robin from {@link ServiceRegistry}. Uses project
- * space service tag configuration for affinity routing.
+ * Resolves {@code svc://<serviceCode>} URIs set by {@link GatewayRouteConfig}
+ * to a concrete instance picked round-robin from {@link LocalServiceRegistry}.
+ * Uses project space service tag configuration for affinity routing.
  *
- * Runs before {@code NettyRoutingFilter} (order 10150) so the routing filter
- * sees a real http(s):// URL.
+ * <p>Runs before {@code NettyRoutingFilter} (order 10150) so the routing
+ * filter sees a real http(s):// URL.
  */
 @Slf4j
 @Component
@@ -37,10 +39,11 @@ public class SvcLoadBalancerFilter implements GlobalFilter, Ordered {
     public static final String SCHEME = "svc";
     private static final int ORDER = 10150;
 
-    private final ServiceRegistry registry;
+    private final LocalServiceRegistry registry;
     private final ProjectSpaceTagClient tagClient;
+    private final ConcurrentHashMap<String, AtomicInteger> counters = new ConcurrentHashMap<>();
 
-    public SvcLoadBalancerFilter(ServiceRegistry registry, ProjectSpaceTagClient tagClient) {
+    public SvcLoadBalancerFilter(LocalServiceRegistry registry, ProjectSpaceTagClient tagClient) {
         this.registry = registry;
         this.tagClient = tagClient;
     }
@@ -55,7 +58,6 @@ public class SvcLoadBalancerFilter implements GlobalFilter, Ordered {
         }
         String serviceCode = requestUrl.getHost();
 
-        // Extract project space
         String projectSpaceId = null;
         SpeUserContext ctx = exchange.getAttribute(AuthenticationFilter.CONTEXT_ATTR);
         if (ctx != null) {
@@ -65,13 +67,11 @@ public class SvcLoadBalancerFilter implements GlobalFilter, Ordered {
             projectSpaceId = exchange.getRequest().getHeaders().getFirst("X-PLM-ProjectSpace");
         }
 
-        // Fetch tag config (cached, reactive) and pick instance
         final String psId = projectSpaceId;
         return tagClient.getTagConfig(projectSpaceId)
             .flatMap(tagConfig -> {
                 Set<String> requiredTags = tagConfig.tagsForService(serviceCode);
-                Optional<ServiceRegistration> pick = registry.pickInstanceByTags(
-                    serviceCode, requiredTags, tagConfig.isolated());
+                Optional<ServiceInstanceInfo> pick = pickInstanceByTags(serviceCode, requiredTags, tagConfig.isolated());
 
                 if (pick.isEmpty()) {
                     log.warn("No instance for service {} (ps={}, tags={}, isolated={})",
@@ -81,7 +81,7 @@ public class SvcLoadBalancerFilter implements GlobalFilter, Ordered {
                             + (psId != null ? " (projectSpace=" + psId + ")" : "")));
                 }
 
-                ServiceRegistration instance = pick.get();
+                ServiceInstanceInfo instance = pick.get();
                 URI instanceBase = URI.create(instance.baseUrl());
                 try {
                     URI rewritten = new URI(
@@ -105,5 +105,49 @@ public class SvcLoadBalancerFilter implements GlobalFilter, Ordered {
                 }
                 return chain.filter(exchange);
             });
+    }
+
+    /**
+     * Tag-aware round-robin pick.
+     *
+     * <p>The base {@link LocalServiceRegistry#pickInstance} is health-aware
+     * but tag-blind. The gateway must honor project-space tag affinity,
+     * which today's LocalServiceRegistry does not encode — so we re-derive
+     * the same logic spe-api owned previously.
+     */
+    private Optional<ServiceInstanceInfo> pickInstanceByTags(String serviceCode,
+                                                             Set<String> requiredTags,
+                                                             boolean isolated) {
+        List<ServiceInstanceInfo> all = registry.getInstances(serviceCode);
+        if (all.isEmpty()) return Optional.empty();
+
+        List<ServiceInstanceInfo> healthy = all.stream().filter(ServiceInstanceInfo::healthy).toList();
+        List<ServiceInstanceInfo> base = healthy.isEmpty() ? all : healthy;
+
+        List<ServiceInstanceInfo> candidates;
+        if (requiredTags == null || requiredTags.isEmpty()) {
+            if (isolated) return Optional.empty();
+            candidates = base.stream().filter(i -> isUntagged(i.spaceTag())).toList();
+            if (candidates.isEmpty()) candidates = base;
+        } else {
+            List<ServiceInstanceInfo> tagged = base.stream()
+                .filter(i -> !isUntagged(i.spaceTag()) && requiredTags.contains(i.spaceTag()))
+                .toList();
+            List<ServiceInstanceInfo> untagged = base.stream()
+                .filter(i -> isUntagged(i.spaceTag()))
+                .toList();
+            if (!tagged.isEmpty()) candidates = tagged;
+            else if (!isolated && !untagged.isEmpty()) candidates = untagged;
+            else return Optional.empty();
+        }
+
+        if (candidates.isEmpty()) return Optional.empty();
+        AtomicInteger counter = counters.computeIfAbsent(serviceCode, k -> new AtomicInteger());
+        int idx = Math.floorMod(counter.getAndIncrement(), candidates.size());
+        return Optional.of(candidates.get(idx));
+    }
+
+    private static boolean isUntagged(String tag) {
+        return tag == null || tag.isBlank();
     }
 }

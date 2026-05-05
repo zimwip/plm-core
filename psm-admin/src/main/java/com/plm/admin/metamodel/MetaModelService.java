@@ -131,9 +131,6 @@ public class MetaModelService {
             + "OR (target_source_id = 'SELF' AND target_type = ?)",
             nodeTypeId, nodeTypeId);
         // authorization_policy lives in pno-api — cascade via NATS NODE_TYPE_DELETED handled by AuthorizationCascadeListener.
-        dsl.execute("DELETE FROM action_param_override WHERE node_type_id = ?", nodeTypeId);
-        dsl.execute("DELETE FROM node_action_guard WHERE node_type_id = ?", nodeTypeId);
-        dsl.execute("DELETE FROM node_type_state_action WHERE node_type_id = ?", nodeTypeId);
         dsl.execute("DELETE FROM attribute_view WHERE node_type_id = ?", nodeTypeId);
         dsl.execute("DELETE FROM node_type WHERE id = ?", nodeTypeId);
         publishChange("DELETE", "NODE_TYPE", nodeTypeId);
@@ -474,63 +471,6 @@ public class MetaModelService {
                 .fetchOne(DSL.field("parent_node_type_id"), String.class);
             depth++;
         }
-    }
-
-    // ================================================================
-    // ACTION CATALOG
-    // ================================================================
-
-    public List<Map<String, Object>> listAllActions() {
-        return MapKeyUtil.camelize(dsl.fetch(
-            "SELECT a.*, alg.code AS handler_code, alg.module_name AS handler_module_name " +
-            "FROM action a " +
-            "LEFT JOIN algorithm_instance ai ON ai.id = a.handler_instance_id " +
-            "LEFT JOIN algorithm alg ON alg.id = ai.algorithm_id " +
-            "ORDER BY a.display_order, a.action_code").intoMaps());
-    }
-
-    /** Actions relevant to a given node-type — catalog entries whose scope targets nodes or lifecycles. */
-    public List<Map<String, Object>> listActionsForNodeType(String nodeTypeId) {
-        return MapKeyUtil.camelize(dsl.fetch(
-            "SELECT a.*, alg.code AS handler_code, alg.module_name AS handler_module_name " +
-            "FROM action a " +
-            "LEFT JOIN algorithm_instance ai ON ai.id = a.handler_instance_id " +
-            "LEFT JOIN algorithm alg ON alg.id = ai.algorithm_id " +
-            "WHERE a.scope IN ('NODE', 'LIFECYCLE') " +
-            "ORDER BY a.display_order, a.action_code").intoMaps());
-    }
-
-    @Transactional
-    public String createAction(Map<String, Object> body) {
-        String id = (String) body.getOrDefault("id", "act-" + UUID.randomUUID().toString().substring(0, 8));
-        String code = (String) body.get("actionCode");
-        if (code == null || code.isBlank()) throw new IllegalArgumentException("actionCode required");
-        dsl.execute(
-            "INSERT INTO action (id, action_code, scope, display_name, description, display_category, display_order, managed_with, handler_instance_id) VALUES (?,?,?,?,?,?,?,?,?)",
-            id, code,
-            body.getOrDefault("scope", "NODE"),
-            body.getOrDefault("displayName", code),
-            body.get("description"),
-            body.getOrDefault("displayCategory", "PRIMARY"),
-            body.getOrDefault("displayOrder", 0),
-            body.get("managedWith"),
-            body.get("handlerInstanceId"));
-        publishChange("CREATE", "ACTION", id);
-        return id;
-    }
-
-    @Transactional
-    public void setActionManagedWith(String actionId, String managedWith) {
-        dsl.execute("UPDATE action SET managed_with = ? WHERE id = ?",
-            (managedWith == null || managedWith.isBlank()) ? null : managedWith, actionId);
-        publishChange("UPDATE", "ACTION", actionId);
-    }
-
-    /** Actions managed by the given action (reverse lookup on managed_with). */
-    public List<Map<String, Object>> listManagedActions(String actionId) {
-        return dsl.select().from("action").where("managed_with = ?", actionId)
-            .orderBy(DSL.field("display_order"))
-            .fetch().intoMaps();
     }
 
     // copyAuthorizationPolicies removed in Phase D4 — authorization_policy is owned by pno-api.

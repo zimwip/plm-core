@@ -10,11 +10,13 @@ package com.plm.platform.settings.dto;
  * @param group      group key ("GENERAL", "PNO", "PLATFORM", "APPLICATION", "HELP")
  * @param order      sort order within group
  * @param permission required permission code, or null for unrestricted
+ * @param icon       lucide icon name ("layers", "shield", …), or null for default
  */
 public record SettingSectionDto(
     String key,
     String label,
     String group,
     int order,
-    String permission
+    String permission,
+    String icon
 ) {}

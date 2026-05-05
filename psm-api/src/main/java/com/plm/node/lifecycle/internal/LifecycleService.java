@@ -8,7 +8,7 @@ import com.plm.node.lifecycle.internal.stateaction.StateActionContext;
 import com.plm.node.lifecycle.internal.stateaction.StateActionService;
 import com.plm.node.lifecycle.internal.stateaction.StateActionTrigger;
 import com.plm.shared.event.PlmEventPublisher;
-import com.plm.shared.action.PlmAction;
+import com.plm.platform.action.PlmAction;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.LifecycleConfig;
 import com.plm.platform.config.dto.LifecycleStateConfig;
@@ -139,11 +139,7 @@ public class LifecycleService {
      *
      * @param txId  transaction PLM ouverte — OBLIGATOIRE
      */
-    @PlmAction(
-        value = "transition",
-        nodeIdExpr = "#nodeId",
-        transitionIdExpr = "#transitionId"
-    )
+    @PlmAction("transition")
     @Transactional
     public String applyTransition(
         String nodeId,
@@ -223,12 +219,11 @@ public class LifecycleService {
 
         // Execute ON_EXIT transactional state actions on the source state
         stateActionService.executeTransactionalActions(
-            fromStateId, nodeTypeId, StateActionTrigger.ON_EXIT, saCtx);
+            fromStateId, null, StateActionTrigger.ON_EXIT, saCtx);
 
         // Execute ON_ENTER transactional state actions on the target state
-        // (e.g. collapse_history when entering Released)
         stateActionService.executeTransactionalActions(
-            toStateId, nodeTypeId, StateActionTrigger.ON_ENTER, saCtx);
+            toStateId, null, StateActionTrigger.ON_ENTER, saCtx);
 
         // Acquiert le lock (conflit → exception + rollback) et écrit locked_by / locked_at.
         lockService.tryLock(nodeId, userId);
@@ -248,9 +243,9 @@ public class LifecycleService {
         // Collect and register POST_COMMIT state actions
         List<Runnable> postActions = new ArrayList<>();
         postActions.addAll(stateActionService.collectPostCommitActions(
-            fromStateId, nodeTypeId, StateActionTrigger.ON_EXIT, saCtx));
+            fromStateId, null, StateActionTrigger.ON_EXIT, saCtx));
         postActions.addAll(stateActionService.collectPostCommitActions(
-            toStateId, nodeTypeId, StateActionTrigger.ON_ENTER, saCtx));
+            toStateId, null, StateActionTrigger.ON_ENTER, saCtx));
         if (!postActions.isEmpty()) {
             TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {

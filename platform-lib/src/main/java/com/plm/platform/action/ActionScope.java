@@ -2,6 +2,7 @@ package com.plm.platform.action;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Defines the shape and resolution logic for an action scope.
@@ -28,4 +29,14 @@ public interface ActionScope {
      */
     ActionContext resolve(String actionId, String actionCode, String userId,
                           List<String> pathIds, Map<String, String> params);
+
+    /**
+     * Resolves node context for permission/guard evaluation in PlmActionAspect.
+     * Override in scope implementations that carry a node or link subject.
+     * Default: no context (GLOBAL, TX scopes).
+     */
+    default Optional<ActionNodeContextPort.NodeCtx> resolveNodeCtx(
+            Map<String, String> ids, String userId, ActionNodeContextPort port) {
+        return Optional.empty();
+    }
 }

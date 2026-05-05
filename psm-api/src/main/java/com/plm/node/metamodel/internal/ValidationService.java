@@ -3,7 +3,7 @@ package com.plm.node.metamodel.internal;
 import com.plm.node.metamodel.MetaModelCachePort;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.NodeTypeConfig;
-import com.plm.shared.exception.PlmFunctionalException;
+import com.plm.shared.exception.PlmValidationException;
 import com.plm.shared.model.ResolvedAttribute;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -353,14 +353,15 @@ public class ValidationService {
         @Override public String toString() { return message; }
     }
 
-    public static class ValidationException extends PlmFunctionalException {
+    public static class ValidationException extends PlmValidationException {
         private final List<Violation> errors;
 
         public ValidationException(List<Violation> errors) {
-            super(errors.size() + " validation error(s)", 422);
+            super(errors.size() + " validation error(s)");
             this.errors = errors;
         }
 
+        @Override
         public List<Violation> getErrors() { return errors; }
     }
 }

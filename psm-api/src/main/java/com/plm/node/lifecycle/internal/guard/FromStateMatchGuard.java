@@ -1,13 +1,13 @@
 package com.plm.node.lifecycle.internal.guard;
-import com.plm.action.guard.ActionGuardContext;
+import com.plm.platform.action.guard.ActionGuardContext;
 
 import com.plm.algorithm.AlgorithmBean;
 import com.plm.action.guard.ActionGuard;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.LifecycleConfig;
 import com.plm.platform.config.dto.LifecycleTransitionConfig;
-import com.plm.shared.guard.GuardEffect;
-import com.plm.shared.guard.GuardViolation;
+import com.plm.platform.action.guard.GuardEffect;
+import com.plm.platform.action.guard.GuardViolation;
 import lombok.RequiredArgsConstructor;
 
 import java.util.List;

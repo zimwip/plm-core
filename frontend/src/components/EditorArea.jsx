@@ -1,5 +1,5 @@
 import React from 'react';
-import NodeEditor from './NodeEditor';
+import { lookupPluginForTab } from '../services/sourcePlugins';
 import DashboardView from './DashboardView';
 import CommentPanel from './CommentPanel';
 import { PinIcon, PinOffIcon, CloseIcon, PlusIcon, NODE_ICONS } from './Icons';
@@ -125,23 +125,20 @@ export default function EditorArea({
               nodeTypes={nodeTypes}
               onNavigate={onNavigate}
             />
-          ) : (
-            <NodeEditor
-              key={activeTab.nodeId}
-              nodeId={activeTab.nodeId}
-              userId={userId}
-              tx={tx}
-              nodeTypes={nodeTypes}
-              stateColorMap={stateColorMap}
-              activeSubTab={activeTab.activeSubTab || 'attributes'}
-              onSubTabChange={key => onSubTabChange(activeTab.id, key)}
-              toast={toast}
-              onAutoOpenTx={onAutoOpenTx}
-              onDescriptionLoaded={onDescriptionLoaded}
-              onOpenCommentsForVersion={onOpenCommentsForVersion}
-              onCommentAttribute={onCommentAttribute}
-            />
-          )}
+          ) : (() => {
+            // Greenfield contract: every tab has a source descriptor, so
+            // every tab resolves to a plugin (psm → NodeEditor, dst →
+            // GenericDetailEditor, default catch-all → GenericDetailEditor).
+            const plugin = lookupPluginForTab(activeTab);
+            const Editor = plugin.Editor;
+            const ctx = {
+              userId, tx, nodeTypes, stateColorMap, toast,
+              onAutoOpenTx, onDescriptionLoaded,
+              onOpenCommentsForVersion, onCommentAttribute,
+              onSubTabChange,
+            };
+            return <Editor key={activeTab.id} tab={activeTab} ctx={ctx} />;
+          })()}
         </div>
       </div>
 

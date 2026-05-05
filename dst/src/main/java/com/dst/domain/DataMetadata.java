@@ -16,5 +16,6 @@ public record DataMetadata(
     String location,
     String createdBy,
     LocalDateTime createdAt,
-    LocalDateTime lastAccessed
+    LocalDateTime lastAccessed,
+    String projectSpaceId
 ) {}

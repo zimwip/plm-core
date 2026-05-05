@@ -4,12 +4,14 @@ import com.plm.algorithm.AlgorithmBean;
 import com.plm.node.NodeService;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.LinkTypeConfig;
-import com.plm.shared.action.ActionContext;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionRouteDescriptor;
 import com.plm.shared.action.ActionHandler;
-import com.plm.shared.action.ActionResult;
+import com.plm.platform.action.ActionResult;
 import lombok.RequiredArgsConstructor;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Dispatch handler for the {@code create_link} action.
@@ -37,6 +39,11 @@ public class CreateLinkActionHandler implements ActionHandler {
 
     @Override
     public String actionCode() { return "create_link"; }
+
+    @Override
+    public Optional<ActionRouteDescriptor> route() {
+        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/create_link/{id}").metadataOnly());
+    }
 
     @Override
     public ActionResult execute(ActionContext ctx, Map<String, String> params) {

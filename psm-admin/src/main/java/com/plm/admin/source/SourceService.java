@@ -1,15 +1,21 @@
 package com.plm.admin.source;
 
 import com.plm.admin.config.ConfigChangedEvent;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
@@ -19,52 +25,55 @@ import java.util.Map;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class SourceService {
 
     private final DSLContext dsl;
     private final ApplicationEventPublisher eventPublisher;
+    private final RestTemplate rest;
+    private final String platformUrl;
+    private final String serviceSecret;
+
+    public SourceService(DSLContext dsl, ApplicationEventPublisher eventPublisher,
+                         RestTemplateBuilder restBuilder,
+                         @Value("${plm.settings.settings-url:http://platform-api:8084}") String platformUrl,
+                         @Value("${plm.auth.service-secret:}") String serviceSecret) {
+        this.dsl           = dsl;
+        this.eventPublisher = eventPublisher;
+        this.rest          = restBuilder.build();
+        this.platformUrl   = platformUrl;
+        this.serviceSecret = serviceSecret;
+    }
 
     public List<SourceDto> getAll() {
-        return dsl.fetch("""
-            SELECT s.id, s.name, s.description, s.resolver_instance_id, s.is_builtin,
-                   s.is_versioned, s.color, s.icon, a.code AS resolver_code
-            FROM source s
-            JOIN algorithm_instance ai ON ai.id = s.resolver_instance_id
-            JOIN algorithm a           ON a.id  = ai.algorithm_id
-            ORDER BY s.is_builtin DESC, s.name
-            """).map(this::toDto);
+        return dsl.fetch("SELECT * FROM source ORDER BY is_builtin DESC, name")
+            .map(this::toDto);
     }
 
     public SourceDto get(String id) {
-        Record r = dsl.fetchOne("""
-            SELECT s.id, s.name, s.description, s.resolver_instance_id, s.is_builtin,
-                   s.is_versioned, s.color, s.icon, a.code AS resolver_code
-            FROM source s
-            JOIN algorithm_instance ai ON ai.id = s.resolver_instance_id
-            JOIN algorithm a           ON a.id  = ai.algorithm_id
-            WHERE s.id = ?
-            """, id);
+        Record r = dsl.fetchOne("SELECT * FROM source WHERE id = ?", id);
         if (r == null) throw new IllegalArgumentException("Source not found: " + id);
         return toDto(r);
     }
 
     public List<Map<String, Object>> listResolverInstances() {
-        return dsl.fetch("""
-            SELECT ai.id, ai.name, a.id AS algorithm_id, a.code AS algorithm_code, a.name AS algorithm_name
-            FROM algorithm_instance ai
-            JOIN algorithm a ON a.id = ai.algorithm_id
-            WHERE a.algorithm_type_id = 'algtype-source-resolver'
-            ORDER BY a.code, ai.name
-            """).map(r -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("instanceId", r.get("id", String.class));
-            m.put("instanceName", r.get("name", String.class));
-            m.put("algorithmId", r.get("algorithm_id", String.class));
-            m.put("algorithmCode", r.get("algorithm_code", String.class));
-            m.put("algorithmName", r.get("algorithm_name", String.class));
-            return m;
-        });
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Service-Secret", serviceSecret);
+            var resp = rest.exchange(
+                platformUrl + "/api/platform/algorithms/instances",
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                new ParameterizedTypeReference<List<Map<String, Object>>>() {});
+            List<Map<String, Object>> instances = resp.getBody();
+            if (instances == null) return List.of();
+            return instances.stream()
+                .filter(m -> "algtype-source-resolver".equals(m.get("algorithmTypeId"))
+                          || "Source Resolver".equals(m.get("typeName")))
+                .toList();
+        } catch (Exception e) {
+            log.warn("Failed to fetch resolver instances from platform-api: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     @Transactional
@@ -72,10 +81,8 @@ public class SourceService {
                          boolean versioned, String color, String icon) {
         if (id == null || id.isBlank()) throw new IllegalArgumentException("Source id is required");
         if (name == null || name.isBlank()) throw new IllegalArgumentException("Source name is required");
-        if (resolverInstanceId == null || resolverInstanceId.isBlank()) {
+        if (resolverInstanceId == null || resolverInstanceId.isBlank())
             throw new IllegalArgumentException("resolverInstanceId is required");
-        }
-        assertResolverInstance(resolverInstanceId);
         dsl.execute("""
             INSERT INTO source (id, name, description, resolver_instance_id, is_builtin, is_versioned, color, icon, created_at)
             VALUES (?,?,?,?,0,?,?,?,?)
@@ -90,7 +97,6 @@ public class SourceService {
     public void update(String id, String name, String description, String resolverInstanceId,
                        boolean versioned, String color, String icon) {
         assertNotBuiltin(id);
-        assertResolverInstance(resolverInstanceId);
         if (linkTypeUsesV2V(id) && !versioned) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                 "Source " + id + " is referenced by VERSION_TO_VERSION link types; "
@@ -135,32 +141,19 @@ public class SourceService {
         }
     }
 
-    private void assertResolverInstance(String resolverInstanceId) {
-        if (resolverInstanceId == null) return;
-        int found = dsl.fetchCount(dsl.selectOne()
-            .from("algorithm_instance ai")
-            .join("algorithm a").on("a.id = ai.algorithm_id")
-            .where("ai.id = ?", resolverInstanceId)
-            .and("a.algorithm_type_id = 'algtype-source-resolver'"));
-        if (found == 0) {
-            throw new IllegalArgumentException("Resolver instance not found or not of type algtype-source-resolver: "
-                + resolverInstanceId);
-        }
-    }
-
     private SourceDto toDto(Record r) {
-        Integer builtin = r.get("is_builtin", Integer.class);
+        Integer builtin  = r.get("is_builtin",  Integer.class);
         Integer versioned = r.get("is_versioned", Integer.class);
         return new SourceDto(
-            r.get("id", String.class),
-            r.get("name", String.class),
-            r.get("description", String.class),
+            r.get("id",                   String.class),
+            r.get("name",                 String.class),
+            r.get("description",          String.class),
             r.get("resolver_instance_id", String.class),
-            r.get("resolver_code", String.class),
-            builtin != null && builtin != 0,
+            null,
+            builtin  != null && builtin  != 0,
             versioned != null && versioned != 0,
             r.get("color", String.class),
-            r.get("icon", String.class)
+            r.get("icon",  String.class)
         );
     }
 

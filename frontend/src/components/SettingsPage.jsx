@@ -12,6 +12,9 @@ import { NODE_ICONS, NODE_ICON_NAMES } from './Icons';
 import ApiPlayground from './ApiPlayground';
 import UserManual from './UserManual';
 import LifecycleDiagram from './LifecycleDiagram';
+import { registerSettingsPlugin, lookupSettingsPlugin } from '../services/settingsPlugins';
+import { ActionsCatalogSection } from './ActionsCatalogSection';
+import { AlgorithmSection }      from './AlgorithmSection';
 
 
 /* ── Spring Modulith module badge ─────────────────────────────────── */
@@ -4176,1256 +4179,7 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
   );
 }
 
-/* ── Algorithms Section (types + instances + parameters) ────────── */
-
-function InstanceCard({ inst, algo, userId, canWrite, toast, onReload }) {
-  const [expanded, setExpanded] = useState(false);
-  const [params, setParams]    = useState(null);   // algorithm parameter defs
-  const [values, setValues]    = useState(null);   // instance param values
-  const [editing, setEditing]  = useState(false);
-  const [nameVal, setNameVal]  = useState(inst.name || '');
-
-  async function loadParams() {
-    const [paramDefs, paramVals] = await Promise.all([
-      api.listAlgorithmParameters(userId, algo.id),
-      api.getInstanceParams(userId, inst.id),
-    ]);
-    setParams(Array.isArray(paramDefs) ? paramDefs : []);
-    setValues(Array.isArray(paramVals) ? paramVals : []);
-  }
-
-  function toggle() {
-    if (expanded) { setExpanded(false); return; }
-    setExpanded(true);
-    if (params === null) loadParams().catch(() => { setParams([]); setValues([]); });
-  }
-
-  async function saveName() {
-    if (!nameVal.trim() || nameVal.trim() === inst.name) { setEditing(false); return; }
-    try {
-      await api.updateInstance(userId, inst.id, nameVal.trim());
-      toast('Name updated', 'success');
-      setEditing(false);
-      onReload();
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  async function setParamValue(parameterId, value) {
-    try {
-      await api.setInstanceParam(userId, inst.id, parameterId, value);
-      const updated = await api.getInstanceParams(userId, inst.id);
-      setValues(Array.isArray(updated) ? updated : []);
-      toast('Parameter saved', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  async function handleDelete() {
-    if (!window.confirm(`Delete instance "${inst.name}"?\n\nAll guard/action attachments using this instance will be removed.`)) return;
-    try {
-      await api.deleteInstance(userId, inst.id);
-      toast('Instance deleted', 'success');
-      onReload();
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  return (
-    <div style={{ marginBottom: 2 }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '4px 6px',
-        borderRadius: expanded ? '4px 4px 0 0' : 4,
-        background: 'var(--subtle-bg)',
-        border: '1px solid var(--border)',
-        borderBottom: expanded ? '1px solid var(--border2)' : '1px solid var(--border)',
-        cursor: 'pointer', fontSize: 12,
-      }} onClick={toggle}>
-        <span style={{ flexShrink: 0 }}>
-          {expanded
-            ? <ChevronDownIcon size={10} strokeWidth={2} color="var(--muted)" />
-            : <ChevronRightIcon size={10} strokeWidth={2} color="var(--muted)" />}
-        </span>
-        {editing ? (
-          <input className="field-input" autoFocus value={nameVal}
-            onClick={e => e.stopPropagation()}
-            onChange={e => setNameVal(e.target.value)}
-            onBlur={saveName}
-            onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditing(false); setNameVal(inst.name || ''); } }}
-            style={{ fontSize: 12, padding: '1px 4px', width: 200 }} />
-        ) : (
-          <span style={{ fontWeight: 600, color: 'var(--text)' }}>{inst.name || inst.id}</span>
-        )}
-        <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--muted)' }}>{inst.id}</span>
-        <span style={{ flex: 1 }} />
-        {canWrite && !editing && (
-          <button className="panel-icon-btn" title="Rename" onClick={e => { e.stopPropagation(); setEditing(true); setNameVal(inst.name || ''); }}>
-            <EditIcon size={10} strokeWidth={2} color="var(--accent)" />
-          </button>
-        )}
-        {canWrite && (
-          <button className="panel-icon-btn" title="Delete instance" onClick={e => { e.stopPropagation(); handleDelete(); }}>
-            <TrashIcon size={10} strokeWidth={2} color="var(--danger, #f87171)" />
-          </button>
-        )}
-      </div>
-
-      {expanded && (
-        <div style={{
-          padding: '8px 10px',
-          background: 'var(--subtle-bg2)',
-          border: '1px solid var(--border)',
-          borderTop: 'none',
-          borderRadius: '0 0 4px 4px',
-        }}>
-          {params === null && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading parameters…</div>}
-
-          {params !== null && params.length === 0 && (
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>No parameters defined for this algorithm</div>
-          )}
-
-          {params !== null && params.length > 0 && (
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
-                Parameters
-              </div>
-              {params.map(p => {
-                const paramName  = p.paramName  || p.param_name;
-                const paramLabel = p.paramLabel || p.param_label || paramName;
-                const paramId    = p.id || p.ID;
-                const dataType   = p.dataType || p.data_type || 'STRING';
-                const required   = p.required === 1 || p.required === true;
-                const defaultVal = p.defaultValue || p.default_value || '';
-                const currentVal = values?.find(v => (v.paramName || v.param_name) === paramName);
-                const currentValue = currentVal?.value ?? '';
-
-                return (
-                  <div key={paramId} style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '4px 0', borderBottom: '1px solid var(--border)', fontSize: 11,
-                  }}>
-                    <span style={{ minWidth: 120, color: 'var(--text)', fontWeight: 500 }}>
-                      {paramLabel}{required ? ' *' : ''}
-                    </span>
-                    <span style={{ fontSize: 9, color: 'var(--muted)', fontFamily: 'var(--mono)', minWidth: 50 }}>{dataType}</span>
-                    {canWrite ? (
-                      <input className="field-input"
-                        style={{ flex: 1, fontSize: 11, padding: '2px 6px' }}
-                        value={currentValue}
-                        placeholder={defaultVal ? `default: ${defaultVal}` : ''}
-                        onChange={e => {
-                          const newVal = e.target.value;
-                          setValues(prev => {
-                            const copy = [...(prev || [])];
-                            const idx = copy.findIndex(v => (v.paramName || v.param_name) === paramName);
-                            if (idx >= 0) copy[idx] = { ...copy[idx], value: newVal };
-                            else copy.push({ paramName, value: newVal });
-                            return copy;
-                          });
-                        }}
-                        onBlur={() => setParamValue(paramId, currentValue)}
-                        onKeyDown={e => { if (e.key === 'Enter') setParamValue(paramId, currentValue); }}
-                      />
-                    ) : (
-                      <span style={{ flex: 1, color: currentValue ? 'var(--text)' : 'var(--muted)' }}>
-                        {currentValue || defaultVal || '—'}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function AlgorithmsSection({ userId, canWrite, toast }) {
-  const [tab, setTab]               = useState('catalog');
-  const [algorithms, setAlgorithms] = useState(null);
-  const [instances, setInstances]   = useState(null);
-  const [stats, setStats]           = useState(null);
-  const [timeseries, setTimeseries] = useState(null);
-  const [tsHours, setTsHours]       = useState(24);
-  const [expandedAlgo, setExpandedAlgo] = useState(null);
-  const [newInstName, setNewInstName] = useState('');
-  const [algoParams, setAlgoParams]   = useState({});  // algorithmId → param[]
-
-  const reload = useCallback(() => {
-    Promise.all([
-      api.listAlgorithms(userId),
-      api.listAllInstances(userId),
-    ]).then(([algs, insts]) => {
-      setAlgorithms(Array.isArray(algs) ? algs : []);
-      setInstances(Array.isArray(insts)  ? insts  : []);
-    }).catch(() => {
-      setAlgorithms([]); setInstances([]);
-    });
-  }, [userId]);
-
-  const loadStats = useCallback(() => {
-    api.getAlgorithmStats(userId)
-      .then(s => setStats(Array.isArray(s) ? s : []))
-      .catch(() => setStats([]));
-  }, [userId]);
-
-  const loadTimeseries = useCallback((hours) => {
-    api.getAlgorithmTimeseries(userId, hours)
-      .then(ts => setTimeseries(Array.isArray(ts) ? ts : []))
-      .catch(() => setTimeseries([]));
-  }, [userId]);
-
-  useEffect(() => { reload(); }, [reload]);
-
-  async function handleCreateInstance(algorithmId) {
-    const name = newInstName.trim();
-    if (!name) { toast('Instance name is required', 'error'); return; }
-    try {
-      await api.createInstance(userId, algorithmId, name);
-      setNewInstName('');
-      reload();
-      toast('Instance created', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  if (algorithms === null) return <div className="settings-loading">Loading…</div>;
-
-  // type → module → algorithms[]. typeName + moduleName populated by psm-api
-  // registration (see AlgorithmRegistrationClient). Algorithms registered before
-  // V4 may have null moduleName until psm-api runs once after upgrade.
-  const algosByTypeModule = {};
-  algorithms.forEach(a => {
-    const t = a.typeName || 'Unknown';
-    const mod = a.moduleName || 'unknown';
-    if (!algosByTypeModule[t]) algosByTypeModule[t] = {};
-    if (!algosByTypeModule[t][mod]) algosByTypeModule[t][mod] = [];
-    algosByTypeModule[t][mod].push(a);
-  });
-
-  // Group instances by algorithm
-  const instancesByAlgo = {};
-  (instances || []).forEach(i => {
-    if (!instancesByAlgo[i.algorithmId]) instancesByAlgo[i.algorithmId] = [];
-    instancesByAlgo[i.algorithmId].push(i);
-  });
-
-  const tabStyle = (key) => ({
-    padding: '6px 14px', fontSize: 12, cursor: 'pointer', background: 'none', border: 'none',
-    color: tab === key ? 'var(--accent)' : 'var(--muted)',
-    borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
-  });
-
-  return (
-    <div>
-      {!canWrite && (
-        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-          Read-only — requires <code>MANAGE_METAMODEL</code>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: 12 }}>
-        {[['catalog', 'Catalog'], ['stats', 'Execution Stats'], ['graph', 'Usage Graph']].map(([key, label]) => (
-          <button key={key} onClick={() => { setTab(key); if (key === 'stats' && !stats) loadStats(); if (key === 'graph' && !timeseries) loadTimeseries(tsHours); }} style={tabStyle(key)}>{label}</button>
-        ))}
-      </div>
-
-      {/* ── Stats tab ── */}
-      {tab === 'stats' && (() => {
-        // Build code → typeName lookup from algorithms list
-        const codeToType = {};
-        (algorithms || []).forEach(a => { codeToType[a.code] = a.typeName || 'Unknown'; });
-        // Group stats by algorithm type
-        const statsByType = {};
-        (stats || []).forEach(s => {
-          const t = codeToType[s.algorithmCode] || 'Unknown';
-          if (!statsByType[t]) statsByType[t] = [];
-          statsByType[t].push(s);
-        });
-        // Sort each group by callCount desc
-        Object.values(statsByType).forEach(arr => arr.sort((a, b) => (b.callCount || 0) - (a.callCount || 0)));
-
-        return (
-          <div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              <button className="btn btn-xs btn-primary" onClick={loadStats}>Refresh</button>
-              <button className="btn btn-xs btn-danger" onClick={async () => {
-                await api.resetAlgorithmStats(userId).catch(() => {});
-                setStats([]);
-                toast('Stats reset', 'success');
-              }}>Reset</button>
-            </div>
-            {stats === null && (
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading stats…</div>
-            )}
-            {stats && stats.length === 0 && (
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>No algorithm executions recorded yet</div>
-            )}
-            {stats && stats.length > 0 && Object.entries(statsByType).map(([typeName, typeStats]) => (
-              <div key={typeName} style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
-                  {typeName}
-                </div>
-                <table className="settings-table" style={{ width: '100%' }}>
-                  <thead>
-                    <tr>
-                      <th>Algorithm</th>
-                      <th style={{ textAlign: 'right' }}>Calls</th>
-                      <th style={{ textAlign: 'right' }}>Min (ms)</th>
-                      <th style={{ textAlign: 'right' }}>Avg (ms)</th>
-                      <th style={{ textAlign: 'right' }}>Max (ms)</th>
-                      <th style={{ textAlign: 'right' }}>Total (ms)</th>
-                      <th>Last Update</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {typeStats.map(s => (
-                      <tr key={s.algorithmCode}>
-                        <td><code>{s.algorithmCode}</code></td>
-                        <td style={{ textAlign: 'right' }}>{s.callCount}</td>
-                        <td style={{ textAlign: 'right' }}>{typeof s.minMs === 'number' ? s.minMs.toFixed(3) : '—'}</td>
-                        <td style={{ textAlign: 'right' }}>{typeof s.avgMs === 'number' ? s.avgMs.toFixed(3) : '—'}</td>
-                        <td style={{ textAlign: 'right' }}>{typeof s.maxMs === 'number' ? s.maxMs.toFixed(3) : '—'}</td>
-                        <td style={{ textAlign: 'right' }}>{typeof s.totalMs === 'number' ? s.totalMs.toFixed(1) : '—'}</td>
-                        <td style={{ fontSize: 10, color: 'var(--muted)' }}>{s.lastFlushed || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-
-      {/* ── Graph tab ── */}
-      {tab === 'graph' && (() => {
-        const codeToType = {};
-        (algorithms || []).forEach(a => { codeToType[a.code] = a.typeName || 'Unknown'; });
-
-        // Build per-type aggregated timeseries: { typeName → [ { windowStart, calls, totalMs } ] }
-        const windowMap = {}; // windowStart → { typeName → { calls, totalMs } }
-        (timeseries || []).forEach(p => {
-          const t = codeToType[p.algorithmCode] || 'Unknown';
-          if (!windowMap[p.windowStart]) windowMap[p.windowStart] = {};
-          if (!windowMap[p.windowStart][t]) windowMap[p.windowStart][t] = { calls: 0, totalMs: 0 };
-          windowMap[p.windowStart][t].calls += p.callCount || 0;
-          windowMap[p.windowStart][t].totalMs += p.totalMs || 0;
-        });
-
-        const windows = Object.keys(windowMap).sort();
-        const types = [...new Set(Object.values(codeToType))].sort();
-
-        // Also build global aggregated (all types combined)
-        const globalSeries = windows.map(w => {
-          let calls = 0, totalMs = 0;
-          Object.values(windowMap[w] || {}).forEach(v => { calls += v.calls; totalMs += v.totalMs; });
-          return { windowStart: w, calls, totalMs };
-        });
-
-        // Color palette for types
-        const TYPE_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
-        const typeColor = (i) => TYPE_COLORS[i % TYPE_COLORS.length];
-
-        const SVG_W = 800, SVG_H = 200, PAD = { t: 20, r: 20, b: 40, l: 50 };
-        const plotW = SVG_W - PAD.l - PAD.r;
-        const plotH = SVG_H - PAD.t - PAD.b;
-
-        function renderChart(series, label, color) {
-          if (series.length === 0) return <div style={{ fontSize: 11, color: 'var(--muted)' }}>No data</div>;
-          const maxCalls = Math.max(...series.map(s => s.calls), 1);
-
-          return (
-            <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: '100%', height: 200, display: 'block' }}>
-              {/* Grid lines */}
-              {[0, 0.25, 0.5, 0.75, 1].map(f => {
-                const y = PAD.t + plotH * (1 - f);
-                return (
-                  <g key={f}>
-                    <line x1={PAD.l} x2={SVG_W - PAD.r} y1={y} y2={y} stroke="var(--border)" strokeWidth={0.5} />
-                    <text x={PAD.l - 4} y={y + 3} textAnchor="end" fill="var(--muted)" fontSize={9}>{Math.round(maxCalls * f)}</text>
-                  </g>
-                );
-              })}
-              {/* Bars */}
-              {series.map((s, i) => {
-                const barW = Math.max(plotW / series.length - 1, 2);
-                const x = PAD.l + (i / series.length) * plotW;
-                const h = (s.calls / maxCalls) * plotH;
-                const y = PAD.t + plotH - h;
-                // Show time labels at intervals
-                const showLabel = series.length < 20 || i % Math.ceil(series.length / 12) === 0;
-                const timeStr = s.windowStart.replace('T', ' ').slice(11, 16);
-                return (
-                  <g key={i}>
-                    <rect x={x} y={y} width={barW} height={h} fill={color} opacity={0.8} rx={1}>
-                      <title>{s.windowStart.replace('T', ' ').slice(0, 16)} — {s.calls} calls, {s.totalMs.toFixed(1)}ms</title>
-                    </rect>
-                    {showLabel && (
-                      <text x={x + barW / 2} y={SVG_H - PAD.b + 14} textAnchor="middle" fill="var(--muted)" fontSize={8} transform={`rotate(-45, ${x + barW / 2}, ${SVG_H - PAD.b + 14})`}>{timeStr}</text>
-                    )}
-                  </g>
-                );
-              })}
-              {/* Y axis label */}
-              <text x={12} y={PAD.t + plotH / 2} textAnchor="middle" fill="var(--muted)" fontSize={9} transform={`rotate(-90, 12, ${PAD.t + plotH / 2})`}>Calls</text>
-              {/* Title */}
-              <text x={PAD.l} y={12} fill="var(--text)" fontSize={11} fontWeight={600}>{label}</text>
-            </svg>
-          );
-        }
-
-        return (
-          <div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-              <button className="btn btn-xs btn-primary" onClick={() => loadTimeseries(tsHours)}>Refresh</button>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Window:</span>
-              {[6, 12, 24, 48].map(h => (
-                <button key={h} className="btn btn-xs" onClick={() => { setTsHours(h); loadTimeseries(h); }}
-                  style={{ background: tsHours === h ? 'var(--accent)' : undefined, color: tsHours === h ? '#fff' : undefined }}>{h}h</button>
-              ))}
-            </div>
-            {timeseries === null && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading…</div>}
-            {timeseries && timeseries.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No windowed data yet. Stats are bucketed every 15 seconds on flush.</div>}
-            {timeseries && timeseries.length > 0 && (
-              <div>
-                {/* Global aggregate */}
-                <div style={{ marginBottom: 20, background: 'var(--bg2)', borderRadius: 6, padding: 12 }}>
-                  {renderChart(globalSeries, 'All Algorithms (aggregate)', '#3b82f6')}
-                </div>
-                {/* Per-type breakdown */}
-                {types.map((typeName, ti) => {
-                  const typeSeries = windows.map(w => ({
-                    windowStart: w,
-                    calls: windowMap[w]?.[typeName]?.calls || 0,
-                    totalMs: windowMap[w]?.[typeName]?.totalMs || 0,
-                  }));
-                  const hasCalls = typeSeries.some(s => s.calls > 0);
-                  if (!hasCalls) return null;
-                  return (
-                    <div key={typeName} style={{ marginBottom: 16, background: 'var(--bg2)', borderRadius: 6, padding: 12 }}>
-                      {renderChart(typeSeries, typeName, typeColor(ti))}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* ── Catalog tab ── */}
-      {tab === 'catalog' && <div className="settings-list">
-          {Object.entries(algosByTypeModule).sort(([a],[b]) => a.localeCompare(b)).map(([typeName, mods]) => (
-            <div key={typeName} style={{ marginBottom: 22 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{typeName}</span>
-                <span style={{ fontSize: 10, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '.06em' }}>type</span>
-              </div>
-            {Object.entries(mods).sort(([a],[b]) => a.localeCompare(b)).map(([mod, algos]) => (
-            <div key={mod} style={{ marginBottom: 14, marginLeft: 4 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <ModuleBadge module={mod} />
-                <span style={{ fontSize: 9, color: 'var(--muted2)' }}>({algos.length})</span>
-              </div>
-              {algos.map(algo => {
-                const isExp = expandedAlgo === algo.id;
-                const algoInstances = instancesByAlgo[algo.id] || [];
-                return (
-                  <div key={algo.id} className="settings-card" style={{ marginBottom: 4 }}>
-                    <div className="settings-card-hd" onClick={() => {
-                      const nextId = isExp ? null : algo.id;
-                      setExpandedAlgo(nextId); setNewInstName('');
-                      if (nextId && !algoParams[nextId]) {
-                        api.listAlgorithmParameters(userId, nextId)
-                          .then(p => setAlgoParams(s => ({ ...s, [nextId]: Array.isArray(p) ? p : [] })))
-                          .catch(() => setAlgoParams(s => ({ ...s, [nextId]: [] })));
-                      }
-                    }} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                      <span className="settings-card-chevron">
-                        {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
-                      </span>
-                      <WorkflowIcon size={13} color="var(--accent)" strokeWidth={1.5} />
-                      <span className="settings-card-name" style={{ marginLeft: 4 }}>{algo.name}</span>
-                      <span className="settings-card-id">{algo.code}</span>
-                      <span style={{ marginLeft: 6 }}><ModuleBadge module={algo.moduleName} /></span>
-                      <span style={{ flex: 1, fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 8 }}>
-                        {algo.description || ''}
-                      </span>
-                      <span className="settings-badge" style={{ marginLeft: 8 }}>{algoInstances.length} instance{algoInstances.length !== 1 ? 's' : ''}</span>
-                    </div>
-
-                    {isExp && (
-                      <div className="settings-card-body" style={{ padding: '8px 12px 12px 28px' }}>
-                        <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
-                          <span>Handler: <code style={{ color: 'var(--text)' }}>{algo.handlerRef}</code></span>
-                          <span>Type: <code style={{ color: 'var(--text)' }}>{algo.typeName}</code></span>
-                        </div>
-
-                        {/* ── Parameter definitions ── */}
-                        {(() => {
-                          const pDefs = algoParams[algo.id];
-                          if (pDefs === undefined) return null;
-                          if (pDefs.length === 0) return null;
-                          return (
-                            <div style={{ marginBottom: 12 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
-                                Parameter Schema
-                              </div>
-                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                                <thead>
-                                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                                    <th style={{ textAlign: 'left', padding: '3px 6px', color: 'var(--muted)', fontWeight: 600, fontSize: 10 }}>Name</th>
-                                    <th style={{ textAlign: 'left', padding: '3px 6px', color: 'var(--muted)', fontWeight: 600, fontSize: 10 }}>Label</th>
-                                    <th style={{ textAlign: 'left', padding: '3px 6px', color: 'var(--muted)', fontWeight: 600, fontSize: 10 }}>Type</th>
-                                    <th style={{ textAlign: 'center', padding: '3px 6px', color: 'var(--muted)', fontWeight: 600, fontSize: 10 }}>Req.</th>
-                                    <th style={{ textAlign: 'left', padding: '3px 6px', color: 'var(--muted)', fontWeight: 600, fontSize: 10 }}>Default</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {pDefs.map(p => {
-                                    const pName  = p.paramName  || p.param_name;
-                                    const pLabel = p.paramLabel || p.param_label || pName;
-                                    const pType  = p.dataType   || p.data_type || 'STRING';
-                                    const pReq   = p.required === 1 || p.required === true;
-                                    const pDef   = p.defaultValue || p.default_value || '';
-                                    return (
-                                      <tr key={p.id || pName} style={{ borderBottom: '1px solid var(--border)' }}>
-                                        <td style={{ padding: '3px 6px', fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{pName}</td>
-                                        <td style={{ padding: '3px 6px', color: 'var(--text)' }}>{pLabel}</td>
-                                        <td style={{ padding: '3px 6px', fontFamily: 'var(--mono)', color: 'var(--muted)', fontSize: 10 }}>{pType}</td>
-                                        <td style={{ padding: '3px 6px', textAlign: 'center' }}>{pReq ? '✓' : ''}</td>
-                                        <td style={{ padding: '3px 6px', color: pDef ? 'var(--text)' : 'var(--muted)', fontFamily: 'var(--mono)', fontSize: 10 }}>{pDef || '—'}</td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          );
-                        })()}
-
-                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
-                          Instances
-                        </div>
-
-                        {algoInstances.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>No instances</div>}
-
-                        {algoInstances.map(inst => (
-                          <InstanceCard key={inst.id} inst={inst} algo={algo} userId={userId} canWrite={canWrite} toast={toast} onReload={reload} />
-                        ))}
-
-                        {canWrite && (
-                          <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
-                            <input className="field-input" style={{ flex: 1, fontSize: 11, padding: '3px 6px' }}
-                              placeholder="New instance name…"
-                              value={newInstName}
-                              onChange={e => setNewInstName(e.target.value)}
-                              onKeyDown={e => { if (e.key === 'Enter') handleCreateInstance(algo.id); }} />
-                            <button className="btn btn-sm" style={{ fontSize: 10 }}
-                              disabled={!newInstName.trim()}
-                              onClick={() => handleCreateInstance(algo.id)}>
-                              <PlusIcon size={10} strokeWidth={2.5} /> Create
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            ))}
-            </div>
-          ))}
-        </div>}
-    </div>
-  );
-}
-
-/* ── Guards Section (action guards + NTA guards) ────────────────── */
-export function GuardsSection({ userId, canWrite, toast }) {
-  const [tab, setTab]               = useState('action-guards');
-  const [actions, setActions]       = useState(null);
-  const [instances, setInstances]   = useState(null);
-  const [nodeTypes, setNodeTypes]   = useState(null);
-  const [algorithms, setAlgorithms] = useState(null);
-  const [expandedAction, setExpandedAction] = useState(null);
-  const [actionGuards, setActionGuards]     = useState({});
-  const [actionWrappers, setActionWrappers] = useState({});
-
-  useEffect(() => {
-    Promise.all([
-      api.getAllActions(userId),
-      api.listAllInstances(userId),
-      api.getNodeTypes(userId),
-      api.listAlgorithms(userId),
-    ]).then(([acts, insts, nts, algs]) => {
-      setActions(Array.isArray(acts)     ? acts   : []);
-      setInstances(Array.isArray(insts)  ? insts  : []);
-      setNodeTypes(Array.isArray(nts)    ? nts    : []);
-      setAlgorithms(Array.isArray(algs)  ? algs   : []);
-    }).catch(() => { setActions([]); setInstances([]); setNodeTypes([]); setAlgorithms([]); });
-  }, [userId]);
-
-  async function loadActionGuards(actionId) {
-    const guards = await api.listActionGuards(userId, actionId).catch(() => []);
-    setActionGuards(s => ({ ...s, [actionId]: Array.isArray(guards) ? guards : [] }));
-  }
-
-  async function loadActionWrappers(actionId) {
-    const wrappers = await api.listActionWrappers(userId, actionId).catch(() => []);
-    setActionWrappers(s => ({ ...s, [actionId]: Array.isArray(wrappers) ? wrappers : [] }));
-  }
-
-  function toggleAction(actionId) {
-    if (expandedAction === actionId) { setExpandedAction(null); return; }
-    setExpandedAction(actionId);
-    if (!actionGuards[actionId]) loadActionGuards(actionId);
-    if (!actionWrappers[actionId]) loadActionWrappers(actionId);
-  }
-
-  async function handleAttachActionGuard(actionId, instanceId, effect) {
-    try {
-      await api.attachActionGuard(userId, actionId, instanceId, effect || 'HIDE', 0);
-      loadActionGuards(actionId);
-      toast('Guard attached', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  async function handleUpdateActionGuardEffect(actionId, guardId, effect) {
-    try {
-      await api.updateActionGuard(userId, actionId, guardId, effect);
-      setActionGuards(s => ({
-        ...s,
-        [actionId]: (s[actionId] || []).map(g => g.id === guardId ? { ...g, effect } : g),
-      }));
-      toast('Effect updated', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  async function handleDetachActionGuard(actionId, guardId) {
-    try {
-      await api.detachActionGuard(userId, actionId, guardId);
-      loadActionGuards(actionId);
-      toast('Guard detached', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  if (actions === null) return <div className="settings-loading">Loading…</div>;
-
-  // Backend pre-joins handler algorithm → module on each action row
-  // (action.handlerModuleName). Falls back to algorithm lookup by handler code
-  // for older payloads.
-  const algByCode = {};
-  (algorithms || []).forEach(a => { if (a.code) algByCode[a.code] = a; });
-
-  function actionModule(action) {
-    if (action.handlerModuleName) return action.handlerModuleName;
-    const handlerCode = action.handler_code || action.handlerCode;
-    const alg = handlerCode ? algByCode[handlerCode] : null;
-    return alg?.moduleName || 'unknown';
-  }
-
-  // Group actions by handler module (drop domain).
-  const actionsByModule = {};
-  actions.forEach(a => {
-    const mod = actionModule(a);
-    if (!actionsByModule[mod]) actionsByModule[mod] = [];
-    actionsByModule[mod].push(a);
-  });
-
-  const tabStyle = (key) => ({
-    padding: '6px 14px', fontSize: 12, cursor: 'pointer', background: 'none', border: 'none',
-    color: tab === key ? 'var(--accent)' : 'var(--muted)',
-    borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
-  });
-
-  return (
-    <div>
-      {!canWrite && (
-        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-          Read-only — requires <code>MANAGE_METAMODEL</code>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: 12 }}>
-        {[['action-guards', 'Action Guards'], ['nta-guards', 'Per Node Type'], ['nta-state-actions', 'State Action Overrides']].map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)} style={tabStyle(key)}>{label}</button>
-        ))}
-      </div>
-
-      {/* ── Action Guards tab ── */}
-      {tab === 'action-guards' && (
-        <div className="settings-list">
-          {Object.entries(actionsByModule).sort(([a],[b]) => a.localeCompare(b)).map(([mod, actionsInMod]) => (
-          <div key={mod} style={{ marginBottom: 22 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
-              <ModuleBadge module={mod} />
-              <span style={{ fontSize: 9, color: 'var(--muted2)' }}>({actionsInMod.length})</span>
-            </div>
-          {actionsInMod.map(action => {
-            const isExp = expandedAction === action.id;
-            const guards = actionGuards[action.id] || [];
-            const aCode    = action.action_code    || action.actionCode;
-            const aName    = action.display_name   || action.displayName || aCode;
-            const aScope   = action.scope;
-            const aDesc    = action.description;
-            const aCat     = action.display_category || action.displayCategory;
-            const managedWith = action.managed_with || action.managedWith || null;
-            const isManaged   = !!managedWith;
-
-            // Find manager action name for display
-            const managerName = isManaged
-              ? (actions.find(a => a.id === managedWith)?.display_name
-                || actions.find(a => a.id === managedWith)?.displayName
-                || managedWith)
-              : null;
-
-            // Find managed action names for manager hint
-            const managedActions = !isManaged
-              ? actions.filter(a => (a.managed_with || a.managedWith) === action.id)
-                  .map(a => a.action_code || a.actionCode)
-              : [];
-
-            return (
-              <div key={action.id} className="settings-card" style={{ marginBottom: 4 }}>
-                <div className="settings-card-hd" onClick={() => !isManaged && toggleAction(action.id)}
-                  style={{ display: 'flex', alignItems: 'center', cursor: isManaged ? 'default' : 'pointer' }}>
-                  {!isManaged && (
-                    <span className="settings-card-chevron">
-                      {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
-                    </span>
-                  )}
-                  {isManaged && <span style={{ width: 13, display: 'inline-block', marginRight: 4 }} />}
-                  <span className="settings-card-name" style={isManaged ? { color: 'var(--muted)' } : undefined}>{aName}</span>
-                  {isManaged && (
-                    <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--warning, orange)', fontStyle: 'italic' }}>
-                      Managed by {managerName}
-                    </span>
-                  )}
-                  {managedActions.length > 0 && (
-                    <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--accent)', fontStyle: 'italic' }}>
-                      Manages: {managedActions.join(', ')}
-                    </span>
-                  )}
-                  <span style={{ flex: 1 }} />
-                  {/* Managed-with selector */}
-                  {canWrite && (
-                    <select
-                      className="field-input"
-                      style={{ fontSize: 10, width: 140, padding: '1px 4px', marginRight: 8 }}
-                      value={managedWith || ''}
-                      onClick={e => e.stopPropagation()}
-                      onChange={async e => {
-                        const newManager = e.target.value || null;
-                        if (newManager && !window.confirm(
-                          `Set ${aCode} as managed by ${actions.find(a => a.id === newManager)?.action_code || newManager}?\n\n` +
-                          `All existing guards and permissions for ${aCode} will be removed.`
-                        )) { e.target.value = managedWith || ''; return; }
-                        try {
-                          await api.setManagedWith(userId, action.id, newManager);
-                          toast(newManager ? `${aCode} now managed` : `${aCode} now independent`, 'success');
-                          // Reload actions
-                          const acts = await api.getAllActions(userId);
-                          setActions(Array.isArray(acts) ? acts : []);
-                        } catch (err) { toast(err, 'error'); }
-                      }}
-                    >
-                      <option value="">— Independent —</option>
-                      {actions
-                        .filter(a => a.id !== action.id && !(a.managed_with || a.managedWith))
-                        .map(a => (
-                          <option key={a.id} value={a.id}>{a.action_code || a.actionCode}</option>
-                        ))
-                      }
-                    </select>
-                  )}
-                  <span className="settings-badge">{aScope}</span>
-                </div>
-
-                {isExp && !isManaged && (
-                  <div className="settings-card-body" style={{ padding: '8px 12px 12px 28px' }}>
-                    {/* Action details */}
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>
-                      <span>ID: <code>{action.id}</code></span>
-                      <span>Code: <code>{aCode}</code></span>
-                      <span>Category: <span className="settings-badge">{aCat}</span></span>
-                      {aDesc && <span style={{ flexBasis: '100%' }}>{aDesc}</span>}
-                    </div>
-
-                    {/* Guards list */}
-                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Guards</div>
-                    {guards.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No guards attached</div>}
-                    {guards.length > 0 && (
-                      <table className="settings-table" style={{ width: '100%', marginBottom: 8 }}>
-                        <thead>
-                          <tr><th>Guard</th><th>Module</th><th>Effect</th><th>Type</th><th></th></tr>
-                        </thead>
-                        <tbody>
-                          {guards.map(g => (
-                            <tr key={g.id}>
-                              <td>{g.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({g.algorithmCode})</span></td>
-                              <td><ModuleBadge module={g.moduleName} /></td>
-                              <td>
-                                {canWrite ? (
-                                  <select className="field-input" style={{ fontSize: 11, padding: '1px 4px' }}
-                                    value={g.effect}
-                                    onChange={e => handleUpdateActionGuardEffect(action.id, g.id, e.target.value)}>
-                                    <option value="HIDE">HIDE</option>
-                                    <option value="BLOCK">BLOCK</option>
-                                  </select>
-                                ) : (
-                                  <span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`}>{g.effect}</span>
-                                )}
-                              </td>
-                              <td style={{ fontSize: 11, color: 'var(--muted)' }}>{g.typeName}</td>
-                              <td style={{ textAlign: 'right' }}>
-                                {canWrite && (
-                                  <button className="btn btn-xs btn-danger" onClick={() => handleDetachActionGuard(action.id, g.id)}>
-                                    <TrashIcon size={10} />
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                    {canWrite && (() => {
-                      const guardInstances = (instances || []).filter(i => i.typeName === 'Action Guard' || i.typeName === 'Lifecycle Guard');
-                      return (
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <select id={`add-guard-${action.id}`} className="field-input" style={{ fontSize: 11, flex: 1 }}>
-                            {guardInstances.map(i => (
-                              <option key={i.id} value={i.id}>{i.algorithmName} — {i.name || i.id}</option>
-                            ))}
-                          </select>
-                          <select id={`add-guard-effect-${action.id}`} className="field-input" style={{ fontSize: 11, width: 90 }} defaultValue="HIDE">
-                            <option value="HIDE">HIDE</option>
-                            <option value="BLOCK">BLOCK</option>
-                          </select>
-                          <button className="btn btn-xs btn-primary" onClick={() => {
-                            const sel = document.getElementById(`add-guard-${action.id}`);
-                            const eff = document.getElementById(`add-guard-effect-${action.id}`);
-                            if (sel?.value) handleAttachActionGuard(action.id, sel.value, eff?.value || 'HIDE');
-                          }}>
-                            <PlusIcon size={10} /> Attach
-                          </button>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Wrappers (middleware pipeline) */}
-                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, marginTop: 12 }}>Wrappers (middleware pipeline)</div>
-                    {(() => {
-                      const wrappers = actionWrappers[action.id] || [];
-                      const wrapperInstances = (instances || []).filter(i => i.typeName === 'Action Wrapper');
-                      return (<>
-                        {wrappers.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No wrappers — uses default (transaction wrapper)</div>}
-                        {wrappers.length > 0 && (
-                          <table className="settings-table" style={{ width: '100%', marginBottom: 8 }}>
-                            <thead>
-                              <tr><th>Order</th><th>Wrapper</th><th>Module</th><th>Instance</th><th></th></tr>
-                            </thead>
-                            <tbody>
-                              {wrappers.map(w => (
-                                <tr key={w.id}>
-                                  <td style={{ width: 50 }}>{w.executionOrder}</td>
-                                  <td>{w.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({w.algorithmCode})</span></td>
-                                  <td><ModuleBadge module={w.moduleName} /></td>
-                                  <td style={{ fontSize: 11, color: 'var(--muted)' }}>{w.instanceName}</td>
-                                  <td style={{ textAlign: 'right' }}>
-                                    {canWrite && (
-                                      <button className="btn btn-xs btn-danger" onClick={async () => {
-                                        try {
-                                          await api.detachActionWrapper(userId, action.id, w.id);
-                                          loadActionWrappers(action.id);
-                                          toast('Wrapper detached', 'success');
-                                        } catch (e) { toast(e, 'error'); }
-                                      }}>
-                                        <TrashIcon size={10} />
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                        {canWrite && wrapperInstances.length > 0 && (
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                            <select id={`add-wrapper-${action.id}`} className="field-input" style={{ fontSize: 11, flex: 1 }}>
-                              {wrapperInstances.map(i => (
-                                <option key={i.id} value={i.id}>{i.algorithmName} — {i.name || i.id}</option>
-                              ))}
-                            </select>
-                            <input id={`add-wrapper-order-${action.id}`} type="number" className="field-input"
-                              style={{ fontSize: 11, width: 60 }} placeholder="Order" defaultValue={(wrappers.length + 1) * 10} />
-                            <button className="btn btn-xs btn-primary" onClick={async () => {
-                              const sel = document.getElementById(`add-wrapper-${action.id}`);
-                              const ord = document.getElementById(`add-wrapper-order-${action.id}`);
-                              if (!sel?.value) return;
-                              try {
-                                await api.attachActionWrapper(userId, action.id, sel.value, parseInt(ord?.value || '0'));
-                                loadActionWrappers(action.id);
-                                toast('Wrapper attached', 'success');
-                              } catch (e) { toast(e, 'error'); }
-                            }}>
-                              <PlusIcon size={10} /> Attach
-                            </button>
-                          </div>
-                        )}
-                      </>);
-                    })()}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Per Node Type tab ── */}
-      {tab === 'nta-guards' && (
-        <NodeActionGuardsSubSection userId={userId} canWrite={canWrite} toast={toast}
-          nodeTypes={nodeTypes} instances={instances} />
-      )}
-
-      {/* ── State Action Overrides tab ── */}
-      {tab === 'nta-state-actions' && (
-        <NodeTypeStateActionOverridesSubSection userId={userId} canWrite={canWrite} toast={toast}
-          nodeTypes={nodeTypes} instances={instances} />
-      )}
-    </div>
-  );
-}
-
-/**
- * Per (node_type × action × transition?) guard attachments. Drills down from a
- * selected node type to the list of actions wired for it, then to the guards
- * attached per action (ADD or DISABLE).
- */
-function NodeActionGuardsSubSection({ userId, canWrite, toast, nodeTypes, instances }) {
-  const [selectedNt, setSelectedNt] = useState(null);
-  const [actionRows, setActionRows] = useState([]);
-  const [expanded,   setExpanded]   = useState(null); // composite key
-  const [guards,     setGuards]     = useState({});   // key → guard[]
-
-  const rowKey = (actionCode, transitionId) => `${actionCode}|${transitionId || ''}`;
-
-  useEffect(() => {
-    if (!selectedNt) { setActionRows([]); return; }
-    api.getActionsForNodeType(userId, selectedNt)
-      .then(rows => setActionRows(Array.isArray(rows) ? rows : []))
-      .catch(() => setActionRows([]));
-  }, [userId, selectedNt]);
-
-  async function loadGuards(actionCode, transitionId) {
-    const k = rowKey(actionCode, transitionId);
-    const list = await api.listNodeActionGuards(userId, selectedNt, actionCode, transitionId).catch(() => []);
-    setGuards(s => ({ ...s, [k]: Array.isArray(list) ? list : [] }));
-  }
-
-  function toggle(actionCode, transitionId) {
-    const k = rowKey(actionCode, transitionId);
-    if (expanded === k) { setExpanded(null); return; }
-    setExpanded(k);
-    if (!guards[k]) loadGuards(actionCode, transitionId);
-  }
-
-  async function handleAttach(actionCode, transitionId, instanceId, effect) {
-    try {
-      await api.attachNodeActionGuard(userId, selectedNt, actionCode, transitionId, instanceId, effect || 'BLOCK', 'ADD', 0);
-      loadGuards(actionCode, transitionId);
-      toast('Guard attached', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  async function handleUpdateEffect(actionCode, transitionId, guardId, effect) {
-    try {
-      await api.updateNodeActionGuard(userId, guardId, effect);
-      const k = rowKey(actionCode, transitionId);
-      setGuards(s => ({
-        ...s,
-        [k]: (s[k] || []).map(g => g.id === guardId ? { ...g, effect } : g),
-      }));
-      toast('Effect updated', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  async function handleDetach(actionCode, transitionId, guardId) {
-    try {
-      await api.detachNodeActionGuard(userId, guardId);
-      loadGuards(actionCode, transitionId);
-      toast('Guard detached', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  return (
-    <div>
-      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Node Type:</span>
-        <select className="field-input" style={{ fontSize: 12, flex: 1, maxWidth: 300 }}
-          value={selectedNt || ''} onChange={e => setSelectedNt(e.target.value || null)}>
-          <option value="">Select a node type…</option>
-          {(nodeTypes || []).map(nt => (
-            <option key={nt.id} value={nt.id}>{nt.name}</option>
-          ))}
-        </select>
-      </div>
-
-      {selectedNt && actionRows.length === 0 && (
-        <div style={{ fontSize: 11, color: 'var(--muted)' }}>No actions configured for this node type</div>
-      )}
-
-      <div className="settings-list">
-        {actionRows.map(a => {
-          const code  = a.action_code    || a.ACTION_CODE;
-          const tran  = a.transition_id  || a.TRANSITION_ID || null;
-          const k     = rowKey(code, tran);
-          const isExp = expanded === k;
-          const rows  = guards[k] || [];
-          const label = a.display_name || a.DISPLAY_NAME || code;
-          return (
-            <div key={k} className="settings-card" style={{ marginBottom: 4 }}>
-              <div className="settings-card-hd" onClick={() => toggle(code, tran)}
-                style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                <span className="settings-card-chevron">
-                  {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
-                </span>
-                <span className="settings-card-name">{label}</span>
-                <span className="settings-badge" style={{ marginLeft: 6 }}>{a.status}</span>
-                {tran && <span className="settings-card-id">→ {tran}</span>}
-              </div>
-
-              {isExp && (
-                <div className="settings-card-body" style={{ padding: '8px 12px 12px 28px' }}>
-                  {rows.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No per-type guards (inherits action-level + transition-level guards)</div>}
-                  <table className="settings-table" style={{ width: '100%', marginBottom: 8 }}>
-                    <thead>
-                      <tr><th>Guard</th><th>Effect</th><th>Override</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                      {rows.map(g => (
-                        <tr key={g.id}>
-                          <td>{g.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({g.algorithmCode})</span></td>
-                          <td>
-                            {canWrite ? (
-                              <select className="field-input" style={{ fontSize: 11, padding: '1px 4px' }}
-                                value={g.effect}
-                                onChange={e => handleUpdateEffect(code, tran, g.id, e.target.value)}>
-                                <option value="HIDE">HIDE</option>
-                                <option value="BLOCK">BLOCK</option>
-                              </select>
-                            ) : (
-                              <span className={`settings-badge ${g.effect === 'BLOCK' ? 'badge-warn' : ''}`}>{g.effect}</span>
-                            )}
-                          </td>
-                          <td><span className={`settings-badge ${g.overrideAction === 'DISABLE' ? 'badge-danger' : ''}`}>{g.overrideAction}</span></td>
-                          <td style={{ textAlign: 'right' }}>
-                            {canWrite && (
-                              <button className="btn btn-xs btn-danger" onClick={() => handleDetach(code, tran, g.id)}>
-                                <TrashIcon size={10} />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {canWrite && (() => {
-                    const guardInstances = (instances || []).filter(i => i.typeName === 'Action Guard' || i.typeName === 'Lifecycle Guard');
-                    return (
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <select id={`add-nag-${k}`} className="field-input" style={{ fontSize: 11, flex: 1 }}>
-                          {guardInstances.map(i => (
-                            <option key={i.id} value={i.id}>{i.algorithmName} — {i.name || i.id}</option>
-                          ))}
-                        </select>
-                        <select id={`add-nag-effect-${k}`} className="field-input" style={{ fontSize: 11, width: 90 }} defaultValue="BLOCK">
-                          <option value="HIDE">HIDE</option>
-                          <option value="BLOCK">BLOCK</option>
-                        </select>
-                        <button className="btn btn-xs btn-primary" onClick={() => {
-                          const sel = document.getElementById(`add-nag-${k}`);
-                          const eff = document.getElementById(`add-nag-effect-${k}`);
-                          if (sel?.value) handleAttach(code, tran, sel.value, eff?.value || 'BLOCK');
-                        }}>
-                          <PlusIcon size={10} /> Attach
-                        </button>
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Per-node-type state action overrides (tier 2).
- * Select a node type → shows lifecycle states → shows overrides (ADD/DISABLE) for each.
- */
-function NodeTypeStateActionOverridesSubSection({ userId, canWrite, toast, nodeTypes, instances }) {
-  const [selectedNt, setSelectedNt] = useState(null);
-  const [states, setStates] = useState([]);
-  const [expanded, setExpanded] = useState(null);
-  const [overrides, setOverrides] = useState({}); // stateId → override[]
-
-  // Load lifecycle states when node type changes
-  useEffect(() => {
-    if (!selectedNt) { setStates([]); setOverrides({}); return; }
-    const nt = (nodeTypes || []).find(n => n.id === selectedNt);
-    const lcId = nt?.lifecycle_id || nt?.lifecycleId;
-    if (!lcId) { setStates([]); return; }
-    api.getLifecycleStates(userId, lcId)
-      .then(s => setStates(Array.isArray(s) ? s : []))
-      .catch(() => setStates([]));
-  }, [userId, selectedNt, nodeTypes]);
-
-  async function loadOverrides(stateId) {
-    const list = await api.listNodeTypeStateActions(userId, selectedNt, stateId).catch(() => []);
-    setOverrides(s => ({ ...s, [stateId]: Array.isArray(list) ? list : [] }));
-  }
-
-  function toggle(stateId) {
-    if (expanded === stateId) { setExpanded(null); return; }
-    setExpanded(stateId);
-    if (!overrides[stateId]) loadOverrides(stateId);
-  }
-
-  async function handleAttach(stateId, instanceId, trigger, mode, overrideAction) {
-    try {
-      await api.attachNodeTypeStateAction(userId, selectedNt, stateId, instanceId, trigger, mode, overrideAction, 0);
-      loadOverrides(stateId);
-      toast('State action override attached', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  async function handleDetach(stateId, attachmentId) {
-    try {
-      await api.detachNodeTypeStateAction(userId, attachmentId);
-      loadOverrides(stateId);
-      toast('Override removed', 'success');
-    } catch (e) { toast(e, 'error'); }
-  }
-
-  const stateActionInstances = (instances || []).filter(i => i.typeName === 'State Action');
-
-  return (
-    <div>
-      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Node Type:</span>
-        <select className="field-input" style={{ fontSize: 12, flex: 1, maxWidth: 300 }}
-          value={selectedNt || ''} onChange={e => setSelectedNt(e.target.value || null)}>
-          <option value="">Select a node type…</option>
-          {(nodeTypes || []).map(nt => (
-            <option key={nt.id} value={nt.id}>{nt.name}</option>
-          ))}
-        </select>
-      </div>
-
-      {selectedNt && states.length === 0 && (
-        <div style={{ fontSize: 11, color: 'var(--muted)' }}>No lifecycle states found</div>
-      )}
-
-      <div className="settings-list">
-        {states.map(st => {
-          const sid = st.id || st.ID;
-          const sName = st.name || st.NAME || sid;
-          const isExp = expanded === sid;
-          const rows = overrides[sid] || [];
-          return (
-            <div key={sid} className="settings-card" style={{ marginBottom: 4 }}>
-              <div className="settings-card-hd" onClick={() => toggle(sid)}
-                style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                <span className="settings-card-chevron">
-                  {isExp ? <ChevronDownIcon size={13} strokeWidth={2} color="var(--muted)" /> : <ChevronRightIcon size={13} strokeWidth={2} color="var(--muted)" />}
-                </span>
-                <span className="settings-card-name">{sName}</span>
-                {rows.length > 0 && <span className="settings-badge" style={{ marginLeft: 6 }}>{rows.length}</span>}
-              </div>
-
-              {isExp && (
-                <div className="settings-card-body" style={{ padding: '8px 12px 12px 28px' }}>
-                  {rows.length === 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>No overrides — inherits lifecycle-level state actions</div>}
-                  {rows.length > 0 && (
-                    <table className="settings-table" style={{ width: '100%', marginBottom: 8 }}>
-                      <thead>
-                        <tr><th>Action</th><th>Trigger</th><th>Mode</th><th>Override</th><th></th></tr>
-                      </thead>
-                      <tbody>
-                        {rows.map(o => (
-                          <tr key={o.id}>
-                            <td>{o.algorithmName} <span style={{ fontSize: 10, color: 'var(--muted)' }}>({o.algorithmCode})</span></td>
-                            <td><span className="settings-badge" style={{
-                              background: o.trigger === 'ON_ENTER' ? 'rgba(52,211,153,.15)' : 'rgba(248,113,113,.15)',
-                              color: o.trigger === 'ON_ENTER' ? '#34d399' : '#f87171', fontSize: 9,
-                            }}>{o.trigger}</span></td>
-                            <td><span className="settings-badge" style={{
-                              background: o.executionMode === 'TRANSACTIONAL' ? 'rgba(167,139,250,.15)' : 'rgba(250,204,21,.15)',
-                              color: o.executionMode === 'TRANSACTIONAL' ? '#a78bfa' : '#facc15', fontSize: 9,
-                            }}>{o.executionMode}</span></td>
-                            <td><span className={`settings-badge ${o.overrideAction === 'DISABLE' ? 'badge-danger' : ''}`}>{o.overrideAction}</span></td>
-                            <td style={{ textAlign: 'right' }}>
-                              {canWrite && (
-                                <button className="btn btn-xs btn-danger" onClick={() => handleDetach(sid, o.id)}>
-                                  <TrashIcon size={10} />
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                  {canWrite && stateActionInstances.length > 0 && (
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <select id={`sa-override-inst-${sid}`} className="field-input" style={{ fontSize: 11, flex: 1, minWidth: 150 }}>
-                        {stateActionInstances.map(i => (
-                          <option key={i.id} value={i.id}>{i.algorithmName || i.name} — {i.name}</option>
-                        ))}
-                      </select>
-                      <select id={`sa-override-trigger-${sid}`} className="field-input" style={{ width: 90, fontSize: 11 }} defaultValue="ON_ENTER">
-                        <option value="ON_ENTER">ON_ENTER</option>
-                        <option value="ON_EXIT">ON_EXIT</option>
-                      </select>
-                      <select id={`sa-override-mode-${sid}`} className="field-input" style={{ width: 130, fontSize: 11 }} defaultValue="TRANSACTIONAL">
-                        <option value="TRANSACTIONAL">TRANSACTIONAL</option>
-                        <option value="POST_COMMIT">POST_COMMIT</option>
-                      </select>
-                      <select id={`sa-override-action-${sid}`} className="field-input" style={{ width: 90, fontSize: 11 }} defaultValue="ADD">
-                        <option value="ADD">ADD</option>
-                        <option value="DISABLE">DISABLE</option>
-                      </select>
-                      <button className="btn btn-xs btn-primary" onClick={() => {
-                        const inst = document.getElementById(`sa-override-inst-${sid}`)?.value;
-                        const trig = document.getElementById(`sa-override-trigger-${sid}`)?.value;
-                        const mode = document.getElementById(`sa-override-mode-${sid}`)?.value;
-                        const act  = document.getElementById(`sa-override-action-${sid}`)?.value;
-                        if (inst) handleAttach(sid, inst, trig, mode, act);
-                      }}>
-                        <PlusIcon size={10} /> Attach
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ── Secrets Section (Vault-backed, Platform group) ──────────────── */
+/* ── Platform Environment Section ───────────────────────────────── */
 /* ── Platform Environment Section ───────────────────────────────── */
 function PlatformEnvironmentSection({ userId, canWrite, toast }) {
   const [expectedServices, setExpectedServices] = useState([]);
@@ -5434,7 +4188,9 @@ function PlatformEnvironmentSection({ userId, canWrite, toast }) {
   const [newCode, setNewCode] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const BASELINE = ['pno-api', 'spe-api', 'platform-api'];
+  // Match backend ExpectedServicesConfig.BASELINE — baseline service codes
+  // that cannot be removed from the expected list.
+  const BASELINE = ['pno', 'platform', 'spe'];
 
   async function refresh() {
     try {
@@ -5814,11 +4570,12 @@ export function SecretsSection({ userId, canWrite, toast }) {
 }
 
 /* ── Service Registry section ───────────────────────────────────────
-   Read-only operational view of every service known to spe-api: code,
-   instance count, healthy count, per-instance baseUrl/version/health/heartbeat
-   age. Federated catalogs (`/api/platform/resources` + `/api/platform/browse`)
-   fan out across the same set, so this is the source of truth for "what is
-   the platform calling". Auto-refreshes every 5 s. */
+   Read-only operational view of every service known to platform-api:
+   code, instance count, healthy count, per-instance baseUrl/version/
+   health/heartbeat age. The federated item catalog (`/api/platform/items`)
+   fans out across the same set, so this is the
+   source of truth for "what is the platform calling". Auto-refreshes
+   every 5 s. */
 export function ServiceRegistrySection({ userId, toast }) {
   const [grouped,  setGrouped]  = useState(null);
   const [tags,     setTags]     = useState(null);
@@ -5866,7 +4623,7 @@ export function ServiceRegistrySection({ userId, toast }) {
       {/* ── Platform federation summary ─────────────────────────── */}
       <div className="settings-sub-label">Platform Federation</div>
       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-        Per-service summary as seen by platform-api ({overview?.self || 'platform'}). Settings tabs registered, live resource &amp; browse contributions probed via {`/internal/<axis>/visible`}. Refreshes every 5s.
+        Per-service summary as seen by platform-api ({overview?.self || 'platform'}). Settings tabs registered, live item contributions probed via {`/internal/items/visible`}. Refreshes every 5s.
       </div>
       <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse', marginBottom: 16 }}>
         <thead>
@@ -5874,8 +4631,9 @@ export function ServiceRegistrySection({ userId, toast }) {
             <th style={{ padding: '4px 6px' }}>Service</th>
             <th style={{ padding: '4px 6px' }}>Instances</th>
             <th style={{ padding: '4px 6px' }}>Settings tabs</th>
-            <th style={{ padding: '4px 6px' }}>Resource descriptors</th>
-            <th style={{ padding: '4px 6px' }}>Browse descriptors</th>
+            <th style={{ padding: '4px 6px' }}>Items</th>
+            <th style={{ padding: '4px 6px' }}>Creatable</th>
+            <th style={{ padding: '4px 6px' }}>Listable</th>
           </tr>
         </thead>
         <tbody>
@@ -5886,13 +4644,14 @@ export function ServiceRegistrySection({ userId, toast }) {
                 <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{code}</td>
                 <td style={{ padding: '4px 6px' }}>{e.instances ?? 0}</td>
                 <td style={{ padding: '4px 6px' }}>{e.settingsSections ?? 0}</td>
-                <td style={{ padding: '4px 6px' }}>{e.resourceDescriptors ?? 0}</td>
-                <td style={{ padding: '4px 6px' }}>{e.browseDescriptors ?? 0}</td>
+                <td style={{ padding: '4px 6px' }}>{e.itemDescriptors ?? 0}</td>
+                <td style={{ padding: '4px 6px' }}>{e.creatableItems ?? 0}</td>
+                <td style={{ padding: '4px 6px' }}>{e.listableItems ?? 0}</td>
               </tr>
             );
           })}
           {Object.keys(overviewByService).length === 0 && (
-            <tr><td colSpan={5} style={{ padding: '4px 6px', color: 'var(--muted2)' }}>No services known.</td></tr>
+            <tr><td colSpan={6} style={{ padding: '4px 6px', color: 'var(--muted2)' }}>No services known.</td></tr>
           )}
         </tbody>
       </table>
@@ -5928,9 +4687,9 @@ export function ServiceRegistrySection({ userId, toast }) {
         </>
       )}
 
-      <div className="settings-sub-label">Registered Services (spe-api)</div>
+      <div className="settings-sub-label">Registered Services (platform-api)</div>
       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-        Live snapshot from spe-api. {codes.length} service{codes.length === 1 ? '' : 's'} known.
+        Live snapshot from platform-api environment registry. {codes.length} service{codes.length === 1 ? '' : 's'} known.
       </div>
 
       {codes.length === 0 ? (
@@ -5995,6 +4754,20 @@ export function ServiceRegistrySection({ userId, toast }) {
   );
 }
 
+/* ── Active section dispatcher ───────────────────────────────────── */
+function ActiveSectionContent({ sectionKey, userId, projectSpaceId, canWrite, toast }) {
+  if (sectionKey === null) {
+    return <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>;
+  }
+  const plugin = lookupSettingsPlugin(sectionKey);
+  if (!plugin) {
+    return <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Unknown section: {sectionKey}</div>;
+  }
+  const { Component, wrapBody } = plugin;
+  const el = <Component userId={userId} projectSpaceId={projectSpaceId} canWrite={canWrite} toast={toast} />;
+  return wrapBody ? <div className="settings-content-body">{el}</div> : el;
+}
+
 /* ── Main SettingsPage ───────────────────────────────────────────── */
 export default function SettingsPage({ userId, projectSpaceId, activeSection, onSectionChange, settingsSections, toast }) {
 
@@ -6004,10 +4777,6 @@ export default function SettingsPage({ userId, projectSpaceId, activeSection, on
     (settingsSections || []).forEach(g => g.sections.forEach(s => { map[s.key] = s.canWrite; }));
     return map;
   }, [settingsSections]);
-
-  function canWrite(sectionKey) {
-    return sectionPerms[sectionKey] ?? false;
-  }
 
   // Resolve label from backend sections
   const activeSectionLabel = useMemo(() => {
@@ -6024,30 +4793,13 @@ export default function SettingsPage({ userId, projectSpaceId, activeSection, on
       <div className="settings-content-hd">
         <span className="settings-content-title">{activeSectionLabel}</span>
       </div>
-      {activeSection === null ? (
-        <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
-      ) : activeSection === 'api-playground' ? (
-        <ApiPlayground userId={userId} projectSpaceId={projectSpaceId} />
-      ) : activeSection === 'user-manual' ? (
-        <UserManual />
-      ) : (
-        <div className="settings-content-body">
-          {activeSection === 'my-profile'    && <MyProfileSection    userId={userId} canWrite={canWrite('my-profile')} toast={toast} />}
-          {activeSection === 'node-types'    && <NodeTypesSection    userId={userId} canWrite={canWrite('node-types')} toast={toast} />}
-          {activeSection === 'domains'       && <DomainsSection      userId={userId} canWrite={canWrite('domains')} toast={toast} />}
-          {activeSection === 'enums'         && <EnumsSection        userId={userId} canWrite={canWrite('enums')} toast={toast} />}
-          {activeSection === 'lifecycles'    && <LifecyclesSection   userId={userId} canWrite={canWrite('lifecycles')} toast={toast} />}
-          {activeSection === 'proj-spaces'   && <ProjectSpacesSection userId={userId} canWrite={canWrite('proj-spaces')} toast={toast} />}
-          {activeSection === 'users-roles'   && <UsersRolesSection   userId={userId} canWrite={canWrite('users-roles')} toast={toast} />}
-          {activeSection === 'access-rights' && <AccessRightsSection userId={userId} canWrite={canWrite('access-rights')} toast={toast} />}
-          {activeSection === 'algorithms'    && <AlgorithmsSection    userId={userId} canWrite={canWrite('algorithms')} toast={toast} />}
-          {activeSection === 'guards'        && <GuardsSection        userId={userId} canWrite={canWrite('guards')} toast={toast} />}
-          {activeSection === 'sources'       && <SourcesSection       userId={userId} canWrite={canWrite('sources')} toast={toast} />}
-          {activeSection === 'secrets'       && <SecretsSection       userId={userId} canWrite={canWrite('secrets')} toast={toast} />}
-          {activeSection === 'service-registry' && <ServiceRegistrySection userId={userId} toast={toast} />}
-          {activeSection === 'platform-environment' && <PlatformEnvironmentSection userId={userId} canWrite={canWrite('platform-environment')} toast={toast} />}
-        </div>
-      )}
+      <ActiveSectionContent
+        sectionKey={activeSection}
+        userId={userId}
+        projectSpaceId={projectSpaceId}
+        canWrite={sectionPerms[activeSection] ?? false}
+        toast={toast}
+      />
     </div>
   );
 }
@@ -6264,3 +5016,24 @@ export function SourcesSection({ userId, canWrite, toast }) {
     </div>
   );
 }
+
+// ── Settings section registrations ───────────────────────────────────────────
+// Runs at module load. To add sections from a new service: write the component,
+// call registerSettingsPlugin here (or in a dedicated plugin file imported from
+// plugins/index.js). SettingsPage itself never needs to change.
+registerSettingsPlugin('my-profile',           MyProfileSection);
+registerSettingsPlugin('api-playground',       ApiPlayground,           { wrapBody: false });
+registerSettingsPlugin('user-manual',          UserManual,              { wrapBody: false });
+registerSettingsPlugin('node-types',           NodeTypesSection);
+registerSettingsPlugin('domains',              DomainsSection);
+registerSettingsPlugin('enums',                EnumsSection);
+registerSettingsPlugin('lifecycles',           LifecyclesSection);
+registerSettingsPlugin('proj-spaces',          ProjectSpacesSection);
+registerSettingsPlugin('users-roles',          UsersRolesSection);
+registerSettingsPlugin('access-rights',        AccessRightsSection);
+registerSettingsPlugin('sources',              SourcesSection);
+registerSettingsPlugin('secrets',              SecretsSection);
+registerSettingsPlugin('service-registry',     ServiceRegistrySection);
+registerSettingsPlugin('platform-environment', PlatformEnvironmentSection);
+registerSettingsPlugin('actions-catalog',      ActionsCatalogSection);
+registerSettingsPlugin('platform-algorithms',  AlgorithmSection);

@@ -43,16 +43,12 @@ public class ConfigCache {
     private volatile Map<String, AttributeStateRuleConfig> stateRuleIndex = Map.of();
     // "nodeTypeId" → list of views
     private volatile Map<String, List<AttributeViewConfig>> viewsByNodeType = Map.of();
-    // "stateId" → list of state actions (tier 1 only, nodeTypeId == null)
+    // "stateId" → list of state actions
     private volatile Map<String, List<StateActionConfig>> stateActionsByState = Map.of();
-    // "nodeTypeId:stateId" → list of state actions (tier 2, with nodeTypeId)
-    private volatile Map<String, List<StateActionConfig>> nodeTypeStateActions = Map.of();
     // "actionId" → list of guards
     private volatile Map<String, List<ActionGuardConfig>> guardsByAction = Map.of();
     // "transitionId" → list of transition guards
     private volatile Map<String, List<TransitionGuardConfig>> guardsByTransition = Map.of();
-    // "nodeTypeId:actionId" or "nodeTypeId:actionId:transitionId" → list of node action guards
-    private volatile Map<String, List<NodeActionGuardConfig>> nodeActionGuardIndex = Map.of();
 
     /**
      * Update cache from a new snapshot. Rejects stale snapshots (version <= current).
@@ -181,37 +177,14 @@ public class ConfigCache {
         }
         viewsByNodeType = Map.copyOf(vByNt);
 
-        // State actions: tier 1 (nodeTypeId == null) by stateId
+        // State actions: by stateId
         Map<String, List<StateActionConfig>> saByState = new HashMap<>();
-        Map<String, List<StateActionConfig>> ntSa = new HashMap<>();
         if (s.stateActions() != null) {
             for (StateActionConfig sa : s.stateActions()) {
-                if (sa.nodeTypeId() == null) {
-                    saByState.computeIfAbsent(sa.lifecycleStateId(), k -> new ArrayList<>()).add(sa);
-                } else {
-                    String key = sa.nodeTypeId() + ":" + sa.lifecycleStateId();
-                    ntSa.computeIfAbsent(key, k -> new ArrayList<>()).add(sa);
-                }
+                saByState.computeIfAbsent(sa.lifecycleStateId(), k -> new ArrayList<>()).add(sa);
             }
         }
         stateActionsByState = Map.copyOf(saByState);
-        nodeTypeStateActions = Map.copyOf(ntSa);
-
-        // Node action guards
-        Map<String, List<NodeActionGuardConfig>> nagIdx = new HashMap<>();
-        if (s.nodeActionGuards() != null) {
-            for (NodeActionGuardConfig nag : s.nodeActionGuards()) {
-                // Index by nodeTypeId:actionId
-                String shortKey = nag.nodeTypeId() + ":" + nag.actionId();
-                nagIdx.computeIfAbsent(shortKey, k -> new ArrayList<>()).add(nag);
-                // Also index by nodeTypeId:actionId:transitionId if transition present
-                if (nag.transitionId() != null) {
-                    String fullKey = shortKey + ":" + nag.transitionId();
-                    nagIdx.computeIfAbsent(fullKey, k -> new ArrayList<>()).add(nag);
-                }
-            }
-        }
-        nodeActionGuardIndex = Map.copyOf(nagIdx);
     }
 
     // ---- Typed accessors ----
@@ -352,15 +325,9 @@ public class ConfigCache {
         return viewsByNodeType.getOrDefault(nodeTypeId, List.of());
     }
 
-    /** Get state actions for a lifecycle state (tier 1). */
+    /** Get state actions for a lifecycle state. */
     public List<StateActionConfig> getStateActions(String stateId) {
         return stateActionsByState.getOrDefault(stateId, List.of());
-    }
-
-    /** Get node-type-specific state actions (tier 2). */
-    public List<StateActionConfig> getNodeTypeStateActions(String nodeTypeId, String stateId) {
-        String key = nodeTypeId + ":" + stateId;
-        return nodeTypeStateActions.getOrDefault(key, List.of());
     }
 
     /** Get action guards for an action. */
@@ -371,18 +338,6 @@ public class ConfigCache {
     /** Get transition guards for a transition. */
     public List<TransitionGuardConfig> getTransitionGuards(String transitionId) {
         return guardsByTransition.getOrDefault(transitionId, List.of());
-    }
-
-    /** Get node-type-specific action guards. */
-    public List<NodeActionGuardConfig> getNodeActionGuards(String nodeTypeId, String actionId, String transitionId) {
-        // Try with transition first, then without
-        if (transitionId != null) {
-            String fullKey = nodeTypeId + ":" + actionId + ":" + transitionId;
-            List<NodeActionGuardConfig> result = nodeActionGuardIndex.get(fullKey);
-            if (result != null) return result;
-        }
-        String shortKey = nodeTypeId + ":" + actionId;
-        return nodeActionGuardIndex.getOrDefault(shortKey, List.of());
     }
 
     /** Entity metadata map. */

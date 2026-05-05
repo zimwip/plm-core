@@ -2,7 +2,7 @@ package com.plm.platform.algorithm.stats;
 
 import com.plm.platform.nats.NatsAutoConfiguration;
 import com.plm.platform.nats.PlmMessageBus;
-import com.plm.platform.spe.SpeRegistrationProperties;
+import com.plm.platform.environment.PlatformRegistrationProperties;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -11,14 +11,14 @@ import org.springframework.context.annotation.Bean;
 
 @AutoConfiguration(after = NatsAutoConfiguration.class)
 @ConditionalOnProperty(prefix = "plm.nats", name = "enabled", havingValue = "true")
-@EnableConfigurationProperties(SpeRegistrationProperties.class)
+@EnableConfigurationProperties(PlatformRegistrationProperties.class)
 public class AlgorithmStatsPublisherAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
     public AlgorithmStatsPublisher algorithmStatsPublisher(
             PlmMessageBus bus,
-            SpeRegistrationProperties props) {
+            PlatformRegistrationProperties props) {
         return new AlgorithmStatsPublisher(bus, props);
     }
 }

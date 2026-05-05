@@ -9,11 +9,11 @@ class PnoSettingSections {
 
     @Bean
     SettingSectionDto usersRolesSection() {
-        return new SettingSectionDto("users-roles", "Users & Roles", "PNO", 10, "MANAGE_PNO");
+        return new SettingSectionDto("users-roles", "Users & Roles", "PNO", 10, "MANAGE_PNO", "users");
     }
 
     @Bean
     SettingSectionDto projSpacesSection() {
-        return new SettingSectionDto("proj-spaces", "Project Spaces", "PNO", 20, "MANAGE_PNO");
+        return new SettingSectionDto("proj-spaces", "Project Spaces", "PNO", 20, "MANAGE_PNO", "hexagon");
     }
 }

@@ -2,6 +2,7 @@ package com.plm.platform.api.api;
 
 import com.plm.platform.settings.dto.SettingSectionDto;
 import com.plm.platform.api.client.PnoApiClient;
+import com.plm.platform.api.registry.ServiceSettingsRegistration;
 import com.plm.platform.api.registry.SettingsSectionRegistry;
 import com.plm.platform.api.security.SettingsSecurityContext;
 import com.plm.platform.api.security.SettingsUserContext;
@@ -55,7 +56,15 @@ public class SettingsSectionsController {
             .map(SettingsUserContext::getGlobalPermissions)
             .orElse(Set.of());
 
-        List<SettingSectionDto> allSections = registry.getAllSections();
+        // Flatten registrations preserving serviceCode for each section
+        Map<String, String> sectionService = new HashMap<>();
+        List<SettingSectionDto> allSections = new ArrayList<>();
+        for (ServiceSettingsRegistration reg : registry.allRegistrations()) {
+            for (SettingSectionDto s : reg.sections()) {
+                allSections.add(s);
+                sectionService.put(s.key(), reg.serviceCode());
+            }
+        }
 
         List<SettingSectionDto> visible = allSections.stream()
             .filter(s -> isAdmin || s.permission() == null || grants.contains(s.permission()))
@@ -85,7 +94,9 @@ public class SettingsSectionsController {
                     .map(s -> new SettingsSectionResponse(
                         s.key(),
                         s.label(),
-                        isAdmin || s.permission() == null || grants.contains(s.permission())))
+                        isAdmin || s.permission() == null || grants.contains(s.permission()),
+                        sectionService.getOrDefault(s.key(), "platform"),
+                        s.icon()))
                     .toList()))
             .filter(g -> !g.sections().isEmpty())
             .toList();

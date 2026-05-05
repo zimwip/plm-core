@@ -1,16 +1,21 @@
 package com.spe.gateway;
 
-import com.spe.registry.RegistryEvents;
+import com.plm.platform.environment.EnvironmentSnapshotRefreshedEvent;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.event.RefreshRoutesEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 /**
- * Route set changes only when a service appears / disappears (first instance in,
- * last instance out). Individual instance churn is handled by
- * {@link SvcLoadBalancerFilter} without a route refresh.
+ * Triggers a Spring Cloud Gateway route refresh after
+ * {@link com.plm.platform.environment.EnvironmentSubscriber} has updated
+ * the local registry snapshot. Listening to the in-process
+ * {@link EnvironmentSnapshotRefreshedEvent} (rather than the NATS subject
+ * directly) avoids a race: the registry is guaranteed to be up to date
+ * before routes rebuild.
  */
+@Slf4j
 @Component
 public class RegistryRouteRefresher {
 
@@ -20,13 +25,9 @@ public class RegistryRouteRefresher {
         this.publisher = publisher;
     }
 
-    @EventListener(RegistryEvents.ServiceAppearedEvent.class)
-    public void onAppeared(RegistryEvents.ServiceAppearedEvent ev) {
-        publisher.publishEvent(new RefreshRoutesEvent(this));
-    }
-
-    @EventListener(RegistryEvents.ServiceDisappearedEvent.class)
-    public void onDisappeared(RegistryEvents.ServiceDisappearedEvent ev) {
+    @EventListener
+    public void onSnapshotRefreshed(EnvironmentSnapshotRefreshedEvent ev) {
+        log.debug("Route refresh triggered by snapshot v{}", ev.snapshotVersion());
         publisher.publishEvent(new RefreshRoutesEvent(this));
     }
 }

@@ -1,17 +1,17 @@
 package com.plm.action;
 
 
-import com.plm.action.guard.ActionGuardContext;
+import com.plm.platform.action.guard.ActionGuardContext;
+import com.plm.platform.action.ActionRouteDescriptor;
 import com.plm.action.guard.ActionGuardService;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.ActionConfig;
-import com.plm.platform.config.dto.ActionParamOverrideConfig;
 import com.plm.platform.config.dto.ActionParameterConfig;
 import com.plm.platform.config.dto.LifecycleConfig;
 import com.plm.platform.config.dto.LifecycleTransitionConfig;
 import com.plm.platform.authz.PermissionCatalogPort;
 import com.plm.platform.authz.PolicyPort;
-import com.plm.shared.guard.GuardEvaluation;
+import com.plm.platform.action.guard.GuardEvaluation;
 import com.plm.algorithm.AlgorithmRegistry;
 import com.plm.shared.action.ActionHandler;
 import com.plm.shared.security.SecurityContextPort;
@@ -142,9 +142,11 @@ public class ActionService {
 
         List<Map<String, Object>> parameters = resolveParameters(action, nodeTypeId);
 
+        ActionHandler handler = algorithmRegistry.hasBean(actionCode)
+            ? algorithmRegistry.resolve(actionCode, ActionHandler.class) : null;
+
         // Overlay dynamic allowedValues from handler (e.g. assign_domain domain list)
-        if (algorithmRegistry.hasBean(actionCode) && !parameters.isEmpty()) {
-            ActionHandler handler = algorithmRegistry.resolve(actionCode, ActionHandler.class);
+        if (handler != null && !parameters.isEmpty()) {
             Map<String, String> dynamic = handler.resolveDynamicAllowedValues(nodeId, nodeTypeId, transitionId);
             if (dynamic != null && !dynamic.isEmpty()) {
                 for (Map<String, Object> param : parameters) {
@@ -159,15 +161,27 @@ public class ActionService {
         entry.put("id",              buildActionKey(actionCode, transitionId));
         entry.put("actionCode",      actionCode);
         entry.put("name",            displayName != null ? displayName : actionCode);
+        entry.put("description",     action.description());
         entry.put("displayCategory", displayCategory);
         entry.put("authorized",      authorized);
         if (transitionId != null) entry.put("transitionId", transitionId);
         entry.put("parameters",      parameters);
         entry.put("guardViolations", guardViolations);
 
+        // HTTP route declared by handler — only expose callable (autoRegister=true) routes.
+        // metadataOnly routes are catalog metadata, not frontend-callable URLs.
+        if (handler != null) {
+            handler.route()
+                .filter(com.plm.platform.action.ActionRouteDescriptor::autoRegister)
+                .ifPresent(r -> {
+                    entry.put("httpMethod",   r.httpMethod());
+                    entry.put("path",         r.pathTemplate());
+                    entry.put("bodyShape",    r.bodyShape());
+                });
+        }
+
         // Display hints from handler (e.g. transition target state color)
-        if (algorithmRegistry.hasBean(actionCode)) {
-            ActionHandler handler = algorithmRegistry.resolve(actionCode, ActionHandler.class);
+        if (handler != null) {
             Map<String, Object> hints = handler.resolveDisplayHints(nodeId, nodeTypeId, transitionId);
             if (hints != null && !hints.isEmpty()) {
                 entry.putAll(hints);
@@ -218,54 +232,28 @@ public class ActionService {
         return true;
     }
 
-    /** Builds the parameter schema list for an action, applying per-node-type overrides. */
     private List<Map<String, Object>> resolveParameters(ActionConfig action, String nodeTypeId) {
         List<ActionParameterConfig> params = action.parameters() != null
             ? action.parameters() : List.of();
 
-        // Filter to UI_VISIBLE and sort by displayOrder
         List<ActionParameterConfig> visibleParams = params.stream()
             .filter(p -> "UI_VISIBLE".equals(p.visibility()))
             .sorted(Comparator.comparingInt(ActionParameterConfig::displayOrder))
             .toList();
 
-        // Index overrides by parameterId for this nodeType
-        Map<String, ActionParamOverrideConfig> overridesByParamId = new HashMap<>();
-        List<ActionParamOverrideConfig> overrides = action.paramOverrides() != null
-            ? action.paramOverrides() : List.of();
-        for (ActionParamOverrideConfig ov : overrides) {
-            if (nodeTypeId.equals(ov.nodeTypeId())) {
-                overridesByParamId.put(ov.parameterId(), ov);
-            }
-        }
-
         List<Map<String, Object>> result = new ArrayList<>();
         for (ActionParameterConfig p : visibleParams) {
-            ActionParamOverrideConfig ov = overridesByParamId.get(p.id());
-
-            String allowedValues = ov != null && ov.allowedValues() != null
-                ? ov.allowedValues()
-                : p.allowedValues();
-            String defaultValue = ov != null && ov.defaultValue() != null
-                ? ov.defaultValue()
-                : p.defaultValue();
-            boolean required = ov != null && ov.required() != null
-                ? ov.required()
-                : p.required();
-
             Map<String, Object> param = new LinkedHashMap<>();
             param.put("name",           p.paramName());
             param.put("label",          p.paramLabel());
             param.put("type",           p.dataType());
-            param.put("required",       required);
+            param.put("required",       p.required());
             param.put("widget",         p.widgetType());
             param.put("displayOrder",   p.displayOrder());
-            if (defaultValue    != null) param.put("default",       defaultValue);
-            if (allowedValues   != null) param.put("allowedValues", allowedValues);
-            if (p.validationRegex() != null)
-                param.put("validationRegex", p.validationRegex());
-            if (p.tooltip() != null)
-                param.put("tooltip", p.tooltip());
+            if (p.defaultValue()    != null) param.put("default",       p.defaultValue());
+            if (p.allowedValues()   != null) param.put("allowedValues", p.allowedValues());
+            if (p.validationRegex() != null) param.put("validationRegex", p.validationRegex());
+            if (p.tooltip()         != null) param.put("tooltip", p.tooltip());
             result.add(param);
         }
         return result;

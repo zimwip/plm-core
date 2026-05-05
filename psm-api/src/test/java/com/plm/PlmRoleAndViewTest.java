@@ -325,12 +325,15 @@ class PlmRoleAndViewTest {
     // ================================================================
 
     private String createMinimalDocument() {
-        String nodeId = nodeService.createNode("ps-default", NT_DOCUMENT, USER_ALICE, Map.of(
+        String logicalId = "DOC-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+        String nodeId = nodeService.createNode("ps-default", NT_DOCUMENT, USER_ALICE,
+            logicalId, null);
+        String txId = txService.findOpenTransaction(USER_ALICE);
+        nodeService.modifyNode(nodeId, USER_ALICE, txId, Map.of(
             AD_DOC_TITLE,  "Test Document",
             AD_DOC_AUTHOR, "Alice",
             AD_DOC_CAT,    "Design"
-        ), null, null);
-        String txId = txService.findOpenTransaction(USER_ALICE);
+        ), "Initial attributes");
         txService.commitTransaction(txId, USER_ALICE, "Initial creation", null);
         return nodeId;
     }

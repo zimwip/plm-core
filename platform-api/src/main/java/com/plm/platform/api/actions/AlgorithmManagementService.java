@@ -171,6 +171,84 @@ public class AlgorithmManagementService {
         publishChange("DELETE", "LIFECYCLE_TRANSITION_GUARD", guardId);
     }
 
+    // Stats
+
+    public List<Map<String, Object>> getStats(String serviceCode) {
+        String sql;
+        List<Map<String, Object>> rows;
+        if (serviceCode != null && !serviceCode.isBlank()) {
+            sql = """
+                SELECT s.algorithm_code, s.call_count, s.total_ns, s.min_ns, s.max_ns, s.last_flushed
+                FROM algorithm_stat s
+                WHERE EXISTS (SELECT 1 FROM algorithm a WHERE a.code = s.algorithm_code AND a.service_code = ?)
+                ORDER BY s.call_count DESC
+                """;
+            rows = dsl.fetch(sql, serviceCode).intoMaps();
+        } else {
+            sql = "SELECT * FROM algorithm_stat ORDER BY call_count DESC";
+            rows = dsl.fetch(sql).intoMaps();
+        }
+        return rows.stream().map(r -> {
+            long totalNs = ((Number) r.get("total_ns")).longValue();
+            long minNs   = ((Number) r.get("min_ns")).longValue();
+            long maxNs   = ((Number) r.get("max_ns")).longValue();
+            long count   = ((Number) r.get("call_count")).longValue();
+            return Map.<String, Object>of(
+                "algorithmCode", r.get("algorithm_code"),
+                "callCount",     count,
+                "minMs",         minNs / 1_000_000.0,
+                "avgMs",         count > 0 ? (totalNs / 1_000_000.0 / count) : 0.0,
+                "maxMs",         maxNs / 1_000_000.0,
+                "totalMs",       totalNs / 1_000_000.0,
+                "lastFlushed",   r.get("last_flushed") != null ? r.get("last_flushed").toString() : ""
+            );
+        }).toList();
+    }
+
+    public List<Map<String, Object>> getTimeseries(String serviceCode, int hours) {
+        String sql;
+        List<Map<String, Object>> rows;
+        if (serviceCode != null && !serviceCode.isBlank()) {
+            sql = """
+                SELECT w.algorithm_code, w.window_start, w.call_count, w.total_ns, w.min_ns, w.max_ns
+                FROM algorithm_stat_window w
+                WHERE w.window_start >= ? AND EXISTS (
+                    SELECT 1 FROM algorithm a WHERE a.code = w.algorithm_code AND a.service_code = ?
+                )
+                ORDER BY w.window_start, w.algorithm_code
+                """;
+            rows = dsl.fetch(sql, LocalDateTime.now().minusHours(hours), serviceCode).intoMaps();
+        } else {
+            sql = """
+                SELECT * FROM algorithm_stat_window
+                WHERE window_start >= ?
+                ORDER BY window_start, algorithm_code
+                """;
+            rows = dsl.fetch(sql, LocalDateTime.now().minusHours(hours)).intoMaps();
+        }
+        return rows.stream().map(r -> {
+            long totalNs = ((Number) r.get("total_ns")).longValue();
+            long count   = ((Number) r.get("call_count")).longValue();
+            return Map.<String, Object>of(
+                "algorithmCode", r.get("algorithm_code"),
+                "windowStart",   r.get("window_start") != null ? r.get("window_start").toString() : "",
+                "callCount",     count,
+                "totalMs",       totalNs / 1_000_000.0
+            );
+        }).toList();
+    }
+
+    @Transactional
+    public void resetStats(String serviceCode) {
+        if (serviceCode != null && !serviceCode.isBlank()) {
+            dsl.execute("DELETE FROM algorithm_stat_window WHERE algorithm_code IN (SELECT code FROM algorithm WHERE service_code = ?)", serviceCode);
+            dsl.execute("DELETE FROM algorithm_stat WHERE algorithm_code IN (SELECT code FROM algorithm WHERE service_code = ?)", serviceCode);
+        } else {
+            dsl.execute("DELETE FROM algorithm_stat_window");
+            dsl.execute("DELETE FROM algorithm_stat");
+        }
+    }
+
     private void publishChange(String op, String type, String id) {
         eventPublisher.publishEvent(new ConfigChangedEvent(op, type, id));
     }

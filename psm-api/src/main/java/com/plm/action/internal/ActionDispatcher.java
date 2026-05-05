@@ -1,17 +1,17 @@
 package com.plm.action.internal;
 
-import com.plm.action.ActionScopeRegistry;
 import com.plm.action.ActionWrapper;
 import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionResult;
+import com.plm.platform.action.ActionScope;
+import com.plm.platform.action.ActionScopeRegistry;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.ActionConfig;
 import com.plm.platform.config.dto.ActionWrapperConfig;
 import com.plm.platform.config.dto.AlgorithmConfig;
 import com.plm.platform.config.dto.AlgorithmInstanceConfig;
-import com.plm.shared.action.ActionResult;
-import com.plm.shared.action.ActionContext;
 import com.plm.shared.action.ActionHandler;
-import com.plm.shared.action.ActionScope;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

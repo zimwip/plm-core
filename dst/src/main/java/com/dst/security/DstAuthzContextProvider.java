@@ -31,6 +31,6 @@ public class DstAuthzContextProvider implements AuthzContextProvider {
         @Override public String userId()         { return user.getUserId(); }
         @Override public Set<String> roleIds()   { return user.getRoleIds(); }
         @Override public boolean isAdmin()       { return user.isAdmin(); }
-        @Override public String projectSpaceId() { return null; }
+        @Override public String projectSpaceId() { return user.getProjectSpaceId(); }
     }
 }

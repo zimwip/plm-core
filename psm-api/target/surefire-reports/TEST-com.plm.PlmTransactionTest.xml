@@ -1,0 +1,502 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report.xsd" version="3.0.2" name="com.plm.PlmTransactionTest" time="0.096" tests="19" errors="12" skipped="0" failures="1">
+  <properties>
+    <property name="java.specification.version" value="21"/>
+    <property name="sun.jnu.encoding" value="UTF-8"/>
+    <property name="java.class.path" value="/work/psm-api/target/test-classes:/work/psm-api/target/classes:/root/.m2/repository/com/plm/platform/platform-lib/0.1.0-SNAPSHOT/platform-lib-0.1.0-SNAPSHOT.jar:/root/.m2/repository/org/springframework/cloud/spring-cloud-starter-vault-config/4.3.0/spring-cloud-starter-vault-config-4.3.0.jar:/root/.m2/repository/org/apache/httpcomponents/client5/httpclient5/5.5/httpclient5-5.5.jar:/root/.m2/repository/org/apache/httpcomponents/core5/httpcore5-h2/5.3.5/httpcore5-h2-5.3.5.jar:/root/.m2/repository/org/apache/httpcomponents/core5/httpcore5/5.3.5/httpcore5-5.3.5.jar:/root/.m2/repository/org/springframework/cloud/spring-cloud-starter/4.3.0/spring-cloud-starter-4.3.0.jar:/root/.m2/repository/org/springframework/cloud/spring-cloud-context/4.3.0/spring-cloud-context-4.3.0.jar:/root/.m2/repository/org/springframework/security/spring-security-crypto/6.5.5/spring-security-crypto-6.5.5.jar:/root/.m2/repository/org/springframework/cloud/spring-cloud-commons/4.3.0/spring-cloud-commons-4.3.0.jar:/root/.m2/repository/org/bouncycastle/bcprov-jdk18on/1.80/bcprov-jdk18on-1.80.jar:/root/.m2/repository/org/springframework/cloud/spring-cloud-vault-config/4.3.0/spring-cloud-vault-config-4.3.0.jar:/root/.m2/repository/org/springframework/vault/spring-vault-core/3.2.0/spring-vault-core-3.2.0.jar:/root/.m2/repository/org/springframework/retry/spring-retry/2.0.12/spring-retry-2.0.12.jar:/root/.m2/repository/org/springframework/boot/spring-boot-autoconfigure/3.5.6/spring-boot-autoconfigure-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot/3.5.6/spring-boot-3.5.6.jar:/root/.m2/repository/io/github/resilience4j/resilience4j-circuitbreaker/2.2.0/resilience4j-circuitbreaker-2.2.0.jar:/root/.m2/repository/io/github/resilience4j/resilience4j-core/2.2.0/resilience4j-core-2.2.0.jar:/root/.m2/repository/io/github/resilience4j/resilience4j-retry/2.2.0/resilience4j-retry-2.2.0.jar:/root/.m2/repository/io/nats/jnats/2.20.5/jnats-2.20.5.jar:/root/.m2/repository/net/i2p/crypto/eddsa/0.3.0/eddsa-0.3.0.jar:/root/.m2/repository/org/casbin/jcasbin/1.55.0/jcasbin-1.55.0.jar:/root/.m2/repository/com/googlecode/aviator/aviator/5.3.0/aviator-5.3.0.jar:/root/.m2/repository/com/github/seancfoley/ipaddress/5.4.2/ipaddress-5.4.2.jar:/root/.m2/repository/commons-io/commons-io/2.11.0/commons-io-2.11.0.jar:/root/.m2/repository/org/apache/commons/commons-csv/1.9.0/commons-csv-1.9.0.jar:/root/.m2/repository/jakarta/annotation/jakarta.annotation-api/2.1.1/jakarta.annotation-api-2.1.1.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-starter-core/1.4.0/spring-modulith-starter-core-1.4.0.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-api/1.4.0/spring-modulith-api-1.4.0.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-apt/1.4.0/spring-modulith-apt-1.4.0.jar:/root/.m2/repository/org/springframework/boot/spring-boot-configuration-processor/3.5.6/spring-boot-configuration-processor-3.5.6.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-moments/1.4.0/spring-modulith-moments-1.4.0.jar:/root/.m2/repository/org/jmolecules/jmolecules-events/1.10.0/jmolecules-events-1.10.0.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter/3.5.6/spring-boot-starter-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-logging/3.5.6/spring-boot-starter-logging-3.5.6.jar:/root/.m2/repository/ch/qos/logback/logback-classic/1.5.18/logback-classic-1.5.18.jar:/root/.m2/repository/ch/qos/logback/logback-core/1.5.18/logback-core-1.5.18.jar:/root/.m2/repository/org/apache/logging/log4j/log4j-to-slf4j/2.24.3/log4j-to-slf4j-2.24.3.jar:/root/.m2/repository/org/apache/logging/log4j/log4j-api/2.24.3/log4j-api-2.24.3.jar:/root/.m2/repository/org/slf4j/jul-to-slf4j/2.0.17/jul-to-slf4j-2.0.17.jar:/root/.m2/repository/org/yaml/snakeyaml/2.4/snakeyaml-2.4.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-core/1.4.0/spring-modulith-core-1.4.0.jar:/root/.m2/repository/com/tngtech/archunit/archunit/1.4.0/archunit-1.4.0.jar:/root/.m2/repository/org/springframework/spring-core/6.2.11/spring-core-6.2.11.jar:/root/.m2/repository/org/springframework/spring-jcl/6.2.11/spring-jcl-6.2.11.jar:/root/.m2/repository/org/springframework/spring-context/6.2.11/spring-context-6.2.11.jar:/root/.m2/repository/org/springframework/spring-beans/6.2.11/spring-beans-6.2.11.jar:/root/.m2/repository/org/springframework/spring-expression/6.2.11/spring-expression-6.2.11.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-starter-test/1.4.0/spring-modulith-starter-test-1.4.0.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-test/1.4.0/spring-modulith-test-1.4.0.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-docs/1.4.0/spring-modulith-docs-1.4.0.jar:/root/.m2/repository/com/structurizr/structurizr-core/3.1.0/structurizr-core-3.1.0.jar:/root/.m2/repository/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.jar:/root/.m2/repository/com/structurizr/structurizr-export/3.1.0/structurizr-export-3.1.0.jar:/root/.m2/repository/org/awaitility/awaitility/4.2.2/awaitility-4.2.2.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-web/3.5.6/spring-boot-starter-web-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-json/3.5.6/spring-boot-starter-json-3.5.6.jar:/root/.m2/repository/com/fasterxml/jackson/datatype/jackson-datatype-jdk8/2.19.2/jackson-datatype-jdk8-2.19.2.jar:/root/.m2/repository/com/fasterxml/jackson/datatype/jackson-datatype-jsr310/2.19.2/jackson-datatype-jsr310-2.19.2.jar:/root/.m2/repository/com/fasterxml/jackson/module/jackson-module-parameter-names/2.19.2/jackson-module-parameter-names-2.19.2.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-tomcat/3.5.6/spring-boot-starter-tomcat-3.5.6.jar:/root/.m2/repository/org/apache/tomcat/embed/tomcat-embed-core/10.1.46/tomcat-embed-core-10.1.46.jar:/root/.m2/repository/org/apache/tomcat/embed/tomcat-embed-websocket/10.1.46/tomcat-embed-websocket-10.1.46.jar:/root/.m2/repository/org/springframework/spring-web/6.2.11/spring-web-6.2.11.jar:/root/.m2/repository/org/springframework/spring-webmvc/6.2.11/spring-webmvc-6.2.11.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-jooq/3.5.6/spring-boot-starter-jooq-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-jdbc/3.5.6/spring-boot-starter-jdbc-3.5.6.jar:/root/.m2/repository/com/zaxxer/HikariCP/6.3.3/HikariCP-6.3.3.jar:/root/.m2/repository/org/springframework/spring-jdbc/6.2.11/spring-jdbc-6.2.11.jar:/root/.m2/repository/org/springframework/spring-tx/6.2.11/spring-tx-6.2.11.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-actuator/3.5.6/spring-boot-starter-actuator-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-actuator-autoconfigure/3.5.6/spring-boot-actuator-autoconfigure-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-actuator/3.5.6/spring-boot-actuator-3.5.6.jar:/root/.m2/repository/io/micrometer/micrometer-observation/1.15.4/micrometer-observation-1.15.4.jar:/root/.m2/repository/io/micrometer/micrometer-commons/1.15.4/micrometer-commons-1.15.4.jar:/root/.m2/repository/io/micrometer/micrometer-jakarta9/1.15.4/micrometer-jakarta9-1.15.4.jar:/root/.m2/repository/io/micrometer/micrometer-core/1.15.4/micrometer-core-1.15.4.jar:/root/.m2/repository/org/hdrhistogram/HdrHistogram/2.2.2/HdrHistogram-2.2.2.jar:/root/.m2/repository/org/latencyutils/LatencyUtils/2.0.3/LatencyUtils-2.0.3.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-validation/3.5.6/spring-boot-starter-validation-3.5.6.jar:/root/.m2/repository/org/apache/tomcat/embed/tomcat-embed-el/10.1.46/tomcat-embed-el-10.1.46.jar:/root/.m2/repository/org/hibernate/validator/hibernate-validator/8.0.3.Final/hibernate-validator-8.0.3.Final.jar:/root/.m2/repository/jakarta/validation/jakarta.validation-api/3.0.2/jakarta.validation-api-3.0.2.jar:/root/.m2/repository/org/jboss/logging/jboss-logging/3.6.1.Final/jboss-logging-3.6.1.Final.jar:/root/.m2/repository/com/fasterxml/classmate/1.7.0/classmate-1.7.0.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-aop/3.5.6/spring-boot-starter-aop-3.5.6.jar:/root/.m2/repository/org/springframework/spring-aop/6.2.11/spring-aop-6.2.11.jar:/root/.m2/repository/org/aspectj/aspectjweaver/1.9.24/aspectjweaver-1.9.24.jar:/root/.m2/repository/org/jooq/jooq/3.19.6/jooq-3.19.6.jar:/root/.m2/repository/io/r2dbc/r2dbc-spi/1.0.0.RELEASE/r2dbc-spi-1.0.0.RELEASE.jar:/root/.m2/repository/org/reactivestreams/reactive-streams/1.0.4/reactive-streams-1.0.4.jar:/root/.m2/repository/com/h2database/h2/2.2.224/h2-2.2.224.jar:/root/.m2/repository/org/postgresql/postgresql/42.7.7/postgresql-42.7.7.jar:/root/.m2/repository/org/checkerframework/checker-qual/3.49.3/checker-qual-3.49.3.jar:/root/.m2/repository/org/flywaydb/flyway-core/10.10.0/flyway-core-10.10.0.jar:/root/.m2/repository/com/fasterxml/jackson/dataformat/jackson-dataformat-toml/2.19.2/jackson-dataformat-toml-2.19.2.jar:/root/.m2/repository/com/fasterxml/jackson/core/jackson-core/2.19.2/jackson-core-2.19.2.jar:/root/.m2/repository/com/google/code/gson/gson/2.13.2/gson-2.13.2.jar:/root/.m2/repository/org/flywaydb/flyway-database-postgresql/10.10.0/flyway-database-postgresql-10.10.0.jar:/root/.m2/repository/com/github/ben-manes/caffeine/caffeine/3.2.2/caffeine-3.2.2.jar:/root/.m2/repository/org/jspecify/jspecify/1.0.0/jspecify-1.0.0.jar:/root/.m2/repository/com/google/errorprone/error_prone_annotations/2.40.0/error_prone_annotations-2.40.0.jar:/root/.m2/repository/io/micrometer/micrometer-tracing-bridge-otel/1.5.4/micrometer-tracing-bridge-otel-1.5.4.jar:/root/.m2/repository/io/micrometer/micrometer-tracing/1.5.4/micrometer-tracing-1.5.4.jar:/root/.m2/repository/io/micrometer/context-propagation/1.1.3/context-propagation-1.1.3.jar:/root/.m2/repository/aopalliance/aopalliance/1.0/aopalliance-1.0.jar:/root/.m2/repository/org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-api/1.49.0/opentelemetry-api-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-context/1.49.0/opentelemetry-context-1.49.0.jar:/root/.m2/repository/io/opentelemetry/semconv/opentelemetry-semconv/1.32.0/opentelemetry-semconv-1.32.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk-common/1.49.0/opentelemetry-sdk-common-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk-trace/1.49.0/opentelemetry-sdk-trace-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk/1.49.0/opentelemetry-sdk-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-extension-trace-propagators/1.49.0/opentelemetry-extension-trace-propagators-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-exporter-otlp/1.49.0/opentelemetry-exporter-otlp-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk-metrics/1.49.0/opentelemetry-sdk-metrics-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk-logs/1.49.0/opentelemetry-sdk-logs-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-exporter-otlp-common/1.49.0/opentelemetry-exporter-otlp-common-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-exporter-common/1.49.0/opentelemetry-exporter-common-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-exporter-sender-okhttp/1.49.0/opentelemetry-exporter-sender-okhttp-1.49.0.jar:/root/.m2/repository/com/squareup/okhttp3/okhttp/4.12.0/okhttp-4.12.0.jar:/root/.m2/repository/com/squareup/okio/okio/3.6.0/okio-3.6.0.jar:/root/.m2/repository/com/squareup/okio/okio-jvm/3.6.0/okio-jvm-3.6.0.jar:/root/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.25/kotlin-stdlib-common-1.9.25.jar:/root/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.9.25/kotlin-stdlib-jdk8-1.9.25.jar:/root/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.9.25/kotlin-stdlib-jdk7-1.9.25.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk-extension-autoconfigure-spi/1.49.0/opentelemetry-sdk-extension-autoconfigure-spi-1.49.0.jar:/root/.m2/repository/io/jsonwebtoken/jjwt-api/0.12.6/jjwt-api-0.12.6.jar:/root/.m2/repository/io/jsonwebtoken/jjwt-impl/0.12.6/jjwt-impl-0.12.6.jar:/root/.m2/repository/io/jsonwebtoken/jjwt-jackson/0.12.6/jjwt-jackson-0.12.6.jar:/root/.m2/repository/com/fasterxml/jackson/core/jackson-databind/2.19.2/jackson-databind-2.19.2.jar:/root/.m2/repository/com/fasterxml/jackson/core/jackson-annotations/2.19.2/jackson-annotations-2.19.2.jar:/root/.m2/repository/org/projectlombok/lombok/1.18.40/lombok-1.18.40.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-test/3.5.6/spring-boot-starter-test-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-test/3.5.6/spring-boot-test-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-test-autoconfigure/3.5.6/spring-boot-test-autoconfigure-3.5.6.jar:/root/.m2/repository/com/jayway/jsonpath/json-path/2.9.0/json-path-2.9.0.jar:/root/.m2/repository/jakarta/xml/bind/jakarta.xml.bind-api/4.0.2/jakarta.xml.bind-api-4.0.2.jar:/root/.m2/repository/jakarta/activation/jakarta.activation-api/2.1.4/jakarta.activation-api-2.1.4.jar:/root/.m2/repository/net/minidev/json-smart/2.5.2/json-smart-2.5.2.jar:/root/.m2/repository/net/minidev/accessors-smart/2.5.2/accessors-smart-2.5.2.jar:/root/.m2/repository/org/ow2/asm/asm/9.7.1/asm-9.7.1.jar:/root/.m2/repository/org/assertj/assertj-core/3.27.4/assertj-core-3.27.4.jar:/root/.m2/repository/net/bytebuddy/byte-buddy/1.17.7/byte-buddy-1.17.7.jar:/root/.m2/repository/org/hamcrest/hamcrest/3.0/hamcrest-3.0.jar:/root/.m2/repository/org/junit/jupiter/junit-jupiter/5.12.2/junit-jupiter-5.12.2.jar:/root/.m2/repository/org/junit/jupiter/junit-jupiter-api/5.12.2/junit-jupiter-api-5.12.2.jar:/root/.m2/repository/org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar:/root/.m2/repository/org/junit/platform/junit-platform-commons/1.12.2/junit-platform-commons-1.12.2.jar:/root/.m2/repository/org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.jar:/root/.m2/repository/org/junit/jupiter/junit-jupiter-params/5.12.2/junit-jupiter-params-5.12.2.jar:/root/.m2/repository/org/junit/jupiter/junit-jupiter-engine/5.12.2/junit-jupiter-engine-5.12.2.jar:/root/.m2/repository/org/junit/platform/junit-platform-engine/1.12.2/junit-platform-engine-1.12.2.jar:/root/.m2/repository/org/mockito/mockito-core/5.17.0/mockito-core-5.17.0.jar:/root/.m2/repository/net/bytebuddy/byte-buddy-agent/1.17.7/byte-buddy-agent-1.17.7.jar:/root/.m2/repository/org/objenesis/objenesis/3.3/objenesis-3.3.jar:/root/.m2/repository/org/mockito/mockito-junit-jupiter/5.17.0/mockito-junit-jupiter-5.17.0.jar:/root/.m2/repository/org/skyscreamer/jsonassert/1.5.3/jsonassert-1.5.3.jar:/root/.m2/repository/com/vaadin/external/google/android-json/0.0.20131108.vaadin1/android-json-0.0.20131108.vaadin1.jar:/root/.m2/repository/org/springframework/spring-test/6.2.11/spring-test-6.2.11.jar:/root/.m2/repository/org/xmlunit/xmlunit-core/2.10.4/xmlunit-core-2.10.4.jar:/root/.m2/repository/org/springdoc/springdoc-openapi-starter-webmvc-ui/2.8.0/springdoc-openapi-starter-webmvc-ui-2.8.0.jar:/root/.m2/repository/org/springdoc/springdoc-openapi-starter-webmvc-api/2.8.0/springdoc-openapi-starter-webmvc-api-2.8.0.jar:/root/.m2/repository/org/springdoc/springdoc-openapi-starter-common/2.8.0/springdoc-openapi-starter-common-2.8.0.jar:/root/.m2/repository/io/swagger/core/v3/swagger-core-jakarta/2.2.27/swagger-core-jakarta-2.2.27.jar:/root/.m2/repository/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar:/root/.m2/repository/io/swagger/core/v3/swagger-annotations-jakarta/2.2.27/swagger-annotations-jakarta-2.2.27.jar:/root/.m2/repository/io/swagger/core/v3/swagger-models-jakarta/2.2.27/swagger-models-jakarta-2.2.27.jar:/root/.m2/repository/com/fasterxml/jackson/dataformat/jackson-dataformat-yaml/2.19.2/jackson-dataformat-yaml-2.19.2.jar:/root/.m2/repository/org/webjars/swagger-ui/5.18.2/swagger-ui-5.18.2.jar:/root/.m2/repository/org/webjars/webjars-locator-lite/1.1.0/webjars-locator-lite-1.1.0.jar:/root/.m2/repository/org/jetbrains/kotlin/kotlin-reflect/1.9.25/kotlin-reflect-1.9.25.jar:/root/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib/1.9.25/kotlin-stdlib-1.9.25.jar:/root/.m2/repository/org/jetbrains/annotations/13.0/annotations-13.0.jar:"/>
+    <property name="java.vm.vendor" value="Eclipse Adoptium"/>
+    <property name="sun.arch.data.model" value="64"/>
+    <property name="java.vendor.url" value="https://adoptium.net/"/>
+    <property name="user.timezone" value="GMT"/>
+    <property name="org.jboss.logging.provider" value="slf4j"/>
+    <property name="os.name" value="Linux"/>
+    <property name="java.vm.specification.version" value="21"/>
+    <property name="sun.java.launcher" value="SUN_STANDARD"/>
+    <property name="user.country" value="US"/>
+    <property name="sun.boot.library.path" value="/opt/java/openjdk/lib"/>
+    <property name="sun.java.command" value="/work/psm-api/target/surefire/surefirebooter-20260504164357239_3.jar /work/psm-api/target/surefire 2026-05-04T16-43-56_779-jvmRun1 surefire-20260504164357239_1tmp surefire_0-20260504164357239_2tmp"/>
+    <property name="jdk.debug" value="release"/>
+    <property name="surefire.test.class.path" value="/work/psm-api/target/test-classes:/work/psm-api/target/classes:/root/.m2/repository/com/plm/platform/platform-lib/0.1.0-SNAPSHOT/platform-lib-0.1.0-SNAPSHOT.jar:/root/.m2/repository/org/springframework/cloud/spring-cloud-starter-vault-config/4.3.0/spring-cloud-starter-vault-config-4.3.0.jar:/root/.m2/repository/org/apache/httpcomponents/client5/httpclient5/5.5/httpclient5-5.5.jar:/root/.m2/repository/org/apache/httpcomponents/core5/httpcore5-h2/5.3.5/httpcore5-h2-5.3.5.jar:/root/.m2/repository/org/apache/httpcomponents/core5/httpcore5/5.3.5/httpcore5-5.3.5.jar:/root/.m2/repository/org/springframework/cloud/spring-cloud-starter/4.3.0/spring-cloud-starter-4.3.0.jar:/root/.m2/repository/org/springframework/cloud/spring-cloud-context/4.3.0/spring-cloud-context-4.3.0.jar:/root/.m2/repository/org/springframework/security/spring-security-crypto/6.5.5/spring-security-crypto-6.5.5.jar:/root/.m2/repository/org/springframework/cloud/spring-cloud-commons/4.3.0/spring-cloud-commons-4.3.0.jar:/root/.m2/repository/org/bouncycastle/bcprov-jdk18on/1.80/bcprov-jdk18on-1.80.jar:/root/.m2/repository/org/springframework/cloud/spring-cloud-vault-config/4.3.0/spring-cloud-vault-config-4.3.0.jar:/root/.m2/repository/org/springframework/vault/spring-vault-core/3.2.0/spring-vault-core-3.2.0.jar:/root/.m2/repository/org/springframework/retry/spring-retry/2.0.12/spring-retry-2.0.12.jar:/root/.m2/repository/org/springframework/boot/spring-boot-autoconfigure/3.5.6/spring-boot-autoconfigure-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot/3.5.6/spring-boot-3.5.6.jar:/root/.m2/repository/io/github/resilience4j/resilience4j-circuitbreaker/2.2.0/resilience4j-circuitbreaker-2.2.0.jar:/root/.m2/repository/io/github/resilience4j/resilience4j-core/2.2.0/resilience4j-core-2.2.0.jar:/root/.m2/repository/io/github/resilience4j/resilience4j-retry/2.2.0/resilience4j-retry-2.2.0.jar:/root/.m2/repository/io/nats/jnats/2.20.5/jnats-2.20.5.jar:/root/.m2/repository/net/i2p/crypto/eddsa/0.3.0/eddsa-0.3.0.jar:/root/.m2/repository/org/casbin/jcasbin/1.55.0/jcasbin-1.55.0.jar:/root/.m2/repository/com/googlecode/aviator/aviator/5.3.0/aviator-5.3.0.jar:/root/.m2/repository/com/github/seancfoley/ipaddress/5.4.2/ipaddress-5.4.2.jar:/root/.m2/repository/commons-io/commons-io/2.11.0/commons-io-2.11.0.jar:/root/.m2/repository/org/apache/commons/commons-csv/1.9.0/commons-csv-1.9.0.jar:/root/.m2/repository/jakarta/annotation/jakarta.annotation-api/2.1.1/jakarta.annotation-api-2.1.1.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-starter-core/1.4.0/spring-modulith-starter-core-1.4.0.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-api/1.4.0/spring-modulith-api-1.4.0.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-apt/1.4.0/spring-modulith-apt-1.4.0.jar:/root/.m2/repository/org/springframework/boot/spring-boot-configuration-processor/3.5.6/spring-boot-configuration-processor-3.5.6.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-moments/1.4.0/spring-modulith-moments-1.4.0.jar:/root/.m2/repository/org/jmolecules/jmolecules-events/1.10.0/jmolecules-events-1.10.0.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter/3.5.6/spring-boot-starter-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-logging/3.5.6/spring-boot-starter-logging-3.5.6.jar:/root/.m2/repository/ch/qos/logback/logback-classic/1.5.18/logback-classic-1.5.18.jar:/root/.m2/repository/ch/qos/logback/logback-core/1.5.18/logback-core-1.5.18.jar:/root/.m2/repository/org/apache/logging/log4j/log4j-to-slf4j/2.24.3/log4j-to-slf4j-2.24.3.jar:/root/.m2/repository/org/apache/logging/log4j/log4j-api/2.24.3/log4j-api-2.24.3.jar:/root/.m2/repository/org/slf4j/jul-to-slf4j/2.0.17/jul-to-slf4j-2.0.17.jar:/root/.m2/repository/org/yaml/snakeyaml/2.4/snakeyaml-2.4.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-core/1.4.0/spring-modulith-core-1.4.0.jar:/root/.m2/repository/com/tngtech/archunit/archunit/1.4.0/archunit-1.4.0.jar:/root/.m2/repository/org/springframework/spring-core/6.2.11/spring-core-6.2.11.jar:/root/.m2/repository/org/springframework/spring-jcl/6.2.11/spring-jcl-6.2.11.jar:/root/.m2/repository/org/springframework/spring-context/6.2.11/spring-context-6.2.11.jar:/root/.m2/repository/org/springframework/spring-beans/6.2.11/spring-beans-6.2.11.jar:/root/.m2/repository/org/springframework/spring-expression/6.2.11/spring-expression-6.2.11.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-starter-test/1.4.0/spring-modulith-starter-test-1.4.0.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-test/1.4.0/spring-modulith-test-1.4.0.jar:/root/.m2/repository/org/springframework/modulith/spring-modulith-docs/1.4.0/spring-modulith-docs-1.4.0.jar:/root/.m2/repository/com/structurizr/structurizr-core/3.1.0/structurizr-core-3.1.0.jar:/root/.m2/repository/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.jar:/root/.m2/repository/com/structurizr/structurizr-export/3.1.0/structurizr-export-3.1.0.jar:/root/.m2/repository/org/awaitility/awaitility/4.2.2/awaitility-4.2.2.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-web/3.5.6/spring-boot-starter-web-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-json/3.5.6/spring-boot-starter-json-3.5.6.jar:/root/.m2/repository/com/fasterxml/jackson/datatype/jackson-datatype-jdk8/2.19.2/jackson-datatype-jdk8-2.19.2.jar:/root/.m2/repository/com/fasterxml/jackson/datatype/jackson-datatype-jsr310/2.19.2/jackson-datatype-jsr310-2.19.2.jar:/root/.m2/repository/com/fasterxml/jackson/module/jackson-module-parameter-names/2.19.2/jackson-module-parameter-names-2.19.2.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-tomcat/3.5.6/spring-boot-starter-tomcat-3.5.6.jar:/root/.m2/repository/org/apache/tomcat/embed/tomcat-embed-core/10.1.46/tomcat-embed-core-10.1.46.jar:/root/.m2/repository/org/apache/tomcat/embed/tomcat-embed-websocket/10.1.46/tomcat-embed-websocket-10.1.46.jar:/root/.m2/repository/org/springframework/spring-web/6.2.11/spring-web-6.2.11.jar:/root/.m2/repository/org/springframework/spring-webmvc/6.2.11/spring-webmvc-6.2.11.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-jooq/3.5.6/spring-boot-starter-jooq-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-jdbc/3.5.6/spring-boot-starter-jdbc-3.5.6.jar:/root/.m2/repository/com/zaxxer/HikariCP/6.3.3/HikariCP-6.3.3.jar:/root/.m2/repository/org/springframework/spring-jdbc/6.2.11/spring-jdbc-6.2.11.jar:/root/.m2/repository/org/springframework/spring-tx/6.2.11/spring-tx-6.2.11.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-actuator/3.5.6/spring-boot-starter-actuator-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-actuator-autoconfigure/3.5.6/spring-boot-actuator-autoconfigure-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-actuator/3.5.6/spring-boot-actuator-3.5.6.jar:/root/.m2/repository/io/micrometer/micrometer-observation/1.15.4/micrometer-observation-1.15.4.jar:/root/.m2/repository/io/micrometer/micrometer-commons/1.15.4/micrometer-commons-1.15.4.jar:/root/.m2/repository/io/micrometer/micrometer-jakarta9/1.15.4/micrometer-jakarta9-1.15.4.jar:/root/.m2/repository/io/micrometer/micrometer-core/1.15.4/micrometer-core-1.15.4.jar:/root/.m2/repository/org/hdrhistogram/HdrHistogram/2.2.2/HdrHistogram-2.2.2.jar:/root/.m2/repository/org/latencyutils/LatencyUtils/2.0.3/LatencyUtils-2.0.3.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-validation/3.5.6/spring-boot-starter-validation-3.5.6.jar:/root/.m2/repository/org/apache/tomcat/embed/tomcat-embed-el/10.1.46/tomcat-embed-el-10.1.46.jar:/root/.m2/repository/org/hibernate/validator/hibernate-validator/8.0.3.Final/hibernate-validator-8.0.3.Final.jar:/root/.m2/repository/jakarta/validation/jakarta.validation-api/3.0.2/jakarta.validation-api-3.0.2.jar:/root/.m2/repository/org/jboss/logging/jboss-logging/3.6.1.Final/jboss-logging-3.6.1.Final.jar:/root/.m2/repository/com/fasterxml/classmate/1.7.0/classmate-1.7.0.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-aop/3.5.6/spring-boot-starter-aop-3.5.6.jar:/root/.m2/repository/org/springframework/spring-aop/6.2.11/spring-aop-6.2.11.jar:/root/.m2/repository/org/aspectj/aspectjweaver/1.9.24/aspectjweaver-1.9.24.jar:/root/.m2/repository/org/jooq/jooq/3.19.6/jooq-3.19.6.jar:/root/.m2/repository/io/r2dbc/r2dbc-spi/1.0.0.RELEASE/r2dbc-spi-1.0.0.RELEASE.jar:/root/.m2/repository/org/reactivestreams/reactive-streams/1.0.4/reactive-streams-1.0.4.jar:/root/.m2/repository/com/h2database/h2/2.2.224/h2-2.2.224.jar:/root/.m2/repository/org/postgresql/postgresql/42.7.7/postgresql-42.7.7.jar:/root/.m2/repository/org/checkerframework/checker-qual/3.49.3/checker-qual-3.49.3.jar:/root/.m2/repository/org/flywaydb/flyway-core/10.10.0/flyway-core-10.10.0.jar:/root/.m2/repository/com/fasterxml/jackson/dataformat/jackson-dataformat-toml/2.19.2/jackson-dataformat-toml-2.19.2.jar:/root/.m2/repository/com/fasterxml/jackson/core/jackson-core/2.19.2/jackson-core-2.19.2.jar:/root/.m2/repository/com/google/code/gson/gson/2.13.2/gson-2.13.2.jar:/root/.m2/repository/org/flywaydb/flyway-database-postgresql/10.10.0/flyway-database-postgresql-10.10.0.jar:/root/.m2/repository/com/github/ben-manes/caffeine/caffeine/3.2.2/caffeine-3.2.2.jar:/root/.m2/repository/org/jspecify/jspecify/1.0.0/jspecify-1.0.0.jar:/root/.m2/repository/com/google/errorprone/error_prone_annotations/2.40.0/error_prone_annotations-2.40.0.jar:/root/.m2/repository/io/micrometer/micrometer-tracing-bridge-otel/1.5.4/micrometer-tracing-bridge-otel-1.5.4.jar:/root/.m2/repository/io/micrometer/micrometer-tracing/1.5.4/micrometer-tracing-1.5.4.jar:/root/.m2/repository/io/micrometer/context-propagation/1.1.3/context-propagation-1.1.3.jar:/root/.m2/repository/aopalliance/aopalliance/1.0/aopalliance-1.0.jar:/root/.m2/repository/org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-api/1.49.0/opentelemetry-api-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-context/1.49.0/opentelemetry-context-1.49.0.jar:/root/.m2/repository/io/opentelemetry/semconv/opentelemetry-semconv/1.32.0/opentelemetry-semconv-1.32.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk-common/1.49.0/opentelemetry-sdk-common-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk-trace/1.49.0/opentelemetry-sdk-trace-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk/1.49.0/opentelemetry-sdk-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-extension-trace-propagators/1.49.0/opentelemetry-extension-trace-propagators-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-exporter-otlp/1.49.0/opentelemetry-exporter-otlp-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk-metrics/1.49.0/opentelemetry-sdk-metrics-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk-logs/1.49.0/opentelemetry-sdk-logs-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-exporter-otlp-common/1.49.0/opentelemetry-exporter-otlp-common-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-exporter-common/1.49.0/opentelemetry-exporter-common-1.49.0.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-exporter-sender-okhttp/1.49.0/opentelemetry-exporter-sender-okhttp-1.49.0.jar:/root/.m2/repository/com/squareup/okhttp3/okhttp/4.12.0/okhttp-4.12.0.jar:/root/.m2/repository/com/squareup/okio/okio/3.6.0/okio-3.6.0.jar:/root/.m2/repository/com/squareup/okio/okio-jvm/3.6.0/okio-jvm-3.6.0.jar:/root/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.25/kotlin-stdlib-common-1.9.25.jar:/root/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.9.25/kotlin-stdlib-jdk8-1.9.25.jar:/root/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.9.25/kotlin-stdlib-jdk7-1.9.25.jar:/root/.m2/repository/io/opentelemetry/opentelemetry-sdk-extension-autoconfigure-spi/1.49.0/opentelemetry-sdk-extension-autoconfigure-spi-1.49.0.jar:/root/.m2/repository/io/jsonwebtoken/jjwt-api/0.12.6/jjwt-api-0.12.6.jar:/root/.m2/repository/io/jsonwebtoken/jjwt-impl/0.12.6/jjwt-impl-0.12.6.jar:/root/.m2/repository/io/jsonwebtoken/jjwt-jackson/0.12.6/jjwt-jackson-0.12.6.jar:/root/.m2/repository/com/fasterxml/jackson/core/jackson-databind/2.19.2/jackson-databind-2.19.2.jar:/root/.m2/repository/com/fasterxml/jackson/core/jackson-annotations/2.19.2/jackson-annotations-2.19.2.jar:/root/.m2/repository/org/projectlombok/lombok/1.18.40/lombok-1.18.40.jar:/root/.m2/repository/org/springframework/boot/spring-boot-starter-test/3.5.6/spring-boot-starter-test-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-test/3.5.6/spring-boot-test-3.5.6.jar:/root/.m2/repository/org/springframework/boot/spring-boot-test-autoconfigure/3.5.6/spring-boot-test-autoconfigure-3.5.6.jar:/root/.m2/repository/com/jayway/jsonpath/json-path/2.9.0/json-path-2.9.0.jar:/root/.m2/repository/jakarta/xml/bind/jakarta.xml.bind-api/4.0.2/jakarta.xml.bind-api-4.0.2.jar:/root/.m2/repository/jakarta/activation/jakarta.activation-api/2.1.4/jakarta.activation-api-2.1.4.jar:/root/.m2/repository/net/minidev/json-smart/2.5.2/json-smart-2.5.2.jar:/root/.m2/repository/net/minidev/accessors-smart/2.5.2/accessors-smart-2.5.2.jar:/root/.m2/repository/org/ow2/asm/asm/9.7.1/asm-9.7.1.jar:/root/.m2/repository/org/assertj/assertj-core/3.27.4/assertj-core-3.27.4.jar:/root/.m2/repository/net/bytebuddy/byte-buddy/1.17.7/byte-buddy-1.17.7.jar:/root/.m2/repository/org/hamcrest/hamcrest/3.0/hamcrest-3.0.jar:/root/.m2/repository/org/junit/jupiter/junit-jupiter/5.12.2/junit-jupiter-5.12.2.jar:/root/.m2/repository/org/junit/jupiter/junit-jupiter-api/5.12.2/junit-jupiter-api-5.12.2.jar:/root/.m2/repository/org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar:/root/.m2/repository/org/junit/platform/junit-platform-commons/1.12.2/junit-platform-commons-1.12.2.jar:/root/.m2/repository/org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.jar:/root/.m2/repository/org/junit/jupiter/junit-jupiter-params/5.12.2/junit-jupiter-params-5.12.2.jar:/root/.m2/repository/org/junit/jupiter/junit-jupiter-engine/5.12.2/junit-jupiter-engine-5.12.2.jar:/root/.m2/repository/org/junit/platform/junit-platform-engine/1.12.2/junit-platform-engine-1.12.2.jar:/root/.m2/repository/org/mockito/mockito-core/5.17.0/mockito-core-5.17.0.jar:/root/.m2/repository/net/bytebuddy/byte-buddy-agent/1.17.7/byte-buddy-agent-1.17.7.jar:/root/.m2/repository/org/objenesis/objenesis/3.3/objenesis-3.3.jar:/root/.m2/repository/org/mockito/mockito-junit-jupiter/5.17.0/mockito-junit-jupiter-5.17.0.jar:/root/.m2/repository/org/skyscreamer/jsonassert/1.5.3/jsonassert-1.5.3.jar:/root/.m2/repository/com/vaadin/external/google/android-json/0.0.20131108.vaadin1/android-json-0.0.20131108.vaadin1.jar:/root/.m2/repository/org/springframework/spring-test/6.2.11/spring-test-6.2.11.jar:/root/.m2/repository/org/xmlunit/xmlunit-core/2.10.4/xmlunit-core-2.10.4.jar:/root/.m2/repository/org/springdoc/springdoc-openapi-starter-webmvc-ui/2.8.0/springdoc-openapi-starter-webmvc-ui-2.8.0.jar:/root/.m2/repository/org/springdoc/springdoc-openapi-starter-webmvc-api/2.8.0/springdoc-openapi-starter-webmvc-api-2.8.0.jar:/root/.m2/repository/org/springdoc/springdoc-openapi-starter-common/2.8.0/springdoc-openapi-starter-common-2.8.0.jar:/root/.m2/repository/io/swagger/core/v3/swagger-core-jakarta/2.2.27/swagger-core-jakarta-2.2.27.jar:/root/.m2/repository/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar:/root/.m2/repository/io/swagger/core/v3/swagger-annotations-jakarta/2.2.27/swagger-annotations-jakarta-2.2.27.jar:/root/.m2/repository/io/swagger/core/v3/swagger-models-jakarta/2.2.27/swagger-models-jakarta-2.2.27.jar:/root/.m2/repository/com/fasterxml/jackson/dataformat/jackson-dataformat-yaml/2.19.2/jackson-dataformat-yaml-2.19.2.jar:/root/.m2/repository/org/webjars/swagger-ui/5.18.2/swagger-ui-5.18.2.jar:/root/.m2/repository/org/webjars/webjars-locator-lite/1.1.0/webjars-locator-lite-1.1.0.jar:/root/.m2/repository/org/jetbrains/kotlin/kotlin-reflect/1.9.25/kotlin-reflect-1.9.25.jar:/root/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib/1.9.25/kotlin-stdlib-1.9.25.jar:/root/.m2/repository/org/jetbrains/annotations/13.0/annotations-13.0.jar:"/>
+    <property name="sun.cpu.endian" value="little"/>
+    <property name="user.home" value="/root"/>
+    <property name="user.language" value="en"/>
+    <property name="java.specification.vendor" value="Oracle Corporation"/>
+    <property name="java.version.date" value="2026-01-20"/>
+    <property name="java.home" value="/opt/java/openjdk"/>
+    <property name="file.separator" value="/"/>
+    <property name="basedir" value="/work/psm-api"/>
+    <property name="java.vm.compressedOopsMode" value="Zero based"/>
+    <property name="line.separator" value="&#10;"/>
+    <property name="java.specification.name" value="Java Platform API Specification"/>
+    <property name="java.vm.specification.vendor" value="Oracle Corporation"/>
+    <property name="FILE_LOG_CHARSET" value="UTF-8"/>
+    <property name="java.awt.headless" value="true"/>
+    <property name="surefire.real.class.path" value="/work/psm-api/target/surefire/surefirebooter-20260504164357239_3.jar"/>
+    <property name="sun.management.compiler" value="HotSpot 64-Bit Tiered Compilers"/>
+    <property name="java.runtime.version" value="21.0.10+7-LTS"/>
+    <property name="LOG_CORRELATION_PATTERN" value="%correlationId"/>
+    <property name="user.name" value="root"/>
+    <property name="stdout.encoding" value="UTF-8"/>
+    <property name="path.separator" value=":"/>
+    <property name="os.version" value="6.19.10-300.fc44.x86_64"/>
+    <property name="java.runtime.name" value="OpenJDK Runtime Environment"/>
+    <property name="file.encoding" value="UTF-8"/>
+    <property name="java.vm.name" value="OpenJDK 64-Bit Server VM"/>
+    <property name="java.vendor.version" value="Temurin-21.0.10+7"/>
+    <property name="localRepository" value="/root/.m2/repository"/>
+    <property name="java.vendor.url.bug" value="https://github.com/adoptium/adoptium-support/issues"/>
+    <property name="java.io.tmpdir" value="/tmp"/>
+    <property name="com.zaxxer.hikari.pool_number" value="1"/>
+    <property name="java.version" value="21.0.10"/>
+    <property name="user.dir" value="/work/psm-api"/>
+    <property name="os.arch" value="amd64"/>
+    <property name="java.vm.specification.name" value="Java Virtual Machine Specification"/>
+    <property name="PID" value="140"/>
+    <property name="CONSOLE_LOG_CHARSET" value="UTF-8"/>
+    <property name="native.encoding" value="UTF-8"/>
+    <property name="java.library.path" value="/opt/java/openjdk/lib/server:/opt/java/openjdk/lib:/opt/java/openjdk/../lib:/usr/java/packages/lib:/usr/lib64:/lib64:/lib:/usr/lib"/>
+    <property name="java.vm.info" value="mixed mode, sharing"/>
+    <property name="stderr.encoding" value="UTF-8"/>
+    <property name="java.vendor" value="Eclipse Adoptium"/>
+    <property name="java.vm.version" value="21.0.10+7-LTS"/>
+    <property name="sun.io.unicode.encoding" value="UnicodeLittle"/>
+    <property name="java.class.version" value="65.0"/>
+  </properties>
+  <testcase name="testCurrentVisibleVersionForOtherUser" classname="com.plm.PlmTransactionTest" time="0.003">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testCurrentVisibleVersionForOtherUser(PlmTransactionTest.java:204)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+    <system-out><![CDATA[2026-05-04T16:44:25.151Z  INFO 140 --- [           main] [                                                 ] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.plm.PlmTransactionTest]: PlmTransactionTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-05-04T16:44:25.152Z  INFO 140 --- [           main] [                                                 ] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.plm.PlmApplication for test class com.plm.PlmTransactionTest
+]]></system-out>
+  </testcase>
+  <testcase name="testListTransactionsAdmin" classname="com.plm.PlmTransactionTest" time="0.005">
+    <system-out><![CDATA[2026-05-04T16:44:25.158Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+2026-05-04T16:44:25.159Z  INFO 140 --- [           main] [                                                 ] c.p.n.t.internal.PlmTransactionService   : Transaction opened: id=de2822a5-456d-4dd8-8371-2441de8e7396 owner=user-alice
+]]></system-out>
+  </testcase>
+  <testcase name="testRollbackRestoresLastCommittedState" classname="com.plm.PlmTransactionTest" time="0.002">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testRollbackRestoresLastCommittedState(PlmTransactionTest.java:359)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testRollbackDeletesVersionsPhysically" classname="com.plm.PlmTransactionTest" time="0.002">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testRollbackDeletesVersionsPhysically(PlmTransactionTest.java:332)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testCommitByNonOwner" classname="com.plm.PlmTransactionTest" time="0.005">
+    <system-out><![CDATA[2026-05-04T16:44:25.170Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+2026-05-04T16:44:25.170Z  INFO 140 --- [           main] [                                                 ] c.p.n.t.internal.PlmTransactionService   : Transaction opened: id=4d7c34eb-b130-49a4-b5ce-6d4b5e50817a owner=user-alice
+2026-05-04T16:44:25.171Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+]]></system-out>
+  </testcase>
+  <testcase name="testDoubleCommitFails" classname="com.plm.PlmTransactionTest" time="0.003">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testDoubleCommitFails(PlmTransactionTest.java:394)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testDifferentUsersCanHaveOpenTx" classname="com.plm.PlmTransactionTest" time="0.007">
+    <system-out><![CDATA[2026-05-04T16:44:25.179Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+2026-05-04T16:44:25.180Z  INFO 140 --- [           main] [                                                 ] c.p.n.t.internal.PlmTransactionService   : Transaction opened: id=a1ac8153-1983-4ace-aa0e-2c8181b753a5 owner=user-alice
+2026-05-04T16:44:25.180Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+2026-05-04T16:44:25.181Z  INFO 140 --- [           main] [                                                 ] c.p.n.t.internal.PlmTransactionService   : Transaction opened: id=6bbc0d74-2a9d-40d4-89ad-a5660ed4a607 owner=user-bob
+]]></system-out>
+  </testcase>
+  <testcase name="testOpenTransaction" classname="com.plm.PlmTransactionTest" time="0.006">
+    <system-out><![CDATA[2026-05-04T16:44:25.187Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+2026-05-04T16:44:25.188Z  INFO 140 --- [           main] [                                                 ] c.p.n.t.internal.PlmTransactionService   : Transaction opened: id=c725cb34-12ca-40db-878e-c6644d265578 owner=user-alice
+]]></system-out>
+  </testcase>
+  <testcase name="testCheckoutAcquiresLock" classname="com.plm.PlmTransactionTest" time="0.004">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testCheckoutAcquiresLock(PlmTransactionTest.java:126)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testOpenVersionVisibility" classname="com.plm.PlmTransactionTest" time="0.003">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testOpenVersionVisibility(PlmTransactionTest.java:179)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testOnlyOneOpenTxPerUser" classname="com.plm.PlmTransactionTest" time="0.008">
+    <failure message="&#10;Expecting code to raise a throwable." type="java.lang.AssertionError"><![CDATA[java.lang.AssertionError: 
+
+Expecting code to raise a throwable.
+	at com.plm.PlmTransactionTest.testOnlyOneOpenTxPerUser(PlmTransactionTest.java:99)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></failure>
+    <system-out><![CDATA[2026-05-04T16:44:25.203Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+2026-05-04T16:44:25.203Z  INFO 140 --- [           main] [                                                 ] c.p.n.t.internal.PlmTransactionService   : Transaction opened: id=f9f6127b-eaf4-4a40-a2bc-cc6a74701dcd owner=user-alice
+2026-05-04T16:44:25.204Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+2026-05-04T16:44:25.204Z  INFO 140 --- [           main] [                                                 ] c.p.n.t.internal.PlmTransactionService   : Transaction opened: id=dfde4717-959b-45f4-ab5b-8d37cbefc435 owner=user-alice
+]]></system-out>
+  </testcase>
+  <testcase name="testRollback" classname="com.plm.PlmTransactionTest" time="0.003">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testRollback(PlmTransactionTest.java:309)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testMultipleCheckoutsInSameTx" classname="com.plm.PlmTransactionTest" time="0.003">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testMultipleCheckoutsInSameTx(PlmTransactionTest.java:146)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testCommitRequiresComment" classname="com.plm.PlmTransactionTest" time="0.003">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testCommitRequiresComment(PlmTransactionTest.java:261)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testListTransactionsVisibility" classname="com.plm.PlmTransactionTest" time="0.008">
+    <system-out><![CDATA[2026-05-04T16:44:25.221Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+2026-05-04T16:44:25.222Z  INFO 140 --- [           main] [                                                 ] c.p.n.t.internal.PlmTransactionService   : Transaction opened: id=aa9633bf-d477-42c8-a163-b81431960b1d owner=user-alice
+]]></system-out>
+  </testcase>
+  <testcase name="testCommittedVersionsVisibleToAll" classname="com.plm.PlmTransactionTest" time="0.003">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testCommittedVersionsVisibleToAll(PlmTransactionTest.java:288)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testCommit" classname="com.plm.PlmTransactionTest" time="0.002">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testCommit(PlmTransactionTest.java:234)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testVersionTxStatusOpen" classname="com.plm.PlmTransactionTest" time="0.003">
+    <error message="NodeType not found: nt-document" type="java.lang.IllegalArgumentException"><![CDATA[java.lang.IllegalArgumentException: NodeType not found: nt-document
+	at com.plm.node.NodeService.lambda$createNode$0(NodeService.java:103)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.plm.node.NodeService.createNode(NodeService.java:103)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:360)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:196)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:380)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.aspectj.MethodInvocationProceedingJoinPoint.proceed(MethodInvocationProceedingJoinPoint.java:89)
+	at com.plm.platform.action.PlmActionAspect.enforce(PlmActionAspect.java:128)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethodWithGivenArgs(AbstractAspectJAdvice.java:649)
+	at org.springframework.aop.aspectj.AbstractAspectJAdvice.invokeAdviceMethod(AbstractAspectJAdvice.java:631)
+	at org.springframework.aop.aspectj.AspectJAroundAdvice.invoke(AspectJAroundAdvice.java:71)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:173)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:728)
+	at com.plm.node.NodeService$$SpringCGLIB$$0.createNode(<generated>)
+	at com.plm.PlmTransactionTest.createDoc(PlmTransactionTest.java:58)
+	at com.plm.PlmTransactionTest.testVersionTxStatusOpen(PlmTransactionTest.java:165)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+]]></error>
+  </testcase>
+  <testcase name="testRolledBackTxDisappearsFromList" classname="com.plm.PlmTransactionTest" time="0.01">
+    <system-out><![CDATA[2026-05-04T16:44:25.238Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+2026-05-04T16:44:25.239Z  INFO 140 --- [           main] [                                                 ] c.p.n.t.internal.PlmTransactionService   : Transaction opened: id=c7dba3ee-b8cc-4d0c-b8b2-b81f15027f09 owner=user-alice
+2026-05-04T16:44:25.239Z  WARN 140 --- [           main] [                                                 ] c.p.platform.authz.PlmPermissionAspect   : PlmPermissionAspect: unknown permission code 'UPDATE', skipping
+2026-05-04T16:44:25.244Z  INFO 140 --- [           main] [                                                 ] c.p.n.t.internal.PlmTransactionService   : Transaction rolled back and deleted: id=c7dba3ee-b8cc-4d0c-b8b2-b81f15027f09 owner=user-alice versions=0 attrs=0
+]]></system-out>
+  </testcase>
+</testsuite>

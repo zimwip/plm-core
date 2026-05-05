@@ -22,9 +22,10 @@ import java.util.Optional;
  *
  * Skipped (no auth required):
  *   - /actuator/**
- *   - /api/spe/status/**
- *   - /api/spe/registry/** (gated by ServiceSecretFilter)
  *   - /api/spe/auth/login, /api/spe/auth/logout
+ *   - /api/platform/status, /api/platform/status/nats
+ *     (public cluster-state surface — moved from /api/spe/status when
+ *     platform-api became the central control plane)
  *
  * Protected paths:
  *   - Read Authorization: Bearer <session-jwt>
@@ -55,10 +56,10 @@ public class AuthenticationFilter implements WebFilter {
         String path = exchange.getRequest().getPath().value();
 
         if (path.startsWith("/actuator")
-            || path.startsWith("/api/spe/registry")
-            || path.startsWith("/api/spe/status")
             || path.equals("/api/spe/auth/login")
-            || path.equals("/api/spe/auth/logout")) {
+            || path.equals("/api/spe/auth/logout")
+            || path.equals("/api/platform/status")
+            || path.startsWith("/api/platform/status/")) {
             return chain.filter(exchange);
         }
 

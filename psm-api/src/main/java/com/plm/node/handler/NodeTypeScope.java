@@ -1,12 +1,14 @@
 package com.plm.node.handler;
 
-import com.plm.shared.action.ActionContext;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionNodeContextPort;
 import com.plm.shared.action.ActionScope;
-import com.plm.shared.action.ScopeSegment;
+import com.plm.platform.action.ScopeSegment;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * NODE_TYPE scope — expects a single nodeTypeId path segment.
@@ -35,5 +37,13 @@ public class NodeTypeScope implements ActionScope {
         String nodeTypeId = pathIds.get(0);
         return new ActionContext(null, nodeTypeId, actionId, actionCode, null, userId, null,
                 Map.of("nodeTypeId", nodeTypeId));
+    }
+
+    @Override
+    public Optional<ActionNodeContextPort.NodeCtx> resolveNodeCtx(
+            Map<String, String> ids, String userId, ActionNodeContextPort port) {
+        String nodeTypeId = ids.get("nodeTypeId");
+        if (nodeTypeId == null) return Optional.empty();
+        return Optional.of(new ActionNodeContextPort.NodeCtx(null, nodeTypeId, null, false, false));
     }
 }

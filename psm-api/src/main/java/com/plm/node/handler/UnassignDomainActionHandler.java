@@ -5,9 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.plm.algorithm.AlgorithmBean;
 import com.plm.node.domain.internal.DomainService;
 import com.plm.node.version.internal.FingerPrintService;
-import com.plm.shared.action.ActionContext;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionRouteDescriptor;
 import com.plm.shared.action.ActionHandler;
-import com.plm.shared.action.ActionResult;
+import com.plm.platform.action.ActionResult;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -16,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @AlgorithmBean(code = "unassign_domain", name = "Unassign Domain Handler")
 @RequiredArgsConstructor
@@ -29,6 +31,11 @@ public class UnassignDomainActionHandler implements ActionHandler {
 
     @Override
     public String actionCode() { return "unassign_domain"; }
+
+    @Override
+    public Optional<ActionRouteDescriptor> route() {
+        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/unassign_domain/{id}").metadataOnly());
+    }
 
     @Override
     public ActionResult execute(ActionContext ctx, Map<String, String> params) {

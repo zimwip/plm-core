@@ -15,6 +15,6 @@ class SecretsSettingSections {
 
     @Bean
     SettingSectionDto secretsSection() {
-        return new SettingSectionDto("secrets", "Secrets", "PLATFORM", 15, "MANAGE_SECRETS");
+        return new SettingSectionDto("secrets", "Secrets", "PLATFORM", 15, "MANAGE_SECRETS", "key");
     }
 }

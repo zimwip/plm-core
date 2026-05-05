@@ -1,7 +1,7 @@
 package com.plm.platform.algorithm.stats;
 
 import com.plm.platform.nats.PlmMessageBus;
-import com.plm.platform.spe.SpeRegistrationProperties;
+import com.plm.platform.environment.PlatformRegistrationProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,23 +36,23 @@ public class AlgorithmStatsPublisher {
     public static final String EVENT_TYPE = "ALGORITHM_STATS";
 
     private final PlmMessageBus bus;
-    private final SpeRegistrationProperties speProps;
+    private final PlatformRegistrationProperties platformProps;
 
-    public AlgorithmStatsPublisher(PlmMessageBus bus, SpeRegistrationProperties speProps) {
+    public AlgorithmStatsPublisher(PlmMessageBus bus, PlatformRegistrationProperties platformProps) {
         this.bus = bus;
-        this.speProps = speProps;
+        this.platformProps = platformProps;
     }
 
     public void publish(List<StatDelta> items) {
         if (items == null || items.isEmpty()) return;
-        String serviceCode = speProps.serviceCode();
+        String serviceCode = platformProps.serviceCode();
         if (serviceCode == null || serviceCode.isBlank()) {
             log.debug("AlgorithmStatsPublisher: no service-code, skipping publish");
             return;
         }
         Map<String, Object> payload = Map.of(
             "serviceCode", serviceCode,
-            "instanceId",  instanceIdFromBaseUrl(speProps.selfBaseUrl()),
+            "instanceId",  instanceIdFromBaseUrl(platformProps.selfBaseUrl()),
             "publishedAt", Instant.now().toString(),
             "items",       items
         );

@@ -14,7 +14,7 @@ import org.springframework.test.context.TestPropertySource;
     "spring.config.import=",
     "plm.service.secret=test-secret-at-least-32-bytes-long-for-hs256",
     "management.tracing.enabled=false",
-    "spe.registration.enabled=false"
+    "platform.registration.enabled=false"
 })
 class PsmAdminApplicationTest {
 

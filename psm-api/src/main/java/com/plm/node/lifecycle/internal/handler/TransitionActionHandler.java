@@ -1,13 +1,15 @@
 package com.plm.node.lifecycle.internal.handler;
 
-import com.plm.shared.action.ActionContext;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionRouteDescriptor;
 import com.plm.shared.action.ActionHandler;
-import com.plm.shared.action.ActionResult;
+import com.plm.platform.action.ActionResult;
 import com.plm.node.lifecycle.internal.LifecycleService;
 import lombok.RequiredArgsConstructor;
 import com.plm.algorithm.AlgorithmBean;
 
 import java.util.Map;
+import java.util.Optional;
 
 @AlgorithmBean(code = "transition", name = "TRANSITION Handler")
 @RequiredArgsConstructor
@@ -17,6 +19,11 @@ public class TransitionActionHandler implements ActionHandler {
 
     @Override
     public String actionCode() { return "transition"; }
+
+    @Override
+    public Optional<ActionRouteDescriptor> route() {
+        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/transition/{id}/{transitionId}").metadataOnly());
+    }
 
     @Override
     public ActionResult execute(ActionContext ctx, Map<String, String> params) {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { CommitIcon, RollbackIcon, ChevronDownIcon, ChevronRightIcon } from './Icons';
+import { psmNodeDescriptor } from '../plugins/psmNodePlugin';
 
 const STATE_COLORS = {
   'st-draft':    '#5b9cf6',
@@ -84,7 +85,7 @@ export default function BottomConsole({
                   <div
                     key={i}
                     className={`cvi ${isActive ? 'active' : ''}`}
-                    onClick={() => onNavigate(nid)}
+                    onClick={() => onNavigate(nid, undefined, psmNodeDescriptor)}
                   >
                     <span className="cvi-dot" style={{ background: stColor }} />
                     <span className="cvi-rev">{iter === 0 ? rev : `${rev}.${iter}`}</span>

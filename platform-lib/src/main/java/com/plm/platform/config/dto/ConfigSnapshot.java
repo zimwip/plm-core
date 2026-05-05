@@ -21,7 +21,6 @@ public record ConfigSnapshot(
     List<EnumDefinitionConfig> enums,
     List<AttributeViewConfig> attributeViews,
     List<StateActionConfig> stateActions,
-    List<NodeActionGuardConfig> nodeActionGuards,
     List<SourceConfig> sources,
     Map<String, String> entityMetadata
 ) {}

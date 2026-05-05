@@ -54,10 +54,13 @@ class PlmTransactionTest {
     }
 
     private String createDoc() {
-        String nodeId = nodeService.createNode("ps-default", NT_DOCUMENT, USER_ALICE, Map.of(
-            AD_DOC_TITLE, "Doc", AD_DOC_AUTHOR, "Alice", AD_DOC_CAT, "Design"
-        ), null, null);
+        String logicalId = "DOC-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+        String nodeId = nodeService.createNode("ps-default", NT_DOCUMENT, USER_ALICE,
+            logicalId, null);
         String txId = txService.findOpenTransaction(USER_ALICE);
+        nodeService.modifyNode(nodeId, USER_ALICE, txId, Map.of(
+            AD_DOC_TITLE, "Doc", AD_DOC_AUTHOR, "Alice", AD_DOC_CAT, "Design"
+        ), "Initial attributes");
         txService.commitTransaction(txId, USER_ALICE, "Initial creation", null);
         return nodeId;
     }

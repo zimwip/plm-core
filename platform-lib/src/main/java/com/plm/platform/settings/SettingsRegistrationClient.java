@@ -1,5 +1,6 @@
 package com.plm.platform.settings;
 
+import com.plm.platform.nats.NatsListenerFactory;
 import com.plm.platform.settings.dto.SettingSectionDto;
 import com.plm.platform.settings.dto.SettingsRegisterRequest;
 import com.plm.platform.spe.PlatformPaths;
@@ -40,24 +41,46 @@ public class SettingsRegistrationClient {
     private static final String PLATFORM_SERVICE_CODE = "platform";
     private static final String REGISTER_URL = PlatformPaths.internalPath(PLATFORM_SERVICE_CODE, "/settings/register");
 
+    private static final String PLATFORM_RESTARTED_SUBJECT = "env.global.PLATFORM_RESTARTED";
+
     private final SettingsRegistrationProperties props;
     private final RestTemplate rest;
     private final List<SettingSectionDto> sections;
+    private final NatsListenerFactory natsListenerFactory;
 
     private volatile boolean registered = false;
     private volatile String instanceId;
 
     public SettingsRegistrationClient(SettingsRegistrationProperties props, RestTemplate rest,
-                                      List<SettingSectionDto> sections) {
+                                      List<SettingSectionDto> sections,
+                                      NatsListenerFactory natsListenerFactory) {
         this.props = props;
         this.rest = rest;
         this.sections = sections;
+        this.natsListenerFactory = natsListenerFactory;
         this.instanceId = computeInstanceId(props.selfBaseUrl());
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
         new Thread(this::attemptWithBackoff, "platform-registration").start();
+        subscribePlatformRestarted();
+    }
+
+    private void subscribePlatformRestarted() {
+        if (natsListenerFactory == null) return;
+        try {
+            natsListenerFactory.subscribe(PLATFORM_RESTARTED_SUBJECT, msg -> {
+                log.info("PLATFORM_RESTARTED received — re-registering settings sections");
+                new Thread(() -> {
+                    try { Thread.sleep(2_000L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                    postRegistration(0);
+                }, "settings-reregistration").start();
+            });
+            log.debug("Subscribed to {}", PLATFORM_RESTARTED_SUBJECT);
+        } catch (Exception e) {
+            log.warn("Failed to subscribe to {}: {}", PLATFORM_RESTARTED_SUBJECT, e.getMessage());
+        }
     }
 
     @Scheduled(fixedDelay = 300_000L, initialDelay = 300_000L)

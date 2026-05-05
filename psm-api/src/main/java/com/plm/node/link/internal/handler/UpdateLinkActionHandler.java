@@ -2,12 +2,14 @@ package com.plm.node.link.internal.handler;
 
 import com.plm.algorithm.AlgorithmBean;
 import com.plm.node.NodeService;
-import com.plm.shared.action.ActionContext;
+import com.plm.platform.action.ActionContext;
+import com.plm.platform.action.ActionRouteDescriptor;
 import com.plm.shared.action.ActionHandler;
-import com.plm.shared.action.ActionResult;
+import com.plm.platform.action.ActionResult;
 import lombok.RequiredArgsConstructor;
 
 import java.util.Map;
+import java.util.Optional;
 
 @AlgorithmBean(code = "update_link", name = "UPDATE_LINK Handler")
 @RequiredArgsConstructor
@@ -17,6 +19,11 @@ public class UpdateLinkActionHandler implements ActionHandler {
 
     @Override
     public String actionCode() { return "update_link"; }
+
+    @Override
+    public Optional<ActionRouteDescriptor> route() {
+        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/update_link/{id}").metadataOnly());
+    }
 
     @Override
     public ActionResult execute(ActionContext ctx, Map<String, String> params) {

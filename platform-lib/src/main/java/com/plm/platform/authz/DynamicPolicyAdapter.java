@@ -46,10 +46,13 @@ public class DynamicPolicyAdapter implements Adapter {
             String roleId         = asString(row.get("role_id"));
             String permissionCode = asString(row.get("permission_code"));
             String scopeCode      = asString(firstNonNull(row.get("scope"), row.get("scope_code")));
-            String projectSpaceId = asString(row.get("project_space_id"));
-            if (roleId == null || permissionCode == null || scopeCode == null || projectSpaceId == null) {
+            if (roleId == null || permissionCode == null || scopeCode == null) {
                 continue;
             }
+            // NULL project_space_id = global grant (keyless scope, e.g. DATA).
+            // Maps to "" in Casbin — matches DefaultPolicyEnforcer's effectivePsid for keyless scopes.
+            String rawPsid        = asString(row.get("project_space_id"));
+            String projectSpaceId = rawPsid != null ? rawPsid : "";
 
             @SuppressWarnings("unchecked")
             Map<String, String> keys = row.get("keys") instanceof Map<?, ?>

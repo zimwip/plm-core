@@ -5,10 +5,12 @@ import java.util.Map;
 import java.util.Set;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -43,9 +45,34 @@ public class AuthorizationController {
      * permissions contributed by services other than psm.
      */
     @GetMapping("/permissions")
-    public ResponseEntity<List<Map<String, Object>>> listPermissionsByScope(
-            @RequestParam(required = false) String scope) {
-        return ResponseEntity.ok(authorizationService.listPermissionsByScope(scope));
+    public ResponseEntity<List<Map<String, Object>>> listPermissions(
+            @RequestParam(required = false) String scope,
+            @RequestParam(required = false) String serviceCode) {
+        return ResponseEntity.ok(authorizationService.listPermissions(scope, serviceCode));
+    }
+
+    @Transactional
+    @PostMapping("/permissions")
+    public ResponseEntity<Map<String, String>> createPermission(@RequestBody Map<String, Object> body) {
+        authorizationService.createPermission(
+            (String) body.get("permissionCode"),
+            (String) body.getOrDefault("serviceCode", "platform"),
+            (String) body.getOrDefault("scope", "GLOBAL"),
+            (String) body.getOrDefault("displayName", body.get("permissionCode")),
+            (String) body.get("description"),
+            body.get("displayOrder") instanceof Number n ? n.intValue() : 0);
+        return ResponseEntity.ok(Map.of("permissionCode", (String) body.get("permissionCode")));
+    }
+
+    @Transactional
+    @PutMapping("/permissions/{permissionCode}")
+    public ResponseEntity<Void> updatePermission(@PathVariable String permissionCode,
+                                                  @RequestBody Map<String, Object> body) {
+        authorizationService.updatePermission(permissionCode,
+            (String) body.get("displayName"),
+            (String) body.get("description"),
+            body.get("displayOrder") instanceof Number n ? n.intValue() : 0);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/my-global-permissions")
