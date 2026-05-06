@@ -1,6 +1,6 @@
 package com.plm.source;
 
-import com.plm.algorithm.AlgorithmType;
+import com.plm.platform.algorithm.AlgorithmType;
 import com.plm.platform.action.guard.GuardViolation;
 
 import java.util.List;
@@ -13,7 +13,7 @@ import java.util.List;
  * (file system, git, external PLM, ...) plug in by implementing this interface
  * and registering an {@code algorithm_instance} of type {@code algtype-source-resolver}.
  *
- * Implementations are discovered as {@link com.plm.algorithm.AlgorithmBean} beans.
+ * Implementations are discovered as {@link com.plm.platform.algorithm.AlgorithmBean} beans.
  */
 @AlgorithmType(
     id = "algtype-source-resolver",

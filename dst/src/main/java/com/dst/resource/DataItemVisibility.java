@@ -13,12 +13,15 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * Per-action visibility filter for dst data-object items. Mirrors
- * {@link com.plm.node.resource.NodeItemVisibility}'s split: WRITE_DATA
- * gates {@code create}, READ_DATA gates {@code list} and {@code get}.
+ * Per-action visibility filter for dst data-object items.
+ *
+ * DST is a business service: authorization is per project space.
+ * If no project space is active (global context), the item is not visible.
+ * WRITE_DATA gates {@code create}, READ_DATA gates {@code list} and {@code get}.
+ *
  * The resolver pushes a transient {@link DstUserContext} so the
  * platform-lib Casbin aspect on {@link DataPermissionGate} can resolve
- * the caller's identity.
+ * the caller's identity and project space.
  */
 @Component
 @RequiredArgsConstructor
@@ -32,6 +35,9 @@ public class DataItemVisibility implements ItemVisibilityResolver {
         if (context == null) return null;
         if (!"dst".equals(descriptor.serviceCode())) return descriptor;
         if (context.admin()) return descriptor;
+
+        // Business service: items are scoped per project space.
+        if (context.projectSpaceId() == null || context.projectSpaceId().isBlank()) return null;
 
         DstUserContext previous = DstSecurityContext.getOrNull();
         try {

@@ -1,6 +1,6 @@
 package com.plm.node.metamodel.internal.guard;
 
-import com.plm.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.node.lifecycle.internal.guard.LifecycleGuard;
 import com.plm.node.lifecycle.internal.guard.LifecycleGuardContext;
 import com.plm.platform.config.ConfigCache;

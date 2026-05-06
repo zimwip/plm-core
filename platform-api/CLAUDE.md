@@ -35,4 +35,7 @@ GET    /api/platform/admin/secrets      ← administration Vault (MANAGE_SECRETS
 # Endpoints internes (X-Service-Secret)
 POST   /api/platform/internal/settings/register
 DELETE /api/platform/internal/settings/register/{serviceCode}/instances/{instanceId}
+POST   /api/platform/internal/registry/actions
+GET    /api/platform/internal/algorithms/instances       ← psm-admin fetches resolver instances here
+GET    /api/platform/internal/algorithms/by-type?typeId= ← filter instances by algorithm type
 ```

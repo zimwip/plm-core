@@ -1,6 +1,6 @@
 package com.plm.node.lifecycle.internal.stateaction.impl;
 
-import com.plm.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.algorithm.AlgorithmParam;
 import com.plm.shared.metadata.Metadata;
 import com.plm.shared.metadata.MetadataService;

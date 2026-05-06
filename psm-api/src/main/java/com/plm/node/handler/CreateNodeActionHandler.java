@@ -1,6 +1,6 @@
 package com.plm.node.handler;
 
-import com.plm.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.node.NodeService;
 import com.plm.platform.action.ActionContext;
 import com.plm.platform.action.ActionRouteDescriptor;

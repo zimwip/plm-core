@@ -1,8 +1,8 @@
 package com.plm.algorithm.internal;
-import com.plm.algorithm.AlgorithmType;
+import com.plm.platform.algorithm.AlgorithmType;
 import com.plm.algorithm.AlgorithmRegistry;
 import com.plm.algorithm.AlgorithmParam;
-import com.plm.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.AlgorithmConfig;
 import com.plm.platform.config.dto.AlgorithmParameterConfig;

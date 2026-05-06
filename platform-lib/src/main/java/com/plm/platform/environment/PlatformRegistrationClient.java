@@ -4,10 +4,12 @@ import com.plm.platform.nats.NatsListenerFactory;
 import com.plm.platform.spe.dto.RegisterRequest;
 import com.plm.platform.spe.dto.RegistrySnapshot;
 import com.plm.platform.spe.registry.LocalServiceRegistry;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.context.ApplicationContext;
-import org.springframework.context.SmartLifecycle;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -26,8 +28,10 @@ import java.util.Map;
  * backoff) and re-registers periodically so a platform-api restart never
  * leaves us unrouted. On shutdown, best-effort deregister by instanceId.
  *
- * <p>Implements {@link SmartLifecycle} at phase 0 so the initial registration
- * completes synchronously before the web server opens its port (phase Integer.MAX_VALUE-1).
+ * <p>Fires at {@link ApplicationReadyEvent} — after the web server opens its
+ * port — so that platform-api and spe-api can immediately health-check the
+ * registered URL. Registration is attempted synchronously first; if platform-api
+ * is not reachable, a background thread retries with exponential backoff.
  *
  * <p>After successful registration, pulls the current registry snapshot to
  * bootstrap {@link LocalServiceRegistry} for direct service-to-service
@@ -35,7 +39,7 @@ import java.util.Map;
  * ({@code env.global.ENVIRONMENT_CHANGED}) and trigger a fresh HTTP pull.
  */
 @Slf4j
-public class PlatformRegistrationClient implements SmartLifecycle {
+public class PlatformRegistrationClient {
 
     private final PlatformRegistrationProperties props;
     private final RestTemplate rest;
@@ -46,7 +50,6 @@ public class PlatformRegistrationClient implements SmartLifecycle {
 
     private volatile boolean registered = false;
     private volatile String instanceId = null;
-    private volatile boolean running = false;
 
     public PlatformRegistrationClient(PlatformRegistrationProperties props, RestTemplate rest,
                                       LocalServiceRegistry localRegistry, BuildProperties buildProperties,
@@ -60,46 +63,15 @@ public class PlatformRegistrationClient implements SmartLifecycle {
         this.version = buildProperties != null ? buildProperties.getVersion() : "unknown";
     }
 
-    // ---- SmartLifecycle ----
-
-    @Override
-    public void start() {
-        running = true;
+    @EventListener(ApplicationReadyEvent.class)
+    public void onReady() {
         assertControllerPathsNotHardcoded();
         subscribeNatsEvents();
-        // Try synchronously: platform-api may not be in depends_on, so fall back to background on failure.
+        // Try synchronously (web server is already open): platform-api can health-check immediately.
         if (!registerSync()) {
             new Thread(this::attemptWithBackoff, "platform-registration").start();
         }
     }
-
-    @Override
-    public void stop() {
-        running = false;
-        if (instanceId == null) return;
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Service-Secret", props.serviceSecret());
-            rest.exchange(
-                props.platformUrl() + props.registrationPath() + "/" + props.serviceCode() + "/instances/" + instanceId,
-                HttpMethod.DELETE, new HttpEntity<>(headers), Void.class);
-            log.info("Deregistered instance {} from platform-api", instanceId);
-        } catch (Exception e) {
-            log.debug("Deregistration best-effort: {}", e.getMessage());
-        }
-    }
-
-    @Override
-    public boolean isRunning() {
-        return running;
-    }
-
-    @Override
-    public int getPhase() {
-        return 0; // Before web server (WebServerStartStopLifecycle runs at Integer.MAX_VALUE - 1)
-    }
-
-    // ---- Registration ----
 
     private boolean registerSync() {
         long[] backoffMs = { 500L, 1_000L, 2_000L, 4_000L, 8_000L };
@@ -241,6 +213,21 @@ public class PlatformRegistrationClient implements SmartLifecycle {
             }
         } catch (Exception e) {
             log.warn("Failed to pull registry snapshot: {}", e.getMessage());
+        }
+    }
+
+    @PreDestroy
+    public void onShutdown() {
+        if (instanceId == null) return;
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Service-Secret", props.serviceSecret());
+            rest.exchange(
+                props.platformUrl() + props.registrationPath() + "/" + props.serviceCode() + "/instances/" + instanceId,
+                HttpMethod.DELETE, new HttpEntity<>(headers), Void.class);
+            log.info("Deregistered instance {} from platform-api", instanceId);
+        } catch (Exception e) {
+            log.debug("Deregistration best-effort: {}", e.getMessage());
         }
     }
 }

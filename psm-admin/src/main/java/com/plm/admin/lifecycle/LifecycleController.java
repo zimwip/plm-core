@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Admin CRUD API for lifecycles, states, transitions, and signature requirements.
+ * Admin CRUD API for lifecycles, states, transitions, signature requirements, and transition guards.
  */
 @RestController
 @RequestMapping("/metamodel/lifecycles")
@@ -17,6 +17,7 @@ import java.util.Map;
 public class LifecycleController {
 
     private final LifecycleService lifecycleService;
+    private final LifecycleGuardService lifecycleGuardService;
 
     @GetMapping
     public ResponseEntity<?> getAllLifecycles() {
@@ -149,6 +150,37 @@ public class LifecycleController {
     @DeleteMapping("/transitions/{transId}/signature-requirements/{reqId}")
     public ResponseEntity<?> removeSignatureRequirement(@PathVariable String transId, @PathVariable String reqId) {
         lifecycleService.removeSignatureRequirement(reqId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ── Lifecycle transition guards (tier 2 — lifecycle_transition_guard) ──
+
+    @GetMapping("/transitions/{transId}/guards")
+    public ResponseEntity<List<Map<String, Object>>> listTransitionGuards(@PathVariable String transId) {
+        return ResponseEntity.ok(lifecycleGuardService.listGuards(transId));
+    }
+
+    @PostMapping("/transitions/{transId}/guards")
+    public ResponseEntity<Map<String, String>> attachTransitionGuard(
+            @PathVariable String transId, @RequestBody Map<String, Object> body) {
+        int order = body.get("displayOrder") instanceof Number n ? n.intValue() : 0;
+        String id = lifecycleGuardService.attachGuard(transId,
+            (String) body.get("instanceId"),
+            (String) body.getOrDefault("effect", "BLOCK"),
+            order);
+        return ResponseEntity.ok(Map.of("id", id));
+    }
+
+    @PutMapping("/transitions/guards/{guardId}")
+    public ResponseEntity<Void> updateTransitionGuard(
+            @PathVariable String guardId, @RequestBody Map<String, Object> body) {
+        lifecycleGuardService.updateGuardEffect(guardId, (String) body.get("effect"));
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/transitions/guards/{guardId}")
+    public ResponseEntity<Void> detachTransitionGuard(@PathVariable String guardId) {
+        lifecycleGuardService.detachGuard(guardId);
         return ResponseEntity.noContent().build();
     }
 }

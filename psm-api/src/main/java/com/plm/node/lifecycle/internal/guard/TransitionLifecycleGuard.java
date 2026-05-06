@@ -2,7 +2,7 @@ package com.plm.node.lifecycle.internal.guard;
 
 import com.plm.action.guard.ActionGuard;
 import com.plm.platform.action.guard.ActionGuardContext;
-import com.plm.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.platform.action.guard.GuardEvaluation;
 import com.plm.platform.action.guard.GuardViolation;
 import lombok.RequiredArgsConstructor;

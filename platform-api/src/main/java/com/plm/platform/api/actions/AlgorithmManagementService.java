@@ -45,7 +45,8 @@ public class AlgorithmManagementService {
     }
 
     public List<Map<String, Object>> listAllInstances(String serviceCode) {
-        String sql = "SELECT ai.*, a.code AS algorithm_code, a.name AS algorithm_name, t.name AS type_name, t.id AS algorithm_type_id " +
+        String sql = "SELECT ai.*, a.code AS algorithm_code, a.name AS algorithm_name, " +
+                     "a.module_name AS module_name, t.name AS type_name, t.id AS algorithm_type_id " +
                      "FROM algorithm_instance ai " +
                      "JOIN algorithm a ON a.id = ai.algorithm_id " +
                      "JOIN algorithm_type t ON t.id = a.algorithm_type_id";
@@ -107,9 +108,9 @@ public class AlgorithmManagementService {
         return MapKeyUtil.camelize(dsl.fetch(
             "SELECT aw.*, ai.name AS instance_name, a.code AS algorithm_code, a.name AS algorithm_name, t.name AS type_name " +
             "FROM action_wrapper aw " +
-            "JOIN algorithm_instance ai ON ai.id = aw.algorithm_instance_id " +
-            "JOIN algorithm a ON a.id = ai.algorithm_id " +
-            "JOIN algorithm_type t ON t.id = a.algorithm_type_id " +
+            "LEFT JOIN algorithm_instance ai ON ai.id = aw.algorithm_instance_id " +
+            "LEFT JOIN algorithm a ON a.id = ai.algorithm_id " +
+            "LEFT JOIN algorithm_type t ON t.id = a.algorithm_type_id " +
             "WHERE aw.action_id = ? ORDER BY aw.execution_order", actionId).intoMaps());
     }
 
@@ -128,47 +129,25 @@ public class AlgorithmManagementService {
         publishChange("DELETE", "ACTION_WRAPPER", wrapperId);
     }
 
-    // Lifecycle-transition guards
+    // Lifecycle-transition guards — table moved to psm-admin (V11).
+    // CRUD is now handled by psm-admin LifecycleGuardService; these stubs prevent 500s on direct calls.
 
     public List<Map<String, Object>> listTransitionGuards(String transitionId, String serviceCode) {
-        String sql = "SELECT ltg.*, ai.name AS instance_name, " +
-            "a.code AS algorithm_code, a.name AS algorithm_name, " +
-            "a.module_name AS module_name, t.name AS type_name " +
-            "FROM lifecycle_transition_guard ltg " +
-            "JOIN algorithm_instance ai ON ai.id = ltg.algorithm_instance_id " +
-            "JOIN algorithm a ON a.id = ai.algorithm_id " +
-            "JOIN algorithm_type t ON t.id = a.algorithm_type_id " +
-            "WHERE ltg.lifecycle_transition_id = ?";
-        if (serviceCode != null && !serviceCode.isBlank())
-            return MapKeyUtil.camelize(dsl.fetch(sql + " AND ltg.service_code = ? ORDER BY ltg.display_order",
-                transitionId, serviceCode).intoMaps());
-        return MapKeyUtil.camelize(dsl.fetch(sql + " ORDER BY ltg.display_order", transitionId).intoMaps());
+        return List.of();
     }
 
     @Transactional
     public String attachTransitionGuard(String transitionId, String instanceId,
                                         String effect, int displayOrder, String serviceCode) {
-        String id = UUID.randomUUID().toString();
-        dsl.execute(
-            "INSERT INTO lifecycle_transition_guard (id, service_code, lifecycle_transition_id, algorithm_instance_id, effect, display_order) VALUES (?,?,?,?,?,?)",
-            id, serviceCode, transitionId, instanceId, effect, displayOrder);
-        publishChange("CREATE", "LIFECYCLE_TRANSITION_GUARD", id);
-        return id;
+        return UUID.randomUUID().toString();
     }
 
     @Transactional
     public void updateTransitionGuardEffect(String guardId, String effect) {
-        if (effect == null || (!effect.equals("HIDE") && !effect.equals("BLOCK")))
-            throw new IllegalArgumentException("effect must be HIDE or BLOCK");
-        int rows = dsl.execute("UPDATE lifecycle_transition_guard SET effect = ? WHERE id = ?", effect, guardId);
-        if (rows == 0) throw new IllegalArgumentException("Unknown transition guard: " + guardId);
-        publishChange("UPDATE", "LIFECYCLE_TRANSITION_GUARD", guardId);
     }
 
     @Transactional
     public void detachTransitionGuard(String guardId) {
-        dsl.execute("DELETE FROM lifecycle_transition_guard WHERE id = ?", guardId);
-        publishChange("DELETE", "LIFECYCLE_TRANSITION_GUARD", guardId);
     }
 
     // Stats

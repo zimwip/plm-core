@@ -1,7 +1,7 @@
 package com.plm.node.signature.internal.guard;
 import com.plm.platform.action.guard.ActionGuardContext;
 
-import com.plm.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.action.guard.ActionGuard;
 import com.plm.platform.action.guard.GuardEffect;
 import com.plm.platform.action.guard.GuardViolation;

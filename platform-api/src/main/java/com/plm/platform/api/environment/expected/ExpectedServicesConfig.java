@@ -90,7 +90,7 @@ public class ExpectedServicesConfig {
             payload.put("revision", rev);
             payload.put("changedAt", Instant.now().toString());
             payload.put("expectedServices", getExpected());
-            bus.sendGlobal("EXPECTED_SERVICES_CHANGED", payload);
+            bus.sendEnvGlobal("EXPECTED_SERVICES_CHANGED", payload);
         } catch (Exception e) {
             log.warn("Failed to publish EXPECTED_SERVICES_CHANGED: {}", e.getMessage());
         }

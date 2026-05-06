@@ -51,17 +51,15 @@ export default function NodeEditor({
   const [pbsLoaded,   setPbsLoaded]  = useState(false);
   const [linkPanel,       setLinkPanel]      = useState(false);
   const [linkTypes,       setLinkTypes]      = useState([]);
-  const [allNodes,        setAllNodes]       = useState([]);
   const [sourcesById,     setSourcesById]    = useState({});
   const [selLinkType,     setSelLinkType]    = useState('');
-  const [selTarget,       setSelTarget]      = useState('');
   const [selTargetKey,    setSelTargetKey]   = useState('');
   const [keySuggestions,  setKeySuggestions] = useState([]);
   const [linkLogicalId,   setLinkLogicalId]  = useState('');
   const [linkLoading,     setLinkLoading]    = useState(false);
-  const [editingLinkId,    setEditingLinkId]    = useState(null);
-  const [editLinkLogId,    setEditLinkLogId]    = useState('');
-  const [editLinkTargetId, setEditLinkTargetId] = useState('');
+  const [editingLinkId,     setEditingLinkId]     = useState(null);
+  const [editLinkLogId,     setEditLinkLogId]     = useState('');
+  const [editLinkTargetKey, setEditLinkTargetKey] = useState('');
   const [deletingLinkId,   setDeletingLinkId]   = useState(null);
   const [linkActLoading,   setLinkActLoading]   = useState(false);
 
@@ -86,7 +84,6 @@ export default function NodeEditor({
   const refreshAll         = usePlmStore(s => s.refreshAll);
   const refreshNodes       = usePlmStore(s => s.refreshNodes);
   const refreshTx          = usePlmStore(s => s.refreshTx);
-  const storeNodes         = usePlmStore(s => s.nodes);
 
   const txId = tx?.ID || tx?.id || null;
 
@@ -236,8 +233,7 @@ export default function NodeEditor({
   async function openLinkPanel(preselect = null) {
     // preselect: { nodeId, nodeTypeId, logicalId, typeName } from drag-and-drop
     setSelLinkType('');
-    setSelTarget(preselect?.nodeId || '');
-    setSelTargetKey('');
+    setSelTargetKey(preselect?.logicalId || '');
     setKeySuggestions([]);
     setLinkLogicalId('');
     try {
@@ -245,7 +241,6 @@ export default function NodeEditor({
         api.getNodeTypeLinkTypes(userId, desc.nodeTypeId).catch(() => []),
         api.getSources(userId).catch(() => []),
       ]);
-      const nodes = storeNodes;
 
       let filteredLts = Array.isArray(lts) ? lts : [];
 
@@ -263,7 +258,6 @@ export default function NodeEditor({
       }
 
       setLinkTypes(filteredLts);
-      setAllNodes(nodes.filter(n => (n.id || n.ID) !== nodeId));
       const byId = {};
       (Array.isArray(srcs) ? srcs : []).forEach(s => { byId[s.id] = s; });
       setSourcesById(byId);
@@ -289,19 +283,8 @@ export default function NodeEditor({
     const targetType = lt?.target_type     || lt?.TARGET_TYPE     || null;
     const isSelfSource = sourceId === 'SELF';
 
-    // SELF sources still pick from the in-memory node list (logical_id is the key).
-    // Non-SELF sources collect a free-text / autocomplete key from selTargetKey
-    // and forward (source, type, key) explicitly so the resolver can validate it.
-    let targetKey;
-    if (isSelfSource) {
-      if (!selTarget) return;
-      const tgt = allNodes.find(n => (n.id || n.ID) === selTarget);
-      targetKey = tgt?.logical_id || tgt?.LOGICAL_ID;
-      if (!targetKey) { toast(new Error('Target node has no logical_id'), 'error'); return; }
-    } else {
-      if (!selTargetKey) return;
-      targetKey = selTargetKey;
-    }
+    if (!selTargetKey) return;
+    const targetKey = selTargetKey;
 
     setLinkLoading(true);
     try {
@@ -334,20 +317,14 @@ export default function NodeEditor({
     } finally { setLinkLoading(false); }
   }
 
-  async function handleUpdateLink(linkId, newLogicalId, newTargetNodeId) {
+  async function handleUpdateLink(linkId, newLogicalId, newTargetKey) {
     const updateLinkAction = desc.actions?.find(a => a.actionCode === 'update_link');
     if (!updateLinkAction) return;
     setLinkActLoading(true);
     try {
       const activeTxId = txId || await onAutoOpenTx();
       if (!activeTxId) return;
-      // newTargetNodeId is a node id (legacy); resolve to logical_id and send as targetKey.
-      let targetKey;
-      if (newTargetNodeId) {
-        const tgt = allNodes.find(n => (n.id || n.ID) === newTargetNodeId);
-        targetKey = tgt?.logical_id || tgt?.LOGICAL_ID || newTargetNodeId;
-      }
-      const updateLinkParams = { linkId, logicalId: newLogicalId, targetKey };
+      const updateLinkParams = { linkId, logicalId: newLogicalId, ...(newTargetKey ? { targetKey: newTargetKey } : {}) };
       await (updateLinkAction.path
         ? authoringApi.executeViaDescriptor(updateLinkAction, nodeId, userId, activeTxId, updateLinkParams)
         : authoringApi.executeAction(nodeId, updateLinkAction.actionCode, userId, activeTxId, updateLinkParams));
@@ -1046,7 +1023,7 @@ export default function NodeEditor({
             const ltIdLabel      = selectedLt?.link_logical_id_label  || selectedLt?.LINK_LOGICAL_ID_LABEL  || 'Link ID';
             const ltIdPattern    = selectedLt?.link_logical_id_pattern || selectedLt?.LINK_LOGICAL_ID_PATTERN || null;
             const patternOk      = !ltIdPattern || !linkLogicalId || new RegExp(`^(?:${ltIdPattern})$`).test(linkLogicalId);
-            const targetReady    = isSelfSource ? !!selTarget : !!selTargetKey;
+            const targetReady    = !!selTargetKey;
             return (
               <div ref={linkPanelRef} className="link-panel" style={{ flexWrap: 'wrap', rowGap: 6 }}>
                 {!txId && (
@@ -1079,53 +1056,34 @@ export default function NodeEditor({
                         — source: {ltSource.name}{ltSource.versioned ? '' : ' (immutable)'}
                       </span> : null}
                     </label>
-                    {isSelfSource ? (
-                      <select
+                    <>
+                      <input
                         className="field-input"
-                        value={selTarget}
-                        onChange={e => setSelTarget(e.target.value)}
-                      >
-                        <option value="">— select —</option>
-                        {allNodes.map(n => {
-                          const nid  = n.id  || n.ID;
-                          const lid  = n.logical_id  || n.LOGICAL_ID  || '';
-                          const type = n.node_type_name || n.NODE_TYPE_NAME || '';
-                          const rev  = n.revision  || n.REVISION  || '';
-                          const iter = n.iteration ?? n.ITERATION ?? '';
-                          return (
-                            <option key={nid} value={nid}>
-                              {lid || nid.slice(0, 8)} — {type} {iter === 0 ? rev : `${rev}.${iter}`}
+                        list={`src-keys-${ltSourceId}`}
+                        type="text"
+                        placeholder={
+                          isSelfSource
+                            ? (ltTargetType ? `Search ${ltTargetType} by logical ID…` : 'Search by logical ID…')
+                            : (ltTargetType ? `${ltTargetType} key (UUID, path, …)` : 'Target key')
+                        }
+                        value={selTargetKey}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setSelTargetKey(v);
+                          loadKeySuggestions(ltSourceId, ltTargetType, v);
+                        }}
+                        onFocus={() => loadKeySuggestions(ltSourceId, ltTargetType, selTargetKey)}
+                      />
+                      {keySuggestions.length > 0 && (
+                        <datalist id={`src-keys-${ltSourceId}`}>
+                          {keySuggestions.map(s => (
+                            <option key={s.key || s.KEY} value={s.key || s.KEY}>
+                              {s.label || s.LABEL || s.key || s.KEY}
                             </option>
-                          );
-                        })}
-                      </select>
-                    ) : (
-                      <>
-                        <input
-                          className="field-input"
-                          list={`src-keys-${ltSourceId}`}
-                          type="text"
-                          placeholder={ltTargetType ? `${ltTargetType} key (UUID, path, …)` : 'Target key'}
-                          value={selTargetKey}
-                          onChange={e => {
-                            const v = e.target.value;
-                            setSelTargetKey(v);
-                            if (v.length >= 1) loadKeySuggestions(ltSourceId, ltTargetType, v);
-                            else setKeySuggestions([]);
-                          }}
-                          onFocus={() => loadKeySuggestions(ltSourceId, ltTargetType, selTargetKey)}
-                        />
-                        {keySuggestions.length > 0 && (
-                          <datalist id={`src-keys-${ltSourceId}`}>
-                            {keySuggestions.map(s => (
-                              <option key={s.key || s.KEY} value={s.key || s.KEY}>
-                                {s.label || s.LABEL || s.key || s.KEY}
-                              </option>
-                            ))}
-                          </datalist>
-                        )}
-                      </>
-                    )}
+                          ))}
+                        </datalist>
+                      )}
+                    </>
                   </div>
 
                   {ltPolicy && (
@@ -1231,19 +1189,14 @@ export default function NodeEditor({
                       <td style={{ color: 'var(--muted)', fontSize: 12 }}>{c.targetNodeType}</td>
                       <td style={{ fontFamily: 'var(--sans)', fontSize: 13 }}>
                         {isEditing ? (
-                          <select
+                          <input
                             className="field-input"
                             style={{ padding: '2px 4px', fontSize: 12, minWidth: 120 }}
-                            value={editLinkTargetId}
-                            onChange={e => setEditLinkTargetId(e.target.value)}
-                          >
-                            {allNodes.map(n => {
-                              const nid = n.id || n.ID;
-                              const lid = n.logical_id || n.LOGICAL_ID || nid.slice(0, 8);
-                              const typ = n.node_type_name || n.NODE_TYPE_NAME || '';
-                              return <option key={nid} value={nid}>{lid} {typ && `(${typ})`}</option>;
-                            })}
-                          </select>
+                            type="text"
+                            placeholder="target key…"
+                            value={editLinkTargetKey}
+                            onChange={e => setEditLinkTargetKey(e.target.value)}
+                          />
                         ) : (
                           c.targetLogicalId || <span style={{ opacity: .4 }}>{c.targetNodeId?.slice(0, 8)}…</span>
                         )}
@@ -1276,8 +1229,8 @@ export default function NodeEditor({
                             <span style={{ display: 'flex', gap: 4 }}>
                               <button className="btn btn-sm btn-success"
                                 style={{ padding: '1px 6px', fontSize: 11 }}
-                                disabled={linkActLoading || !editLinkTargetId}
-                                onClick={() => handleUpdateLink(c.linkId, editLinkLogId, editLinkTargetId)}>✓</button>
+                                disabled={linkActLoading}
+                                onClick={() => handleUpdateLink(c.linkId, editLinkLogId, editLinkTargetKey)}>✓</button>
                               <button className="btn btn-sm"
                                 style={{ padding: '1px 6px', fontSize: 11 }}
                                 onClick={() => setEditingLinkId(null)}>✕</button>
@@ -1288,14 +1241,11 @@ export default function NodeEditor({
                                 <button className="btn btn-sm"
                                   style={{ padding: '1px 6px', fontSize: 11 }}
                                   title="Edit link"
-                                  onClick={async () => {
+                                  onClick={() => {
                                     setEditingLinkId(c.linkId);
                                     setEditLinkLogId(c.linkLogicalId || '');
-                                    setEditLinkTargetId(c.targetNodeId || '');
+                                    setEditLinkTargetKey(c.targetLogicalId || c.targetKey || '');
                                     setDeletingLinkId(null);
-                                    if (allNodes.length === 0) {
-                                      setAllNodes(storeNodes.filter(n => (n.id || n.ID) !== nodeId));
-                                    }
                                   }}>
                                   ✎
                                 </button>

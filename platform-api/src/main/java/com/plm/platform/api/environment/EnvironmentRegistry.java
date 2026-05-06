@@ -211,7 +211,7 @@ public class EnvironmentRegistry {
         PlmMessageBus bus = messageBusProvider.getIfAvailable();
         if (bus == null) return;
         try {
-            bus.sendGlobal("ENVIRONMENT_CHANGED", Map.of(
+            bus.sendEnvGlobal("ENVIRONMENT_CHANGED", Map.of(
                 "revision", rev,
                 "changedAt", Instant.now().toString()
             ));

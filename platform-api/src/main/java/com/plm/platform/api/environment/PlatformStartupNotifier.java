@@ -34,7 +34,7 @@ public class PlatformStartupNotifier {
             return;
         }
         try {
-            messageBus.sendGlobal("PLATFORM_RESTARTED", Map.of(
+            messageBus.sendEnvGlobal("PLATFORM_RESTARTED", Map.of(
                 "startedAt", Instant.now().toString()
             ));
             log.info("PLATFORM_RESTARTED event published on NATS");

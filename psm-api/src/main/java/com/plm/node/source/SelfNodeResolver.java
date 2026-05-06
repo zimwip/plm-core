@@ -1,6 +1,6 @@
 package com.plm.node.source;
 
-import com.plm.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.node.NodeService;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.NodeTypeConfig;
@@ -153,20 +153,52 @@ public class SelfNodeResolver implements SourceResolver {
     public List<KeyHint> suggestKeys(String type, String query, int limit) {
         int max = (limit <= 0 || limit > 100) ? 25 : limit;
         String like = (query == null ? "" : query.trim()) + "%";
-        var rows = dsl.fetch("""
-            SELECT n.logical_id, n.node_type_id
+
+        String typeFilter = (type != null && !type.isBlank()) ? "AND n.node_type_id = ?\n" : "";
+        String sql = """
+            SELECT n.logical_id, n.node_type_id,
+                   nv.revision, nv.iteration, nv.lifecycle_state_id
             FROM node n
+            LEFT JOIN node_version nv ON nv.node_id = n.id
+                AND nv.version_number = (
+                    SELECT MAX(nv2.version_number)
+                    FROM node_version nv2
+                    JOIN plm_transaction pt ON pt.id = nv2.tx_id
+                    WHERE nv2.node_id = n.id AND pt.status = 'COMMITTED'
+                )
             WHERE n.logical_id LIKE ?
-              AND n.node_type_id = ?
+            """ + typeFilter + """
             ORDER BY n.logical_id
             LIMIT ?
-            """, like, type, max);
+            """;
+
+        var rows = (type != null && !type.isBlank())
+            ? dsl.fetch(sql, like, type, max)
+            : dsl.fetch(sql, like, max);
+
         List<KeyHint> hints = new ArrayList<>(rows.size());
         for (Record r : rows) {
-            String lid = r.get("logical_id", String.class);
+            String lid      = r.get("logical_id",        String.class);
+            String nodeType = r.get("node_type_id",      String.class);
+            String revision = r.get("revision",          String.class);
+            Integer iter    = r.get("iteration",         Integer.class);
+            String stateId  = r.get("lifecycle_state_id", String.class);
+
+            String typeName = configCache.getNodeType(nodeType)
+                .map(NodeTypeConfig::name).orElse(nodeType);
+
+            String label = lid + " — " + typeName;
+            if (revision != null) {
+                label += " " + (iter != null && iter > 0 ? revision + "." + iter : revision);
+            }
+            if (stateId != null) label += " [" + stateId + "]";
+
             Map<String, Object> d = new LinkedHashMap<>();
-            d.put("nodeType", r.get("node_type_id", String.class));
-            hints.add(new KeyHint(lid, lid, d));
+            d.put("nodeType", nodeType);
+            if (revision != null) d.put("revision", revision);
+            if (iter != null)     d.put("iteration", iter);
+            if (stateId != null)  d.put("lifecycleStateId", stateId);
+            hints.add(new KeyHint(lid, label, d));
         }
         return hints;
     }

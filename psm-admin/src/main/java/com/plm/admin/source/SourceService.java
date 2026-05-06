@@ -19,7 +19,6 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -37,22 +36,23 @@ public class SourceService {
                          RestTemplateBuilder restBuilder,
                          @Value("${plm.settings.settings-url:http://platform-api:8084}") String platformUrl,
                          @Value("${plm.auth.service-secret:}") String serviceSecret) {
-        this.dsl           = dsl;
+        this.dsl            = dsl;
         this.eventPublisher = eventPublisher;
-        this.rest          = restBuilder.build();
-        this.platformUrl   = platformUrl;
-        this.serviceSecret = serviceSecret;
+        this.rest           = restBuilder.build();
+        this.platformUrl    = platformUrl;
+        this.serviceSecret  = serviceSecret;
     }
 
     public List<SourceDto> getAll() {
+        Map<String, String> codeByInstanceId = resolverCodeByInstanceId();
         return dsl.fetch("SELECT * FROM source ORDER BY is_builtin DESC, name")
-            .map(this::toDto);
+            .map(r -> toDto(r, codeByInstanceId));
     }
 
     public SourceDto get(String id) {
         Record r = dsl.fetchOne("SELECT * FROM source WHERE id = ?", id);
         if (r == null) throw new IllegalArgumentException("Source not found: " + id);
-        return toDto(r);
+        return toDto(r, resolverCodeByInstanceId());
     }
 
     public List<Map<String, Object>> listResolverInstances() {
@@ -60,7 +60,7 @@ public class SourceService {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Service-Secret", serviceSecret);
             var resp = rest.exchange(
-                platformUrl + "/api/platform/algorithms/instances",
+                platformUrl + "/api/platform/internal/algorithms/instances",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
                 new ParameterizedTypeReference<List<Map<String, Object>>>() {});
@@ -141,20 +141,30 @@ public class SourceService {
         }
     }
 
-    private SourceDto toDto(Record r) {
-        Integer builtin  = r.get("is_builtin",  Integer.class);
+    private SourceDto toDto(Record r, Map<String, String> codeByInstanceId) {
+        Integer builtin   = r.get("is_builtin",  Integer.class);
         Integer versioned = r.get("is_versioned", Integer.class);
+        String instanceId = r.get("resolver_instance_id", String.class);
         return new SourceDto(
-            r.get("id",                   String.class),
-            r.get("name",                 String.class),
-            r.get("description",          String.class),
-            r.get("resolver_instance_id", String.class),
-            null,
+            r.get("id",          String.class),
+            r.get("name",        String.class),
+            r.get("description", String.class),
+            instanceId,
+            instanceId != null ? codeByInstanceId.get(instanceId) : null,
             builtin  != null && builtin  != 0,
             versioned != null && versioned != 0,
             r.get("color", String.class),
             r.get("icon",  String.class)
         );
+    }
+
+    private Map<String, String> resolverCodeByInstanceId() {
+        return listResolverInstances().stream()
+            .filter(m -> m.get("id") != null && m.get("algorithmCode") != null)
+            .collect(java.util.stream.Collectors.toMap(
+                m -> String.valueOf(m.get("id")),
+                m -> String.valueOf(m.get("algorithmCode")),
+                (a, b) -> a));
     }
 
     private void publishChange(String changeType, String entityId) {

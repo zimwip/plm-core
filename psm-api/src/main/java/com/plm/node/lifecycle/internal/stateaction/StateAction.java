@@ -1,6 +1,6 @@
 package com.plm.node.lifecycle.internal.stateaction;
 
-import com.plm.algorithm.AlgorithmType;
+import com.plm.platform.algorithm.AlgorithmType;
 
 /**
  * Algorithm interface for lifecycle state actions.

@@ -120,8 +120,8 @@ public class ActionManagementService {
         return MapKeyUtil.camelize(dsl.fetch(
             "SELECT ag.*, ai.name AS instance_name, alg.code AS algorithm_code, alg.name AS algorithm_name, alg.module_name AS algorithm_module_name " +
             "FROM action_guard ag " +
-            "JOIN algorithm_instance ai ON ai.id = ag.algorithm_instance_id " +
-            "JOIN algorithm alg ON alg.id = ai.algorithm_id " +
+            "LEFT JOIN algorithm_instance ai ON ai.id = ag.algorithm_instance_id " +
+            "LEFT JOIN algorithm alg ON alg.id = ai.algorithm_id " +
             "WHERE ag.action_id = ? ORDER BY ag.display_order", actionId).intoMaps());
     }
 

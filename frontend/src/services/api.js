@@ -849,23 +849,23 @@ export const api = {
   deleteSecret: (userId, key) =>
     platformRequest('DELETE', `/admin/secrets/${encodeURIComponent(key)}`, userId),
 
-  // ── Lifecycle-transition guards (used by LifecyclesSection) ──
+  // ── Lifecycle-transition guards — owned by psm-admin ──
 
   listAllInstances: (userId) =>
     platformRequest('GET', '/algorithms/instances', userId),
 
   listTransitionGuards: (userId, transitionId) =>
-    platformRequest('GET', `/algorithms/transitions/${transitionId}/guards`, userId),
+    adminRequest('GET', `/metamodel/lifecycles/transitions/${transitionId}/guards`, userId),
 
   attachTransitionGuard: (userId, transitionId, instanceId, effect, displayOrder) =>
-    platformRequest('POST', `/algorithms/transitions/${transitionId}/guards`, userId,
+    adminRequest('POST', `/metamodel/lifecycles/transitions/${transitionId}/guards`, userId,
       { instanceId, effect, displayOrder }),
 
   updateTransitionGuard: (userId, guardId, effect) =>
-    platformRequest('PUT', `/algorithms/transitions/guards/${guardId}`, userId, { effect }),
+    adminRequest('PUT', `/metamodel/lifecycles/transitions/guards/${guardId}`, userId, { effect }),
 
   detachTransitionGuard: (userId, guardId) =>
-    platformRequest('DELETE', `/algorithms/transitions/guards/${guardId}`, userId),
+    adminRequest('DELETE', `/metamodel/lifecycles/transitions/guards/${guardId}`, userId),
 };
 
 export const platformActionsApi = {

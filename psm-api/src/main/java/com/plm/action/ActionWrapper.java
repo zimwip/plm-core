@@ -1,6 +1,6 @@
 package com.plm.action;
 
-import com.plm.algorithm.AlgorithmType;
+import com.plm.platform.algorithm.AlgorithmType;
 import com.plm.platform.action.ActionContext;
 import com.plm.platform.action.ActionResult;
 

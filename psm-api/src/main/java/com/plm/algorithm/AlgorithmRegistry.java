@@ -1,6 +1,7 @@
 package com.plm.algorithm;
 import com.plm.PlmApplication;
 import com.plm.algorithm.internal.AlgorithmStats;
+import com.plm.platform.algorithm.AlgorithmBean;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;

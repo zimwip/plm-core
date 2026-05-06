@@ -1,19 +1,26 @@
 package com.plm.platform.action;
 
+import com.plm.platform.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmType;
 import com.plm.platform.nats.NatsListenerFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.util.ClassUtils;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Registers this service's action handlers, guards, and algorithm contributions
@@ -36,6 +43,7 @@ public class ActionCatalogRegistrationClient {
     private final List<com.plm.platform.action.guard.ActionGuard> guards;
     private final List<AlgorithmCatalogContribution> contributions;
     private final NatsListenerFactory natsListenerFactory;
+    private final ApplicationContext appCtx;
 
     private volatile boolean registered = false;
 
@@ -44,7 +52,8 @@ public class ActionCatalogRegistrationClient {
                                            List<ActionHandler> handlers,
                                            List<com.plm.platform.action.guard.ActionGuard> guards,
                                            List<AlgorithmCatalogContribution> contributions,
-                                           NatsListenerFactory natsListenerFactory) {
+                                           NatsListenerFactory natsListenerFactory,
+                                           ApplicationContext appCtx) {
         this.platformUrl = platformUrl;
         this.serviceCode = serviceCode;
         this.serviceSecret = serviceSecret;
@@ -53,6 +62,7 @@ public class ActionCatalogRegistrationClient {
         this.guards = guards;
         this.contributions = contributions;
         this.natsListenerFactory = natsListenerFactory;
+        this.appCtx = appCtx;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -143,7 +153,48 @@ public class ActionCatalogRegistrationClient {
     }
 
     private List<Map<String, Object>> buildContributionEntries() {
-        return contributions.stream().map(c -> {
+        // typeId → contribution map; auto-scanned first, explicit contributions override
+        Map<String, Map<String, Object>> byTypeId = new LinkedHashMap<>();
+
+        // Auto-scan: group all @AlgorithmBean beans by @AlgorithmType on their interfaces
+        if (appCtx != null) {
+            Map<String, List<Map<String, Object>>> algsByType = new LinkedHashMap<>();
+            Map<String, Map<String, Object>> typeMetaByTypeId = new LinkedHashMap<>();
+
+            for (Object bean : appCtx.getBeansWithAnnotation(AlgorithmBean.class).values()) {
+                Class<?> implClass = ClassUtils.getUserClass(bean);
+                AlgorithmBean beanAnn = implClass.getAnnotation(AlgorithmBean.class);
+                if (beanAnn == null) continue;
+
+                String code   = beanAnn.code();
+                String label  = beanAnn.name().isBlank() ? code : beanAnn.name();
+                String module = packageToModule(implClass);
+                Map<String, Object> algEntry = new LinkedHashMap<>();
+                algEntry.put("code", code); algEntry.put("label", label); algEntry.put("module", module);
+
+                for (Class<?> iface : allInterfaces(implClass)) {
+                    for (AlgorithmType at : iface.getAnnotationsByType(AlgorithmType.class)) {
+                        typeMetaByTypeId.computeIfAbsent(at.id(), k -> {
+                            Map<String, Object> m = new LinkedHashMap<>();
+                            m.put("typeId", at.id());
+                            m.put("typeName", at.name());
+                            m.put("javaInterface", iface.getSimpleName());
+                            return m;
+                        });
+                        algsByType.computeIfAbsent(at.id(), k -> new ArrayList<>()).add(algEntry);
+                    }
+                }
+            }
+
+            for (Map.Entry<String, Map<String, Object>> e : typeMetaByTypeId.entrySet()) {
+                Map<String, Object> entry = new LinkedHashMap<>(e.getValue());
+                entry.put("algorithms", algsByType.getOrDefault(e.getKey(), List.of()));
+                byTypeId.put(e.getKey(), entry);
+            }
+        }
+
+        // Explicit AlgorithmCatalogContribution beans override auto-scanned entries
+        for (AlgorithmCatalogContribution c : contributions) {
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("typeId",        c.typeId());
             entry.put("typeName",      c.typeName());
@@ -155,8 +206,19 @@ public class ActionCatalogRegistrationClient {
                 alg.put("module", a.module());
                 return alg;
             }).toList());
-            return entry;
-        }).toList();
+            byTypeId.put(c.typeId(), entry);
+        }
+
+        return List.copyOf(byTypeId.values());
+    }
+
+    private static Set<Class<?>> allInterfaces(Class<?> clazz) {
+        Set<Class<?>> result = new LinkedHashSet<>();
+        for (Class<?> iface : clazz.getInterfaces()) {
+            result.add(iface);
+            result.addAll(allInterfaces(iface));
+        }
+        return result;
     }
 
     // "com.plm.node.handler.CheckoutActionHandler" → "node"

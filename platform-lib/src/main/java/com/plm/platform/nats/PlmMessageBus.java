@@ -11,7 +11,8 @@ import java.nio.charset.StandardCharsets;
  * Central API for publishing messages on the PLM NATS bus.
  *
  * Subject hierarchy:
- *   global.{eventType}                                    → all connected users
+ *   global.{eventType}                                    → all connected users (forwarded to WebSocket by ws-gateway)
+ *   env.global.{eventType}                               → backend broadcast (NOT forwarded to frontend)
  *   project.{projectSpaceId}.users.{userId}.{eventType}   → specific project/user
  *   env.service.{serviceCode}.{eventType}                 → internal service-to-service
  */
@@ -28,10 +29,17 @@ public class PlmMessageBus {
     }
 
     /**
-     * Broadcast to all connected users.
+     * Broadcast to all connected users (forwarded to WebSocket by ws-gateway).
      */
     public void sendGlobal(String eventType, Object payload) {
         publish("global." + eventType, payload);
+    }
+
+    /**
+     * Backend-only broadcast — not forwarded to frontend via ws-gateway.
+     */
+    public void sendEnvGlobal(String eventType, Object payload) {
+        publish("env.global." + eventType, payload);
     }
 
     /**

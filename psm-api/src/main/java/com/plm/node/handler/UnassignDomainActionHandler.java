@@ -2,7 +2,7 @@ package com.plm.node.handler;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.plm.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.node.domain.internal.DomainService;
 import com.plm.node.version.internal.FingerPrintService;
 import com.plm.platform.action.ActionContext;

@@ -1,6 +1,6 @@
 package com.plm.action.guard;
 
-import com.plm.algorithm.AlgorithmType;
+import com.plm.platform.algorithm.AlgorithmType;
 
 /**
  * PSM extension of the platform action guard.

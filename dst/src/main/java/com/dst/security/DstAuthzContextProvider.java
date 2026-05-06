@@ -8,7 +8,6 @@ import java.util.Set;
 
 /**
  * Bridges the dst per-request user context onto the platform-lib enforcer SPI.
- * dst does not have a project-space concept so {@code projectSpaceId} is always null.
  */
 @Component
 public class DstAuthzContextProvider implements AuthzContextProvider {

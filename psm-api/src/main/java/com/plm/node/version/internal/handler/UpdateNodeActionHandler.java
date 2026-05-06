@@ -7,7 +7,7 @@ import com.plm.platform.action.ActionResult;
 import com.plm.node.NodeService;
 import com.plm.node.metamodel.internal.ValidationService;
 import lombok.RequiredArgsConstructor;
-import com.plm.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmBean;
 
 import java.util.HashMap;
 import java.util.List;

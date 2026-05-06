@@ -1,6 +1,6 @@
 package com.plm.node.link.internal.handler;
 
-import com.plm.algorithm.AlgorithmBean;
+import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.node.NodeService;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.LinkTypeConfig;
