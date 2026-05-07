@@ -14,9 +14,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -249,13 +252,62 @@ public class MetaModelService {
         return dsl.select().from("link_type").orderBy(DSL.field("name")).fetch();
     }
 
-    public List<Record> getLinkTypesByNodeType(String nodeTypeId) {
-        return dsl.select().from("link_type")
-            .where("source_node_type_id = ? "
-                 + "OR (target_source_id = 'SELF' AND target_type = ?)",
+    public List<Map<String, Object>> getLinkTypesByNodeType(String nodeTypeId) {
+        List<String> chain = buildNodeTypeAncestorChain(nodeTypeId);
+
+        Set<String> seenNames = new LinkedHashSet<>();
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        // Own links: outgoing (source = this type) + incoming targeting this type
+        List<Record> ownLinks = dsl.select().from("link_type")
+            .where("source_node_type_id = ? OR (target_source_id = 'SELF' AND target_type = ?)",
                    nodeTypeId, nodeTypeId)
             .orderBy(DSL.field("name"))
             .fetch();
+        for (Record lt : ownLinks) {
+            seenNames.add(lt.get("name", String.class));
+            Map<String, Object> m = new LinkedHashMap<>(lt.intoMap());
+            m.put("inherited", false);
+            m.put("inherited_from", null);
+            result.add(m);
+        }
+
+        // Inherited outgoing links from ancestor types (name-wins deduplication)
+        for (String ancestorId : chain) {
+            if (ancestorId.equals(nodeTypeId)) continue;
+            String ancestorName = dsl.select(DSL.field("name"))
+                .from("node_type").where("id = ?", ancestorId)
+                .fetchOne(DSL.field("name"), String.class);
+            List<Record> ancestorLinks = dsl.select().from("link_type")
+                .where("source_node_type_id = ?", ancestorId)
+                .orderBy(DSL.field("name"))
+                .fetch();
+            for (Record lt : ancestorLinks) {
+                String ltName = lt.get("name", String.class);
+                if (!seenNames.add(ltName)) continue;
+                Map<String, Object> m = new LinkedHashMap<>(lt.intoMap());
+                m.put("inherited", true);
+                m.put("inherited_from", ancestorName);
+                result.add(m);
+            }
+        }
+        return result;
+    }
+
+    private List<String> buildNodeTypeAncestorChain(String nodeTypeId) {
+        List<String> chain = new ArrayList<>();
+        Set<String> visited = new LinkedHashSet<>();
+        String current = nodeTypeId;
+        int depth = 0;
+        while (current != null && depth < 50) {
+            if (!visited.add(current)) break;
+            chain.add(current);
+            current = dsl.select(DSL.field("parent_node_type_id"))
+                .from("node_type").where("id = ?", current)
+                .fetchOne(DSL.field("parent_node_type_id"), String.class);
+            depth++;
+        }
+        return chain;
     }
 
     @Transactional
@@ -322,10 +374,13 @@ public class MetaModelService {
                 }
             }
         }
+        String targetType   = (String) params.get("targetNodeTypeId");
+        String targetSource = (String) params.get("targetSourceId");
         dsl.execute("""
             UPDATE link_type SET NAME = ?, DESCRIPTION = ?, LINK_POLICY = ?,
               MIN_CARDINALITY = ?, MAX_CARDINALITY = ?,
-              LINK_LOGICAL_ID_LABEL = ?, LINK_LOGICAL_ID_PATTERN = ?, COLOR = ?, ICON = ?
+              LINK_LOGICAL_ID_LABEL = ?, LINK_LOGICAL_ID_PATTERN = ?, COLOR = ?, ICON = ?,
+              TARGET_TYPE = ?, TARGET_SOURCE_ID = ?
             WHERE ID = ?
             """,
             params.get("name"), params.get("description"), policy,
@@ -334,6 +389,8 @@ public class MetaModelService {
             (pattern != null && !pattern.isBlank()) ? pattern : null,
             (color != null && !color.isBlank()) ? color : null,
             (icon  != null && !icon.isBlank())  ? icon  : null,
+            (targetType != null && !targetType.isBlank()) ? targetType : null,
+            (targetSource != null && !targetSource.isBlank()) ? targetSource : "SELF",
             linkTypeId
         );
         publishChange("UPDATE", "LINK_TYPE", linkTypeId);

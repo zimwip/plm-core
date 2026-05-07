@@ -10,6 +10,7 @@ import com.plm.platform.config.ConfigRegistrationAutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 
 import java.util.List;
@@ -28,6 +29,12 @@ public class PlmActionAutoConfiguration {
     @ConditionalOnMissingBean
     public ActionScopeRegistry actionScopeRegistry(List<ActionScope> scopes) {
         return new ActionScopeRegistry(scopes);
+    }
+
+    @Bean
+    @ConditionalOnBean(ConfigCache.class)
+    public PlmActionValidator plmActionValidator(ApplicationContext ctx, ConfigCache configCache) {
+        return new PlmActionValidator(ctx, configCache);
     }
 
     @Bean

@@ -154,7 +154,13 @@ public class SelfNodeResolver implements SourceResolver {
         int max = (limit <= 0 || limit > 100) ? 25 : limit;
         String like = (query == null ? "" : query.trim()) + "%";
 
-        String typeFilter = (type != null && !type.isBlank()) ? "AND n.node_type_id = ?\n" : "";
+        List<String> typeIds = (type != null && !type.isBlank())
+            ? collectTypeAndDescendants(type)
+            : null;
+
+        String typeFilter = typeIds != null
+            ? "AND n.node_type_id IN (" + "?,".repeat(typeIds.size()).replaceAll(",$", "") + ")\n"
+            : "";
         String sql = """
             SELECT n.logical_id, n.node_type_id,
                    nv.revision, nv.iteration, nv.lifecycle_state_id
@@ -172,9 +178,11 @@ public class SelfNodeResolver implements SourceResolver {
             LIMIT ?
             """;
 
-        var rows = (type != null && !type.isBlank())
-            ? dsl.fetch(sql, like, type, max)
-            : dsl.fetch(sql, like, max);
+        List<Object> params = new ArrayList<>();
+        params.add(like);
+        if (typeIds != null) params.addAll(typeIds);
+        params.add(max);
+        var rows = dsl.fetch(sql, params.toArray());
 
         List<KeyHint> hints = new ArrayList<>(rows.size());
         for (Record r : rows) {
@@ -233,6 +241,17 @@ public class SelfNodeResolver implements SourceResolver {
             current = configCache.getNodeType(current).map(NodeTypeConfig::parentNodeTypeId).orElse(null);
         }
         return false;
+    }
+
+    private List<String> collectTypeAndDescendants(String typeId) {
+        List<String> result = new ArrayList<>();
+        result.add(typeId);
+        for (NodeTypeConfig nt : configCache.getAllNodeTypes()) {
+            if (typeId.equals(nt.parentNodeTypeId())) {
+                result.addAll(collectTypeAndDescendants(nt.id()));
+            }
+        }
+        return result;
     }
 
     /**

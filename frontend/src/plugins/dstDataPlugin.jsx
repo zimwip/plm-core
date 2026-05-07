@@ -45,10 +45,45 @@ function DstNavRow({ descriptor, item, ctx, isActive }) {
   );
 }
 
+function DstLinkRow({ link, isEditing, editTargetKey, onEditTargetKey }) {
+  if (isEditing) {
+    return (
+      <input
+        className="field-input"
+        style={{ padding: '2px 4px', fontSize: 12, minWidth: 180 }}
+        type="text"
+        placeholder="File UUID…"
+        value={editTargetKey}
+        onChange={e => onEditTargetKey(e.target.value)}
+      />
+    );
+  }
+  const details = link.targetDetails || {};
+  const name = link.displayKey || link.targetKey || '—';
+  const ct   = details.contentType || '';
+  const sz   = details.sizeBytes != null ? prettySize(details.sizeBytes) : null;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 500 }}>{name}</span>
+      {ct && (
+        <span style={{ fontSize: 10, color: 'var(--muted)', background: 'var(--surface)',
+          border: '1px solid var(--border)', padding: '1px 5px', borderRadius: 3 }}>
+          {ct}
+        </span>
+      )}
+      {sz && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)' }}>{sz}</span>}
+      {link.resolverError && (
+        <span style={{ fontSize: 11, color: 'var(--danger, #e05252)' }} title={link.resolverError}>⚠</span>
+      )}
+    </span>
+  );
+}
+
 export const dstDataPlugin = {
   match: { serviceCode: 'dst', itemCode: 'data-object' },
   name: 'dst-data',
   NavRow: DstNavRow,
+  LinkRow: DstLinkRow,
   Editor: GenericDetailEditor,
   hasItemChildren: () => false,
 };

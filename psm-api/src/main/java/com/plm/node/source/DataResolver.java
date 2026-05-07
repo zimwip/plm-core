@@ -17,6 +17,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Source resolver that targets binary blobs hosted in the dst service.
@@ -78,9 +79,29 @@ public class DataResolver implements SourceResolver {
 
     @Override
     public List<KeyHint> suggestKeys(String type, String query, int limit) {
-        // dst doesn't expose a list/search endpoint — picker UI for files relies on
-        // free-text input of the UUID returned at upload time.
-        return List.of();
+        try {
+            List<Map<String, Object>> files = serviceClient.get(
+                DST_SERVICE_CODE,
+                "/api/dst/data?size=" + limit,
+                new ParameterizedTypeReference<List<Map<String, Object>>>() {});
+            if (files == null) return List.of();
+            String q = query != null ? query.toLowerCase() : "";
+            return files.stream()
+                .filter(f -> q.isEmpty() ||
+                    Objects.toString(f.get("originalName"), "").toLowerCase().contains(q))
+                .limit(limit)
+                .map(f -> {
+                    String key  = Objects.toString(f.get("id"), "");
+                    String name = Objects.toString(f.get("originalName"), key);
+                    String ct   = Objects.toString(f.get("contentType"), "");
+                    long sz     = f.get("sizeBytes") instanceof Number n ? n.longValue() : 0L;
+                    return new KeyHint(key, name, Map.of("contentType", ct, "sizeBytes", sz));
+                })
+                .toList();
+        } catch (Exception e) {
+            log.warn("suggestKeys: dst list failed: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     @Override

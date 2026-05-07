@@ -12,7 +12,7 @@ import com.plm.platform.config.dto.LifecycleTransitionConfig;
 import com.plm.platform.authz.PermissionCatalogPort;
 import com.plm.platform.authz.PolicyPort;
 import com.plm.platform.action.guard.GuardEvaluation;
-import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.algorithm.AlgorithmRegistry;
 import com.plm.shared.action.ActionHandler;
 import com.plm.shared.security.SecurityContextPort;
 import lombok.RequiredArgsConstructor;

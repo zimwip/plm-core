@@ -1,7 +1,7 @@
 package com.plm.action.internal;
 
-import com.plm.action.ActionWrapper;
-import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.action.ActionWrapper;
+import com.plm.platform.algorithm.AlgorithmRegistry;
 import com.plm.platform.action.ActionContext;
 import com.plm.platform.action.ActionResult;
 import com.plm.platform.action.ActionScope;

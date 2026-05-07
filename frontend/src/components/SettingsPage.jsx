@@ -806,6 +806,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
   const [links,      setLinks]      = useState({});
   const [loading,    setLoading]    = useState(true);
   const [lifecycles, setLifecycles] = useState([]);
+  const [sources,    setSources]    = useState([]);
   const [modal,      setModal]      = useState(null); // { type, ctx }
   const [form,       setForm]       = useState({});
   const [saving,     setSaving]     = useState(false);
@@ -817,6 +818,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
   useEffect(() => {
     loadTypes().finally(() => setLoading(false));
     api.getLifecycles(userId).then(d => setLifecycles(Array.isArray(d) ? d : []));
+    api.getSourcesAdmin(userId).then(d => setSources(Array.isArray(d) ? d : []));
   }, [userId]);
 
   useWebSocket(
@@ -940,10 +942,13 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
         setAttrs(s => ({ ...s, [ctx.nodeTypeId]: Array.isArray(updated) ? updated : [] }));
 
       } else if (type === 'create-link') {
+        const tgtSrc = form.targetSourceId || 'SELF';
+        const tgtType = tgtSrc === 'SELF' ? (form.targetNodeTypeId || null) : (form.targetType || null);
         await api.createLinkType(userId, {
           name:             form.name?.trim(),
           sourceNodeTypeId: ctx.nodeTypeId,
-          targetNodeTypeId: form.targetNodeTypeId,
+          targetSourceId:   tgtSrc,
+          targetType:       tgtType,
           linkPolicy:       form.linkPolicy || 'VERSION_TO_MASTER',
           minCardinality:   Number(form.minCardinality) || 0,
           maxCardinality:   form.maxCardinality !== '' ? Number(form.maxCardinality) : null,
@@ -953,13 +958,17 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
         setLinks(s => ({ ...s, [ctx.nodeTypeId]: Array.isArray(updated) ? updated : [] }));
 
       } else if (type === 'edit-link') {
+        const eSrc = form.targetSourceId || 'SELF';
+        const eType = eSrc === 'SELF' ? (form.targetNodeTypeId || null) : (form.targetType || null);
         await api.updateLinkType(userId, ctx.linkTypeId, {
-          name:           form.name?.trim(),
-          description:    form.description?.trim() || null,
-          linkPolicy:     form.linkPolicy || 'VERSION_TO_MASTER',
-          minCardinality: Number(form.minCardinality) || 0,
-          maxCardinality: form.maxCardinality !== '' && form.maxCardinality != null ? Number(form.maxCardinality) : null,
-          color:          form.color || null,
+          name:             form.name?.trim(),
+          description:      form.description?.trim() || null,
+          linkPolicy:       form.linkPolicy || 'VERSION_TO_MASTER',
+          minCardinality:   Number(form.minCardinality) || 0,
+          maxCardinality:   form.maxCardinality !== '' && form.maxCardinality != null ? Number(form.maxCardinality) : null,
+          color:            form.color || null,
+          targetSourceId:   eSrc,
+          targetNodeTypeId: eType,
         });
         const updated = await api.getNodeTypeLinkTypes(userId, ctx.nodeTypeId);
         setLinks(s => ({ ...s, [ctx.nodeTypeId]: Array.isArray(updated) ? updated : [] }));
@@ -1173,12 +1182,24 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
             <Field label="Link Name *">
               <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. composed_of" />
             </Field>
-            <Field label="Target Node Type *">
-              <select className="field-input" value={form.targetNodeTypeId || ''} onChange={e => setForm(f => ({ ...f, targetNodeTypeId: e.target.value }))}>
-                <option value="">Select…</option>
-                {types.map(t => { const tid = t.id || t.ID; return <option key={tid} value={tid}>{t.name || t.NAME || tid}</option>; })}
+            <Field label="Target Source">
+              <select className="field-input" value={form.targetSourceId || 'SELF'} onChange={e => setForm(f => ({ ...f, targetSourceId: e.target.value, targetNodeTypeId: '', targetType: '' }))}>
+                <option value="SELF">Self (PSM)</option>
+                {sources.filter(s => (s.id || s.ID) !== 'SELF').map(s => { const sid = s.id || s.ID; return <option key={sid} value={sid}>{s.name || s.NAME || sid}</option>; })}
               </select>
             </Field>
+            {(!form.targetSourceId || form.targetSourceId === 'SELF') ? (
+              <Field label="Target Node Type">
+                <select className="field-input" value={form.targetNodeTypeId || ''} onChange={e => setForm(f => ({ ...f, targetNodeTypeId: e.target.value }))}>
+                  <option value="">Any</option>
+                  {types.map(t => { const tid = t.id || t.ID; return <option key={tid} value={tid}>{t.name || t.NAME || tid}</option>; })}
+                </select>
+              </Field>
+            ) : (
+              <Field label="Target Type">
+                <input className="field-input" value={form.targetType || ''} onChange={e => setForm(f => ({ ...f, targetType: e.target.value }))} placeholder="Type name in source" />
+              </Field>
+            )}
             <Field label="Link Policy">
               <select className="field-input" value={form.linkPolicy || 'VERSION_TO_MASTER'} onChange={e => setForm(f => ({ ...f, linkPolicy: e.target.value }))}>
                 {LINK_POLICIES.map(p => <option key={p} value={p}>{p}</option>)}
@@ -1207,6 +1228,24 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
             <Field label="Description">
               <input className="field-input" value={form.description || ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional description" />
             </Field>
+            <Field label="Target Source">
+              <select className="field-input" value={form.targetSourceId || 'SELF'} onChange={e => setForm(f => ({ ...f, targetSourceId: e.target.value, targetNodeTypeId: '', targetType: '' }))}>
+                <option value="SELF">Self (PSM)</option>
+                {sources.filter(s => (s.id || s.ID) !== 'SELF').map(s => { const sid = s.id || s.ID; return <option key={sid} value={sid}>{s.name || s.NAME || sid}</option>; })}
+              </select>
+            </Field>
+            {(!form.targetSourceId || form.targetSourceId === 'SELF') ? (
+              <Field label="Target Node Type">
+                <select className="field-input" value={form.targetNodeTypeId || ''} onChange={e => setForm(f => ({ ...f, targetNodeTypeId: e.target.value }))}>
+                  <option value="">Any</option>
+                  {types.map(t => { const tid = t.id || t.ID; return <option key={tid} value={tid}>{t.name || t.NAME || tid}</option>; })}
+                </select>
+              </Field>
+            ) : (
+              <Field label="Target Type">
+                <input className="field-input" value={form.targetType || ''} onChange={e => setForm(f => ({ ...f, targetType: e.target.value }))} placeholder="Type name in source" />
+              </Field>
+            )}
             <Field label="Link Policy">
               <select className="field-input" value={form.linkPolicy || 'VERSION_TO_MASTER'} onChange={e => setForm(f => ({ ...f, linkPolicy: e.target.value }))}>
                 {LINK_POLICIES.map(p => <option key={p} value={p}>{p}</option>)}
@@ -1515,7 +1554,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 }}>
                   <span className="settings-sub-label" style={{ margin: 0 }}>Outgoing Links</span>
                   {canWrite && (
-                    <button className="panel-icon-btn" title="Add link type" onClick={() => openModal('create-link', { nodeTypeId: id }, { linkPolicy: 'VERSION_TO_MASTER', minCardinality: '0', targetNodeTypeId: types[0] ? (types[0].id || types[0].ID) : '' })}>
+                    <button className="panel-icon-btn" title="Add link type" onClick={() => openModal('create-link', { nodeTypeId: id }, { linkPolicy: 'VERSION_TO_MASTER', minCardinality: '0', targetSourceId: 'SELF', targetNodeTypeId: types[0] ? (types[0].id || types[0].ID) : '' })}>
                       <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
                     </button>
                   )}
@@ -1531,42 +1570,59 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                       {ntLinks.map(lt => {
                         const lid   = lt.id   || lt.ID;
                         const lname = lt.name || lt.NAME || lid;
-                        const tgtId = lt.target_node_type_id || lt.TARGET_NODE_TYPE_ID;
-                        const tgtName = tgtId ? (typeNameMap[tgtId] || tgtId) : 'Any';
+                        const tgtSrc  = lt.target_source_id || lt.TARGET_SOURCE_ID || 'SELF';
+                        const tgtId = lt.target_type || lt.TARGET_TYPE;
+                        const tgtName = tgtId
+                          ? (tgtSrc === 'SELF' ? (typeNameMap[tgtId] || tgtId) : `${tgtSrc}:${tgtId}`)
+                          : 'Any';
                         const policy  = lt.link_policy || lt.LINK_POLICY || '—';
                         const minC    = lt.min_cardinality ?? lt.MIN_CARDINALITY ?? 0;
                         const maxC    = lt.max_cardinality ?? lt.MAX_CARDINALITY;
                         const card    = maxC == null ? `${minC}..*` : `${minC}..${maxC}`;
                         const ltColor = lt.color || lt.COLOR || null;
+                        const lInherited    = !!(lt.inherited || lt.INHERITED);
+                        const lInheritedFrom = lt.inherited_from || lt.INHERITED_FROM || null;
                         return (
-                          <tr key={lid}>
+                          <tr key={lid} style={lInherited ? { opacity: 0.75 } : undefined}>
                             <td style={{ width: 18 }}>
                               <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: ltColor || 'var(--border)' }} title={ltColor || 'No color'} />
                             </td>
-                            <td className="settings-td-mono">{lname}</td>
+                            <td className="settings-td-mono">
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                {lname}
+                                {lInherited && (
+                                  <span style={{ fontSize: 9, background: 'var(--accent-dim,rgba(99,179,237,.15))', color: 'var(--accent)', borderRadius: 3, padding: '1px 4px', fontFamily: 'sans-serif', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>
+                                    from {lInheritedFrom || 'parent'}
+                                  </span>
+                                )}
+                              </span>
+                            </td>
                             <td>{tgtName}</td>
                             <td><span className="settings-badge">{policy}</span></td>
                             <td style={{ color: 'var(--muted)' }}>{card}</td>
                             <td>
                               <div style={{ display: 'flex', gap: 4 }}>
-                                {canWrite && (
+                                {canWrite && !lInherited && (
                                   <button className="panel-icon-btn" title="Edit link type" onClick={() => openModal('edit-link', {
                                     nodeTypeId:       id,
                                     linkTypeId:       lid,
                                     linkName:         lname,
                                     targetNodeTypeId: tgtId,
                                   }, {
-                                    name:           lname,
-                                    description:    lt.description || lt.DESCRIPTION || '',
-                                    linkPolicy:     policy,
-                                    minCardinality: String(minC),
-                                    maxCardinality: maxC != null ? String(maxC) : '',
-                                    color:          ltColor || '',
+                                    name:             lname,
+                                    description:      lt.description || lt.DESCRIPTION || '',
+                                    linkPolicy:       policy,
+                                    minCardinality:   String(minC),
+                                    maxCardinality:   maxC != null ? String(maxC) : '',
+                                    color:            ltColor || '',
+                                    targetSourceId:   tgtSrc,
+                                    targetNodeTypeId: tgtId || '',
+                                    targetType:       tgtSrc !== 'SELF' ? (tgtId || '') : '',
                                   })}>
                                     <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
                                   </button>
                                 )}
-                                {canWrite && (
+                                {canWrite && !lInherited && (
                                   <button className="panel-icon-btn" title="Delete link type" onClick={e => deleteLt(e, id, lt)}>
                                     <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
                                   </button>

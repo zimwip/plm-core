@@ -8,6 +8,7 @@ import com.plm.shared.action.ActionHandler;
 import com.plm.platform.action.ActionResult;
 import lombok.RequiredArgsConstructor;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -35,8 +36,12 @@ public class UpdateLinkActionHandler implements ActionHandler {
         String targetType       = params.get("targetType");
         String targetKey        = params.get("targetKey");
         String logicalId        = params.get("logicalId");
+        Map<String, String> linkAttributes = new LinkedHashMap<>();
+        params.forEach((k, v) -> {
+            if (k.startsWith("linkAttr_")) linkAttributes.put(k.substring(9), v);
+        });
         nodeService.updateLink(linkId, targetSourceCode, targetType, targetKey,
-            logicalId, ctx.userId(), ctx.txId());
+            logicalId, linkAttributes.isEmpty() ? null : linkAttributes, ctx.userId(), ctx.txId());
         return ActionResult.ok("linkId", linkId);
     }
 }

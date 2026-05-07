@@ -76,27 +76,41 @@ public class FingerPrintService {
               .append(';');
         }
 
-        // 3. Outgoing links (sorted by link_type_id, target_source_id, target_type, target_key)
-        List<Record> links = dsl.fetch("""
-            SELECT nl.link_type_id, nl.target_source_id, nl.target_type, nl.target_key
+        // 3. Outgoing links + their attribute values (LEFT JOIN ensures links without attrs appear once)
+        // Sorted deterministically; nl.id breaks ties when multiple links share the same target key.
+        sb.append("|links=");
+        String prevLinkId = null;
+        for (Record r : dsl.fetch("""
+            SELECT nl.id               AS link_id,
+                   nl.link_type_id, nl.target_source_id, nl.target_type, nl.target_key,
+                   nvla.attribute_id, nvla.value AS attr_value
             FROM node_version_link nl
             JOIN node_version nv_src    ON nv_src.id  = nl.source_node_version_id
             JOIN plm_transaction pt_src ON pt_src.id  = nv_src.tx_id
+            LEFT JOIN node_version_link_attribute nvla ON nvla.node_link_id = nl.id
             WHERE nv_src.node_id = ?
               AND (pt_src.status = 'COMMITTED' OR nv_src.id = ?)
               AND nv_src.version_number <= (
                 SELECT version_number FROM node_version WHERE id = ?)
-            ORDER BY nl.link_type_id ASC, nl.target_source_id ASC, nl.target_type ASC, nl.target_key ASC
-            """, nodeId, nodeVersionId, nodeVersionId);
-
-        sb.append("|links=");
-        for (Record l : links) {
-            sb.append(l.get("link_type_id",     String.class))
-              .append(':').append(l.get("target_source_id", String.class))
-              .append(':').append(l.get("target_type",      String.class))
-              .append(':').append(l.get("target_key",       String.class))
-              .append(';');
+            ORDER BY nl.link_type_id ASC, nl.target_source_id ASC, nl.target_type ASC,
+                     nl.target_key ASC, nl.id ASC, nvla.attribute_id ASC
+            """, nodeId, nodeVersionId, nodeVersionId)) {
+            String linkId = r.get("link_id", String.class);
+            if (prevLinkId != null && !linkId.equals(prevLinkId)) sb.append(';');
+            if (!linkId.equals(prevLinkId)) {
+                sb.append(r.get("link_type_id",     String.class))
+                  .append(':').append(r.get("target_source_id", String.class))
+                  .append(':').append(r.get("target_type",      String.class))
+                  .append(':').append(r.get("target_key",       String.class));
+                prevLinkId = linkId;
+            }
+            String attrId = r.get("attribute_id", String.class);
+            if (attrId != null) {
+                sb.append('[').append(attrId)
+                  .append('=').append(nvl(r.get("attr_value", String.class))).append(']');
+            }
         }
+        if (prevLinkId != null) sb.append(';');
 
         // 4. Domain assignments (sorted by domain_id)
         List<Record> domains = dsl.select()

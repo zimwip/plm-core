@@ -1,6 +1,6 @@
 package com.plm.action.guard;
 
-import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.algorithm.AlgorithmRegistry;
 import com.plm.platform.action.guard.ActionGuardContext;
 import com.plm.platform.action.guard.ActionGuardPort;
 import com.plm.platform.action.guard.GuardEffect;
@@ -13,7 +13,7 @@ import com.plm.platform.config.dto.AlgorithmConfig;
 import com.plm.platform.config.dto.AlgorithmInstanceConfig;
 import com.plm.shared.exception.GuardViolationException;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
@@ -28,8 +28,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Service
 public class ActionGuardService implements ActionGuardPort {
 
-    private final ConfigCache         configCache;
-    private final ApplicationContext  appCtx;
+    private final ConfigCache        configCache;
+    private final AlgorithmRegistry  algorithmRegistry;
 
     /** Action-level guards, keyed by actionId. */
     private Map<String, List<ResolvedGuard>> actionGuardsCache = Map.of();
@@ -39,13 +39,9 @@ public class ActionGuardService implements ActionGuardPort {
     /** Reverse index: algorithm id → algorithm code (rebuilt on each cache rebuild). */
     private Map<String, String> algorithmCodeById = Map.of();
 
-    public ActionGuardService(ConfigCache configCache, ApplicationContext appCtx) {
-        this.configCache = configCache;
-        this.appCtx = appCtx;
-    }
-
-    private AlgorithmRegistry algorithmRegistry() {
-        return AlgorithmRegistry.getInstance(appCtx);
+    public ActionGuardService(ConfigCache configCache, @Lazy AlgorithmRegistry algorithmRegistry) {
+        this.configCache        = configCache;
+        this.algorithmRegistry  = algorithmRegistry;
     }
 
     @EventListener(ConfigSnapshotUpdatedEvent.class)
@@ -251,14 +247,14 @@ public class ActionGuardService implements ActionGuardPort {
 
         GuardEffect effect = GuardEffect.valueOf(effectStr);
 
-        if (!algorithmRegistry().hasBean(code)) {
+        if (!algorithmRegistry.hasBean(code)) {
             log.warn("Guard algorithm '{}' has no Spring bean -- skipping", code);
             return null;
         }
 
         ActionGuard bean;
         try {
-            bean = algorithmRegistry().resolve(code, ActionGuard.class);
+            bean = algorithmRegistry.resolve(code, ActionGuard.class);
         } catch (IllegalArgumentException e) {
             log.warn("Algorithm '{}' does not implement ActionGuard -- skipping (wrong attachment?)", code);
             return null;

@@ -214,6 +214,7 @@ public class LinkService {
         String newTargetType,
         String newTargetKey,
         String newLogicalId,
+        Map<String, String> linkAttributes,
         String userId,
         String txId
     ) {
@@ -281,6 +282,18 @@ public class LinkService {
             dsl.execute("UPDATE node_version_link SET link_logical_id = ? WHERE id = ?", newLogicalId, linkId);
         }
 
+        if (linkAttributes != null) {
+            for (Map.Entry<String, String> e : linkAttributes.entrySet()) {
+                dsl.execute("DELETE FROM node_version_link_attribute WHERE node_link_id = ? AND attribute_id = ?",
+                    linkId, e.getKey());
+                if (e.getValue() != null && !e.getValue().isBlank()) {
+                    dsl.execute(
+                        "INSERT INTO node_version_link_attribute (ID, NODE_LINK_ID, ATTRIBUTE_ID, VALUE) VALUES (?,?,?,?)",
+                        UUID.randomUUID().toString(), linkId, e.getKey(), e.getValue());
+                }
+            }
+        }
+
         String fp = fingerPrintService.compute(sourceNodeId, sourceVersionId);
         dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
 
@@ -301,6 +314,22 @@ public class LinkService {
         String currentUserId = ctx.getUserId();
         boolean isAdmin = ctx.isAdmin();
         String isAdminStr = String.valueOf(isAdmin);
+
+        // Pre-fetch all link attribute values for this node in one query
+        Map<String, List<Map<String, Object>>> attrsByLink = new java.util.HashMap<>();
+        dsl.fetch("""
+            SELECT nvla.node_link_id, nvla.attribute_id, nvla.value
+            FROM node_version_link_attribute nvla
+            JOIN node_version_link nl ON nl.id = nvla.node_link_id
+            JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
+            WHERE nv_src.node_id = ?
+            """, nodeId).forEach(r -> {
+            String lid = r.get("node_link_id", String.class);
+            Map<String, Object> av = new LinkedHashMap<>();
+            av.put("attributeId", r.get("attribute_id", String.class));
+            av.put("value", r.get("value", String.class));
+            attrsByLink.computeIfAbsent(lid, k -> new java.util.ArrayList<>()).add(av);
+        });
 
         // SELF fast-path: full SQL JOIN to node + node_version
         List<Map<String, Object>> self = dsl.fetch(
@@ -343,13 +372,25 @@ public class LinkService {
             currentUserId, isAdminStr
         ).stream().map(r -> {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("linkId",            r.get("link_id",             String.class));
+            String linkId = r.get("link_id", String.class);
+            m.put("linkId",            linkId);
             String ltId = r.get("link_type_id", String.class);
             var lt = configCache.getLinkType(ltId);
+            m.put("linkTypeId",        ltId);
             m.put("linkTypeName",      lt.map(LinkTypeConfig::name).orElse(ltId));
             m.put("linkPolicy",        lt.map(LinkTypeConfig::linkPolicy).orElse(""));
             m.put("linkTypeColor",     lt.map(LinkTypeConfig::color).orElse(null));
             m.put("linkTypeIcon",      lt.map(LinkTypeConfig::icon).orElse(null));
+            m.put("linkTypeAttributes", lt.map(lc -> lc.attributes() != null
+                ? lc.attributes().stream().map(a -> {
+                    Map<String, Object> am = new LinkedHashMap<>();
+                    am.put("id", a.id()); am.put("name", a.name()); am.put("label", a.label());
+                    am.put("dataType", a.dataType()); am.put("widgetType", a.widgetType());
+                    am.put("required", a.required());
+                    return am;
+                }).toList()
+                : List.of()).orElse(List.of()));
+            m.put("linkAttributeValues", attrsByLink.getOrDefault(linkId, List.of()));
             m.put("linkLogicalId",     Objects.toString(r.get("link_logical_id",      String.class), ""));
             m.put("linkLogicalIdLabel",lt.map(LinkTypeConfig::linkLogicalIdLabel).orElse("Link ID"));
             m.put("targetSourceCode",  r.get("target_source_id", String.class));
@@ -383,11 +424,23 @@ public class LinkService {
             ORDER BY nl.target_source_id, nl.target_key
             """, nodeId, currentUserId, isAdminStr).stream().map(r -> {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("linkId", r.get("link_id", String.class));
+            String extLinkId = r.get("link_id", String.class);
+            m.put("linkId", extLinkId);
             String ltId = r.get("link_type_id", String.class);
             var lt = configCache.getLinkType(ltId);
-            m.put("linkTypeName", lt.map(LinkTypeConfig::name).orElse(ltId));
-            m.put("linkPolicy",   lt.map(LinkTypeConfig::linkPolicy).orElse(""));
+            m.put("linkTypeId",    ltId);
+            m.put("linkTypeName",  lt.map(LinkTypeConfig::name).orElse(ltId));
+            m.put("linkPolicy",    lt.map(LinkTypeConfig::linkPolicy).orElse(""));
+            m.put("linkTypeAttributes", lt.map(lc -> lc.attributes() != null
+                ? lc.attributes().stream().map(a -> {
+                    Map<String, Object> am = new LinkedHashMap<>();
+                    am.put("id", a.id()); am.put("name", a.name()); am.put("label", a.label());
+                    am.put("dataType", a.dataType()); am.put("widgetType", a.widgetType());
+                    am.put("required", a.required());
+                    return am;
+                }).toList()
+                : List.of()).orElse(List.of()));
+            m.put("linkAttributeValues", attrsByLink.getOrDefault(extLinkId, List.of()));
             m.put("linkLogicalId", Objects.toString(r.get("link_logical_id", String.class), ""));
             String sourceCode = r.get("target_source_id", String.class);
             String type = r.get("target_type", String.class);

@@ -7,6 +7,7 @@ import { usePlmStore } from '../store/usePlmStore';
 import LifecycleDiagram from './LifecycleDiagram';
 import SignaturePanel from './SignaturePanel';
 import { NODE_ICONS, SignIcon } from './Icons';
+import { lookupLinkRowForSource } from '../services/sourcePlugins';
 
 function stateLabel(s) {
   return { 'st-draft': 'Draft', 'st-inreview': 'In Review', 'st-released': 'Released', 'st-frozen': 'Frozen', 'st-obsolete': 'Obsolete' }[s] || s;
@@ -55,11 +56,14 @@ export default function NodeEditor({
   const [selLinkType,     setSelLinkType]    = useState('');
   const [selTargetKey,    setSelTargetKey]   = useState('');
   const [keySuggestions,  setKeySuggestions] = useState([]);
+  const [hiKeySugIdx,     setHiKeySugIdx]    = useState(-1);
+  const [showKeySug,      setShowKeySug]     = useState(false);
   const [linkLogicalId,   setLinkLogicalId]  = useState('');
   const [linkLoading,     setLinkLoading]    = useState(false);
   const [editingLinkId,     setEditingLinkId]     = useState(null);
   const [editLinkLogId,     setEditLinkLogId]     = useState('');
   const [editLinkTargetKey, setEditLinkTargetKey] = useState('');
+  const [editLinkAttrs,     setEditLinkAttrs]     = useState({}); // { [attrId]: value }
   const [deletingLinkId,   setDeletingLinkId]   = useState(null);
   const [linkActLoading,   setLinkActLoading]   = useState(false);
 
@@ -235,6 +239,8 @@ export default function NodeEditor({
     setSelLinkType('');
     setSelTargetKey(preselect?.logicalId || '');
     setKeySuggestions([]);
+    setHiKeySugIdx(-1);
+    setShowKeySug(false);
     setLinkLogicalId('');
     try {
       const [lts, srcs] = await Promise.all([
@@ -248,7 +254,7 @@ export default function NodeEditor({
       if (preselect?.nodeTypeId) {
         const tid = preselect.nodeTypeId;
         filteredLts = filteredLts.filter(lt => {
-          const ltTarget = lt.target_node_type_id || lt.TARGET_NODE_TYPE_ID;
+          const ltTarget = lt.target_type || lt.TARGET_TYPE;
           return !ltTarget || ltTarget === tid;
         });
         // Single match → auto-select
@@ -309,6 +315,8 @@ export default function NodeEditor({
       setLinkLogicalId('');
       setSelTargetKey('');
       setKeySuggestions([]);
+      setHiKeySugIdx(-1);
+      setShowKeySug(false);
       setPbsLoaded(false);
       await refreshTx();
       await load();
@@ -317,14 +325,18 @@ export default function NodeEditor({
     } finally { setLinkLoading(false); }
   }
 
-  async function handleUpdateLink(linkId, newLogicalId, newTargetKey) {
+  async function handleUpdateLink(linkId, newLogicalId, newTargetKey, linkAttrs) {
     const updateLinkAction = desc.actions?.find(a => a.actionCode === 'update_link');
     if (!updateLinkAction) return;
     setLinkActLoading(true);
     try {
       const activeTxId = txId || await onAutoOpenTx();
       if (!activeTxId) return;
-      const updateLinkParams = { linkId, logicalId: newLogicalId, ...(newTargetKey ? { targetKey: newTargetKey } : {}) };
+      const attrParams = {};
+      if (linkAttrs) {
+        Object.entries(linkAttrs).forEach(([k, v]) => { attrParams[`linkAttr_${k}`] = v; });
+      }
+      const updateLinkParams = { linkId, logicalId: newLogicalId, ...(newTargetKey ? { targetKey: newTargetKey } : {}), ...attrParams };
       await (updateLinkAction.path
         ? authoringApi.executeViaDescriptor(updateLinkAction, nodeId, userId, activeTxId, updateLinkParams)
         : authoringApi.executeAction(nodeId, updateLinkAction.actionCode, userId, activeTxId, updateLinkParams));
@@ -516,7 +528,9 @@ export default function NodeEditor({
   const transitions = headerActions.filter(a => a.actionCode === 'transition');
   const canUpdateLink     = activeDesc?.actions?.some(a => a.actionCode === 'update_link');
   const canDeleteLink     = activeDesc?.actions?.some(a => a.actionCode === 'delete_link');
-  const hasLinkActions    = canUpdateLink || canDeleteLink;
+  const checkoutAction    = allActions.find(a => a.actionCode === 'checkout');
+  // Show action column when user has link edit rights OR when checkout is available (node not yet checked out)
+  const hasLinkActions    = canUpdateLink || canDeleteLink || !!checkoutAction;
 
   // Lifecycle ID for diagram — resolved from node type
   const lifecycleId = activeDesc?.lifecycleId || null;
@@ -1056,11 +1070,11 @@ export default function NodeEditor({
                         — source: {ltSource.name}{ltSource.versioned ? '' : ' (immutable)'}
                       </span> : null}
                     </label>
-                    <>
+                    <div style={{ position: 'relative' }}>
                       <input
                         className="field-input"
-                        list={`src-keys-${ltSourceId}`}
                         type="text"
+                        autoComplete="off"
                         placeholder={
                           isSelfSource
                             ? (ltTargetType ? `Search ${ltTargetType} by logical ID…` : 'Search by logical ID…')
@@ -1070,20 +1084,59 @@ export default function NodeEditor({
                         onChange={e => {
                           const v = e.target.value;
                           setSelTargetKey(v);
+                          setHiKeySugIdx(-1);
+                          setShowKeySug(true);
                           loadKeySuggestions(ltSourceId, ltTargetType, v);
                         }}
-                        onFocus={() => loadKeySuggestions(ltSourceId, ltTargetType, selTargetKey)}
+                        onFocus={() => {
+                          setShowKeySug(true);
+                          loadKeySuggestions(ltSourceId, ltTargetType, selTargetKey);
+                        }}
+                        onBlur={() => setTimeout(() => setShowKeySug(false), 150)}
+                        onKeyDown={e => {
+                          if (!showKeySug || keySuggestions.length === 0) return;
+                          if (e.key === 'ArrowDown') {
+                            e.preventDefault();
+                            setHiKeySugIdx(i => Math.min(i + 1, keySuggestions.length - 1));
+                          } else if (e.key === 'ArrowUp') {
+                            e.preventDefault();
+                            setHiKeySugIdx(i => Math.max(i - 1, -1));
+                          } else if (e.key === 'Enter' && hiKeySugIdx >= 0) {
+                            e.preventDefault();
+                            const s = keySuggestions[hiKeySugIdx];
+                            setSelTargetKey(s.key || s.KEY || '');
+                            setShowKeySug(false);
+                            setHiKeySugIdx(-1);
+                          } else if (e.key === 'Escape') {
+                            setShowKeySug(false);
+                            setHiKeySugIdx(-1);
+                          }
+                        }}
                       />
-                      {keySuggestions.length > 0 && (
-                        <datalist id={`src-keys-${ltSourceId}`}>
-                          {keySuggestions.map(s => (
-                            <option key={s.key || s.KEY} value={s.key || s.KEY}>
-                              {s.label || s.LABEL || s.key || s.KEY}
-                            </option>
-                          ))}
-                        </datalist>
+                      {showKeySug && keySuggestions.length > 0 && (
+                        <div className="search-suggestions">
+                          {keySuggestions.map((s, i) => {
+                            const k = s.key || s.KEY || '';
+                            const lbl = s.label || s.LABEL || '';
+                            return (
+                              <div
+                                key={k}
+                                className={`search-sug-item${i === hiKeySugIdx ? ' hi' : ''}`}
+                                onMouseDown={() => {
+                                  setSelTargetKey(k);
+                                  setShowKeySug(false);
+                                  setHiKeySugIdx(-1);
+                                }}
+                                onMouseEnter={() => setHiKeySugIdx(i)}
+                              >
+                                <span className="sug-lid">{k}</span>
+                                {lbl && lbl !== k && <span className="sug-dname">{lbl}</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
-                    </>
+                    </div>
                   </div>
 
                   {ltPolicy && (
@@ -1170,8 +1223,13 @@ export default function NodeEditor({
                 {children.map(c => {
                   const isEditing  = editingLinkId  === c.linkId;
                   const isDeleting = deletingLinkId === c.linkId;
+                  const isSelf = !c.targetSourceCode || c.targetSourceCode === 'SELF';
+                  const LinkRow = isSelf ? null : lookupLinkRowForSource(c.targetSourceCode);
+                  const ltAttrs = c.linkTypeAttributes || [];
+                  const colCount = hasLinkActions ? 8 : 7;
                   return (
-                    <tr key={c.linkId}>
+                    <React.Fragment key={c.linkId}>
+                    <tr>
                       <td style={{ fontWeight: 600, fontSize: 12 }}>{c.linkTypeName}</td>
                       <td style={{ fontFamily: 'var(--sans)', fontSize: 12 }}>
                         {isEditing ? (
@@ -1186,32 +1244,69 @@ export default function NodeEditor({
                           ? <span title={c.linkLogicalIdLabel}>{c.linkLogicalId}</span>
                           : <span style={{ opacity: .35 }}>—</span>}
                       </td>
-                      <td style={{ color: 'var(--muted)', fontSize: 12 }}>{c.targetNodeType}</td>
-                      <td style={{ fontFamily: 'var(--sans)', fontSize: 13 }}>
-                        {isEditing ? (
-                          <input
-                            className="field-input"
-                            style={{ padding: '2px 4px', fontSize: 12, minWidth: 120 }}
-                            type="text"
-                            placeholder="target key…"
-                            value={editLinkTargetKey}
-                            onChange={e => setEditLinkTargetKey(e.target.value)}
+                      {isSelf ? (
+                        <>
+                          <td style={{ color: 'var(--muted)', fontSize: 12 }}>{c.targetNodeType}</td>
+                          <td style={{ fontFamily: 'var(--sans)', fontSize: 13 }}>
+                            {isEditing ? (
+                              <input
+                                className="field-input"
+                                style={{ padding: '2px 4px', fontSize: 12, minWidth: 120 }}
+                                type="text"
+                                placeholder="target key…"
+                                value={editLinkTargetKey}
+                                onChange={e => setEditLinkTargetKey(e.target.value)}
+                              />
+                            ) : (
+                              c.targetLogicalId || <span style={{ opacity: .4 }}>{c.targetNodeId?.slice(0, 8)}…</span>
+                            )}
+                          </td>
+                          <td style={{ fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 12 }}>
+                            {c.linkPolicy === 'VERSION_TO_MASTER'
+                              ? <span style={{ opacity: .35 }}>—</span>
+                              : `${c.targetRevision}.${c.targetIteration}`}
+                          </td>
+                          <td><StatePill stateId={c.targetState} stateName={c.targetStateName} stateColorMap={stateColorMap} /></td>
+                          <td>
+                            <span className="hist-type-badge" data-type={c.linkPolicy} style={{ fontSize: 10 }}>
+                              {c.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
+                            </span>
+                          </td>
+                        </>
+                      ) : LinkRow ? (
+                        <td colSpan={5} style={{ verticalAlign: 'middle' }}>
+                          <LinkRow
+                            link={c}
+                            isEditing={isEditing}
+                            editTargetKey={editLinkTargetKey}
+                            onEditTargetKey={setEditLinkTargetKey}
                           />
-                        ) : (
-                          c.targetLogicalId || <span style={{ opacity: .4 }}>{c.targetNodeId?.slice(0, 8)}…</span>
-                        )}
-                      </td>
-                      <td style={{ fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 12 }}>
-                        {c.linkPolicy === 'VERSION_TO_MASTER'
-                          ? <span style={{ opacity: .35 }}>—</span>
-                          : `${c.targetRevision}.${c.targetIteration}`}
-                      </td>
-                      <td><StatePill stateId={c.targetState} stateName={c.targetStateName} stateColorMap={stateColorMap} /></td>
-                      <td>
-                        <span className="hist-type-badge" data-type={c.linkPolicy} style={{ fontSize: 10 }}>
-                          {c.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
-                        </span>
-                      </td>
+                        </td>
+                      ) : (
+                        <>
+                          <td style={{ color: 'var(--muted)', fontSize: 12 }}>{c.sourceName || c.targetSourceCode}</td>
+                          <td style={{ fontFamily: 'var(--sans)', fontSize: 12 }}>
+                            {isEditing ? (
+                              <input
+                                className="field-input"
+                                style={{ padding: '2px 4px', fontSize: 12, minWidth: 120 }}
+                                type="text"
+                                placeholder="target key…"
+                                value={editLinkTargetKey}
+                                onChange={e => setEditLinkTargetKey(e.target.value)}
+                              />
+                            ) : (
+                              c.displayKey || c.targetKey
+                            )}
+                          </td>
+                          <td /><td />
+                          <td>
+                            <span className="hist-type-badge" data-type={c.linkPolicy} style={{ fontSize: 10 }}>
+                              {c.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
+                            </span>
+                          </td>
+                        </>
+                      )}
                       {hasLinkActions && (
                         <td style={{ whiteSpace: 'nowrap' }}>
                           {isDeleting ? (
@@ -1230,31 +1325,38 @@ export default function NodeEditor({
                               <button className="btn btn-sm btn-success"
                                 style={{ padding: '1px 6px', fontSize: 11 }}
                                 disabled={linkActLoading}
-                                onClick={() => handleUpdateLink(c.linkId, editLinkLogId, editLinkTargetKey)}>✓</button>
+                                onClick={() => handleUpdateLink(c.linkId, editLinkLogId, editLinkTargetKey, editLinkAttrs)}>✓</button>
                               <button className="btn btn-sm"
                                 style={{ padding: '1px 6px', fontSize: 11 }}
                                 onClick={() => setEditingLinkId(null)}>✕</button>
                             </span>
                           ) : (
                             <span style={{ display: 'flex', gap: 4 }}>
-                              {canUpdateLink && (
+                              {(canUpdateLink || checkoutAction) && (
                                 <button className="btn btn-sm"
-                                  style={{ padding: '1px 6px', fontSize: 11 }}
-                                  title="Edit link"
-                                  onClick={() => {
+                                  style={{ padding: '1px 6px', fontSize: 11, ...(canUpdateLink ? {} : { opacity: 0.35, cursor: 'not-allowed' }) }}
+                                  title={canUpdateLink ? "Edit link" : "Checkout to edit"}
+                                  disabled={!canUpdateLink}
+                                  onClick={canUpdateLink ? () => {
                                     setEditingLinkId(c.linkId);
                                     setEditLinkLogId(c.linkLogicalId || '');
                                     setEditLinkTargetKey(c.targetLogicalId || c.targetKey || '');
+                                    const initAttrs = {};
+                                    (c.linkAttributeValues || []).forEach(av => {
+                                      initAttrs[av.attributeId] = av.value || '';
+                                    });
+                                    setEditLinkAttrs(initAttrs);
                                     setDeletingLinkId(null);
-                                  }}>
+                                  } : undefined}>
                                   ✎
                                 </button>
                               )}
-                              {canDeleteLink && (
+                              {(canDeleteLink || checkoutAction) && (
                                 <button className="btn btn-sm"
-                                  style={{ padding: '1px 6px', fontSize: 11, color: 'var(--danger, #e05252)' }}
-                                  title="Delete link"
-                                  onClick={() => { setDeletingLinkId(c.linkId); setEditingLinkId(null); }}>
+                                  style={{ padding: '1px 6px', fontSize: 11, color: canDeleteLink ? 'var(--danger, #e05252)' : undefined, ...(canDeleteLink ? {} : { opacity: 0.35, cursor: 'not-allowed' }) }}
+                                  title={canDeleteLink ? "Delete link" : "Checkout to delete"}
+                                  disabled={!canDeleteLink}
+                                  onClick={canDeleteLink ? () => { setDeletingLinkId(c.linkId); setEditingLinkId(null); } : undefined}>
                                   ✕
                                 </button>
                               )}
@@ -1263,6 +1365,27 @@ export default function NodeEditor({
                         </td>
                       )}
                     </tr>
+                    {isEditing && ltAttrs.length > 0 && (
+                      <tr>
+                        <td colSpan={colCount} style={{ padding: '4px 8px 8px', background: 'var(--surface2, rgba(0,0,0,.04))' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+                            {ltAttrs.map(a => (
+                              <div key={a.id} className="field" style={{ margin: 0, flex: '1 1 160px', minWidth: 120 }}>
+                                <label className="field-label" style={{ fontSize: 10 }}>{a.label || a.name}{a.required && <span className="field-req">*</span>}</label>
+                                <input
+                                  className="field-input"
+                                  style={{ padding: '2px 6px', fontSize: 12 }}
+                                  value={editLinkAttrs[a.id] || ''}
+                                  onChange={e => setEditLinkAttrs(prev => ({ ...prev, [a.id]: e.target.value }))}
+                                  placeholder={a.label || a.name}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

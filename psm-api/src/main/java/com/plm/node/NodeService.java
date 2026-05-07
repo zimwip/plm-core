@@ -1102,11 +1102,12 @@ public class NodeService {
         String newTargetType,
         String newTargetKey,
         String newLogicalId,
+        Map<String, String> linkAttributes,
         String userId,
         String txId
     ) {
         linkService.updateLink(linkId, newTargetSourceCode, newTargetType, newTargetKey,
-            newLogicalId, userId, txId);
+            newLogicalId, linkAttributes, userId, txId);
     }
 
     // ================================================================

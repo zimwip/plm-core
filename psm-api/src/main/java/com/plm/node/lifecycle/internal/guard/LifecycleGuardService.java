@@ -1,17 +1,17 @@
 package com.plm.node.lifecycle.internal.guard;
 
-import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.algorithm.AlgorithmRegistry;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.ConfigSnapshotUpdatedEvent;
 import com.plm.platform.config.dto.AlgorithmConfig;
 import com.plm.platform.config.dto.AlgorithmInstanceConfig;
 import com.plm.platform.config.dto.TransitionGuardConfig;
-import org.springframework.context.ApplicationContext;
 import com.plm.shared.exception.GuardViolationException;
 import com.plm.platform.action.guard.GuardEffect;
 import com.plm.platform.action.guard.GuardEvaluation;
 import com.plm.platform.action.guard.GuardViolation;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
@@ -25,21 +25,17 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Service
 public class LifecycleGuardService {
 
-    private final ConfigCache          configCache;
-    private final ApplicationContext  appCtx;
+    private final ConfigCache        configCache;
+    private final AlgorithmRegistry  algorithmRegistry;
 
     /** Lifecycle-transition guards, keyed by transitionId. */
     private Map<String, List<ResolvedGuard>> transitionGuardsCache = Map.of();
 
     private final ReentrantReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
-    public LifecycleGuardService(ConfigCache configCache, ApplicationContext appCtx) {
-        this.configCache = configCache;
-        this.appCtx = appCtx;
-    }
-
-    private AlgorithmRegistry algorithmRegistry() {
-        return AlgorithmRegistry.getInstance(appCtx);
+    public LifecycleGuardService(ConfigCache configCache, @Lazy AlgorithmRegistry algorithmRegistry) {
+        this.configCache        = configCache;
+        this.algorithmRegistry  = algorithmRegistry;
     }
 
     @EventListener(ConfigSnapshotUpdatedEvent.class)
@@ -161,14 +157,14 @@ public class LifecycleGuardService {
 
         GuardEffect effect = GuardEffect.valueOf(effectStr);
 
-        if (!algorithmRegistry().hasBean(code)) {
+        if (!algorithmRegistry.hasBean(code)) {
             log.warn("Lifecycle guard algorithm '{}' has no Spring bean — skipping", code);
             return null;
         }
 
         LifecycleGuard bean;
         try {
-            bean = algorithmRegistry().resolve(code, LifecycleGuard.class);
+            bean = algorithmRegistry.resolve(code, LifecycleGuard.class);
         } catch (IllegalArgumentException e) {
             log.warn("Algorithm '{}' does not implement LifecycleGuard — skipping (wrong attachment?)", code);
             return null;

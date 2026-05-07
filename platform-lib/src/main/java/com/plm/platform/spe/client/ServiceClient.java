@@ -6,9 +6,12 @@ import com.plm.platform.spe.registry.LocalServiceRegistry;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.retry.Retry;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -135,6 +138,23 @@ public class ServiceClient {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Service-Secret", props.serviceSecret());
         headers.setContentType(MediaType.APPLICATION_JSON);
+        try {
+            ServletRequestAttributes attrs =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs != null) {
+                HttpServletRequest req = attrs.getRequest();
+                String auth = req.getHeader("Authorization");
+                if (auth != null) headers.set("Authorization", auth);
+                String ps = req.getHeader("X-PLM-ProjectSpace");
+                if (ps != null) headers.set("X-PLM-ProjectSpace", ps);
+                // OTel trace propagation — Micrometer interceptor overrides with child-span
+                // traceparent when active; this is a fallback for unconfigured environments.
+                String traceparent = req.getHeader("traceparent");
+                if (traceparent != null) headers.set("traceparent", traceparent);
+                String tracestate = req.getHeader("tracestate");
+                if (tracestate != null) headers.set("tracestate", tracestate);
+            }
+        } catch (Exception ignored) {}
         return body != null ? new HttpEntity<>(body, headers) : new HttpEntity<>(headers);
     }
 

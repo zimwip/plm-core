@@ -99,6 +99,22 @@ export function registerDefaultPlugin(plugin) {
   _defaultPlugin = { ..._defaultPlugin, ...plugin, match: { serviceCode: '*' } };
 }
 
+/**
+ * Find the LinkRow renderer for a given source code. Matches on serviceCode
+ * only (itemCode/itemKey constraints on the plugin are ignored) so the lookup
+ * works with just the source code coming from a link row.
+ *
+ * @param {string} sourceCode
+ * @returns {React.ComponentType|null}
+ */
+export function lookupLinkRowForSource(sourceCode) {
+  for (const p of _plugins) {
+    if (!p.LinkRow) continue;
+    if (p.match.serviceCode === '*' || p.match.serviceCode === sourceCode) return p.LinkRow;
+  }
+  return null;
+}
+
 // Test / inspection hook — never called in prod paths.
 export function _debugListPlugins() {
   return _plugins.map(p => ({ name: p.name, match: p.match, specificity: p._specificity }));

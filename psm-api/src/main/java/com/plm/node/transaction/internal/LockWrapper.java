@@ -1,6 +1,6 @@
 package com.plm.node.transaction.internal;
 
-import com.plm.action.ActionWrapper;
+import com.plm.platform.action.ActionWrapper;
 import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.platform.action.ActionContext;
 import com.plm.platform.action.ActionResult;

@@ -1,13 +1,13 @@
 package com.plm.node.lifecycle.internal.stateaction;
 
-import com.plm.algorithm.AlgorithmRegistry;
+import com.plm.platform.algorithm.AlgorithmRegistry;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.ConfigSnapshotUpdatedEvent;
 import com.plm.platform.config.dto.AlgorithmConfig;
 import com.plm.platform.config.dto.AlgorithmInstanceConfig;
 import com.plm.platform.config.dto.StateActionConfig;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
@@ -23,18 +23,14 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class StateActionService {
 
     private final ConfigCache        configCache;
-    private final ApplicationContext appCtx;
-
-    private AlgorithmRegistry algorithmRegistry() {
-        return AlgorithmRegistry.getInstance(appCtx);
-    }
+    private final AlgorithmRegistry  algorithmRegistry;
 
     private Map<StateKey, List<ResolvedStateAction>> stateActionsCache = Map.of();
     private final ReentrantReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
-    public StateActionService(ConfigCache configCache, ApplicationContext appCtx) {
-        this.configCache = configCache;
-        this.appCtx = appCtx;
+    public StateActionService(ConfigCache configCache, @Lazy AlgorithmRegistry algorithmRegistry) {
+        this.configCache       = configCache;
+        this.algorithmRegistry = algorithmRegistry;
     }
 
     @EventListener(ConfigSnapshotUpdatedEvent.class)
@@ -133,14 +129,14 @@ public class StateActionService {
     private ResolvedStateAction resolveFromConfig(StateActionConfig sa, String algorithmCode) {
         StateActionMode mode = StateActionMode.valueOf(sa.executionMode());
 
-        if (!algorithmRegistry().hasBean(algorithmCode)) {
+        if (!algorithmRegistry.hasBean(algorithmCode)) {
             log.warn("State action algorithm '{}' has no Spring bean — skipping", algorithmCode);
             return null;
         }
 
         StateAction bean;
         try {
-            bean = algorithmRegistry().resolve(algorithmCode, StateAction.class);
+            bean = algorithmRegistry.resolve(algorithmCode, StateAction.class);
         } catch (IllegalArgumentException e) {
             log.warn("Algorithm '{}' does not implement StateAction — skipping", algorithmCode);
             return null;
