@@ -135,7 +135,7 @@ export default function EditorArea({
               userId, tx, nodeTypes, stateColorMap, toast,
               onAutoOpenTx, onDescriptionLoaded,
               onOpenCommentsForVersion, onCommentAttribute,
-              onSubTabChange,
+              onSubTabChange, onNavigate,
             };
             return <Editor key={activeTab.id} tab={activeTab} ctx={ctx} />;
           })()}

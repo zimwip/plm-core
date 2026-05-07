@@ -8,7 +8,7 @@ import {
   Pin, PinOff, X, Plus,
   Pencil, Check, Award, ArrowRight, Undo2, RotateCcw, GitCommit,
   Lock, Hexagon, Settings, Layers, GitBranch, History, FileText, Workflow,
-  ChevronRight, ChevronDown, Search,
+  ChevronRight, ChevronLeft, ChevronDown, Search,
   Circle, AlertTriangle, XCircle,
   Terminal, Copy, Trash2,
   Users, User, Shield,
@@ -17,6 +17,7 @@ import {
   Archive, Zap, FlaskConical, Microscope, Component, Blocks,
   Cable, Gauge, Radio, Scan, LayoutDashboard,
   List, Plug, KeyRound, Network,
+  Maximize2, Minimize2,
 } from 'lucide-react';
 
 export {
@@ -43,6 +44,7 @@ export {
   Workflow     as WorkflowIcon,
 
   ChevronRight as ChevronRightIcon,
+  ChevronLeft  as ChevronLeftIcon,
   ChevronDown  as ChevronDownIcon,
   Search       as SearchIcon,
 
@@ -61,6 +63,9 @@ export {
   BookOpen     as BookIcon,
   Cpu          as CpuIcon,
   Zap          as ZapIcon,
+
+  Maximize2    as MaximizeIcon,
+  Minimize2    as MinimizeIcon,
 };
 
 /**

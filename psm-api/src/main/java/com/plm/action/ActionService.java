@@ -55,9 +55,11 @@ public class ActionService {
             .map(nt -> nt.lifecycleId())
             .orElse(null);
 
-        // NODE-scope actions: one entry per action, sorted by displayOrder then displayCategory
+        // NODE-scope and LINK-scope actions: one entry per action, sorted by displayOrder then displayCategory
+        // LINK-scope actions (update_link, delete_link) are included here for guard evaluation;
+        // no linkId is available at description time but the lock-owner guard only needs isLockedByCurrentUser.
         List<ActionConfig> nodeActions = configCache.getAllActions().stream()
-            .filter(a -> "NODE".equals(a.scope()))
+            .filter(a -> "NODE".equals(a.scope()) || "LINK".equals(a.scope()))
             .sorted(Comparator.comparingInt(ActionConfig::displayOrder)
                 .thenComparing(a -> a.displayCategory() != null ? a.displayCategory() : ""))
             .toList();

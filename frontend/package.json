@@ -4,9 +4,12 @@
   "private": true,
   "dependencies": {
     "lucide-react": "^1.8.0",
+    "occt-import-js": "^0.0.22",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",
+    "three": "^0.165.0",
+    "three-viewport-gizmo": "^2.2.0",
     "zustand": "^4"
   },
   "devDependencies": {
@@ -16,6 +19,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "mkdir -p public/occt && cp node_modules/occt-import-js/dist/occt-import-js.wasm public/occt/"
   }
 }

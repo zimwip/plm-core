@@ -24,8 +24,10 @@ export default defineConfig({
         // library (including the shared Icon const) is fully initialised before any
         // app code that imports from it, eliminating the ESM TDZ crash.
         manualChunks(id) {
-          if (id.includes('lucide-react')) return 'icons';
-          if (id.includes('node_modules'))  return 'vendor';
+          if (id.includes('lucide-react'))   return 'icons';
+          if (id.includes('node_modules/three')) return 'three';
+          if (id.includes('occt-import-js')) return 'occt';
+          if (id.includes('node_modules'))   return 'vendor';
         },
       },
     },

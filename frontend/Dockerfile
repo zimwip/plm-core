@@ -3,8 +3,10 @@ FROM docker.io/library/node:20-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --silent
+COPY vite.config.js .
 COPY index.html .
 COPY src ./src
+COPY public ./public
 RUN npm run build
 
 # Stage 2: nginx serving

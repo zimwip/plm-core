@@ -174,7 +174,7 @@ export function PsmNodeEditor({ tab, ctx }) {
   const {
     userId, tx, nodeTypes, stateColorMap, onAutoOpenTx, toast,
     onDescriptionLoaded, onOpenCommentsForVersion, onCommentAttribute,
-    onSubTabChange,
+    onSubTabChange, onNavigate,
   } = ctx;
   return (
     <NodeEditor
@@ -191,6 +191,7 @@ export function PsmNodeEditor({ tab, ctx }) {
       onDescriptionLoaded={onDescriptionLoaded}
       onOpenCommentsForVersion={onOpenCommentsForVersion}
       onCommentAttribute={onCommentAttribute}
+      onNavigate={onNavigate}
     />
   );
 }

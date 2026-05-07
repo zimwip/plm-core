@@ -254,7 +254,7 @@ INSERT INTO attribute_state_rule (id, attribute_definition_id, lifecycle_state_i
 -- ============================================================
 
 INSERT INTO link_type (id, name, description, source_node_type_id, target_source_id, target_type, link_policy, link_logical_id_label) VALUES
-  ('lt-composed-of', 'composed_of',   'Assembly -> Assembly composition', 'nt-assembly', 'SELF', 'nt-assembly', 'VERSION_TO_MASTER',  'Assembly Ref'),
+  ('lt-composed-of', 'composed_of',   'Assembly -> Part/Assembly composition', 'nt-assembly', 'SELF', 'nt-part', 'VERSION_TO_MASTER',  'Part Ref'),
   ('lt-doc-part',    'documented_by', 'Document references a Part',   'nt-part',     'SELF', 'nt-document', 'VERSION_TO_VERSION', 'Doc Ref'),
   ('lt-supersedes',  'supersedes',    'Part supersedes another Part', 'nt-part',     'SELF',       'nt-part',     'VERSION_TO_VERSION', 'Supersession Ref'),
   ('lt-part-data',   'represented_by','Part represented by a binary data object hosted in DST', 'nt-part', 'DATA_LOCAL', 'filetype', 'VERSION_TO_MASTER', 'File Ref');

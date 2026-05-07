@@ -14,5 +14,8 @@ export function registerBuiltinPlugins() {
   _registered = true;
   registerDefaultPlugin(defaultPlugin);
   registerSourcePlugin(psmNodePlugin);
+  // serviceCode 'dst'       → NavRow/Editor (descriptor comes from DST service registration)
+  // serviceCode 'DATA_LOCAL' → LinkRow       (targetSourceCode in PSM links uses the source table ID)
   registerSourcePlugin(dstDataPlugin);
+  registerSourcePlugin({ ...dstDataPlugin, match: { serviceCode: 'DATA_LOCAL' }, name: 'dst-data-link', NavRow: undefined, Editor: undefined });
 }

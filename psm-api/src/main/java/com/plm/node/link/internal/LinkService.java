@@ -349,7 +349,6 @@ public class LinkService {
                         THEN SUBSTR(nl.target_key, 1, POSITION('@' IN nl.target_key) - 1)
                     ELSE nl.target_key
                   END
-                  AND n.node_type_id = nl.target_type
             JOIN node_version nv     ON nv.node_id = n.id
             JOIN plm_transaction pt  ON pt.id     = nv.tx_id
             WHERE nv_src.node_id = ?
@@ -479,10 +478,13 @@ public class LinkService {
         boolean isAdmin = ctx.isAdmin();
         String isAdminStr = String.valueOf(isAdmin);
 
-        // Look up the target node's type + logical_id to filter the SELF reverse query.
+        // Look up the target node's logical_id to filter the SELF reverse query.
+        // No type filter on nl.target_type — logical_id is globally unique so any
+        // SELF link pointing to this logical_id is a parent of this node regardless
+        // of whether target_type matches exactly (handles subtype links, e.g. lt-supersedes
+        // with target_type=nt-part pointing to an Assembly node).
         Record self = dsl.select().from("node").where("id = ?", nodeId).fetchOne();
         if (self == null) return List.of();
-        String targetType = self.get("node_type_id", String.class);
         String targetLogicalId = self.get("logical_id", String.class);
 
         return dsl.fetch(
@@ -499,7 +501,6 @@ public class LinkService {
             JOIN node_version nv     ON nv.node_id = n.id
             JOIN plm_transaction pt  ON pt.id     = nv.tx_id
             WHERE nl.target_source_id = 'SELF'
-              AND nl.target_type = ?
               AND (nl.target_key = ? OR nl.target_key LIKE ?)
               AND (pt_src.status = 'COMMITTED'
                    OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
@@ -513,7 +514,7 @@ public class LinkService {
                        OR (pt2.status = 'OPEN' AND (pt2.owner_id = ? OR ? = 'true'))))
             ORDER BY n.logical_id
             """,
-            targetType, targetLogicalId, targetLogicalId + "@%",
+            targetLogicalId, targetLogicalId + "@%",
             currentUserId, isAdminStr,
             currentUserId, isAdminStr,
             currentUserId, isAdminStr

@@ -45,6 +45,13 @@ function DstNavRow({ descriptor, item, ctx, isActive }) {
   );
 }
 
+export function isStepLink(link) {
+  const ct   = (link.targetDetails?.contentType || '').toLowerCase();
+  const name = (link.displayKey || link.targetKey || '').toLowerCase();
+  return ct.includes('step') || ct.includes('stp') ||
+         name.endsWith('.stp') || name.endsWith('.step') || name.endsWith('.p21');
+}
+
 function DstLinkRow({ link, isEditing, editTargetKey, onEditTargetKey }) {
   if (isEditing) {
     return (
@@ -62,6 +69,7 @@ function DstLinkRow({ link, isEditing, editTargetKey, onEditTargetKey }) {
   const name = link.displayKey || link.targetKey || '—';
   const ct   = details.contentType || '';
   const sz   = details.sizeBytes != null ? prettySize(details.sizeBytes) : null;
+  const isStep = isStepLink(link);
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
       <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 500 }}>{name}</span>
@@ -72,6 +80,9 @@ function DstLinkRow({ link, isEditing, editTargetKey, onEditTargetKey }) {
         </span>
       )}
       {sz && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)' }}>{sz}</span>}
+      {isStep && (
+        <span style={{ fontSize: 10, color: 'var(--accent, #5b9cf6)', fontWeight: 600 }}>3D</span>
+      )}
       {link.resolverError && (
         <span style={{ fontSize: 11, color: 'var(--danger, #e05252)' }} title={link.resolverError}>⚠</span>
       )}

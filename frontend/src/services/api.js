@@ -994,6 +994,16 @@ export async function txRequest(method, path, _userId, txId, body) {
   return doFetch(serviceBase('psm'), method, path, body, { txId });
 }
 
+export const dstApi = {
+  downloadFile: async (uuid) => {
+    const headers = { Authorization: `Bearer ${_sessionToken}` };
+    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+    const res = await timedFetch(`/api/dst/data/${uuid}`, { method: 'GET', headers }, 'GET');
+    if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+    return res.arrayBuffer();
+  },
+};
+
 // All write operations go through the central action controller.
 // actionCode matches action.action_code — from desc.actions[].actionCode.
 // transitionId is required for LIFECYCLE-scope actions (appended to path).

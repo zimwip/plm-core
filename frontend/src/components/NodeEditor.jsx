@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
 import ReactDOM from 'react-dom';
 import { api, txApi, authoringApi } from '../services/api';
 import { getDraggedNode, clearDraggedNode } from '../services/dragState';
@@ -6,11 +6,25 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { usePlmStore } from '../store/usePlmStore';
 import LifecycleDiagram from './LifecycleDiagram';
 import SignaturePanel from './SignaturePanel';
-import { NODE_ICONS, SignIcon } from './Icons';
+import StepViewer from './StepViewer';
+import { NODE_ICONS, SignIcon, CloseIcon, MaximizeIcon, MinimizeIcon } from './Icons';
 import { lookupLinkRowForSource } from '../services/sourcePlugins';
+import { isStepLink } from '../plugins/dstDataPlugin';
 
 function stateLabel(s) {
   return { 'st-draft': 'Draft', 'st-inreview': 'In Review', 'st-released': 'Released', 'st-frozen': 'Frozen', 'st-obsolete': 'Obsolete' }[s] || s;
+}
+
+// Walk up the node type parent chain to check if typeId IS or descends from expectedType.
+// Mirrors SelfNodeResolver.isTypeOrDescendant on the backend.
+function isTypeOrDescendant(typeId, expectedType, nodeTypes) {
+  let current = typeId;
+  while (current) {
+    if (current === expectedType) return true;
+    const nt = (nodeTypes || []).find(t => (t.id || t.ID) === current);
+    current = nt ? (nt.parent_node_type_id || nt.PARENT_NODE_TYPE_ID || null) : null;
+  }
+  return false;
 }
 function StatePill({ stateId, stateName, stateColorMap }) {
   const c = stateColorMap?.[stateId] || '#6b7280';
@@ -20,6 +34,40 @@ function StatePill({ stateId, stateName, stateColorMap }) {
       {stateName || stateLabel(stateId)}
     </span>
   );
+}
+
+async function collectStepNodes(userId, nodeId, nodeLabel, stateColor, links, depth, maxDepth, visited, stateColorMap) {
+  if (visited.has(nodeId) || depth > maxDepth) return [];
+  visited.add(nodeId);
+
+  const directParts = links
+    .filter(l => l.targetSourceCode === 'DATA_LOCAL' && isStepLink(l))
+    .map(l => ({ uuid: l.targetKey, fileName: l.displayKey || l.targetKey, sizeBytes: l.targetDetails?.sizeBytes }));
+
+  const result = [];
+  if (directParts.length > 0) {
+    result.push({ nodeId, nodeLabel, stateColor, depth, parts: directParts });
+  }
+
+  if (depth < maxDepth) {
+    const selfLinks = links.filter(l => l.targetSourceCode === 'SELF' && l.targetNodeId);
+    await Promise.all(selfLinks.map(async link => {
+      if (visited.has(link.targetNodeId)) return;
+      try {
+        const childLinks = await api.getChildLinks(userId, link.targetNodeId);
+        const childColor = stateColorMap?.[link.targetState] || '#6b7280';
+        const childNodes = await collectStepNodes(
+          userId, link.targetNodeId,
+          link.targetLogicalId || link.targetNodeId,
+          childColor,
+          Array.isArray(childLinks) ? childLinks : [],
+          depth + 1, maxDepth, visited, stateColorMap
+        );
+        result.push(...childNodes);
+      } catch { /* skip unreachable nodes */ }
+    }));
+  }
+  return result;
 }
 
 export default function NodeEditor({
@@ -35,6 +83,7 @@ export default function NodeEditor({
   onDescriptionLoaded,
   onOpenCommentsForVersion,
   onCommentAttribute,
+  onNavigate,
 }) {
   // desc lives in the store — subscribed below; all other state is local UI state
   const [history,             setHistory]            = useState([]);
@@ -64,8 +113,16 @@ export default function NodeEditor({
   const [editLinkLogId,     setEditLinkLogId]     = useState('');
   const [editLinkTargetKey, setEditLinkTargetKey] = useState('');
   const [editLinkAttrs,     setEditLinkAttrs]     = useState({}); // { [attrId]: value }
+  const [editKeySuggestions, setEditKeySuggestions] = useState([]);
+  const [showEditKeySug,     setShowEditKeySug]     = useState(false);
+  const [hiEditKeySugIdx,    setHiEditKeySugIdx]    = useState(-1);
   const [deletingLinkId,   setDeletingLinkId]   = useState(null);
   const [linkActLoading,   setLinkActLoading]   = useState(false);
+  const [stepPaneClosed,   setStepPaneClosed]   = useState(false);
+  const [splitPos,         setSplitPos]         = useState(55);
+  const [stepNodes,        setStepNodes]        = useState([]);
+  const [step3dLoading,    setStep3dLoading]    = useState(false);
+  const [stepMaximized,    setStepMaximized]    = useState(false);
 
   const [isDragOver,     setIsDragOver]     = useState(false);
   const [attrCtxMenu,    setAttrCtxMenu]    = useState(null); // { attrId, attrLabel, x, y }
@@ -75,12 +132,13 @@ export default function NodeEditor({
   const [sigPanelOpen,   setSigPanelOpen]   = useState(null); // null | versionId
   const [versionSigCounts, setVersionSigCounts] = useState({});
 
-  const saveTimer     = useRef(null);
-  const savedTimer    = useRef(null);
-  const dragCounter   = useRef(0);
-  const linkPanelRef  = useRef(null);
+  const saveTimer          = useRef(null);
+  const savedTimer         = useRef(null);
+  const dragCounter        = useRef(0);
+  const linkPanelRef       = useRef(null);
+  const splitContainerRef  = useRef(null);
 
-  // Global store
+  // Global store — must be declared before any useEffect that reads these values
   const desc               = usePlmStore(s => s.activeNodeDescs[nodeId] ?? null);
   const refreshNodeDesc    = usePlmStore(s => s.refreshNodeDesc);
   const patchNodeDescAttrs = usePlmStore(s => s.patchNodeDescAttrs);
@@ -88,6 +146,47 @@ export default function NodeEditor({
   const refreshAll         = usePlmStore(s => s.refreshAll);
   const refreshNodes       = usePlmStore(s => s.refreshNodes);
   const refreshTx          = usePlmStore(s => s.refreshTx);
+
+  // Eager PBS load so STEP parts are available regardless of active tab
+  useEffect(() => { loadPds(); }, [nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset 3D pane state when switching nodes
+  useEffect(() => {
+    setStepPaneClosed(false);
+    setStepMaximized(false);
+    setStepNodes([]);
+    setStep3dLoading(false);
+  }, [nodeId]);
+
+  // Walk the BOM hierarchy (SELF links) to collect STEP parts from all child nodes.
+  // desc?.state is a dep so the root color is correct even if desc loads after pbsLoaded.
+  useEffect(() => {
+    if (!pbsLoaded) return;
+    let cancelled = false;
+    setStep3dLoading(true);
+    const rootLabel = desc?.logicalId || desc?.identity || nodeId;
+    const rootColor = stateColorMap?.[desc?.state] || '#6b7280';
+    collectStepNodes(userId, nodeId, rootLabel, rootColor, children, 0, 3, new Set(), stateColorMap)
+      .then(nodes => { if (!cancelled) { setStepNodes(nodes); setStep3dLoading(false); } })
+      .catch(() => { if (!cancelled) setStep3dLoading(false); });
+    return () => { cancelled = true; };
+  }, [pbsLoaded, children, desc?.state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function startSplitDrag(e) {
+    e.preventDefault();
+    const container = splitContainerRef.current;
+    if (!container) return;
+    function onMove(ev) {
+      const rect = container.getBoundingClientRect();
+      setSplitPos(Math.max(20, Math.min(80, ((ev.clientX - rect.left) / rect.width) * 100)));
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
 
   const txId = tx?.ID || tx?.id || null;
 
@@ -250,12 +349,14 @@ export default function NodeEditor({
 
       let filteredLts = Array.isArray(lts) ? lts : [];
 
-      // If we know the target node type, restrict link types to those compatible with it
+      // If we know the target node type, restrict link types to those compatible with it.
+      // Use hierarchy-aware check so e.g. Assembly (child of Part) matches link types
+      // that declare target=Part — mirrors SelfNodeResolver.isTypeOrDescendant.
       if (preselect?.nodeTypeId) {
         const tid = preselect.nodeTypeId;
         filteredLts = filteredLts.filter(lt => {
           const ltTarget = lt.target_type || lt.TARGET_TYPE;
-          return !ltTarget || ltTarget === tid;
+          return !ltTarget || isTypeOrDescendant(tid, ltTarget, nodeTypes);
         });
         // Single match → auto-select
         if (filteredLts.length === 1) {
@@ -279,6 +380,15 @@ export default function NodeEditor({
       setKeySuggestions(Array.isArray(out) ? out : []);
     } catch {
       setKeySuggestions([]);
+    }
+  }
+
+  async function loadEditKeySuggestions(sourceId, type, query) {
+    try {
+      const out = await api.getSourceKeys(userId, sourceId, type, query, 25);
+      setEditKeySuggestions(Array.isArray(out) ? out : []);
+    } catch {
+      setEditKeySuggestions([]);
     }
   }
 
@@ -549,7 +659,10 @@ export default function NodeEditor({
 
 
   return (
-    <div onClick={() => attrCtxMenu && setAttrCtxMenu(null)}>
+    <div
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}
+      onClick={() => attrCtxMenu && setAttrCtxMenu(null)}
+    >
       {/* ── Attribute context menu ───────────────────── */}
       {attrCtxMenu && ReactDOM.createPortal(
         <div
@@ -756,6 +869,21 @@ export default function NodeEditor({
           </ul>
         </div>
       )}
+
+      {/* ── Split pane: editor (left) | 3D viewer (right) ─── */}
+      <div
+        ref={splitContainerRef}
+        style={{ display: 'flex', overflow: 'hidden', minHeight: 0, flex: 1 }}
+      >
+        <div style={{
+          width: stepPaneClosed ? 'calc(100% - 28px)' : stepMaximized ? 0 : `${splitPos}%`,
+          minWidth: 0,
+          overflow: stepMaximized ? 'hidden' : 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          transition: 'width 0.35s cubic-bezier(0.4,0,0.2,1)',
+          flexShrink: 0,
+        }}>
 
       {/* ── Sub-tabs ─────────────────────────────────── */}
       <div className="subtabs">
@@ -1249,14 +1377,48 @@ export default function NodeEditor({
                           <td style={{ color: 'var(--muted)', fontSize: 12 }}>{c.targetNodeType}</td>
                           <td style={{ fontFamily: 'var(--sans)', fontSize: 13 }}>
                             {isEditing ? (
-                              <input
-                                className="field-input"
-                                style={{ padding: '2px 4px', fontSize: 12, minWidth: 120 }}
-                                type="text"
-                                placeholder="target key…"
-                                value={editLinkTargetKey}
-                                onChange={e => setEditLinkTargetKey(e.target.value)}
-                              />
+                              <div style={{ position: 'relative' }}>
+                                <input
+                                  className="field-input"
+                                  style={{ padding: '2px 4px', fontSize: 12, minWidth: 120 }}
+                                  type="text"
+                                  autoComplete="off"
+                                  placeholder="target key…"
+                                  value={editLinkTargetKey}
+                                  onChange={e => {
+                                    const v = e.target.value;
+                                    setEditLinkTargetKey(v);
+                                    setHiEditKeySugIdx(-1);
+                                    setShowEditKeySug(true);
+                                    loadEditKeySuggestions('SELF', c.targetNodeType, v);
+                                  }}
+                                  onFocus={() => { setShowEditKeySug(true); loadEditKeySuggestions('SELF', c.targetNodeType, editLinkTargetKey); }}
+                                  onBlur={() => setTimeout(() => setShowEditKeySug(false), 150)}
+                                  onKeyDown={e => {
+                                    if (!showEditKeySug || editKeySuggestions.length === 0) return;
+                                    if (e.key === 'ArrowDown') { e.preventDefault(); setHiEditKeySugIdx(i => Math.min(i + 1, editKeySuggestions.length - 1)); }
+                                    else if (e.key === 'ArrowUp') { e.preventDefault(); setHiEditKeySugIdx(i => Math.max(i - 1, -1)); }
+                                    else if (e.key === 'Enter' && hiEditKeySugIdx >= 0) { e.preventDefault(); setEditLinkTargetKey(editKeySuggestions[hiEditKeySugIdx].key || editKeySuggestions[hiEditKeySugIdx].KEY || ''); setShowEditKeySug(false); setHiEditKeySugIdx(-1); }
+                                    else if (e.key === 'Escape') { setShowEditKeySug(false); setHiEditKeySugIdx(-1); }
+                                  }}
+                                />
+                                {showEditKeySug && editKeySuggestions.length > 0 && (
+                                  <div className="search-suggestions">
+                                    {editKeySuggestions.map((s, i) => {
+                                      const k = s.key || s.KEY || '';
+                                      const lbl = s.label || s.LABEL || '';
+                                      return (
+                                        <div key={k} className={`search-sug-item${i === hiEditKeySugIdx ? ' hi' : ''}`}
+                                          onMouseDown={() => { setEditLinkTargetKey(k); setShowEditKeySug(false); setHiEditKeySugIdx(-1); }}
+                                          onMouseEnter={() => setHiEditKeySugIdx(i)}>
+                                          <span className="sug-lid">{k}</span>
+                                          {lbl && lbl !== k && <span className="sug-dname">{lbl}</span>}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
                             ) : (
                               c.targetLogicalId || <span style={{ opacity: .4 }}>{c.targetNodeId?.slice(0, 8)}…</span>
                             )}
@@ -1287,14 +1449,48 @@ export default function NodeEditor({
                           <td style={{ color: 'var(--muted)', fontSize: 12 }}>{c.sourceName || c.targetSourceCode}</td>
                           <td style={{ fontFamily: 'var(--sans)', fontSize: 12 }}>
                             {isEditing ? (
-                              <input
-                                className="field-input"
-                                style={{ padding: '2px 4px', fontSize: 12, minWidth: 120 }}
-                                type="text"
-                                placeholder="target key…"
-                                value={editLinkTargetKey}
-                                onChange={e => setEditLinkTargetKey(e.target.value)}
-                              />
+                              <div style={{ position: 'relative' }}>
+                                <input
+                                  className="field-input"
+                                  style={{ padding: '2px 4px', fontSize: 12, minWidth: 120 }}
+                                  type="text"
+                                  autoComplete="off"
+                                  placeholder="target key…"
+                                  value={editLinkTargetKey}
+                                  onChange={e => {
+                                    const v = e.target.value;
+                                    setEditLinkTargetKey(v);
+                                    setHiEditKeySugIdx(-1);
+                                    setShowEditKeySug(true);
+                                    loadEditKeySuggestions(c.targetSourceCode, c.targetNodeType, v);
+                                  }}
+                                  onFocus={() => { setShowEditKeySug(true); loadEditKeySuggestions(c.targetSourceCode, c.targetNodeType, editLinkTargetKey); }}
+                                  onBlur={() => setTimeout(() => setShowEditKeySug(false), 150)}
+                                  onKeyDown={e => {
+                                    if (!showEditKeySug || editKeySuggestions.length === 0) return;
+                                    if (e.key === 'ArrowDown') { e.preventDefault(); setHiEditKeySugIdx(i => Math.min(i + 1, editKeySuggestions.length - 1)); }
+                                    else if (e.key === 'ArrowUp') { e.preventDefault(); setHiEditKeySugIdx(i => Math.max(i - 1, -1)); }
+                                    else if (e.key === 'Enter' && hiEditKeySugIdx >= 0) { e.preventDefault(); setEditLinkTargetKey(editKeySuggestions[hiEditKeySugIdx].key || editKeySuggestions[hiEditKeySugIdx].KEY || ''); setShowEditKeySug(false); setHiEditKeySugIdx(-1); }
+                                    else if (e.key === 'Escape') { setShowEditKeySug(false); setHiEditKeySugIdx(-1); }
+                                  }}
+                                />
+                                {showEditKeySug && editKeySuggestions.length > 0 && (
+                                  <div className="search-suggestions">
+                                    {editKeySuggestions.map((s, i) => {
+                                      const k = s.key || s.KEY || '';
+                                      const lbl = s.label || s.LABEL || '';
+                                      return (
+                                        <div key={k} className={`search-sug-item${i === hiEditKeySugIdx ? ' hi' : ''}`}
+                                          onMouseDown={() => { setEditLinkTargetKey(k); setShowEditKeySug(false); setHiEditKeySugIdx(-1); }}
+                                          onMouseEnter={() => setHiEditKeySugIdx(i)}>
+                                          <span className="sug-lid">{k}</span>
+                                          {lbl && lbl !== k && <span className="sug-dname">{lbl}</span>}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
                             ) : (
                               c.displayKey || c.targetKey
                             )}
@@ -1346,6 +1542,9 @@ export default function NodeEditor({
                                       initAttrs[av.attributeId] = av.value || '';
                                     });
                                     setEditLinkAttrs(initAttrs);
+                                    setEditKeySuggestions([]);
+                                    setShowEditKeySug(false);
+                                    setHiEditKeySugIdx(-1);
                                     setDeletingLinkId(null);
                                   } : undefined}>
                                   ✎
@@ -1649,6 +1848,76 @@ export default function NodeEditor({
           )}
         </div>
       )}
+
+        </div>{/* end left pane */}
+
+        {stepPaneClosed ? (
+          <div
+            style={{
+              width: 28, flexShrink: 0, cursor: 'pointer',
+              borderLeft: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'var(--surface)',
+              transition: 'width 0.35s cubic-bezier(0.4,0,0.2,1)',
+            }}
+            onClick={() => setStepPaneClosed(false)}
+            title="Open 3D preview"
+          >
+            <span style={{
+              writingMode: 'vertical-rl', fontSize: 11, fontWeight: 600,
+              color: 'var(--muted)', userSelect: 'none', letterSpacing: 1,
+            }}>
+              3D ▶
+            </span>
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                width: stepMaximized ? 0 : 5,
+                cursor: 'col-resize', background: 'var(--border)', flexShrink: 0,
+                userSelect: 'none', overflow: 'hidden',
+                transition: 'width 0.35s cubic-bezier(0.4,0,0.2,1)',
+              }}
+              onMouseDown={!stepMaximized ? startSplitDrag : undefined}
+            />
+            <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '4px 8px', borderBottom: '1px solid var(--border)', flexShrink: 0,
+                background: 'var(--surface)', fontSize: 12, color: 'var(--muted)',
+              }}>
+                <span style={{ fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', fontSize: 11 }}>
+                  3D Preview
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <button
+                    className="panel-icon-btn"
+                    title={stepMaximized ? 'Restore' : 'Maximize 3D preview'}
+                    onClick={() => setStepMaximized(v => !v)}
+                  >
+                    {stepMaximized ? <MinimizeIcon size={13} /> : <MaximizeIcon size={13} />}
+                  </button>
+                  <button
+                    className="panel-icon-btn"
+                    title="Collapse 3D preview"
+                    onClick={() => setStepPaneClosed(true)}
+                  >
+                    <CloseIcon size={13} />
+                  </button>
+                </div>
+              </div>
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <StepViewer
+                  nodes={stepNodes}
+                  loading={step3dLoading}
+                  onNavigateToNode={onNavigate ? (nid) => onNavigate(nid, undefined, { serviceCode: 'psm', itemCode: 'node' }) : undefined}
+                />
+              </div>
+            </div>
+          </>
+        )}
+      </div>{/* end split container */}
 
       {/* ── Diff modal ────────────────────────────────── */}
       {diff && (

@@ -312,7 +312,7 @@ extract_from_builder() {
     cid=$(docker create "$tag")
     docker cp "$cid:$src_path" "$dest"
     docker rm  "$cid" >/dev/null
-    docker rmi "$tag" >/dev/null
+    docker rmi --force "$tag" >/dev/null 2>&1 || true
     ok "[$service] Done."
 }
 

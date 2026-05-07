@@ -83,6 +83,7 @@ public class FingerPrintService {
         for (Record r : dsl.fetch("""
             SELECT nl.id               AS link_id,
                    nl.link_type_id, nl.target_source_id, nl.target_type, nl.target_key,
+                   nl.link_logical_id,
                    nvla.attribute_id, nvla.value AS attr_value
             FROM node_version_link nl
             JOIN node_version nv_src    ON nv_src.id  = nl.source_node_version_id
@@ -101,7 +102,8 @@ public class FingerPrintService {
                 sb.append(r.get("link_type_id",     String.class))
                   .append(':').append(r.get("target_source_id", String.class))
                   .append(':').append(r.get("target_type",      String.class))
-                  .append(':').append(r.get("target_key",       String.class));
+                  .append(':').append(r.get("target_key",       String.class))
+                  .append(':').append(nvl(r.get("link_logical_id", String.class)));
                 prevLinkId = linkId;
             }
             String attrId = r.get("attribute_id", String.class);

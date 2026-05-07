@@ -241,18 +241,18 @@ export default function App() {
       setAuthReady(true);
       storeSetUserId(userId);
       // Boot fetch: refreshAll covers items (+ node list) + tx in one pass.
-      // PNO data loaded in parallel. Settings-only data (sections list,
-      // lifecycle state colours) is fetched lazily by handleToggleSettings.
+      // PNO data + lifecycle state colours loaded in parallel (colours drive
+      // nav dots, state pills and 3D outlines — needed before any node opens).
       refreshAll();
       refreshProjectSpaces();
       refreshUsers();
+      refreshStateColorMap();
       if (showSettings) {
         api.getSettingsSections(userId).then(groups => {
           setSettingsSections(groups);
           const first = groups?.[0]?.sections?.[0]?.key;
           if (first) setActiveSettingsSection(first);
         }).catch(() => setSettingsSections([]));
-        refreshStateColorMap();
       }
     })();
     return () => { cancelled = true; };
