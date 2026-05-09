@@ -11,6 +11,7 @@ import com.cad.ingestion.client.PsmActionClient;
 import com.cad.ingestion.client.PsmValidationClient;
 import com.plm.platform.spe.client.ServiceClientTokenContext;
 import com.cad.ingestion.model.ImportJobResult;
+import com.cad.ingestion.model.SplitPart;
 import com.plm.platform.algorithm.AlgorithmRegistry;
 import com.plm.platform.nats.PlmMessageBus;
 import com.plm.platform.spe.client.ServiceClient;
@@ -69,10 +70,6 @@ public class ImportJobProcessor {
         String txId = null;
         int nodeCount = 0;
         try {
-            List<CadNodeData> nodes = parserClient.parse(fileBytes, filename);
-            log.info("Job {} parsed {} nodes from {}", jobId, nodes.size(), filename);
-            nodeCount = nodes.size();
-
             txId = ownTx ? psmClient.openTransaction() : ctx.psmTxId();
             if (ownTx) repository.savePsmTxId(jobId, UUID.fromString(txId));
 
@@ -81,136 +78,239 @@ public class ImportJobProcessor {
                 ctx.importContextCode(), txId, ctx.rootNodeId(), ctx.splitMode()
             );
 
-            // Fetch import context config from PSA to get node validation instance ID
             Map<String, Object> importContextConfig = fetchImportContext(ctx.importContextCode());
             String nodeValidationInstanceId = importContextConfig != null
                 ? (String) importContextConfig.get("nodeValidationAlgorithmInstanceId") : null;
 
             ImportContextAlgorithm algorithm = resolveAlgorithm(ctx.importContextCode());
 
-            Map<String, UUID>   cadIdToNodeId    = new HashMap<>();
-            Map<String, String> cadIdToLogicalId = new HashMap<>();
+            if (ctx.splitMode()) {
+                // ── SPLIT MODE ────────────────────────────────────────────────────────────
+                // Parser returns one minimal STEP file per product node; each node that is
+                // created or updated gets its own DST entry + lt-part-data link.
+                List<SplitPart> parts = parserClient.split(fileBytes, filename);
+                nodeCount = parts.size();
+                log.info("Job {} split mode: {} parts from {}", jobId, parts.size(), filename);
 
-            // Phase 1 — gather: validate + algorithm decision + external_id check for all nodes
-            record NodeDecision(CadNodeData node, ImportDecision decision) {}
-            List<NodeDecision> planned = new ArrayList<>(nodes.size());
-            for (CadNodeData node : nodes) {
-                PsmValidationClient.ValidationResult validation = validationClient.validateNode(
-                    node.cadId(), node.name(), node.cadType(),
-                    node.attributes(), ctx.importContextCode(), nodeValidationInstanceId
-                );
+                String dstBaseUrl = serviceClient.resolveBaseUrl("dst");
+                String authToken  = ServiceClientTokenContext.get();
 
-                ImportDecision decision;
-                if (!validation.valid()) {
-                    decision = ImportDecision.reject(validation.rejectReason());
-                } else {
-                    CadNodeData enrichedNode = node.attributes().equals(validation.enrichedAttributes())
-                        ? node
-                        : new CadNodeData(node.cadId(), node.name(),
-                            validation.suggestedNodeTypeId() != null ? validation.suggestedNodeTypeId() : node.cadType(),
-                            validation.enrichedAttributes(), node.parentCadId(), node.depth());
-                    decision = algorithm.evaluate(enrichedNode, ctxWithTx);
-                }
+                record SplitDecision(SplitPart part, ImportDecision decision) {}
+                List<SplitDecision> planned = new ArrayList<>(parts.size());
+                for (SplitPart part : parts) {
+                    PsmValidationClient.ValidationResult validation = validationClient.validateNode(
+                        part.cadId(), part.name(), part.cadType(),
+                        part.attributes(), ctx.importContextCode(), nodeValidationInstanceId);
 
-                if (decision.action() == ImportDecision.Action.CREATE) {
-                    UUID existing = psmClient.findByExternalId(node.cadId(), ctx.projectSpaceId());
-                    if (existing != null) {
-                        log.debug("Job {}: externalId={} maps to existing node {}, switching to UPDATE",
-                                  jobId, node.cadId(), existing);
-                        decision = ImportDecision.update(existing.toString(), decision.attributes());
+                    ImportDecision decision;
+                    if (!validation.valid()) {
+                        decision = ImportDecision.reject(validation.rejectReason());
+                    } else {
+                        CadNodeData nodeData = new CadNodeData(part.cadId(), part.name(),
+                            validation.suggestedNodeTypeId() != null ? validation.suggestedNodeTypeId() : part.cadType(),
+                            validation.enrichedAttributes() != null ? validation.enrichedAttributes() : part.attributes(),
+                            part.parentCadId(), 0);
+                        decision = algorithm.evaluate(nodeData, ctxWithTx);
                     }
-                }
-
-                planned.add(new NodeDecision(node, decision));
-            }
-
-            // Phase 2 — sort: leaves first (deepest depth first) so children exist before parents
-            planned.sort(Comparator.comparingInt((NodeDecision nd) -> nd.node().depth()).reversed());
-
-            // Phase 3 — execute in leaf-first order
-            for (NodeDecision nd : planned) {
-                ImportJobResult result = processNode(jobId, nd.node(), nd.decision(), txId, ctx.projectSpaceId());
-                repository.saveResult(result);
-
-                if (result.getPsmNodeId() != null) {
-                    cadIdToNodeId.put(nd.node().cadId(), result.getPsmNodeId());
-                    if (nd.decision().logicalId() != null) {
-                        cadIdToLogicalId.put(nd.node().cadId(), nd.decision().logicalId());
-                    }
-                }
-            }
-
-            for (CadNodeData node : nodes) {
-                if (node.parentCadId() != null) {
-                    UUID   parentPsmId      = cadIdToNodeId.get(node.parentCadId());
-                    UUID   childPsmId       = cadIdToNodeId.get(node.cadId());
-                    String childLogicalId   = cadIdToLogicalId.get(node.cadId());
-                    if (parentPsmId != null && childPsmId != null && childLogicalId != null) {
-                        try {
-                            psmClient.createLink(parentPsmId, childLogicalId, "lt-composed-of", txId, ctx.projectSpaceId());
-                        } catch (Exception e) {
-                            log.warn("Job {}: failed to create BOM link {} -> {}: {}",
-                                jobId, parentPsmId, childLogicalId, e.getMessage());
+                    if (decision.action() == ImportDecision.Action.CREATE) {
+                        UUID existing = psmClient.findByExternalId(part.cadId(), ctx.projectSpaceId());
+                        if (existing != null) {
+                            log.debug("Job {}: externalId={} maps to {}, switching to UPDATE", jobId, part.cadId(), existing);
+                            decision = ImportDecision.update(existing.toString(), decision.attributes());
                         }
                     }
+                    planned.add(new SplitDecision(part, decision));
                 }
-            }
 
-            if (ctx.rootNodeId() != null) {
-                UUID rootPsmId = UUID.fromString(ctx.rootNodeId());
-                for (CadNodeData node : nodes) {
-                    if (node.parentCadId() == null) {
-                        UUID   childPsmId     = cadIdToNodeId.get(node.cadId());
-                        String childLogicalId = cadIdToLogicalId.get(node.cadId());
-                        if (childPsmId != null && childLogicalId != null) {
+                Map<String, UUID>   cadIdToNodeId    = new HashMap<>();
+                Map<String, String> cadIdToLogicalId = new HashMap<>();
+
+                for (SplitDecision sd : planned) {
+                    CadNodeData nodeData = new CadNodeData(
+                        sd.part().cadId(), sd.part().name(), sd.part().cadType(),
+                        sd.part().attributes(), sd.part().parentCadId(), 0);
+                    ImportJobResult result = processNode(jobId, nodeData, sd.decision(), txId, ctx.projectSpaceId());
+                    repository.saveResult(result);
+
+                    if (result.getPsmNodeId() != null) {
+                        cadIdToNodeId.put(sd.part().cadId(), result.getPsmNodeId());
+                        if (sd.decision().logicalId() != null)
+                            cadIdToLogicalId.put(sd.part().cadId(), sd.decision().logicalId());
+
+                        // Upload per-part file to DST → lt-part-data link
+                        boolean acted = "CREATED".equals(result.getAction()) || "UPDATED".equals(result.getAction());
+                        if (acted && sd.part().fileBytes().length > 0) {
                             try {
-                                psmClient.createLink(rootPsmId, childLogicalId, "lt-composed-of", txId, ctx.projectSpaceId());
+                                String partFilename = sd.part().name().replaceAll("[^a-zA-Z0-9._-]", "_") + ".step";
+                                String dstFileId = dstClient.upload(
+                                    sd.part().fileBytes(), partFilename, null,
+                                    authToken, ctx.projectSpaceId(), dstBaseUrl);
+                                if (dstFileId != null) {
+                                    psmClient.createLink(result.getPsmNodeId(), dstFileId,
+                                                         "lt-part-data", txId, ctx.projectSpaceId());
+                                    log.debug("Job {}: part {} → DST {} lt-part-data", jobId, sd.part().cadId(), dstFileId);
+                                }
                             } catch (Exception e) {
-                                log.warn("Job {}: failed to link root {} -> {}: {}",
-                                    jobId, rootPsmId, childLogicalId, e.getMessage());
+                                log.warn("Job {}: DST upload for part {} failed: {}", jobId, sd.part().cadId(), e.getMessage());
                             }
                         }
                     }
                 }
-            }
 
-            // Upload original CAD file to DST and create "represented by" links on top-level nodes
-            try {
-                String dstBaseUrl = serviceClient.resolveBaseUrl("dst");
-                String authToken  = ServiceClientTokenContext.get();
-                String dstFileId  = dstClient.upload(fileBytes, filename, null,
-                                                      authToken, ctx.projectSpaceId(), dstBaseUrl);
-                if (dstFileId != null) {
-                    log.info("Job {}: DST upload succeeded, dstFileId={}", jobId, dstFileId);
-                    for (CadNodeData node : nodes) {
-                        boolean isTarget = ctx.splitMode()
-                            ? "PART".equalsIgnoreCase(node.cadType())
-                            : node.parentCadId() == null;
-                        if (isTarget) {
-                            UUID targetId = cadIdToNodeId.get(node.cadId());
-                            if (targetId != null) {
+                // BOM links
+                for (SplitDecision sd : planned) {
+                    if (sd.part().parentCadId() != null) {
+                        UUID   parentPsmId    = cadIdToNodeId.get(sd.part().parentCadId());
+                        UUID   childPsmId     = cadIdToNodeId.get(sd.part().cadId());
+                        String childLogicalId = cadIdToLogicalId.get(sd.part().cadId());
+                        if (parentPsmId != null && childPsmId != null && childLogicalId != null) {
+                            try {
+                                psmClient.createLink(parentPsmId, childLogicalId, "lt-composed-of", txId, ctx.projectSpaceId());
+                            } catch (Exception e) {
+                                log.warn("Job {}: BOM link {} -> {} failed: {}", jobId, parentPsmId, childLogicalId, e.getMessage());
+                            }
+                        }
+                    }
+                }
+                if (ctx.rootNodeId() != null) {
+                    UUID rootPsmId = UUID.fromString(ctx.rootNodeId());
+                    for (SplitDecision sd : planned) {
+                        if (sd.part().parentCadId() == null) {
+                            UUID   childPsmId     = cadIdToNodeId.get(sd.part().cadId());
+                            String childLogicalId = cadIdToLogicalId.get(sd.part().cadId());
+                            if (childPsmId != null && childLogicalId != null) {
                                 try {
-                                    psmClient.createLink(targetId, dstFileId,
-                                                         "lt-part-data", txId, ctx.projectSpaceId());
+                                    psmClient.createLink(rootPsmId, childLogicalId, "lt-composed-of", txId, ctx.projectSpaceId());
                                 } catch (Exception e) {
-                                    log.warn("Job {}: lt-part-data link {} -> {} failed: {}",
-                                             jobId, targetId, dstFileId, e.getMessage());
+                                    log.warn("Job {}: root link {} -> {} failed: {}", jobId, rootPsmId, childLogicalId, e.getMessage());
                                 }
                             }
                         }
                     }
-                } else {
-                    log.warn("Job {}: DST upload returned no ID, skipping lt-part-data links", jobId);
                 }
-            } catch (Exception e) {
-                log.warn("Job {}: DST upload failed: {}", jobId, e.getMessage());
+
+            } else {
+                // ── NORMAL MODE ───────────────────────────────────────────────────────────
+                List<CadNodeData> nodes = parserClient.parse(fileBytes, filename);
+                log.info("Job {} parsed {} nodes from {}", jobId, nodes.size(), filename);
+                nodeCount = nodes.size();
+
+                Map<String, UUID>   cadIdToNodeId    = new HashMap<>();
+                Map<String, String> cadIdToLogicalId = new HashMap<>();
+
+                // Phase 1 — gather
+                record NodeDecision(CadNodeData node, ImportDecision decision) {}
+                List<NodeDecision> planned = new ArrayList<>(nodes.size());
+                for (CadNodeData node : nodes) {
+                    PsmValidationClient.ValidationResult validation = validationClient.validateNode(
+                        node.cadId(), node.name(), node.cadType(),
+                        node.attributes(), ctx.importContextCode(), nodeValidationInstanceId);
+
+                    ImportDecision decision;
+                    if (!validation.valid()) {
+                        decision = ImportDecision.reject(validation.rejectReason());
+                    } else {
+                        CadNodeData enrichedNode = node.attributes().equals(validation.enrichedAttributes())
+                            ? node
+                            : new CadNodeData(node.cadId(), node.name(),
+                                validation.suggestedNodeTypeId() != null ? validation.suggestedNodeTypeId() : node.cadType(),
+                                validation.enrichedAttributes(), node.parentCadId(), node.depth());
+                        decision = algorithm.evaluate(enrichedNode, ctxWithTx);
+                    }
+                    if (decision.action() == ImportDecision.Action.CREATE) {
+                        UUID existing = psmClient.findByExternalId(node.cadId(), ctx.projectSpaceId());
+                        if (existing != null) {
+                            log.debug("Job {}: externalId={} maps to existing node {}, switching to UPDATE",
+                                      jobId, node.cadId(), existing);
+                            decision = ImportDecision.update(existing.toString(), decision.attributes());
+                        }
+                    }
+                    planned.add(new NodeDecision(node, decision));
+                }
+
+                // Phase 2 — sort: leaves first
+                planned.sort(Comparator.comparingInt((NodeDecision nd) -> nd.node().depth()).reversed());
+
+                // Phase 3 — execute
+                for (NodeDecision nd : planned) {
+                    ImportJobResult result = processNode(jobId, nd.node(), nd.decision(), txId, ctx.projectSpaceId());
+                    repository.saveResult(result);
+                    if (result.getPsmNodeId() != null) {
+                        cadIdToNodeId.put(nd.node().cadId(), result.getPsmNodeId());
+                        if (nd.decision().logicalId() != null)
+                            cadIdToLogicalId.put(nd.node().cadId(), nd.decision().logicalId());
+                    }
+                }
+
+                // Phase 4 — BOM links
+                for (CadNodeData node : nodes) {
+                    if (node.parentCadId() != null) {
+                        UUID   parentPsmId    = cadIdToNodeId.get(node.parentCadId());
+                        UUID   childPsmId     = cadIdToNodeId.get(node.cadId());
+                        String childLogicalId = cadIdToLogicalId.get(node.cadId());
+                        if (parentPsmId != null && childPsmId != null && childLogicalId != null) {
+                            try {
+                                psmClient.createLink(parentPsmId, childLogicalId, "lt-composed-of", txId, ctx.projectSpaceId());
+                            } catch (Exception e) {
+                                log.warn("Job {}: failed to create BOM link {} -> {}: {}",
+                                    jobId, parentPsmId, childLogicalId, e.getMessage());
+                            }
+                        }
+                    }
+                }
+                if (ctx.rootNodeId() != null) {
+                    UUID rootPsmId = UUID.fromString(ctx.rootNodeId());
+                    for (CadNodeData node : nodes) {
+                        if (node.parentCadId() == null) {
+                            UUID   childPsmId     = cadIdToNodeId.get(node.cadId());
+                            String childLogicalId = cadIdToLogicalId.get(node.cadId());
+                            if (childPsmId != null && childLogicalId != null) {
+                                try {
+                                    psmClient.createLink(rootPsmId, childLogicalId, "lt-composed-of", txId, ctx.projectSpaceId());
+                                } catch (Exception e) {
+                                    log.warn("Job {}: failed to link root {} -> {}: {}",
+                                        jobId, rootPsmId, childLogicalId, e.getMessage());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Phase 5 — upload original file to DST, link root nodes
+                try {
+                    String dstBaseUrl = serviceClient.resolveBaseUrl("dst");
+                    String authToken  = ServiceClientTokenContext.get();
+                    String dstFileId  = dstClient.upload(fileBytes, filename, null,
+                                                          authToken, ctx.projectSpaceId(), dstBaseUrl);
+                    if (dstFileId != null) {
+                        log.info("Job {}: DST upload succeeded, dstFileId={}", jobId, dstFileId);
+                        for (CadNodeData node : nodes) {
+                            if (node.parentCadId() == null) {
+                                UUID rootImportedId = cadIdToNodeId.get(node.cadId());
+                                if (rootImportedId != null) {
+                                    try {
+                                        psmClient.createLink(rootImportedId, dstFileId,
+                                                             "lt-part-data", txId, ctx.projectSpaceId());
+                                    } catch (Exception e) {
+                                        log.warn("Job {}: lt-part-data link {} -> {} failed: {}",
+                                                 jobId, rootImportedId, dstFileId, e.getMessage());
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        log.warn("Job {}: DST upload returned no ID, skipping lt-part-data links", jobId);
+                    }
+                } catch (Exception e) {
+                    log.warn("Job {}: DST upload failed: {}", jobId, e.getMessage());
+                }
             }
 
             // Transaction is left open: user reviews imported nodes and commits/rolls back manually.
             repository.updateStatus(jobId, "DONE", LocalDateTime.now(), null);
-            log.info("Import job {} completed ({} nodes, tx={} open for review)", jobId, nodes.size(), txId);
+            log.info("Import job {} completed ({} nodes, tx={} open for review)", jobId, nodeCount, txId);
 
-            publishJobEvent(ctx, jobId.toString(), "DONE", nodes.size(), null);
+            publishJobEvent(ctx, jobId.toString(), "DONE", nodeCount, null);
 
         } catch (Exception e) {
             log.error("Import job {} failed: {}", jobId, e.getMessage(), e);

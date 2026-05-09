@@ -37,7 +37,8 @@ public class CadApiClient {
     @SuppressWarnings("unchecked")
     public Map<String, Object> submitImport(String nodeId, String contextCode,
                                              String userId, String projectSpaceId,
-                                             byte[] fileBytes, String filename, String psmTxId) {
+                                             byte[] fileBytes, String filename, String psmTxId,
+                                             boolean splitMode) {
         ByteArrayResource fileResource = new ByteArrayResource(fileBytes) {
             @Override public String getFilename() { return filename; }
         };
@@ -49,6 +50,7 @@ public class CadApiClient {
         body.add("userId", userId);
         body.add("projectSpaceId", projectSpaceId);
         if (psmTxId != null) body.add("psmTxId", psmTxId);
+        body.add("splitMode", String.valueOf(splitMode));
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);

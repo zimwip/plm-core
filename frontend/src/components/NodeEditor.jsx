@@ -960,6 +960,15 @@ export default function NodeEditor({
                       onChange={e => setActionParams(prev => ({ ...prev, [p.name]: e.target.value }))}
                       style={{ resize: 'vertical' }}
                     />
+                  ) : p.widget === 'CHECKBOX' ? (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={actionParams[p.name] === 'true'}
+                        onChange={e => setActionParams(prev => ({ ...prev, [p.name]: e.target.checked ? 'true' : 'false' }))}
+                      />
+                      {p.tooltip && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{p.tooltip}</span>}
+                    </label>
                   ) : (
                     <input
                       className="field-input"

@@ -74,6 +74,8 @@ public class CadImportActionHandler implements ActionHandler {
         String contextCode = multipart.getParameter("contextCode");
         if (contextCode == null || contextCode.isBlank()) contextCode = "default";
 
+        boolean splitMode = "true".equalsIgnoreCase(multipart.getParameter("splitMode"));
+
         String nodeId = ctx.nodeId();
         String userId = ctx.userId();
         String projectSpaceId = PlmProjectSpaceContext.get();
@@ -107,7 +109,7 @@ public class CadImportActionHandler implements ActionHandler {
             nodeId, contextCode, file.getOriginalFilename(), bytes.length);
 
         Map<String, Object> result = cadApiClient.submitImport(
-            nodeId, contextCode, userId, projectSpaceId, bytes, file.getOriginalFilename(), ctx.txId()
+            nodeId, contextCode, userId, projectSpaceId, bytes, file.getOriginalFilename(), ctx.txId(), splitMode
         );
 
         return ResponseEntity.accepted().body(result);
