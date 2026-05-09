@@ -336,23 +336,19 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
   padding:1px 7px;border-radius:99px;
 }
 .tx-item{
-  display:flex;align-items:center;gap:8px;
-  padding:7px 10px;cursor:pointer;
+  display:flex;align-items:center;gap:6px;
+  padding:4px 10px;cursor:pointer;
   border-left:2px solid transparent;
   transition:background .1s,border-color .1s;
 }
 .tx-item:hover{background:rgba(106,172,255,.06);border-left-color:rgba(106,172,255,.35)}
 .tx-item.active{background:var(--accent-dim);border-left-color:var(--accent)}
-.tx-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:1px}
-.tx-item-body{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
-.tx-item-main{display:flex;align-items:center;justify-content:space-between;gap:4px}
-.tx-item-sub{display:flex;align-items:center;justify-content:space-between;gap:4px}
+.tx-type-icon{display:inline-flex;align-items:center;flex-shrink:0}
 .tx-logical{
   font-family:var(--sans);font-weight:700;font-size:11px;color:var(--text);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;
 }
 .tx-reviter{font-family:var(--mono);font-size:10px;color:var(--muted2);white-space:nowrap;flex-shrink:0}
-.tx-typename{font-size:10px;color:var(--muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .tx-ct-badge{
   font-family:var(--sans);font-size:9px;font-weight:700;letter-spacing:.04em;
   padding:1px 5px;border-radius:3px;white-space:nowrap;flex-shrink:0;
@@ -1698,6 +1694,12 @@ select.field-input{cursor:pointer;appearance:none;-webkit-appearance:none}
 }
 .perf-chip-dot-lg{width:12px;height:12px;animation-duration:2.2s}
 .perf-chip-val{font-weight:500;opacity:.8;margin-left:4px}
+.cache-chip{
+  display:inline-flex;align-items:center;gap:5px;
+  margin-left:8px;padding:2px 8px;border-radius:99px;
+  font-size:10px;font-weight:700;letter-spacing:.08em;
+  background:#1a3350;color:#7eb8f7;text-transform:uppercase;
+}
 @keyframes perf-pulse{
   0%,100%{opacity:.55;transform:scale(1)}
   50%    {opacity:1;transform:scale(1.2)}

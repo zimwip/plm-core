@@ -36,7 +36,8 @@ public class ImportController {
             @RequestParam(defaultValue = "default") String contextCode,
             @RequestParam String userId,
             @RequestParam(required = false) String projectSpaceId,
-            @RequestParam(required = false) String psmTxId) throws IOException {
+            @RequestParam(required = false) String psmTxId,
+            @RequestParam(defaultValue = "false") boolean splitMode) throws IOException {
 
         byte[] bytes = file.getBytes();
         UUID rootNodeId = nodeId != null && !nodeId.isBlank() ? UUID.fromString(nodeId) : null;
@@ -48,7 +49,8 @@ public class ImportController {
             contextCode,
             rootNodeId,
             bytes,
-            psmTxId
+            psmTxId,
+            splitMode
         );
 
         return Map.of("jobId", job.getId().toString(), "status", job.getStatus());

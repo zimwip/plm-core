@@ -71,16 +71,8 @@ public class ValidationService {
                 hard.add(new Violation(
                     "UNKNOWN_ATTRIBUTE", attrCode, globalLabel,
                     "Attribute '" + display + "' is not part of the data model"));
-                continue;
             }
-
-            if (value == null || value.isBlank()) continue;
-            String shapeError = checkValueShape(attr.dataType(), value);
-            if (shapeError != null) {
-                hard.add(new Violation(
-                    "INVALID_VALUE_TYPE", attrCode, displayLabel(attr),
-                    "Attribute '" + displayLabel(attr) + "' " + shapeError));
-            }
+            // Type shape errors are soft violations — collected after save by collectVersionViolations
         }
 
         if (!hard.isEmpty()) throw new ValidationException(hard);
@@ -222,6 +214,14 @@ public class ValidationService {
             }
 
             if (value == null || value.isBlank()) continue;
+
+            String shapeError = checkValueShape(attr.dataType(), value);
+            if (shapeError != null) {
+                out.add(new Violation(
+                    "INVALID_VALUE_TYPE", attrCode, label,
+                    "Attribute '" + label + "' " + shapeError));
+                continue;
+            }
 
             String regex = attr.namingRegex();
             if (regex != null && !value.matches(regex)) {

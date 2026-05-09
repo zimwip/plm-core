@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.node.domain.internal.DomainService;
 import com.plm.node.version.internal.FingerPrintService;
+import com.plm.node.metamodel.internal.ValidationService;
 import com.plm.platform.action.ActionContext;
 import com.plm.platform.action.ActionRouteDescriptor;
 import com.plm.shared.action.ActionHandler;
@@ -28,6 +29,7 @@ public class UnassignDomainActionHandler implements ActionHandler {
     private final DomainService domainService;
     private final FingerPrintService fingerPrintService;
     private final DSLContext dsl;
+    private final ValidationService validationService;
 
     @Override
     public String actionCode() { return "unassign_domain"; }
@@ -62,7 +64,9 @@ public class UnassignDomainActionHandler implements ActionHandler {
         String fp = fingerPrintService.compute(ctx.nodeId(), versionId);
         dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, versionId);
 
-        return ActionResult.ok(Map.of("nodeId", ctx.nodeId(), "domainId", domainId));
+        List<ValidationService.Violation> violations =
+            validationService.collectVersionViolations(ctx.nodeId(), versionId);
+        return ActionResult.ok(Map.of("nodeId", ctx.nodeId(), "domainId", domainId, "violations", violations));
     }
 
     @Override

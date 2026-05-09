@@ -170,7 +170,12 @@ function LeftPanel({
               const TxIcon    = ntInfo?.icon ? NODE_ICONS[ntInfo.icon] : null;
               return confirming ? (
                 <div key={i} className="tx-item tx-item-confirm" onClick={e => e.stopPropagation()}>
-                  <span className="tx-dot" style={{ background: stateColorMap?.[state] || '#6b7280' }} />
+                  <span className="tx-type-icon">
+                    {TxIcon
+                      ? <TxIcon size={11} color={txColor || 'var(--muted2)'} strokeWidth={2} />
+                      : <span style={{ width: 7, height: 7, borderRadius: 1, background: txColor || 'var(--muted2)', display: 'inline-block' }} />
+                    }
+                  </span>
                   <span className="tx-confirm-msg">Release {logicalId || nid}?</span>
                   <button className="btn btn-danger btn-xs"
                     onClick={() => { onReleaseNode && onReleaseNode(nid); setReleaseConfirmId(null); }}>
@@ -179,28 +184,20 @@ function LeftPanel({
                   <button className="btn btn-xs" onClick={() => setReleaseConfirmId(null)}>No</button>
                 </div>
               ) : (
-                <div key={i} className={`tx-item${isActive ? ' active' : ''}`} onClick={() => onNavigate(nid, logicalId || undefined, psmNodeDescriptor)}>
-                  <span className="tx-dot" style={{ background: stateColorMap?.[state] || '#6b7280' }} />
-                  <div className="tx-item-body">
-                    <div className="tx-item-main">
-                      <span className="tx-logical">{logicalId || nid}</span>
-                      <span className="tx-reviter">{iter === 0 ? rev : `${rev}.${iter}`}</span>
-                    </div>
-                    <div className="tx-item-sub">
-                      <span className="tx-typename" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        {TxIcon
-                          ? <TxIcon size={10} color={txColor || 'var(--muted2)'} strokeWidth={2} />
-                          : txColor
-                            ? <span style={{ width: 6, height: 6, borderRadius: 1, background: txColor, display: 'inline-block', flexShrink: 0 }} />
-                            : null
-                        }
-                        {typeName}
-                      </span>
-                      <span className="tx-ct-badge" style={{ background: badge.bg, color: badge.color }}>
-                        {badge.label}
-                      </span>
-                    </div>
-                  </div>
+                <div key={i} className={`tx-item${isActive ? ' active' : ''}`} onClick={() => onNavigate(nid, logicalId || undefined, psmNodeDescriptor)} title={typeName}>
+                  <span className="tx-type-icon">
+                    {TxIcon
+                      ? <TxIcon size={11} color={txColor || 'var(--muted2)'} strokeWidth={2} />
+                      : txColor
+                        ? <span style={{ width: 7, height: 7, borderRadius: 1, background: txColor, display: 'inline-block' }} />
+                        : <span style={{ width: 7, height: 7, borderRadius: 1, background: 'var(--muted2)', display: 'inline-block' }} />
+                    }
+                  </span>
+                  <span className="tx-logical">{logicalId || nid}</span>
+                  <span className="tx-reviter" style={{ color: stateColorMap?.[state] || 'var(--muted2)' }}>{iter === 0 ? rev : `${rev}.${iter}`}</span>
+                  <span className="tx-ct-badge" style={{ background: badge.bg, color: badge.color }}>
+                    {badge.label}
+                  </span>
                   <button className="tx-release-btn" title="Release from transaction"
                     onClick={e => { e.stopPropagation(); setReleaseConfirmId(nid); }}>
                     <XCircleIcon size={12} strokeWidth={2} color="var(--muted)" />

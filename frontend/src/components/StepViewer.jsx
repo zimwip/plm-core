@@ -2,18 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ViewportGizmo } from 'three-viewport-gizmo';
-import { dstApi } from '../services/api';
+import { getSessionToken, getProjectSpaceId } from '../services/api';
+import { stepWorker as _stepWorker } from '../workers/stepWorkerInstance';
 import { ChevronRightIcon, ChevronLeftIcon } from './Icons';
-
-let _occtReady = null;
-function loadOcct() {
-  if (!_occtReady) {
-    _occtReady = import('occt-import-js').then(mod =>
-      mod.default({ locateFile: () => '/occt/occt-import-js.wasm' })
-    );
-  }
-  return _occtReady;
-}
 
 // nodes: [{ nodeId, nodeLabel, stateColor, depth, parts: [{ uuid, fileName, sizeBytes }] }]
 export default function StepViewer({ nodes = [], loading = false, onNavigateToNode }) {
@@ -214,36 +205,60 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Load new parts ───────────────────────────────────────────
+  // ── Worker message handler ───────────────────────────────────
   useEffect(() => {
+    const handler = ({ data }) => {
+      const { type, uuid } = data;
+      if (!loadingRef.current.has(uuid)) return;
+      if (type === 'ready') {
+        const outlineColor = partColorRef.current[uuid] || '#6b7280';
+        const group = buildGroup(data.meshes, outlineColor);
+        group.name = uuid;
+        sceneRef.current?.add(group);
+        groupsRef.current[uuid] = group;
+        fitCamera();
+        loadingRef.current.delete(uuid);
+        setPartStates(prev => ({ ...prev, [uuid]: { phase: 'ready', error: null, visible: true } }));
+      } else if (type === 'error') {
+        loadingRef.current.delete(uuid);
+        setPartStates(prev => ({ ...prev, [uuid]: { phase: 'error', error: data.message, visible: false } }));
+      }
+    };
+    _stepWorker.addEventListener('message', handler);
+    return () => _stepWorker.removeEventListener('message', handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load new parts ───────────────────────────────────────────
+  // ── Sync scene: remove stale, load new ──────────────────────
+  useEffect(() => {
+    const activeUuids = new Set(activeParts.map(p => p.uuid));
+
+    // Remove groups no longer in active set
+    for (const uuid of Object.keys(groupsRef.current)) {
+      if (!activeUuids.has(uuid)) {
+        disposeGroup(groupsRef.current[uuid]);
+        sceneRef.current?.remove(groupsRef.current[uuid]);
+        delete groupsRef.current[uuid];
+      }
+    }
+    for (const uuid of [...loadingRef.current]) {
+      if (!activeUuids.has(uuid)) loadingRef.current.delete(uuid);
+    }
+    setPartStates(prev => {
+      const next = { ...prev };
+      for (const uuid of Object.keys(next)) {
+        if (!activeUuids.has(uuid)) delete next[uuid];
+      }
+      return next;
+    });
+
+    // Load new parts
     for (const part of activeParts) {
       const { uuid } = part;
       if (groupsRef.current[uuid] || loadingRef.current.has(uuid)) continue;
-
       loadingRef.current.add(uuid);
       setPartStates(prev => ({ ...prev, [uuid]: { phase: 'loading', error: null, visible: true } }));
-
-      (async () => {
-        try {
-          const buf  = await dstApi.downloadFile(uuid);
-          const occt = await loadOcct();
-          const res  = occt.ReadStepFile(new Uint8Array(buf), null);
-
-          if (!res?.success || !res.meshes?.length) throw new Error('No geometry found');
-
-          const outlineColor = partColorRef.current[uuid] || '#6b7280';
-          const group = buildGroup(res.meshes, outlineColor);
-          group.name = uuid;
-          sceneRef.current?.add(group);
-          groupsRef.current[uuid] = group;
-          fitCamera();
-          setPartStates(prev => ({ ...prev, [uuid]: { phase: 'ready', error: null, visible: true } }));
-        } catch (e) {
-          setPartStates(prev => ({ ...prev, [uuid]: { phase: 'error', error: e.message, visible: false } }));
-        } finally {
-          loadingRef.current.delete(uuid);
-        }
-      })();
+      _stepWorker.postMessage({ type: 'load', uuid, token: getSessionToken(), projectSpace: getProjectSpaceId() });
     }
   }, [activeKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -448,18 +463,17 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
   );
 }
 
+// meshes: [{ positions: Float32Array, normals: Float32Array|null, indices: Uint32Array|null, color: [r,g,b]|null }]
 function buildGroup(meshes, outlineColor = '#6b7280') {
   const group   = new THREE.Group();
   const olColor = new THREE.Color(outlineColor);
   for (const mesh of meshes) {
-    const pos = mesh.attributes?.position;
-    if (!pos) continue;
+    if (!mesh.positions) continue;
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos.array), 3));
-    const nor = mesh.attributes?.normal;
-    if (nor) geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor.array), 3));
-    if (mesh.index) geo.setIndex(new THREE.BufferAttribute(new Uint32Array(mesh.index.array), 1));
-    if (!nor) geo.computeVertexNormals();
+    geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+    if (mesh.normals)  geo.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
+    if (mesh.indices)  geo.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+    if (!mesh.normals) geo.computeVertexNormals();
     const color = mesh.color
       ? new THREE.Color(mesh.color[0], mesh.color[1], mesh.color[2])
       : new THREE.Color(0x5b9cf6);

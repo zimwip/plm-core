@@ -4,8 +4,10 @@
 // match-specificity, so registration order is irrelevant.
 
 import { registerSourcePlugin, registerDefaultPlugin } from '../services/sourcePlugins';
+import { registerStatusPlugin } from '../services/statusPlugins';
 import { psmNodePlugin } from './psmNodePlugin';
 import { dstDataPlugin } from './dstDataPlugin';
+import { dstStatusPlugin } from './dstStatusPlugin';
 import { defaultPlugin } from './defaultPlugin';
 
 let _registered = false;
@@ -18,4 +20,5 @@ export function registerBuiltinPlugins() {
   // serviceCode 'DATA_LOCAL' → LinkRow       (targetSourceCode in PSM links uses the source table ID)
   registerSourcePlugin(dstDataPlugin);
   registerSourcePlugin({ ...dstDataPlugin, match: { serviceCode: 'DATA_LOCAL' }, name: 'dst-data-link', NavRow: undefined, Editor: undefined });
+  registerStatusPlugin(dstStatusPlugin);
 }

@@ -1,5 +1,6 @@
 package com.plm.cad;
 
+import com.plm.node.NodeService;
 import com.plm.platform.algorithm.AlgorithmRegistry;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.AlgorithmConfig;
@@ -7,13 +8,16 @@ import com.plm.platform.config.dto.AlgorithmInstanceConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Internal endpoint called by cad-api during async import job processing.
@@ -28,6 +32,14 @@ public class CadValidationController {
 
     private final AlgorithmRegistry algorithmRegistry;
     private final ConfigCache configCache;
+    private final NodeService nodeService;
+
+    @GetMapping("/nodes/by-external-id")
+    public ResponseEntity<Map<String, Object>> findByExternalId(@RequestParam String externalId) {
+        Optional<UUID> nodeId = nodeService.findByExternalId(externalId);
+        return nodeId.map(id -> ResponseEntity.ok(Map.<String, Object>of("nodeId", id.toString())))
+                     .orElseGet(() -> ResponseEntity.notFound().build());
+    }
 
     @PostMapping("/validate-node")
     public ResponseEntity<Map<String, Object>> validateNode(@RequestBody Map<String, Object> body) {

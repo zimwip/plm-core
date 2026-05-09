@@ -187,4 +187,15 @@ public class NodeController {
         String id = commentService.addComment(nodeId, nodeVersionId, userId, text, parentId, attributeName);
         return ResponseEntity.ok(Map.of("commentId", id));
     }
+
+    @PatchMapping("/{nodeId}/external-id")
+    @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
+    public ResponseEntity<?> updateExternalId(
+        @PathVariable String nodeId,
+        @RequestBody  Map<String, Object> body
+    ) {
+        String externalId = (String) body.get("externalId");
+        nodeService.updateExternalId(nodeId, externalId);
+        return ResponseEntity.ok(Map.of());
+    }
 }

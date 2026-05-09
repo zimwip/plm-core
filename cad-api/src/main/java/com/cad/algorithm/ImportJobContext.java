@@ -6,5 +6,6 @@ public record ImportJobContext(
         String userId,
         String importContextCode,
         String psmTxId,
-        String rootNodeId
+        String rootNodeId,
+        boolean splitMode
 ) {}

@@ -53,6 +53,8 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState(null);
+  const [textPreview, setTextPreview] = useState(null);
+  const [textPreviewLoading, setTextPreviewLoading] = useState(false);
 
   const loadDetail = useCallback(async () => {
     if (!detailPathTpl || !tab.nodeId) {
@@ -74,6 +76,25 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
   }, [detailPathTpl, httpMethod, tab.nodeId, svcBase]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
+
+  useEffect(() => {
+    const url = detail?.metadata?.downloadUrl;
+    if (!url) { setTextPreview(null); return; }
+    let cancelled = false;
+    setTextPreviewLoading(true);
+    api.gatewayRawText(url)
+      .then(text => { if (!cancelled) { setTextPreview(text); setTextPreviewLoading(false); } })
+      .catch(() => { if (!cancelled) { setTextPreview(null); setTextPreviewLoading(false); } });
+    return () => { cancelled = true; };
+  }, [detail?.metadata?.downloadUrl]);
+
+  // Push text content to the central preview pane
+  useEffect(() => {
+    ctx?.onRegisterPreview?.({ text: textPreview, loading: textPreviewLoading });
+  }, [textPreview, textPreviewLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear preview on unmount / item change
+  useEffect(() => () => { ctx?.onRegisterPreview?.(null); }, [tab.nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function invokeAction(a) {
     if (a.confirmRequired && !window.confirm(`${a.label}?\n\n${a.description || ''}`)) return;
@@ -108,7 +129,7 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
   if (!detail) return null;
 
   return (
-    <div style={{ padding: 24, overflow: 'auto', height: '100%' }}>
+    <div style={{ padding: 24, overflow: 'auto', height: '100%', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
         {detail.color && (
           <span style={{ width: 10, height: 10, borderRadius: 2, background: detail.color, flexShrink: 0 }} />
@@ -156,7 +177,7 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
         </tbody>
       </table>
 
-      {/* ── Image preview hook (metadata.isImage + metadata.downloadUrl) ── */}
+      {/* ── Image preview (metadata.isImage) ── */}
       {detail.metadata?.isImage && detail.metadata?.downloadUrl && (
         <div>
           <div className="settings-sub-label" style={{ marginBottom: 8 }}>Preview</div>

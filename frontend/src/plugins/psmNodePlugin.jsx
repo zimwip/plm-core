@@ -6,6 +6,7 @@ import {
   ChevronDownIcon, ChevronRightIcon, LockIcon, EditIcon,
 } from '../components/Icons';
 import NodeEditor from '../components/NodeEditor';
+import StepPreviewPanel from '../components/StepPreviewPanel';
 
 /**
  * Frozen descriptor used by PSM-internal navigation shortcuts (dashboard,
@@ -174,11 +175,10 @@ export function PsmNodeEditor({ tab, ctx }) {
   const {
     userId, tx, nodeTypes, stateColorMap, onAutoOpenTx, toast,
     onDescriptionLoaded, onOpenCommentsForVersion, onCommentAttribute,
-    onSubTabChange, onNavigate,
+    onSubTabChange, onNavigate, onRegisterPreview,
   } = ctx;
   return (
     <NodeEditor
-      key={tab.nodeId}
       nodeId={tab.nodeId}
       userId={userId}
       tx={tx}
@@ -192,6 +192,7 @@ export function PsmNodeEditor({ tab, ctx }) {
       onOpenCommentsForVersion={onOpenCommentsForVersion}
       onCommentAttribute={onCommentAttribute}
       onNavigate={onNavigate}
+      onRegisterPreview={onRegisterPreview}
     />
   );
 }
@@ -202,6 +203,8 @@ export const psmNodePlugin = {
   NavRow: PsmNodeNavRow,
   ChildRow: PsmLinkRow,
   Editor: PsmNodeEditor,
+  Preview: StepPreviewPanel,
+  previewLabel: '3D Preview',
   hasItemChildren: (item) => {
     const cc = item.children_count ?? item.CHILDREN_COUNT;
     return cc == null || cc > 0;

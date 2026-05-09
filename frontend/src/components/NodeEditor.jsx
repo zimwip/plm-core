@@ -6,8 +6,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { usePlmStore } from '../store/usePlmStore';
 import LifecycleDiagram from './LifecycleDiagram';
 import SignaturePanel from './SignaturePanel';
-import StepViewer from './StepViewer';
-import { NODE_ICONS, SignIcon, CloseIcon, MaximizeIcon, MinimizeIcon } from './Icons';
+import { NODE_ICONS, SignIcon } from './Icons';
 import { lookupLinkRowForSource } from '../services/sourcePlugins';
 import { isStepLink } from '../plugins/dstDataPlugin';
 
@@ -142,6 +141,7 @@ export default function NodeEditor({
   onOpenCommentsForVersion,
   onCommentAttribute,
   onNavigate,
+  onRegisterPreview,
 }) {
   // desc lives in the store — subscribed below; all other state is local UI state
   const [history,             setHistory]            = useState([]);
@@ -178,12 +178,10 @@ export default function NodeEditor({
   const [hiEditKeySugIdx,    setHiEditKeySugIdx]    = useState(-1);
   const [deletingLinkId,   setDeletingLinkId]   = useState(null);
   const [linkActLoading,   setLinkActLoading]   = useState(false);
-  const [stepPaneClosed,   setStepPaneClosed]   = useState(false);
-  const [splitPos,         setSplitPos]         = useState(55);
   const [stepNodes,        setStepNodes]        = useState([]);
   const [step3dLoading,    setStep3dLoading]    = useState(false);
-  const [stepMaximized,    setStepMaximized]    = useState(false);
 
+  const [externalIdEdit, setExternalIdEdit] = useState(null); // null = not editing, string = editing value
   const [isDragOver,     setIsDragOver]     = useState(false);
   const [attrCtxMenu,    setAttrCtxMenu]    = useState(null); // { attrId, attrLabel, x, y }
   const [viewVersionNum, setViewVersionNum] = useState(null);
@@ -191,32 +189,46 @@ export default function NodeEditor({
   const [histLoading,    setHistLoading]    = useState(false);
   const [sigPanelOpen,   setSigPanelOpen]   = useState(null); // null | versionId
   const [versionSigCounts, setVersionSigCounts] = useState({});
+  const [violationsBannerCollapsed, setViolationsBannerCollapsed] = useState(true);
 
   const saveTimer          = useRef(null);
   const savedTimer         = useRef(null);
   const dragCounter        = useRef(0);
   const linkPanelRef       = useRef(null);
-  const splitContainerRef  = useRef(null);
+  const stepNodesLoadedRef = useRef(false);
 
   // Global store — must be declared before any useEffect that reads these values
   const desc               = usePlmStore(s => s.activeNodeDescs[nodeId] ?? null);
   const refreshNodeDesc    = usePlmStore(s => s.refreshNodeDesc);
   const patchNodeDescAttrs = usePlmStore(s => s.patchNodeDescAttrs);
-  const evictNodeDesc      = usePlmStore(s => s.evictNodeDesc);
+
   const refreshAll         = usePlmStore(s => s.refreshAll);
   const refreshNodes       = usePlmStore(s => s.refreshNodes);
   const refreshTx          = usePlmStore(s => s.refreshTx);
 
+  // Reset violations when navigating to a different node
+  useEffect(() => {
+    setSaveViolations([]);
+  }, [nodeId]);
+
+  // Seed violations from description on load/version-change (OPEN versions include violations in their description)
+  const descVersionId = desc?.currentVersionId;
+  useEffect(() => {
+    if (desc?.violations) setSaveViolations(desc.violations);
+  }, [descVersionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Collapse violations banner by default when there are multiple violations
+  useEffect(() => {
+    setViolationsBannerCollapsed(saveViolations.length > 1);
+  }, [saveViolations.length]);
+
+  const violationByAttr = useMemo(
+    () => Object.fromEntries(saveViolations.filter(v => v.attrCode).map(v => [v.attrCode, v])),
+    [saveViolations]
+  );
+
   // Eager PBS load so STEP parts are available regardless of active tab
   useEffect(() => { loadPds(); }, [nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Reset 3D pane state when switching nodes
-  useEffect(() => {
-    setStepPaneClosed(false);
-    setStepMaximized(false);
-    setStepNodes([]);
-    setStep3dLoading(false);
-  }, [nodeId]);
 
   // Walk the BOM hierarchy (SELF links) to collect STEP parts from all child nodes.
   // desc?.state is a dep so the root color is correct even if desc loads after pbsLoaded.
@@ -227,26 +239,17 @@ export default function NodeEditor({
     const rootLabel = desc?.logicalId || desc?.identity || nodeId;
     const rootColor = stateColorMap?.[desc?.state] || '#6b7280';
     collectStepNodes(userId, nodeId, rootLabel, rootColor, children, 0, 3, new Set(), stateColorMap)
-      .then(nodes => { if (!cancelled) { setStepNodes(nodes); setStep3dLoading(false); } })
-      .catch(() => { if (!cancelled) setStep3dLoading(false); });
+      .then(nodes => { if (!cancelled) { stepNodesLoadedRef.current = true; setStepNodes(nodes); setStep3dLoading(false); } })
+      .catch(() => { if (!cancelled) { stepNodesLoadedRef.current = true; setStep3dLoading(false); } });
     return () => { cancelled = true; };
   }, [pbsLoaded, children, desc?.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function startSplitDrag(e) {
-    e.preventDefault();
-    const container = splitContainerRef.current;
-    if (!container) return;
-    function onMove(ev) {
-      const rect = container.getBoundingClientRect();
-      setSplitPos(Math.max(20, Math.min(80, ((ev.clientX - rect.left) / rect.width) * 100)));
-    }
-    function onUp() {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }
+  // Push step data to preview only after we have a result for the current node.
+  // Skipping the initial empty state preserves cached 3D while new data loads (stale-while-revalidate).
+  useEffect(() => {
+    if (!stepNodesLoadedRef.current) return;
+    onRegisterPreview?.({ nodes: stepNodes, loading: step3dLoading });
+  }, [stepNodes, step3dLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const txId = tx?.ID || tx?.id || null;
 
@@ -255,9 +258,46 @@ export default function NodeEditor({
     if (desc && onDescriptionLoaded) onDescriptionLoaded(desc);
   }, [desc]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Evict from cache when the tab is closed (nodeId changes or component unmounts)
+  // Reset all node-specific local state when navigating to a different node.
+  // keys removed from EditorArea/plugin so this replaces what key= was doing implicitly.
   useEffect(() => {
-    return () => evictNodeDesc(nodeId);
+    setHistory([]);
+    setVersionCommentCounts({});
+    setEdits({});
+    setLoading(false);
+    setSaveStatus(null);
+    setActionDialog(null);
+    setActionParams({});
+    setActiveJob(null);
+    if (cadJobPollRef.current) { clearInterval(cadJobPollRef.current); cadJobPollRef.current = null; }
+    setDiff(null);
+    setDiffLoading(false);
+    setLinkPanel(false);
+    setLinkTypes([]);
+    setSourcesById({});
+    setSelLinkType('');
+    setSelTargetKey('');
+    setKeySuggestions([]);
+    setHiKeySugIdx(-1);
+    setShowKeySug(false);
+    setLinkLogicalId('');
+    setLinkLoading(false);
+    setEditingLinkId(null);
+    setEditLinkLogId('');
+    setEditLinkTargetKey('');
+    setEditLinkAttrs({});
+    setEditKeySuggestions([]);
+    setShowEditKeySug(false);
+    setHiEditKeySugIdx(-1);
+    setDeletingLinkId(null);
+    setLinkActLoading(false);
+    setExternalIdEdit(null);
+    setIsDragOver(false);
+    setAttrCtxMenu(null);
+    setHistLoading(false);
+    setSigPanelOpen(null);
+    setVersionSigCounts({});
+    stepNodesLoadedRef.current = false;
   }, [nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
@@ -297,7 +337,6 @@ export default function NodeEditor({
       }
       setVersionCommentCounts(counts);
       setEdits({});
-      setSaveViolations([]);
       await refreshNodeDesc(nodeId); // updates desc in store → triggers re-render
     } catch (e) { toast(e, 'error'); }
   }, [nodeId, userId, refreshNodeDesc, toast]);
@@ -575,6 +614,7 @@ export default function NodeEditor({
         return;
       }
 
+      if (result?.violations !== undefined) setSaveViolations(result.violations);
       if (result?.message) toast(result.message, 'success');
       await refreshAll();
       await load();
@@ -616,7 +656,13 @@ export default function NodeEditor({
       refreshTx();
     } catch (e) {
       setSaveStatus(null);
-      toast(e, 'error');
+      const hardViolations = e.detail?.violations;
+      if (hardViolations?.length) {
+        setSaveViolations(hardViolations);
+      } else {
+        // Non-validation failure (network, server error) — still needs visibility
+        toast(e, 'error');
+      }
     }
   }
 
@@ -960,31 +1006,30 @@ export default function NodeEditor({
       {/* Validation violations from last save (dry-run) */}
       {saveViolations.length > 0 && (
         <div className="violations-banner">
-          <span className="violations-banner-title">⚠ Will fail at commit:</span>
-          <ul className="violations-banner-list">
-            {saveViolations.map((v, i) => (
-              <li key={i}>{typeof v === 'string' ? v : v.message}</li>
-            ))}
-          </ul>
+          <div
+            className="violations-banner-header"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+            onClick={() => setViolationsBannerCollapsed(c => !c)}
+          >
+            <span className="violations-banner-title">⚠ Will fail at commit</span>
+            <span style={{ fontSize: 11, opacity: 0.75 }}>
+              ({saveViolations.length} issue{saveViolations.length > 1 ? 's' : ''})
+            </span>
+            <span style={{ fontSize: 10, marginLeft: 'auto', opacity: 0.6 }}>
+              {violationsBannerCollapsed ? '▾ show' : '▴ hide'}
+            </span>
+          </div>
+          {!violationsBannerCollapsed && (
+            <ul className="violations-banner-list">
+              {saveViolations.map((v, i) => (
+                <li key={i}>{typeof v === 'string' ? v : v.message}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
-      {/* ── Split pane: editor (left) | 3D viewer (right) ─── */}
-      <div
-        ref={splitContainerRef}
-        style={{ display: 'flex', overflow: 'hidden', minHeight: 0, flex: 1 }}
-      >
-        <div style={{
-          width: stepPaneClosed ? 'calc(100% - 28px)' : stepMaximized ? 0 : `${splitPos}%`,
-          minWidth: 0,
-          overflow: stepMaximized ? 'hidden' : 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          transition: 'width 0.35s cubic-bezier(0.4,0,0.2,1)',
-          flexShrink: 0,
-        }}>
-
-      {/* ── Sub-tabs ─────────────────────────────────── */}
+      {/* ── Sub-tabs (full-width, above split) ──────────── */}
       <div className="subtabs">
         {[
           { key: 'attributes',  label: 'Properties' },
@@ -1009,11 +1054,11 @@ export default function NodeEditor({
         ))}
       </div>
 
-      {/* ── Historical view banner ────────────────────── */}
+      {/* ── Historical view banner (full-width, above split) ── */}
       {viewVersionNum && (
         <div style={{
           background: 'rgba(251,191,36,.1)', border: '1px solid rgba(251,191,36,.4)',
-          borderRadius: 4, padding: '7px 12px', margin: '8px 0',
+          borderRadius: 4, padding: '7px 12px', margin: '0 0 4px',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12,
         }}>
           <span style={{ color: '#92400e' }}>
@@ -1027,6 +1072,9 @@ export default function NodeEditor({
           </button>
         </div>
       )}
+
+      {/* ── Content ─────────────────────────────────── */}
+      <div style={{ flex: 1, overflow: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Attributes ───────────────────────────────── */}
       {activeSubTab === 'attributes' && (() => {
@@ -1052,6 +1100,13 @@ export default function NodeEditor({
           const requiredViolation = attr.required && edits[attr.id] === '';
           const enumViolation = enumCodes && edits[attr.id] != null &&
             edits[attr.id] !== '' && !enumCodes.includes(edits[attr.id]);
+          const serverViolation = violationByAttr[attr.id];
+          // Show server hint for codes the client doesn't already cover inline
+          const serverViolationHint = serverViolation &&
+            serverViolation.code !== 'NAMING_REGEX' &&
+            serverViolation.code !== 'ENUM_NOT_ALLOWED' &&
+            !(serverViolation.code === 'REQUIRED' && requiredViolation)
+              ? serverViolation : null;
           return (
             <div
               className="field"
@@ -1085,8 +1140,8 @@ export default function NodeEditor({
                 <div className="logical-id-wrap">
                   <input
                     className={`field-input${
-                      requiredViolation || enumViolation || regexViolation ? ' error'
-                      : regexMatches === true                                ? ' ok'
+                      requiredViolation || enumViolation || regexViolation || !!serverViolation ? ' error'
+                      : regexMatches === true                                                   ? ' ok'
                       : ''
                     }`}
                     readOnly={!isEditable}
@@ -1131,6 +1186,9 @@ export default function NodeEditor({
               {enumViolation && (
                 <span className="field-hint error">Value not in allowed list</span>
               )}
+              {serverViolationHint && (
+                <span className="field-hint error">{serverViolationHint.message}</span>
+              )}
             </div>
           );
         };
@@ -1153,9 +1211,64 @@ export default function NodeEditor({
         };
 
         const activeDomain = attrPartition.domains.find(d => d.id === activeDomainTab);
+        const fmtDate = (iso) => {
+          if (!iso) return '';
+          try { return new Date(iso).toLocaleString(); } catch { return iso; }
+        };
+        const identityAttrs = attrPartition.base.filter(a => (a.section || 'General') === 'Identity');
+        const nonIdentityAttrs = attrPartition.base.filter(a => (a.section || 'General') !== 'Identity');
         return (
           <div>
-            {renderSections(attrPartition.base)}
+            <div>
+              <div className="section-label">Identity</div>
+              <div className="attr-grid">
+                <div className="field">
+                  <label className="field-label">{activeDesc.logicalIdLabel || 'Identifier'}</label>
+                  <input className="field-input" readOnly value={activeDesc.logicalId || ''} />
+                </div>
+                <div className="field">
+                  <label className="field-label">External ID</label>
+                  <input
+                    className="field-input"
+                    value={externalIdEdit !== null ? externalIdEdit : (activeDesc.externalId || '')}
+                    placeholder="—"
+                    onChange={e => setExternalIdEdit(e.target.value)}
+                    onFocus={() => setExternalIdEdit(activeDesc.externalId || '')}
+                    onBlur={async () => {
+                      if (externalIdEdit === null) return;
+                      const val = externalIdEdit.trim();
+                      if (val !== (activeDesc.externalId || '')) {
+                        await api.updateExternalId(userId, nodeId, val).catch(() => {});
+                        await refreshNodeDesc(nodeId);
+                      }
+                      setExternalIdEdit(null);
+                    }}
+                  />
+                </div>
+                {identityAttrs.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)).map(renderAttrField)}
+                <div className="field">
+                  <label className="field-label">Technical ID</label>
+                  <input className="field-input" readOnly value={activeDesc.technicalId || ''} title={activeDesc.technicalId || ''} />
+                </div>
+                <div className="field">
+                  <label className="field-label">Creator</label>
+                  <input className="field-input" readOnly value={activeDesc.createdBy || ''} />
+                </div>
+                <div className="field">
+                  <label className="field-label">Created</label>
+                  <input className="field-input" readOnly value={fmtDate(activeDesc.createdAt)} />
+                </div>
+                <div className="field">
+                  <label className="field-label">Modified by</label>
+                  <input className="field-input" readOnly value={activeDesc.modifiedBy || ''} />
+                </div>
+                <div className="field">
+                  <label className="field-label">Last update</label>
+                  <input className="field-input" readOnly value={fmtDate(activeDesc.lastUpdate)} />
+                </div>
+              </div>
+            </div>
+            {renderSections(nonIdentityAttrs)}
 
             {(attrPartition.domains.length > 0 || propertyActions.length > 0) && (
               <div style={{ marginTop: 16 }}>
@@ -1948,75 +2061,7 @@ export default function NodeEditor({
         </div>
       )}
 
-        </div>{/* end left pane */}
-
-        {stepPaneClosed ? (
-          <div
-            style={{
-              width: 28, flexShrink: 0, cursor: 'pointer',
-              borderLeft: '1px solid var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'var(--surface)',
-              transition: 'width 0.35s cubic-bezier(0.4,0,0.2,1)',
-            }}
-            onClick={() => setStepPaneClosed(false)}
-            title="Open 3D preview"
-          >
-            <span style={{
-              writingMode: 'vertical-rl', fontSize: 11, fontWeight: 600,
-              color: 'var(--muted)', userSelect: 'none', letterSpacing: 1,
-            }}>
-              3D ▶
-            </span>
-          </div>
-        ) : (
-          <>
-            <div
-              style={{
-                width: stepMaximized ? 0 : 5,
-                cursor: 'col-resize', background: 'var(--border)', flexShrink: 0,
-                userSelect: 'none', overflow: 'hidden',
-                transition: 'width 0.35s cubic-bezier(0.4,0,0.2,1)',
-              }}
-              onMouseDown={!stepMaximized ? startSplitDrag : undefined}
-            />
-            <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '4px 8px', borderBottom: '1px solid var(--border)', flexShrink: 0,
-                background: 'var(--surface)', fontSize: 12, color: 'var(--muted)',
-              }}>
-                <span style={{ fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', fontSize: 11 }}>
-                  3D Preview
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <button
-                    className="panel-icon-btn"
-                    title={stepMaximized ? 'Restore' : 'Maximize 3D preview'}
-                    onClick={() => setStepMaximized(v => !v)}
-                  >
-                    {stepMaximized ? <MinimizeIcon size={13} /> : <MaximizeIcon size={13} />}
-                  </button>
-                  <button
-                    className="panel-icon-btn"
-                    title="Collapse 3D preview"
-                    onClick={() => setStepPaneClosed(true)}
-                  >
-                    <CloseIcon size={13} />
-                  </button>
-                </div>
-              </div>
-              <div style={{ flex: 1, overflow: 'hidden' }}>
-                <StepViewer
-                  nodes={stepNodes}
-                  loading={step3dLoading}
-                  onNavigateToNode={onNavigate ? (nid) => onNavigate(nid, undefined, { serviceCode: 'psm', itemCode: 'node' }) : undefined}
-                />
-              </div>
-            </div>
-          </>
-        )}
-      </div>{/* end split container */}
+      </div>{/* end content */}
 
       {/* ── Diff modal ────────────────────────────────── */}
       {diff && (

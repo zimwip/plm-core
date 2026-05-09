@@ -1,5 +1,6 @@
 import React from 'react';
 import GenericDetailEditor from '../components/GenericDetailEditor';
+import TextPreviewPanel from '../components/TextPreviewPanel';
 
 /**
  * DST data-object plugin. The nav row is bespoke (file name + size +
@@ -96,5 +97,7 @@ export const dstDataPlugin = {
   NavRow: DstNavRow,
   LinkRow: DstLinkRow,
   Editor: GenericDetailEditor,
+  Preview: TextPreviewPanel,
+  previewLabel: 'Preview',
   hasItemChildren: () => false,
 };

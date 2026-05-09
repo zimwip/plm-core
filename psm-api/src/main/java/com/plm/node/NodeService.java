@@ -34,6 +34,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -201,6 +202,21 @@ public class NodeService {
             userId
         );
         return nodeId;
+    }
+
+    // ================================================================
+    // LOOKUP BY EXTERNAL ID — used by CAD import to detect existing nodes
+    // ================================================================
+
+    public Optional<UUID> findByExternalId(String externalId) {
+        if (externalId == null || externalId.isBlank()) return Optional.empty();
+        Record rec = dsl.fetchOne("SELECT id FROM node WHERE external_id = ?", externalId.trim());
+        return rec == null ? Optional.empty() : Optional.of(UUID.fromString(rec.get(0, String.class)));
+    }
+
+    public void updateExternalId(String nodeId, String externalId) {
+        String trimmed = (externalId == null || externalId.isBlank()) ? null : externalId.trim();
+        dsl.execute("UPDATE node SET external_id = ? WHERE id = ?", trimmed, nodeId);
     }
 
     // ================================================================
@@ -961,6 +977,12 @@ public class NodeService {
         result.put("technicalId", nodeId);
         result.put("logicalId", logicalId != null ? logicalId : "");
         result.put("externalId", externalId != null ? externalId : "");
+        result.put("createdBy", Objects.toString(nodeRecord.get("created_by", String.class), ""));
+        java.time.LocalDateTime createdAtTs = nodeRecord.get("created_at", java.time.LocalDateTime.class);
+        result.put("createdAt", createdAtTs != null ? createdAtTs.toString() : "");
+        result.put("modifiedBy", Objects.toString(current.get("created_by", String.class), ""));
+        java.time.LocalDateTime lastUpdateTs = current.get("created_at", java.time.LocalDateTime.class);
+        result.put("lastUpdate", lastUpdateTs != null ? lastUpdateTs.toString() : "");
         result.put(
             "logicalIdLabel",
             logicalIdLabel != null ? logicalIdLabel : "Identifier"
@@ -1047,6 +1069,7 @@ public class NodeService {
                 : null;
             String currentFingerprint = fingerPrintService.compute(nodeId, versionId);
             result.put("fingerprintChanged", !Objects.equals(currentFingerprint, parentFingerprint));
+            result.put("violations", validationService.collectVersionViolations(nodeId, versionId, currentStateId));
         } else {
             result.put("fingerprintChanged", null);
         }

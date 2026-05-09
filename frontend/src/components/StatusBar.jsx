@@ -1,6 +1,8 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { speApi } from '../services/api';
 import { getApiStats, getWindowStats, resetApiStats, subscribeApiStats } from '../services/apiStats';
+import { useCacheStats } from '../workers/stepWorkerInstance';
+import { getStatusPlugins } from '../services/statusPlugins';
 
 const POLL_MS = 10_000;
 const PERF_WINDOW_MS = 30_000;
@@ -225,6 +227,9 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
     return () => clearInterval(id);
   }, [open, tab, fetchNats]);
 
+  const cacheStats  = useCacheStats();
+  const statusPlugins = useMemo(() => getStatusPlugins(), []);
+
   const overall = error ? 'down' : (status?.overall || 'unknown');
   const color   = COLOR[overall] || COLOR.unknown;
 
@@ -270,6 +275,14 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
           {perfLabel(perfWindow.p95, perfWindow.count)}
           {perfWindow.count > 0 && <span className="perf-chip-val">{fmtMs(perfWindow.p95)}</span>}
         </span>
+        {cacheStats.cacheBytes > 0 && (
+          <span
+            className="cache-chip"
+            title={`3D cache: ${cacheStats.entries} part${cacheStats.entries !== 1 ? 's' : ''} · ${fmtBytes(cacheStats.cacheBytes)} / ${fmtBytes(cacheStats.maxBytes)}`}
+          >
+            3D · {fmtBytes(cacheStats.cacheBytes)}
+          </span>
+        )}
       </button>
       </div>
 
@@ -308,6 +321,13 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
                 className={`status-tab${tab === 'nats' ? ' status-tab-active' : ''}`}
                 onClick={() => setTab('nats')}
               >NATS</button>
+              {statusPlugins.map(p => (
+                <button
+                  key={p.key}
+                  className={`status-tab${tab === p.key ? ' status-tab-active' : ''}`}
+                  onClick={() => setTab(p.key)}
+                >{p.label}</button>
+              ))}
             </div>
 
             {tab === 'services' && (
@@ -583,6 +603,9 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
                 )}
               </>
             )}
+          {statusPlugins.map(p => tab === p.key && (
+            <p.Component key={p.key} />
+          ))}
           </div>
         </div>
       )}

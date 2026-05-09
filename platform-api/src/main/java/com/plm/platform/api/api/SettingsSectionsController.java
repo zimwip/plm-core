@@ -29,9 +29,9 @@ public class SettingsSectionsController {
         new GroupDef("PNO",         "PnO"),
         new GroupDef("PLATFORM",    "Platform"),
         new GroupDef("PSM",         "Product Structure Management"),
-        new GroupDef("APPLICATION", "Application"),
-        new GroupDef("HELP",        "Help")
+        new GroupDef("APPLICATION", "Application")
     );
+    private static final GroupDef HELP_GROUP = new GroupDef("HELP", "Help");
 
     private final SettingsSectionRegistry registry;
     private final PnoApiClient pnoApiClient;
@@ -78,11 +78,13 @@ public class SettingsSectionsController {
         // (key reused as label) so a service can publish under its own group name without
         // touching this aggregator.
         Set<String> known = GROUPS.stream().map(GroupDef::key).collect(Collectors.toSet());
+        known.add(HELP_GROUP.key());
         List<GroupDef> ordered = new ArrayList<>(GROUPS);
         byGroup.keySet().stream()
             .filter(k -> !known.contains(k))
             .sorted()
             .forEach(k -> ordered.add(new GroupDef(k, k)));
+        ordered.add(HELP_GROUP);
 
         List<SettingsGroupDto> result = ordered.stream()
             .filter(g -> byGroup.containsKey(g.key()))

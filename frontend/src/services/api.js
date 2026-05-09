@@ -60,6 +60,7 @@ function normalisePage(body, page, size) {
 // Module-level project space context — updated by App when user selects a space
 let _projectSpaceId = null;
 export function setProjectSpaceId(id) { _projectSpaceId = id; }
+export function getProjectSpaceId()    { return _projectSpaceId; }
 
 // Global error handler — set once by App so every unhandled API error shows a toast
 let _onError = null;
@@ -174,11 +175,13 @@ async function gatewayJson(method, fullPath, body, isRetry = false) {
     if (res.status === 502 || res.status === 503) onBackendUnreachable();
     const payload = await res.json().catch(() => ({ error: res.statusText }));
     const msg = payload.violations?.length
-      ? payload.violations.join('; ')
+      ? payload.violations.map(v => typeof v === 'string' ? v : v.message).join('; ')
       : (payload.error || payload.message || `HTTP ${res.status}`);
     const err = new Error(msg);
     err.detail = payload;
-    if (_onError) _onError(err);
+    // Per-field violations are handled inline by the caller — skip global error modal
+    const hasFieldViolations = payload.violations?.some(v => v?.attrCode);
+    if (_onError && !hasFieldViolations) _onError(err);
     throw err;
   }
   const text = await res.text();
@@ -220,11 +223,12 @@ async function doFetch(baseUrl, method, path, body, { txId, psOverride } = {}, i
     if (res.status === 502 || res.status === 503) onBackendUnreachable();
     const payload = await res.json().catch(() => ({ error: res.statusText }));
     const msg = payload.violations?.length
-      ? payload.violations.join('; ')
+      ? payload.violations.map(v => typeof v === 'string' ? v : v.message).join('; ')
       : (payload.error || payload.message || `HTTP ${res.status}`);
     const err = new Error(msg);
     err.detail = payload;
-    if (_onError) _onError(err);
+    const hasFieldViolations = payload.violations?.some(v => v?.attrCode);
+    if (_onError && !hasFieldViolations) _onError(err);
     throw err;
   }
   const text = await res.text();
@@ -361,6 +365,9 @@ export const api = {
     return request('GET', `/nodes/${nodeId}/description?${params}`, userId);
   },
 
+  updateExternalId: (userId, nodeId, externalId) =>
+    request('PATCH', `/nodes/${nodeId}/external-id`, userId, { externalId }),
+
   // Signatures — lecture
   getSignatures: (userId, nodeId) =>
     request('GET', `/nodes/${nodeId}/signatures`, userId),
@@ -404,6 +411,16 @@ export const api = {
   // action paths). Plugins should prefer this over service-specific helpers
   // so the surface stays uniform across user services.
   gatewayJson: (method, fullPath, body) => gatewayJson(method, fullPath, body),
+
+  gatewayRawText: async (url) => {
+    const h = {};
+    if (_sessionToken) h['Authorization'] = `Bearer ${_sessionToken}`;
+    if (_projectSpaceId) h['X-PLM-ProjectSpace'] = _projectSpaceId;
+    const res = await timedFetch(url, { method: 'GET', headers: h }, 'GET');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = await res.arrayBuffer();
+    return new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(buf));
+  },
 
   // Generic federated list call: hits descriptor.list.path with paging.
   // Returns { items, totalElements, totalPages, page, size } so the caller
@@ -1009,6 +1026,14 @@ export const dstApi = {
     const res = await timedFetch(`/api/dst/data/${uuid}`, { method: 'GET', headers }, 'GET');
     if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
     return res.arrayBuffer();
+  },
+
+  getStats: async () => {
+    const headers = { Authorization: `Bearer ${_sessionToken}` };
+    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+    const res = await timedFetch('/api/dst/stats', { method: 'GET', headers }, 'GET');
+    if (!res.ok) throw new Error(`Stats failed: HTTP ${res.status}`);
+    return res.json();
   },
 };
 

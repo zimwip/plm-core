@@ -19,7 +19,8 @@ public class ImportJobService {
 
     public ImportJob submit(String userId, String projectSpaceId,
                             String filename, String contextCode,
-                            UUID rootNodeId, byte[] fileBytes, String psmTxId) {
+                            UUID rootNodeId, byte[] fileBytes, String psmTxId,
+                            boolean splitMode) {
         ImportJob job = new ImportJob();
         job.setId(UUID.randomUUID());
         job.setStatus("PENDING");
@@ -36,7 +37,8 @@ public class ImportJobService {
         ImportJobContext ctx = new ImportJobContext(
             job.getId().toString(), projectSpaceId, userId,
             job.getImportContext(), psmTxId,
-            rootNodeId != null ? rootNodeId.toString() : null
+            rootNodeId != null ? rootNodeId.toString() : null,
+            splitMode
         );
         processor.process(job.getId(), fileBytes, filename, ctx);
 

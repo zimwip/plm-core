@@ -21,6 +21,23 @@ public class PsmActionClient {
 
     private final ServiceClient serviceClient;
 
+    public UUID findByExternalId(String cadId, String projectSpaceId) {
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = serviceClient.get(
+                "psm",
+                "/api/psm/internal/cad/nodes/by-external-id?externalId=" + cadId,
+                Map.class
+            );
+            if (response != null && response.containsKey("nodeId")) {
+                return UUID.fromString(response.get("nodeId").toString());
+            }
+        } catch (Exception e) {
+            log.debug("No existing node for externalId={}: {}", cadId, e.getMessage());
+        }
+        return null;
+    }
+
     public String openTransaction() {
         Map<?, ?> response = serviceClient.post("psm", "/api/psm/transactions", Map.of(), Map.class);
         if (response == null || !response.containsKey("id")) {

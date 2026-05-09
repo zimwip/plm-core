@@ -20,6 +20,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -76,7 +78,7 @@ public class ImportJobProcessor {
 
             ImportJobContext ctxWithTx = new ImportJobContext(
                 ctx.jobId(), ctx.projectSpaceId(), ctx.userId(),
-                ctx.importContextCode(), txId, ctx.rootNodeId()
+                ctx.importContextCode(), txId, ctx.rootNodeId(), ctx.splitMode()
             );
 
             // Fetch import context config from PSA to get node validation instance ID
@@ -89,8 +91,10 @@ public class ImportJobProcessor {
             Map<String, UUID>   cadIdToNodeId    = new HashMap<>();
             Map<String, String> cadIdToLogicalId = new HashMap<>();
 
+            // Phase 1 — gather: validate + algorithm decision + external_id check for all nodes
+            record NodeDecision(CadNodeData node, ImportDecision decision) {}
+            List<NodeDecision> planned = new ArrayList<>(nodes.size());
             for (CadNodeData node : nodes) {
-                // 1. PSM validation first
                 PsmValidationClient.ValidationResult validation = validationClient.validateNode(
                     node.cadId(), node.name(), node.cadType(),
                     node.attributes(), ctx.importContextCode(), nodeValidationInstanceId
@@ -100,7 +104,6 @@ public class ImportJobProcessor {
                 if (!validation.valid()) {
                     decision = ImportDecision.reject(validation.rejectReason());
                 } else {
-                    // Pass enriched attributes and suggested type to algorithm
                     CadNodeData enrichedNode = node.attributes().equals(validation.enrichedAttributes())
                         ? node
                         : new CadNodeData(node.cadId(), node.name(),
@@ -109,13 +112,30 @@ public class ImportJobProcessor {
                     decision = algorithm.evaluate(enrichedNode, ctxWithTx);
                 }
 
-                ImportJobResult result = processNode(jobId, node, decision, txId, ctx.projectSpaceId());
+                if (decision.action() == ImportDecision.Action.CREATE) {
+                    UUID existing = psmClient.findByExternalId(node.cadId(), ctx.projectSpaceId());
+                    if (existing != null) {
+                        log.debug("Job {}: externalId={} maps to existing node {}, switching to UPDATE",
+                                  jobId, node.cadId(), existing);
+                        decision = ImportDecision.update(existing.toString(), decision.attributes());
+                    }
+                }
+
+                planned.add(new NodeDecision(node, decision));
+            }
+
+            // Phase 2 — sort: leaves first (deepest depth first) so children exist before parents
+            planned.sort(Comparator.comparingInt((NodeDecision nd) -> nd.node().depth()).reversed());
+
+            // Phase 3 — execute in leaf-first order
+            for (NodeDecision nd : planned) {
+                ImportJobResult result = processNode(jobId, nd.node(), nd.decision(), txId, ctx.projectSpaceId());
                 repository.saveResult(result);
 
                 if (result.getPsmNodeId() != null) {
-                    cadIdToNodeId.put(node.cadId(), result.getPsmNodeId());
-                    if (decision.logicalId() != null) {
-                        cadIdToLogicalId.put(node.cadId(), decision.logicalId());
+                    cadIdToNodeId.put(nd.node().cadId(), result.getPsmNodeId());
+                    if (nd.decision().logicalId() != null) {
+                        cadIdToLogicalId.put(nd.node().cadId(), nd.decision().logicalId());
                     }
                 }
             }
@@ -163,15 +183,18 @@ public class ImportJobProcessor {
                 if (dstFileId != null) {
                     log.info("Job {}: DST upload succeeded, dstFileId={}", jobId, dstFileId);
                     for (CadNodeData node : nodes) {
-                        if (node.parentCadId() == null) {
-                            UUID rootImportedId = cadIdToNodeId.get(node.cadId());
-                            if (rootImportedId != null) {
+                        boolean isTarget = ctx.splitMode()
+                            ? "PART".equalsIgnoreCase(node.cadType())
+                            : node.parentCadId() == null;
+                        if (isTarget) {
+                            UUID targetId = cadIdToNodeId.get(node.cadId());
+                            if (targetId != null) {
                                 try {
-                                    psmClient.createLink(rootImportedId, dstFileId,
+                                    psmClient.createLink(targetId, dstFileId,
                                                          "lt-part-data", txId, ctx.projectSpaceId());
                                 } catch (Exception e) {
                                     log.warn("Job {}: lt-part-data link {} -> {} failed: {}",
-                                             jobId, rootImportedId, dstFileId, e.getMessage());
+                                             jobId, targetId, dstFileId, e.getMessage());
                                 }
                             }
                         }

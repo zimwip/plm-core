@@ -87,6 +87,7 @@ export default function App() {
   const clearTx             = usePlmStore(s => s.clearTx);
   const refreshAllNodeDescs = usePlmStore(s => s.refreshAllNodeDescs);
   const refreshNodeDesc     = usePlmStore(s => s.refreshNodeDesc);
+  const evictNodeDesc       = usePlmStore(s => s.evictNodeDesc);
 
   // ── Global WebSocket — transaction, node-creation & metamodel events ─────
   useWebSocket(
@@ -323,6 +324,8 @@ export default function App() {
 
   function handleTabClose(tabId) {
     setTabs(ts => {
+      const closing = ts.find(t => t.id === tabId);
+      if (closing?.nodeId) evictNodeDesc(closing.nodeId);
       const remaining = ts.filter(t => t.id !== tabId);
       if (activeTabId === tabId) {
         setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
