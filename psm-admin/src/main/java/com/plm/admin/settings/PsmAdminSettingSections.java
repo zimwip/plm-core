@@ -35,4 +35,9 @@ class PsmAdminSettingSections {
     SettingSectionDto sourcesSection() {
         return new SettingSectionDto("sources", "Sources", "PSM", 17, "MANAGE_PSM", "plug");
     }
+
+    @Bean
+    SettingSectionDto importContextsSection() {
+        return new SettingSectionDto("import-contexts", "Import Contexts", "PSM", 25, "MANAGE_PSM", "package");
+    }
 }

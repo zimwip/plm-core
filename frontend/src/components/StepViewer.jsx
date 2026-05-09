@@ -28,7 +28,8 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
   const loadingRef  = useRef(new Set());
   const partNodeMapRef  = useRef({}); // uuid → nodeId
   const partColorRef    = useRef({}); // uuid → stateColor
-  const onNavRef    = useRef(onNavigateToNode);
+  const onNavRef      = useRef(onNavigateToNode);
+  const hoveredUuidRef = useRef(null);
 
   useEffect(() => { onNavRef.current = onNavigateToNode; }, [onNavigateToNode]);
 
@@ -56,7 +57,7 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
       if (!group) return;
       const olColor = new THREE.Color(color);
       group.traverse(obj => {
-        if (obj.isMesh && obj.userData.isOutline) obj.material.color.copy(olColor);
+        if (obj.isMesh && obj.userData.isOutline) obj.material.uniforms.color.value.copy(olColor);
       });
     });
   }, [nodes]);
@@ -73,8 +74,13 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
     const w = container.clientWidth  || 600;
     const h = container.clientHeight || 400;
 
+    const getSceneBg = () => {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue('--scene-bg').trim();
+      return new THREE.Color(raw || '#1c1c2a');
+    };
+
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1c1c2a);
+    scene.background = getSceneBg();
     scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     const sun = new THREE.DirectionalLight(0xffffff, 1.2);
     sun.position.set(8, 12, 6);
@@ -119,36 +125,86 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
       gizmo.update();
     }
 
+    const themeObserver = new MutationObserver(() => {
+      if (sceneRef.current) sceneRef.current.background = getSceneBg();
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
     // ResizeObserver tracks split drag + maximize transitions, not just window resize
     const ro = new ResizeObserver(() => onResize());
     ro.observe(container);
 
-    function onCanvasClick(e) {
-      if (!e.ctrlKey && !e.metaKey) return;
+    const raycaster = new THREE.Raycaster();
+    const mouseVec  = new THREE.Vector2();
+
+    function pickUuid(e) {
       const rect = container.getBoundingClientRect();
-      const mouse = new THREE.Vector2(
+      mouseVec.set(
         ((e.clientX - rect.left) / container.clientWidth)  *  2 - 1,
         ((e.clientY - rect.top)  / container.clientHeight) * -2 + 1,
       );
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, camera);
+      raycaster.setFromCamera(mouseVec, camera);
       const meshes = [];
       scene.traverse(obj => {
         if (obj.isMesh && !obj.userData.isOutline && obj.visible) meshes.push(obj);
       });
       const hits = raycaster.intersectObjects(meshes, false);
-      if (!hits.length) return;
+      if (!hits.length) return null;
       let obj = hits[0].object;
       while (obj && !obj.name) obj = obj.parent;
-      if (!obj?.name) return;
-      const nodeId = partNodeMapRef.current[obj.name];
+      return obj?.name || null;
+    }
+
+    function applyHover(uuid) {
+      const prev = hoveredUuidRef.current;
+      if (prev === uuid) return;
+      if (prev) {
+        const g = groupsRef.current[prev];
+        if (g) g.traverse(obj => {
+          if (!obj.isMesh) return;
+          if (obj.userData.isOutline) {
+            obj.material.uniforms.color.value.set(partColorRef.current[prev] || '#6b7280');
+          } else {
+            obj.material.emissive.set(0x000000);
+          }
+        });
+      }
+      if (uuid) {
+        const g = groupsRef.current[uuid];
+        if (g) g.traverse(obj => {
+          if (!obj.isMesh) return;
+          if (obj.userData.isOutline) {
+            obj.material.uniforms.color.value.set(0xffffff);
+          } else {
+            obj.material.emissive.set(0x666666);
+          }
+        });
+      }
+      hoveredUuidRef.current = uuid;
+      renderer.domElement.style.cursor = uuid ? 'pointer' : 'default';
+    }
+
+    function onMouseMove(e) { applyHover(pickUuid(e)); }
+    function onMouseLeave()  { applyHover(null); }
+
+    function onCanvasClick(e) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      const uuid = pickUuid(e);
+      if (!uuid) return;
+      const nodeId = partNodeMapRef.current[uuid];
       if (nodeId && onNavRef.current) onNavRef.current(nodeId);
     }
+
+    renderer.domElement.addEventListener('mousemove',  onMouseMove);
+    renderer.domElement.addEventListener('mouseleave', onMouseLeave);
     renderer.domElement.addEventListener('click', onCanvasClick);
 
     return () => {
       cancelAnimationFrame(rafRef.current);
+      themeObserver.disconnect();
       ro.disconnect();
+      renderer.domElement.removeEventListener('mousemove',  onMouseMove);
+      renderer.domElement.removeEventListener('mouseleave', onMouseLeave);
       renderer.domElement.removeEventListener('click', onCanvasClick);
       gizmo.dispose();
       renderer.dispose();
@@ -411,12 +467,30 @@ function buildGroup(meshes, outlineColor = '#6b7280') {
     const mainMesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ color, side: THREE.DoubleSide }));
     group.add(mainMesh);
 
-    // Inverted-hull outline — back-face rendered, slightly scaled, lifecycle state color
-    const outlineMesh = new THREE.Mesh(
-      geo,
-      new THREE.MeshBasicMaterial({ color: olColor, side: THREE.BackSide }),
-    );
-    outlineMesh.scale.setScalar(1.025);
+    // Screen-space normal extrusion outline — shifts vertices along their projected view-space
+    // normal, so flat faces (normal toward camera → viewNorm.xy ≈ 0) get zero offset and
+    // produce no artifact; only silhouette edges where the normal is perpendicular to view
+    // get pushed outward.
+    const outlineMesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      uniforms: { color: { value: olColor.clone() }, thickness: { value: 0.007 } },
+      vertexShader: `
+uniform float thickness;
+void main() {
+  vec4 mvPos    = modelViewMatrix * vec4(position, 1.0);
+  vec4 clipPos  = projectionMatrix * mvPos;
+  vec3 viewNorm = normalize(normalMatrix * normal);
+  vec2 sn       = viewNorm.xy;
+  float snLen   = length(sn);
+  vec2 offset   = snLen > 1e-4 ? sn / snLen : vec2(0.0);
+  clipPos.xy   += offset * thickness * clipPos.w;
+  gl_Position   = clipPos;
+}`,
+      fragmentShader: `
+uniform vec3 color;
+void main() { gl_FragColor = vec4(color, 1.0); }`,
+    }));
+    outlineMesh.renderOrder = 1;
     outlineMesh.userData.isOutline = true;
     group.add(outlineMesh);
   }

@@ -105,4 +105,5 @@ export const SECTION_ICONS = {
   terminal:  Terminal,
   book:      BookOpen,
   zap:       Zap,
+  package:   Package,
 };

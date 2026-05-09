@@ -28,6 +28,9 @@ const css = `
   --subtle-bg:rgba(255,255,255,.02);
   --subtle-bg2:rgba(255,255,255,.01);
 
+  /* Three.js scene background */
+  --scene-bg:#1c1c2a;
+
   /* Geometry */
   --r:5px;--r2:8px;
   --mono:'DM Mono',monospace;--sans:'Syne',sans-serif;
@@ -53,6 +56,8 @@ const css = `
   --shadow:0,0,0;
   --subtle-bg:rgba(0,0,0,.02);
   --subtle-bg2:rgba(0,0,0,.01);
+
+  --scene-bg:#e8ecf4;
 }
 
 
@@ -139,7 +144,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 .sug-meta{font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap;flex-shrink:0}
 
 .user-select-wrap{position:relative;display:flex;align-items:center;gap:8px}
-.user-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.user-avatar{position:relative;width:28px;height:28px;border-radius:50%;border:2px solid var(--avatar-color);background:color-mix(in srgb,var(--avatar-color) 12%,var(--surface));display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:visible}
+.user-avatar-initials{font-size:10px;font-weight:700;color:var(--avatar-color);user-select:none;line-height:1}
+.user-avatar-img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.user-avatar-badge{position:absolute;top:-3px;right:-3px;width:13px;height:13px;border-radius:50%;background:#f59e0b;color:#fff;font-size:7px;font-weight:800;display:flex;align-items:center;justify-content:center;border:1.5px solid var(--surface2);line-height:1}
 .user-select{
   appearance:none;-webkit-appearance:none;
   background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);
@@ -218,6 +226,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
   color:var(--muted2);background:rgba(var(--overlay),.05);
   padding:1px 6px;border-radius:99px;
 }
+.type-group-create-btn{
+  display:none;background:none;border:none;
+  padding:2px 3px;cursor:pointer;
+  color:var(--muted);border-radius:var(--r);line-height:1;
+  align-items:center;flex-shrink:0;
+}
+.type-group-hd:hover .type-group-create-btn{display:flex}
+.type-group-create-btn:hover{color:var(--accent);background:var(--accent-dim)}
 
 /* Node item (under type group) */
 .node-item{
@@ -414,7 +430,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 /* ── Node Editor ─────────────────────────────────────────────────── */
 .node-header{
   display:flex;align-items:flex-start;justify-content:space-between;
-  margin-bottom:16px;gap:12px;
+  padding-top:12px;margin-bottom:16px;gap:12px;
 }
 .node-title-group{display:flex;flex-direction:column;gap:6px}
 .node-identity{font-family:var(--sans);font-weight:700;font-size:18px;color:var(--text);line-height:1}

@@ -2,7 +2,7 @@
 
 Port 8082 · URL prefix `/api/spe` · Java 21 + Spring Cloud Gateway + Spring Boot 3.2.
 
-**Seul point d'entrée** des requêtes externes. Aucun service backend exposé direct au client. Gateway ne s'enregistre pas dans son propre registry.
+**Seul point d'entrée** des requêtes externes. Aucun service backend exposé direct au client. Gateway s'enregistre auprès de platform-api comme tout autre service (via `PlatformRegistrationClient`) — mais pas dans son propre registry spe.
 
 ---
 

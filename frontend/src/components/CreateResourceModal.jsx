@@ -22,7 +22,7 @@ import { api } from '../services/api';
  *   - DROPDOWN/SELECT → JSON-parsed `allowedValues`;
  *   - FILE → multipart upload.
  */
-export default function CreateResourceModal({ resources, onCreated, onClose, toast }) {
+export default function CreateResourceModal({ resources, onCreated, onClose, toast, initialDescriptor }) {
   const sources = useMemo(() => {
     const seen = new Set();
     const out = [];
@@ -33,17 +33,30 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
     return out;
   }, [resources]);
 
-  const [source, setSource] = useState(sources[0] || '');
+  const [source, setSource] = useState(
+    initialDescriptor?.sourceLabel || sources[0] || ''
+  );
 
   const types = useMemo(
     () => (resources || []).filter(d => (d.sourceLabel || 'OTHER') === source),
     [resources, source]
   );
 
-  const [descriptor, setDescriptor] = useState(types[0] || null);
+  const [descriptor, setDescriptor] = useState(() => {
+    if (initialDescriptor) {
+      return (resources || []).find(d =>
+        d.serviceCode === initialDescriptor.serviceCode &&
+        d.itemCode    === initialDescriptor.itemCode &&
+        (d.itemKey || '') === (initialDescriptor.itemKey || '')
+      ) || null;
+    }
+    return types[0] || null;
+  });
 
-  // Reset type when source switches.
-  useEffect(() => { setDescriptor(types[0] || null); }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Reset type when source switches (skip when locked by initialDescriptor).
+  useEffect(() => {
+    if (!initialDescriptor) setDescriptor(types[0] || null);
+  }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset values when descriptor switches.
   const [values, setValues] = useState({});
@@ -246,6 +259,7 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
                 className="field-input"
                 value={source}
                 onChange={e => setSource(e.target.value)}
+                disabled={!!initialDescriptor}
               >
                 {sources.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -262,6 +276,7 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
                     `${d.serviceCode}/${d.itemCode}/${d.itemKey || ''}` === id);
                   if (next) setDescriptor(next);
                 }}
+                disabled={!!initialDescriptor}
               >
                 {types.map(d => {
                   const id = `${d.serviceCode}/${d.itemCode}/${d.itemKey || ''}`;

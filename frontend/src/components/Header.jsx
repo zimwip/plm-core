@@ -14,6 +14,31 @@ function userColor(userId) {
 }
 
 
+function getInitials(user) {
+  const name = user?.displayName || user?.username || '?';
+  const parts = name.trim().split(/\s+/);
+  return parts.length >= 2
+    ? (parts[0][0] + parts[1][0]).toUpperCase()
+    : name[0].toUpperCase();
+}
+
+function UserAvatar({ user, userId }) {
+  const color = userColor(user?.id || userId);
+  return (
+    <div
+      className="user-avatar"
+      style={{ '--avatar-color': color }}
+      title={user?.displayName || user?.username}
+    >
+      {user?.avatarUrl
+        ? <img className="user-avatar-img" src={user.avatarUrl} alt="" />
+        : <span className="user-avatar-initials">{getInitials(user)}</span>
+      }
+      {user?.isAdmin && <span className="user-avatar-badge" title="Administrator">A</span>}
+    </div>
+  );
+}
+
 function Header({
   userId, onUserChange, users,
   nodeTypes, stateColorMap, nodes,
@@ -213,7 +238,7 @@ function Header({
         )}
 
         <div className="user-select-wrap">
-          <span className="user-dot" style={{ background: userColor(userId) }} />
+          <UserAvatar user={currentUser} userId={userId} />
           <div style={{ position: 'relative' }}>
             <select
               className="user-select"
@@ -228,18 +253,6 @@ function Header({
             </select>
             <span className="user-select-chevron">▾</span>
           </div>
-          {currentUser?.isAdmin && (
-            <span
-              title="Administrator"
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 16, height: 16, borderRadius: 3,
-                background: '#f59e0b', color: '#fff',
-                fontSize: 9, fontWeight: 700, letterSpacing: 0,
-                marginLeft: 4, flexShrink: 0,
-              }}
-            >A</span>
-          )}
         </div>
       </div>
     </header>

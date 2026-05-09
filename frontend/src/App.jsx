@@ -156,8 +156,9 @@ export default function App() {
   const [selectedDesc, setSelectedDesc] = useState(null);
 
   // Modals / views
-  const [showCommit,     setShowCommit]     = useState(false);
-  const [showCreateNode, setShowCreateNode] = useState(false);
+  const [showCommit,          setShowCommit]          = useState(false);
+  const [showCreateNode,      setShowCreateNode]      = useState(false);
+  const [createNodeDescriptor, setCreateNodeDescriptor] = useState(null);
   const [showSettings,         setShowSettings]         = useState(false);
   const [activeSettingsSection, setActiveSettingsSection] = useState(null);
   const [settingsSections,      setSettingsSections]      = useState(null);
@@ -449,7 +450,7 @@ export default function App() {
             stateColorMap={stateColorMap}
             onNavigate={navigate}
             canCreateNode={resources.length > 0}
-            onCreateNode={() => setShowCreateNode(true)}
+            onCreateNode={(descriptor) => { setCreateNodeDescriptor(descriptor || null); setShowCreateNode(true); }}
             onCommit={() => setShowCommit(true)}
             onRollback={handleRollback}
             onReleaseNode={handleReleaseNode}
@@ -536,11 +537,12 @@ export default function App() {
       {showCreateNode && resources.length > 0 && (
         <CreateResourceModal
           resources={resources}
+          initialDescriptor={createNodeDescriptor}
           onCreated={async (result, descriptor) => {
             await refreshAll();
             if (descriptor?.serviceCode === 'psm' && result?.nodeId) navigate(result.nodeId, undefined, psmNodeDescriptor);
           }}
-          onClose={() => setShowCreateNode(false)}
+          onClose={() => { setShowCreateNode(false); setCreateNodeDescriptor(null); }}
           toast={toast}
         />
       )}

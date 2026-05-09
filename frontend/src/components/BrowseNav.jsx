@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import { usePlmStore } from '../store/usePlmStore';
 import { lookupPluginForDescriptor } from '../services/sourcePlugins';
 import {
-  ChevronDownIcon, ChevronRightIcon, LayersIcon,
+  ChevronDownIcon, ChevronRightIcon, LayersIcon, PlusIcon,
 } from './Icons';
 import { NODE_ICONS } from './Icons';
 
@@ -28,6 +28,7 @@ export default function BrowseNav({
   activeNodeId,
   stateColorMap,
   onNavigate,
+  onCreateNode,
   refreshKey,
   // Render only descriptors whose `panelSection` matches. Defaults to MAIN
   // so legacy callers behave unchanged. Pass "INFO" for the bottom band.
@@ -252,6 +253,15 @@ export default function BrowseNav({
                     <span className="type-group-count">
                       {isLoading && items.length === 0 ? '…' : total}
                     </span>
+                    {d.create && onCreateNode && (
+                      <button
+                        className="type-group-create-btn"
+                        title={`Create ${d.displayName}`}
+                        onClick={e => { e.stopPropagation(); onCreateNode(d); }}
+                      >
+                        <PlusIcon size={10} strokeWidth={2.5} />
+                      </button>
+                    )}
                   </div>
                   {isExp && (
                     <>

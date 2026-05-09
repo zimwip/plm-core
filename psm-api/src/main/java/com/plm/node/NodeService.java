@@ -1054,6 +1054,13 @@ public class NodeService {
         return result;
     }
 
+    /** Finds the user's existing OPEN transaction or opens a new one. Returns the txId. */
+    public String findOrOpenTransaction(String userId) {
+        String txId = txService.findOpenTransaction(userId);
+        if (txId == null) txId = txService.openTransaction(userId);
+        return txId;
+    }
+
     /** Returns the current lifecycle_state_id for a node, considering an open tx if provided. */
     public String getCurrentStateId(String nodeId, String txId) {
         Record current =

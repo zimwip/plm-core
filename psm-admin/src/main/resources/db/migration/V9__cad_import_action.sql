@@ -1,0 +1,7 @@
+-- ============================================================
+-- V9 — No-op
+--
+-- CAD import action seeding moved to platform-api V15.
+-- algorithm/action/action_guard tables do not exist in psm-admin
+-- (they were dropped in V4 and live in platform-api).
+-- ============================================================

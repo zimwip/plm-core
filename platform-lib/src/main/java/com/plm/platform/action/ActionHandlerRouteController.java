@@ -44,13 +44,14 @@ public class ActionHandlerRouteController {
             (Map<String, String>) req.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
         if (pathVars == null) pathVars = Map.of();
 
+        String txIdHeader = req.getHeader("X-PLM-Tx");
         ActionContext ctx = new ActionContext(
             pathVars.getOrDefault("id", null),
             null, null,
             handler.actionCode(),
             null,
             principal != null ? principal.userId() : null,
-            null,
+            (txIdHeader != null && !txIdHeader.isBlank()) ? txIdHeader : null,
             pathVars
         );
 

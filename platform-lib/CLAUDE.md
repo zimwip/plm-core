@@ -19,7 +19,7 @@ Déclarées dans `META-INF/spring/org.springframework.boot.autoconfigure.AutoCon
 | `PermissionScopeRegistrationAutoConfiguration` | `plm.permission.enabled=true` | Enregistre tous les beans `PermissionScopeContribution` à pno (`/internal/scopes/register`) ; expose `/scope-values/<scope>/<key>` pour value sources |
 | `ConfigRegistrationAutoConfiguration` | `psm.config.admin-url` défini | Pull snapshot psm-admin + subscription NATS `env.service.psa.CONFIG_CHANGED` (réservé services qui consomment métamodèle PSM) |
 | `SettingsRegistrationAutoConfiguration` | `plm.settings.enabled=true` | Enregistre tous les beans `SettingSectionDto` à platform-api (`/internal/settings/register`) pour qu'ils apparaissent dans page Settings |
-| `AlgorithmRegistrationAutoConfiguration` | beans `@AlgorithmBean` présents + `psm.config.admin-url` défini | Enregistre algorithmes locaux à psm-admin (`/internal/algorithms/register`) — pour services contribuant handlers/guards/wrappers/resolvers |
+| `AlgorithmRegistrationAutoConfiguration` | beans `@AlgorithmBean` présents | Enregistre algorithmes locaux à **platform-api** (`/internal/registry/actions`) — pour services contribuant handlers/guards/wrappers/resolvers |
 | `NatsAutoConfiguration` | `plm.nats.enabled=true` | Connexion NATS + `NatsListenerFactory` + `AuthzChangeSubscriber` (refresh permissions on remote change) |
 | `VaultAutoConfiguration` | Spring Cloud Vault sur classpath + `spring.cloud.vault.token` | Résout `plm.service.secret`, `spring.datasource.password`, `plm.jwt.*` depuis `secret/plm` |
 
@@ -106,7 +106,7 @@ plm.nats.connection-name=<code>
 | `PlmAuthFilter` (toujours) | `PlmAuthContextBinder` impl — copie `PlmPrincipal` dans votre ThreadLocal au début de chaque requête |
 | Permissions à publier | un bean `PermissionScopeContribution` par scope owné |
 | Settings page | un bean `SettingSectionDto` par section UI |
-| Algorithmes | beans `@AlgorithmBean` + `algorithm_type` row dans psm-admin (à seeder via V2 si nouveau type) |
+| Algorithmes | beans `@AlgorithmBean` (auto-enregistrés à platform-api au démarrage) + migration `platform-api/V<n>__<feature>.sql` pour pré-seeder ou garantir idempotence |
 
 Réf dst pour ces 4 classes : `dst/src/main/java/com/dst/security/{DstAuthContextBinder,DstAuthzContextProvider,DstSecurityContext,DstUserContext,DstPermissionCatalog}.java` + `dst/src/main/java/com/dst/authz/DataScopeContribution.java`.
 

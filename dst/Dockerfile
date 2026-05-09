@@ -26,7 +26,8 @@ RUN JAR=$(find target -name '*.jar' ! -name '*original*' | head -1) && \
 
 FROM docker.io/library/eclipse-temurin:21-jre-alpine AS runtime
 
-RUN addgroup -S dst && adduser -S dst -G dst
+RUN addgroup -S dst && adduser -S dst -G dst && \
+    mkdir -p /var/lib/dst-data && chown dst:dst /var/lib/dst-data
 USER dst
 WORKDIR /app
 

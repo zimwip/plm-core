@@ -593,6 +593,14 @@ export const api = {
   deleteSource: (userId, id) =>
     adminRequest('DELETE', `/sources/${id}`, userId),
 
+  // Import Contexts (psm-admin)
+  getImportContexts:               () => adminRequest('GET',    '/admin/import-contexts'),
+  createImportContext:              (body) => adminRequest('POST',   '/admin/import-contexts',      null, body),
+  updateImportContext:              (id, body) => adminRequest('PUT', `/admin/import-contexts/${id}`, null, body),
+  deleteImportContext:              (id) => adminRequest('DELETE', `/admin/import-contexts/${id}`),
+  getImportAlgorithmInstances:     () => adminRequest('GET',    '/admin/import-contexts/algorithm-instances/import'),
+  getValidationAlgorithmInstances: () => adminRequest('GET',    '/admin/import-contexts/algorithm-instances/validation'),
+
   // Runtime resolver-backed queries (psm-api)
   getSources: (userId) =>
     request('GET', '/sources', userId),
@@ -935,7 +943,7 @@ export const platformActionsApi = {
 
   // Service codes that have actions in the DB (authoritative, works without services running)
   getRegisteredServices: () =>
-    platformRequest('GET', '/actions/services', null),
+    platformRequest('GET', '/algorithms/services', null),
 
   // Full catalog for one service (handlers + guards from in-memory registry)
   getServiceCatalog: (serviceCode) =>
@@ -1004,6 +1012,38 @@ export const dstApi = {
   },
 };
 
+export const cadApi = {
+  submitImport: async (file, rootNodeId, contextCode) => {
+    const headers = {};
+    if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
+    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+    const fd = new FormData();
+    fd.append('file', file);
+    if (contextCode) fd.append('contextCode', contextCode);
+    const res = await timedFetch(`/api/psm/cad/import/${rootNodeId}`, { method: 'POST', headers, body: fd }, 'POST');
+    if (!res.ok) { const msg = await res.text(); throw new Error(`HTTP ${res.status}: ${msg}`); }
+    return res.json();
+  },
+
+  getJobStatus: async (jobId) => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
+    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+    const res = await timedFetch(`/api/psm/cad/jobs/${jobId}`, { method: 'GET', headers }, 'GET');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  },
+
+  getImportContexts: async () => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
+    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+    const res = await timedFetch('/api/psm/cad/import-contexts', { method: 'GET', headers }, 'GET');
+    if (!res.ok) return [];
+    return res.json();
+  },
+};
+
 // All write operations go through the central action controller.
 // actionCode matches action.action_code — from desc.actions[].actionCode.
 // transitionId is required for LIFECYCLE-scope actions (appended to path).
@@ -1018,12 +1058,28 @@ export const authoringApi = {
   // Use httpMethod + path from ActionDescriptor instead of constructing the URL.
   // path is a full gateway path (e.g. /api/psm/actions/checkout/{id}); strip the
   // service prefix before passing to txRequest which prepends /api/psm itself.
-  executeViaDescriptor: (action, nodeId, userId, txId, parameters) => {
+  executeViaDescriptor: async (action, nodeId, userId, txId, parameters) => {
     const template = (action.path || '').replace(/^\/api\/psm/, '');
     const path = template
       .replace('{id}', nodeId)
       .replace('{transitionId}', action.transitionId || '');
     const method = action.httpMethod || 'POST';
+
+    if (action.bodyShape === 'MULTIPART') {
+      const fd = new FormData();
+      for (const [k, v] of Object.entries(parameters || {})) {
+        if (v != null) fd.append(k, v);
+      }
+      const headers = {};
+      if (_sessionToken)    headers['Authorization']     = `Bearer ${_sessionToken}`;
+      if (_projectSpaceId)  headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+      if (txId)             headers['X-PLM-Tx']           = txId;
+      const res = await timedFetch('/api/psm' + path, { method, headers, body: fd }, method);
+      if (!res.ok) { const msg = await res.text(); throw new Error(`HTTP ${res.status}: ${msg}`); }
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    }
+
     return txRequest(method, path, userId, txId, { parameters: parameters || {} });
   },
 };

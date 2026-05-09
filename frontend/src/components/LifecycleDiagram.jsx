@@ -255,7 +255,7 @@ export default function LifecycleDiagram({
     if (blocked) {
       btnFill   = '#1c0808';
       btnStroke = '#7f1d1d';
-      btnText   = '#f87171';
+      btnText   = 'var(--danger)';
     } else if (enabled || previewMode) {
       if (hovered) {
         btnFill   = targetColor;
@@ -267,9 +267,9 @@ export default function LifecycleDiagram({
         btnText   = targetColor;
       }
     } else {
-      btnFill   = '#141820';
-      btnStroke = '#3d4f63';
-      btnText   = '#607080';
+      btnFill   = 'var(--surface2)';
+      btnStroke = 'var(--border2)';
+      btnText   = 'var(--muted2)';
     }
 
     return (
@@ -278,7 +278,7 @@ export default function LifecycleDiagram({
         <path
           d={d1}
           fill="none"
-          stroke={activeTransition ? railColor : '#3a4f62'}
+          style={{ stroke: activeTransition ? railColor : 'var(--border2)' }}
           strokeWidth={railWidth}
           strokeDasharray={forward ? 'none' : '4,3'}
           opacity={railOpacity}
@@ -286,7 +286,7 @@ export default function LifecycleDiagram({
         <path
           d={d2}
           fill="none"
-          stroke={activeTransition ? railColor : '#3a4f62'}
+          style={{ stroke: activeTransition ? railColor : 'var(--border2)' }}
           strokeWidth={railWidth}
           strokeDasharray={forward ? 'none' : '4,3'}
           opacity={railOpacity}
@@ -316,8 +316,7 @@ export default function LifecycleDiagram({
               x={bx} y={by}
               width={textW} height={BTN_H}
               rx={BTN_RX}
-              fill={btnFill}
-              stroke={btnStroke}
+              style={{ fill: btnFill, stroke: btnStroke }}
               strokeWidth={fromCurrent ? 1 : 0.5}
             />
             <text
@@ -326,8 +325,7 @@ export default function LifecycleDiagram({
               fontSize="9"
               fontFamily="var(--sans)"
               fontWeight="700"
-              fill={btnText}
-              style={{ userSelect: 'none', pointerEvents: 'none' }}
+              style={{ fill: btnText, userSelect: 'none', pointerEvents: 'none' }}
             >
               {displayName}
             </text>
@@ -385,9 +383,9 @@ export default function LifecycleDiagram({
             stroke    = sc;
             textColor = sc;
           } else {
-            fill      = '#181c22';
-            stroke    = '#3a4455';
-            textColor = '#7a94b0';
+            fill      = 'var(--surface2)';
+            stroke    = 'var(--border2)';
+            textColor = 'var(--muted)';
           }
 
           return (
@@ -395,8 +393,7 @@ export default function LifecycleDiagram({
               <rect
                 x={x} y={y} width={BOX_W} height={BOX_H}
                 rx={6}
-                fill={fill}
-                stroke={stroke}
+                style={{ fill, stroke }}
                 strokeWidth={isActive ? 1.5 : 1}
               />
               <text
@@ -405,7 +402,7 @@ export default function LifecycleDiagram({
                 fontSize="11"
                 fontFamily="var(--sans)"
                 fontWeight={isActive ? '700' : '600'}
-                fill={textColor}
+                style={{ fill: textColor }}
               >
                 {name}
               </text>
@@ -415,7 +412,7 @@ export default function LifecycleDiagram({
                   textAnchor="middle"
                   fontSize="7"
                   fontFamily="var(--sans)"
-                  fill={isActive ? textColor : '#5a7090'}
+                  style={{ fill: isActive ? textColor : 'var(--muted2)' }}
                   opacity="0.7"
                 >
                   {flags}

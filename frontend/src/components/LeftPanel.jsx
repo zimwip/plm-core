@@ -88,7 +88,7 @@ function LeftPanel({
         {canCreateNode && (
           <div className="panel-section-header" style={{ flex: '0 0 auto' }}>
             <div style={{ flex: 1 }} />
-            <button className="panel-icon-btn" title="Create new object" onClick={onCreateNode}>
+            <button className="panel-icon-btn" title="Create new object" onClick={() => onCreateNode()}>
               <PlusIcon size={13} color="var(--accent)" strokeWidth={2.5} />
             </button>
           </div>
@@ -104,6 +104,7 @@ function LeftPanel({
             activeNodeId={activeNodeId}
             stateColorMap={stateColorMap}
             onNavigate={onNavigate}
+            onCreateNode={onCreateNode}
             refreshKey={browseRefreshKey}
             panelSection="MAIN"
           />

@@ -5073,6 +5073,234 @@ export function SourcesSection({ userId, canWrite, toast }) {
   );
 }
 
+// ── Import Contexts section ──────────────────────────────────────────────────
+const ACCEPTED_FORMAT_OPTIONS = ['STEP', 'CATIA_V5'];
+
+export function ImportContextsSection({ userId, canWrite, toast }) {
+  const [contexts,            setContexts]            = useState([]);
+  const [importInstances,     setImportInstances]     = useState([]);
+  const [validationInstances, setValidationInstances] = useState([]);
+  const [loading,             setLoading]             = useState(true);
+  const [modal,               setModal]               = useState(null);
+  const [form,                setForm]                = useState({});
+  const [saving,              setSaving]              = useState(false);
+
+  async function load() {
+    const [c, imp, val] = await Promise.all([
+      api.getImportContexts().catch(() => []),
+      api.getImportAlgorithmInstances().catch(() => []),
+      api.getValidationAlgorithmInstances().catch(() => []),
+    ]);
+    setContexts(Array.isArray(c) ? c : []);
+    setImportInstances(Array.isArray(imp) ? imp : []);
+    setValidationInstances(Array.isArray(val) ? val : []);
+  }
+  useEffect(() => { load().finally(() => setLoading(false)); }, [userId]);
+
+  function openCreate() {
+    setForm({ code: '', label: '', allowedRootNodeTypes: '', acceptedFormats: '', importContextAlgorithmInstanceId: '', nodeValidationAlgorithmInstanceId: '' });
+    setModal({ kind: 'create' });
+  }
+  function openEdit(ctx) {
+    setForm({
+      code: ctx.code,
+      label: ctx.label,
+      allowedRootNodeTypes: ctx.allowedRootNodeTypes || '',
+      acceptedFormats: ctx.acceptedFormats || '',
+      importContextAlgorithmInstanceId: ctx.importContextAlgorithmInstanceId || '',
+      nodeValidationAlgorithmInstanceId: ctx.nodeValidationAlgorithmInstanceId || '',
+    });
+    setModal({ kind: 'edit', original: ctx });
+  }
+  function closeModal() { setModal(null); setForm({}); }
+
+  function instLabel(inst) {
+    return inst.name || inst.instanceName || inst.algorithmCode || inst.instanceId || inst.id || '?';
+  }
+  function instId(inst) {
+    return inst.instanceId || inst.id;
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const payload = {
+        code:  form.code?.trim(),
+        label: form.label?.trim(),
+        allowedRootNodeTypes:              form.allowedRootNodeTypes?.trim() || null,
+        acceptedFormats:                   form.acceptedFormats?.trim() || null,
+        importContextAlgorithmInstanceId:  form.importContextAlgorithmInstanceId || null,
+        nodeValidationAlgorithmInstanceId: form.nodeValidationAlgorithmInstanceId || null,
+      };
+      if (modal.kind === 'create') {
+        await api.createImportContext(payload);
+        toast('Import context created', 'success');
+      } else {
+        await api.updateImportContext(modal.original.id, payload);
+        toast('Import context updated', 'success');
+      }
+      closeModal();
+      await load();
+    } catch (e) { toast(e, 'error'); }
+    finally { setSaving(false); }
+  }
+
+  async function remove(ctx) {
+    if (!window.confirm(`Delete import context "${ctx.label}" (${ctx.code})?`)) return;
+    try {
+      await api.deleteImportContext(ctx.id);
+      toast('Import context deleted', 'success');
+      await load();
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  function instName(instances, id) {
+    if (!id) return '—';
+    const inst = instances.find(i => instId(i) === id);
+    return inst ? instLabel(inst) : id;
+  }
+
+  if (loading) return <div style={{ padding: 16, color: 'var(--muted)' }}>Loading…</div>;
+
+  return (
+    <div style={{ padding: '0 16px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <div style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>
+          Import contexts bind a logical code to algorithm instances for CAD file processing
+          (cad-api) and node validation (psm-api). The built-in{' '}
+          <span className="settings-badge">default</span> context uses service-level default
+          algorithms when no specific context is requested.
+        </div>
+        {canWrite && (
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>
+            <PlusIcon size={11} strokeWidth={2} /> Add Context
+          </button>
+        )}
+      </div>
+
+      <table className="settings-table">
+        <thead>
+          <tr>
+            <th style={{ width: 140 }}>Code</th>
+            <th>Label</th>
+            <th>Import algorithm</th>
+            <th>Validation algorithm</th>
+            <th style={{ width: 90 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {contexts.map(ctx => (
+            <tr key={ctx.id}>
+              <td className="settings-td-mono">
+                {ctx.code}
+                {ctx.code === 'default' && (
+                  <span className="settings-badge" style={{ marginLeft: 4 }}>built-in</span>
+                )}
+              </td>
+              <td>{ctx.label}</td>
+              <td style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {instName(importInstances, ctx.importContextAlgorithmInstanceId)}
+              </td>
+              <td style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {instName(validationInstances, ctx.nodeValidationAlgorithmInstanceId)}
+              </td>
+              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                {canWrite && (
+                  <>
+                    <button className="panel-icon-btn" title="Edit" onClick={() => openEdit(ctx)}>
+                      <EditIcon size={12} strokeWidth={2} color="var(--accent)" />
+                    </button>
+                    {ctx.code !== 'default' && (
+                      <button
+                        className="panel-icon-btn"
+                        title="Delete"
+                        onClick={() => remove(ctx)}
+                        style={{ marginLeft: 4 }}
+                      >
+                        <TrashIcon size={12} strokeWidth={2} color="var(--danger)" />
+                      </button>
+                    )}
+                  </>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {modal && (
+        <MetaModal
+          title={modal.kind === 'create' ? 'New Import Context' : `Edit ${modal.original.label}`}
+          onClose={closeModal}
+          onSave={save}
+          saving={saving || !form.label || (modal.kind === 'create' && !form.code)}
+        >
+          <Field label="Code">
+            <input
+              className="field-input"
+              value={form.code || ''}
+              disabled={modal.kind === 'edit'}
+              onChange={e => setForm(f => ({ ...f, code: e.target.value }))}
+              placeholder="e.g. catia-v5-mech"
+            />
+          </Field>
+          <Field label="Label">
+            <input
+              className="field-input"
+              value={form.label || ''}
+              onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
+            />
+          </Field>
+          <Field label="Accepted formats">
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+              {ACCEPTED_FORMAT_OPTIONS.map(fmt => {
+                const raw = form.acceptedFormats || '';
+                const checked = raw.includes(`"${fmt}"`);
+                function toggle() {
+                  let arr = [];
+                  try { arr = JSON.parse(raw || '[]'); } catch { arr = []; }
+                  arr = checked ? arr.filter(f => f !== fmt) : [...arr, fmt];
+                  setForm(f => ({ ...f, acceptedFormats: arr.length ? JSON.stringify(arr) : '' }));
+                }
+                return (
+                  <label key={fmt} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={checked} onChange={toggle} />
+                    {fmt}
+                  </label>
+                );
+              })}
+            </div>
+          </Field>
+          <Field label="Import algorithm instance">
+            <select
+              className="field-input"
+              value={form.importContextAlgorithmInstanceId || ''}
+              onChange={e => setForm(f => ({ ...f, importContextAlgorithmInstanceId: e.target.value }))}
+            >
+              <option value="">— none (use default) —</option>
+              {importInstances.map(inst => (
+                <option key={instId(inst)} value={instId(inst)}>{instLabel(inst)}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Node validation algorithm instance">
+            <select
+              className="field-input"
+              value={form.nodeValidationAlgorithmInstanceId || ''}
+              onChange={e => setForm(f => ({ ...f, nodeValidationAlgorithmInstanceId: e.target.value }))}
+            >
+              <option value="">— none (use default) —</option>
+              {validationInstances.map(inst => (
+                <option key={instId(inst)} value={instId(inst)}>{instLabel(inst)}</option>
+              ))}
+            </select>
+          </Field>
+        </MetaModal>
+      )}
+    </div>
+  );
+}
+
 // ── Settings section registrations ───────────────────────────────────────────
 // Runs at module load. To add sections from a new service: write the component,
 // call registerSettingsPlugin here (or in a dedicated plugin file imported from
@@ -5088,6 +5316,7 @@ registerSettingsPlugin('proj-spaces',          ProjectSpacesSection);
 registerSettingsPlugin('users-roles',          UsersRolesSection);
 registerSettingsPlugin('access-rights',        AccessRightsSection);
 registerSettingsPlugin('sources',              SourcesSection);
+registerSettingsPlugin('import-contexts',      ImportContextsSection);
 registerSettingsPlugin('secrets',              SecretsSection);
 registerSettingsPlugin('service-registry',     ServiceRegistrySection);
 registerSettingsPlugin('platform-environment', PlatformEnvironmentSection);

@@ -7,30 +7,35 @@ import {
   WorkflowIcon,
 } from './Icons';
 
-/* ── Registered services ── */
-function useRegisteredServices() {
-  const [services, setServices] = useState([]);
-  useEffect(() => {
-    platformActionsApi.getRegisteredServices()
-      .then(setServices)
-      .catch(() => setServices([]));
-  }, []);
-  return services;
-}
-
 /* ── Exported section ── */
 export function AlgorithmSection({ userId, canWrite, toast }) {
-  const registeredServices = useRegisteredServices();
+  const [allAlgorithms, setAllAlgorithms] = useState(null);
+  const [allInstances,  setAllInstances]  = useState(null);
   const [serviceCode, setServiceCode] = useState('');
   const [tab, setTab] = useState('catalog');
   const [stats, setStats] = useState(null);
   const [timeseries, setTimeseries] = useState(null);
   const [tsHours, setTsHours] = useState(24);
 
-  useEffect(() => {
-    if (registeredServices.length > 0 && !serviceCode)
-      setServiceCode(registeredServices[0]);
-  }, [registeredServices]);
+  const loadAll = useCallback(() => {
+    setAllAlgorithms(null);
+    setAllInstances(null);
+    Promise.all([
+      platformActionsApi.listAlgorithms(userId),
+      platformActionsApi.listAllInstances(userId),
+    ]).then(([algs, insts]) => {
+      const algList  = Array.isArray(algs)  ? algs  : [];
+      const instList = Array.isArray(insts) ? insts : [];
+      setAllAlgorithms(algList);
+      setAllInstances(instList);
+      if (!serviceCode) {
+        const svcs = [...new Set(algList.map(a => a.serviceCode).filter(Boolean))].sort();
+        if (svcs.length > 0) setServiceCode(svcs[0]);
+      }
+    }).catch(() => { setAllAlgorithms([]); setAllInstances([]); });
+  }, [userId]); // serviceCode intentionally excluded — only seed on first load
+
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   // Reset stats/timeseries when service changes
   useEffect(() => { setStats(null); setTimeseries(null); }, [serviceCode]);
@@ -47,8 +52,10 @@ export function AlgorithmSection({ userId, canWrite, toast }) {
       .catch(() => setTimeseries([]));
   }, [userId, serviceCode]);
 
-  if (registeredServices.length === 0)
-    return <div className="settings-loading">Loading registered services…</div>;
+  if (allAlgorithms === null)
+    return <div className="settings-loading">Loading…</div>;
+
+  const services = [...new Set(allAlgorithms.map(a => a.serviceCode).filter(Boolean))].sort();
 
   const tabStyle = (key) => ({
     padding: '6px 14px', fontSize: 12, cursor: 'pointer', background: 'none', border: 'none',
@@ -67,7 +74,7 @@ export function AlgorithmSection({ userId, canWrite, toast }) {
         <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>Service</span>
         <select className="field-input" style={{ width: 120, fontSize: 12, padding: '3px 6px' }}
           value={serviceCode} onChange={e => setServiceCode(e.target.value)}>
-          {registeredServices.map(c => <option key={c} value={c}>{c}</option>)}
+          {services.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
 
@@ -82,7 +89,15 @@ export function AlgorithmSection({ userId, canWrite, toast }) {
       </div>
 
       {serviceCode && tab === 'catalog' && (
-        <AlgorithmCatalog userId={userId} serviceCode={serviceCode} canWrite={canWrite} toast={toast} />
+        <AlgorithmCatalog
+          userId={userId}
+          serviceCode={serviceCode}
+          algorithms={allAlgorithms.filter(a => a.serviceCode === serviceCode)}
+          instances={allInstances ? allInstances.filter(i => i.serviceCode === serviceCode) : []}
+          canWrite={canWrite}
+          toast={toast}
+          onReload={loadAll}
+        />
       )}
 
       {tab === 'stats' && serviceCode && (
@@ -108,25 +123,13 @@ export function AlgorithmSection({ userId, canWrite, toast }) {
 }
 
 /* ── Algorithm Catalog ── */
-function AlgorithmCatalog({ userId, serviceCode, canWrite, toast }) {
-  const [algorithms,   setAlgorithms]   = useState(null);
-  const [instances,    setInstances]    = useState(null);
+function AlgorithmCatalog({ userId, serviceCode, algorithms, instances, canWrite, toast, onReload }) {
   const [expandedAlgo, setExpandedAlgo] = useState(null);
   const [newInstName,  setNewInstName]  = useState('');
   const [algoParams,   setAlgoParams]   = useState({});
 
-  const reload = useCallback(() => {
-    setAlgorithms(null);
-    Promise.all([
-      platformActionsApi.listAlgorithms(userId, serviceCode),
-      platformActionsApi.listAllInstances(userId, serviceCode),
-    ]).then(([algs, insts]) => {
-      setAlgorithms(Array.isArray(algs)  ? algs  : []);
-      setInstances( Array.isArray(insts) ? insts : []);
-    }).catch(() => { setAlgorithms([]); setInstances([]); });
-  }, [userId, serviceCode]);
-
-  useEffect(() => { reload(); }, [reload]);
+  // Reset expansion when service changes
+  useEffect(() => { setExpandedAlgo(null); setNewInstName(''); setAlgoParams({}); }, [serviceCode]);
 
   async function handleCreateInstance(algorithmId) {
     const name = newInstName.trim();
@@ -134,12 +137,10 @@ function AlgorithmCatalog({ userId, serviceCode, canWrite, toast }) {
     try {
       await platformActionsApi.createInstance(userId, algorithmId, name, serviceCode);
       setNewInstName('');
-      reload();
+      onReload();
       toast('Instance created', 'success');
     } catch (e) { toast(String(e), 'error'); }
   }
-
-  if (algorithms === null) return <div className="settings-loading">Loading…</div>;
 
   if (algorithms.length === 0) {
     return (
@@ -209,7 +210,6 @@ function AlgorithmCatalog({ userId, serviceCode, canWrite, toast }) {
                       <WorkflowIcon size={13} color="var(--accent)" strokeWidth={1.5} />
                       <span className="settings-card-name" style={{ marginLeft: 4 }}>{algName}</span>
                       <span className="settings-card-id">{algCode}</span>
-                      <span style={{ marginLeft: 6 }}><ModuleBadge module={algo.moduleName || algo.module_name} /></span>
                       <span style={{ flex: 1, fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 8 }}>
                         {algo.description || ''}
                       </span>
@@ -275,7 +275,7 @@ function AlgorithmCatalog({ userId, serviceCode, canWrite, toast }) {
 
                         {algoInsts.map(inst => (
                           <InstanceCard key={inst.id} inst={inst} algo={algo}
-                            userId={userId} canWrite={canWrite} toast={toast} onReload={reload} />
+                            userId={userId} canWrite={canWrite} toast={toast} onReload={onReload} />
                         ))}
 
                         {canWrite && (

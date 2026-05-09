@@ -39,6 +39,9 @@ public class ActionGuardService implements ActionGuardPort {
     /** Reverse index: algorithm id → algorithm code (rebuilt on each cache rebuild). */
     private Map<String, String> algorithmCodeById = Map.of();
 
+    /** Reverse index: action code → action id (for callers that only know the code). */
+    private Map<String, String> actionIdByCode = Map.of();
+
     public ActionGuardService(ConfigCache configCache, @Lazy AlgorithmRegistry algorithmRegistry) {
         this.configCache        = configCache;
         this.algorithmRegistry  = algorithmRegistry;
@@ -50,21 +53,32 @@ public class ActionGuardService implements ActionGuardPort {
     }
 
     // ================================================================
-    // ActionGuardPort — interface methods (actionCode ignored; PSM uses actionId)
+    // ActionGuardPort — interface methods
     // ================================================================
 
     @Override
     public GuardEvaluation evaluate(String actionCode, String actionId,
                                     String nodeTypeId, String transitionId,
                                     boolean isAdmin, ActionGuardContext ctx) {
-        return evaluate(actionId, nodeTypeId, transitionId, isAdmin, ctx);
+        String effectiveId = actionId != null ? actionId : resolveActionId(actionCode);
+        return evaluate(effectiveId, nodeTypeId, transitionId, isAdmin, ctx);
     }
 
     @Override
     public void assertGuards(String actionCode, String actionId,
                              String nodeTypeId, String transitionId,
                              boolean isAdmin, ActionGuardContext ctx) {
-        assertGuards(actionId, nodeTypeId, transitionId, isAdmin, ctx);
+        String effectiveId = actionId != null ? actionId : resolveActionId(actionCode);
+        assertGuards(effectiveId, nodeTypeId, transitionId, isAdmin, ctx);
+    }
+
+    private String resolveActionId(String actionCode) {
+        cacheLock.readLock().lock();
+        try {
+            return actionIdByCode.get(actionCode);
+        } finally {
+            cacheLock.readLock().unlock();
+        }
     }
 
     // ================================================================
@@ -212,7 +226,9 @@ public class ActionGuardService implements ActionGuardPort {
         }
         algorithmCodeById = Map.copyOf(codeById);
 
+        Map<String, String> newActionIdByCode = new HashMap<>();
         for (var action : configCache.getAllActions()) {
+            newActionIdByCode.put(action.actionCode(), action.id());
             for (ActionGuardConfig ag : configCache.getActionGuards(action.id())) {
                 ResolvedGuard rg = resolveGuardFromConfig(ag.algorithmInstanceId(), ag.effect());
                 if (rg != null) {
@@ -224,6 +240,7 @@ public class ActionGuardService implements ActionGuardPort {
         cacheLock.writeLock().lock();
         try {
             actionGuardsCache = Map.copyOf(newActionGuards);
+            actionIdByCode = Map.copyOf(newActionIdByCode);
         } finally {
             cacheLock.writeLock().unlock();
         }
@@ -280,6 +297,7 @@ public class ActionGuardService implements ActionGuardPort {
 
     private List<ResolvedGuard> resolveEffectiveGuards(String actionId, String nodeTypeId,
                                                        String transitionId) {
+        if (actionId == null) return List.of();
         cacheLock.readLock().lock();
         try {
             return new ArrayList<>(actionGuardsCache.getOrDefault(actionId, List.of()));

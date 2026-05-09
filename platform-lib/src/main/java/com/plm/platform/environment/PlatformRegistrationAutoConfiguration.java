@@ -17,18 +17,21 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.web.client.RestTemplate;
 
 /**
- * Wires registration with platform-api (replaces the former SPE registration
- * auto-config).
+ * Wires registration with platform-api.
  *
  * <ul>
  *   <li>{@link LocalServiceRegistry} is unconditional — downstream beans
  *       like {@code ServiceClient} depend on it, and tests that disable
  *       registration still need it injectable.</li>
  *   <li>The active registration client is gated by
- *       {@code platform.registration.enabled} (default true) and selects
- *       between full {@link PlatformRegistrationClient} (registers + pulls)
- *       and read-only {@link EnvironmentSubscriber} (subscribe-only mode
- *       for the gateway).</li>
+ *       {@code platform.registration.enabled} (default true). Full
+ *       {@link PlatformRegistrationClient} (registers + pulls) is the default;
+ *       {@link EnvironmentSubscriber} (subscribe-only, no self-registration)
+ *       is opt-in via {@code platform.registration.subscribe-only=true}.</li>
+ *   <li>{@link RestTemplateBuilder} is resolved via {@link ObjectProvider} to
+ *       remain compatible with reactive runtimes (e.g. Spring Cloud Gateway)
+ *       where {@code RestTemplateAutoConfiguration} is not active. Falls back
+ *       to a plain {@link RestTemplateBuilder} (no tracing customizers).</li>
  * </ul>
  */
 @AutoConfiguration
@@ -51,12 +54,12 @@ public class PlatformRegistrationAutoConfiguration {
         @ConditionalOnProperty(prefix = "platform.registration", name = "subscribe-only", havingValue = "false", matchIfMissing = true)
         public PlatformRegistrationClient platformRegistrationClient(
                 PlatformRegistrationProperties props,
-                RestTemplateBuilder restTemplateBuilder,
+                ObjectProvider<RestTemplateBuilder> restTemplateBuilderProvider,
                 LocalServiceRegistry localRegistry,
                 ObjectProvider<BuildProperties> buildPropertiesProvider,
                 ObjectProvider<NatsListenerFactory> natsListenerFactoryProvider,
                 ApplicationContext applicationContext) {
-            RestTemplate rest = restTemplateBuilder.build();
+            RestTemplate rest = restTemplateBuilderProvider.getIfAvailable(RestTemplateBuilder::new).build();
             return new PlatformRegistrationClient(props, rest, localRegistry,
                 buildPropertiesProvider.getIfAvailable(),
                 natsListenerFactoryProvider.getIfAvailable(),
@@ -68,11 +71,11 @@ public class PlatformRegistrationAutoConfiguration {
         @ConditionalOnProperty(prefix = "platform.registration", name = "subscribe-only", havingValue = "true")
         public EnvironmentSubscriber environmentSubscriber(
                 PlatformRegistrationProperties props,
-                RestTemplateBuilder restTemplateBuilder,
+                ObjectProvider<RestTemplateBuilder> restTemplateBuilderProvider,
                 LocalServiceRegistry localRegistry,
                 ObjectProvider<NatsListenerFactory> natsListenerFactoryProvider,
                 ApplicationEventPublisher eventPublisher) {
-            RestTemplate rest = restTemplateBuilder.build();
+            RestTemplate rest = restTemplateBuilderProvider.getIfAvailable(RestTemplateBuilder::new).build();
             return new EnvironmentSubscriber(props, rest, localRegistry,
                 natsListenerFactoryProvider.getIfAvailable(), eventPublisher);
         }

@@ -7,30 +7,29 @@ import {
   ShieldIcon, CpuIcon, ZapIcon,
 } from './Icons';
 
-/* ── Registered services from in-memory catalog ── */
-function useRegisteredServices() {
-  const [services, setServices] = useState([]);
-  useEffect(() => {
-    platformActionsApi.getRegisteredServices()
-      .then(setServices)
-      .catch(() => setServices([]));
-  }, []);
-  return services;
-}
-
 /* ── Exported section ─────────────────────────────────────────────── */
 export function ActionsCatalogSection({ userId, canWrite, toast }) {
-  const registeredServices = useRegisteredServices();
+  const [allActions, setAllActions] = useState(null);
   const [serviceCode, setServiceCode] = useState('');
   const [tab, setTab] = useState('actions');
 
   useEffect(() => {
-    if (registeredServices.length > 0 && !serviceCode)
-      setServiceCode(registeredServices[0]);
-  }, [registeredServices]);
+    platformActionsApi.listActions(userId)
+      .then(acts => {
+        const list = Array.isArray(acts) ? acts : [];
+        setAllActions(list);
+        if (!serviceCode) {
+          const svcs = [...new Set(list.map(a => a.serviceCode).filter(Boolean))].sort();
+          if (svcs.length > 0) setServiceCode(svcs[0]);
+        }
+      })
+      .catch(() => setAllActions([]));
+  }, [userId]); // serviceCode intentionally excluded — only seed on first load
 
-  if (registeredServices.length === 0)
-    return <div className="settings-loading">Loading registered services…</div>;
+  if (allActions === null)
+    return <div className="settings-loading">Loading…</div>;
+
+  const services = [...new Set(allActions.map(a => a.serviceCode).filter(Boolean))].sort();
 
   const tabStyle = (key) => ({
     padding: '6px 14px', fontSize: 12, cursor: 'pointer',
@@ -56,7 +55,7 @@ export function ActionsCatalogSection({ userId, canWrite, toast }) {
           value={serviceCode}
           onChange={e => setServiceCode(e.target.value)}
         >
-          {registeredServices.map(c => <option key={c} value={c}>{c}</option>)}
+          {services.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
 
@@ -65,37 +64,38 @@ export function ActionsCatalogSection({ userId, canWrite, toast }) {
         <button style={tabStyle('algorithm-catalog')} onClick={() => setTab('algorithm-catalog')}>Algorithm Catalog</button>
       </div>
 
-      {tab === 'actions'           && <ActionsTab           userId={userId} serviceCode={serviceCode} canWrite={canWrite} toast={toast} />}
+      {tab === 'actions'           && <ActionsTab           userId={userId} serviceCode={serviceCode} dbActions={allActions.filter(a => a.serviceCode === serviceCode)} canWrite={canWrite} toast={toast} />}
       {tab === 'algorithm-catalog' && <AlgorithmCatalogTab  userId={userId} serviceCode={serviceCode} canWrite={canWrite} toast={toast} />}
     </div>
   );
 }
 
 /* ── Actions tab — merges registry (live) + DB (metadata) ─────────── */
-function ActionsTab({ userId, serviceCode, canWrite, toast }) {
-  const [dbActions, setDbActions]     = useState(null);
-  const [catalog, setCatalog]         = useState(null);
-  const [instances, setInstances]     = useState(null);
-  const [expanded, setExpanded]       = useState(null);
-  const [guards, setGuards]           = useState({});
-  const [wrappers, setWrappers]       = useState({});
+function ActionsTab({ userId, serviceCode, dbActions: dbActionsProp, canWrite, toast }) {
+  const [localDbActions, setLocalDbActions] = useState(null);
+  const [catalog, setCatalog]               = useState(null);
+  const [instances, setInstances]           = useState(null);
+  const [expanded, setExpanded]             = useState(null);
+  const [guards, setGuards]                 = useState({});
+  const [wrappers, setWrappers]             = useState({});
+
+  // Use prop as source of truth; localDbActions tracks in-place edits (description)
+  const dbActions = localDbActions ?? dbActionsProp;
 
   function handleDescriptionSaved(actionId, newDesc) {
-    setDbActions(prev => (prev || []).map(a => a.id === actionId ? { ...a, description: newDesc } : a));
+    setLocalDbActions(prev => (prev ?? dbActionsProp).map(a => a.id === actionId ? { ...a, description: newDesc } : a));
   }
 
   useEffect(() => {
     if (!serviceCode) return;
-    setDbActions(null); setCatalog(null); setExpanded(null); setGuards({}); setWrappers({});
+    setLocalDbActions(null); setCatalog(null); setExpanded(null); setGuards({}); setWrappers({});
     Promise.all([
-      platformActionsApi.listActions(userId, serviceCode),
       platformActionsApi.getServiceCatalog(serviceCode),
       platformActionsApi.listAllInstances(userId, serviceCode),
-    ]).then(([acts, cat, insts]) => {
-      setDbActions(Array.isArray(acts) ? acts : []);
+    ]).then(([cat, insts]) => {
       setCatalog(cat);
       setInstances(Array.isArray(insts) ? insts : []);
-    }).catch(() => { setDbActions([]); setCatalog({ handlers: [], guards: [] }); setInstances([]); });
+    }).catch(() => { setCatalog({ handlers: [], guards: [] }); setInstances([]); });
   }, [userId, serviceCode]);
 
   async function loadGuards(actionId) {
@@ -141,7 +141,7 @@ function ActionsTab({ userId, serviceCode, canWrite, toast }) {
     } catch (e) { toast(String(e), 'error'); }
   }
 
-  if (dbActions === null || catalog === null) return <div className="settings-loading">Loading…</div>;
+  if (catalog === null) return <div className="settings-loading">Loading…</div>;
 
   // Build merged action list: DB actions indexed by actionCode, registry handlers as fallback
   const dbByCode = {};

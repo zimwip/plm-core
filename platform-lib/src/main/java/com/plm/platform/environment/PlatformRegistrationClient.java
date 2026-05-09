@@ -18,10 +18,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Registers this service instance with platform-api on startup (retry with
@@ -100,22 +101,39 @@ public class PlatformRegistrationClient {
         if (expected.isEmpty()) return;
         String actual = applicationContext.getEnvironment().getProperty("server.servlet.context-path", "");
         if (!expected.equals(actual)) return;
-
-        RequestMappingHandlerMapping mapping;
+        // Use reflection: spring-webmvc may not be on the classpath (e.g. reactive/Gateway runtimes).
+        // A hard import of RequestMappingHandlerMapping causes NoClassDefFoundError at bean
+        // introspection time even if the method would exit early at runtime.
         try {
-            mapping = applicationContext.getBean(RequestMappingHandlerMapping.class);
+            Class<?> mappingType = Class.forName(
+                    "org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping");
+            Object mapping = applicationContext.getBean(mappingType);
+            @SuppressWarnings("unchecked")
+            Map<Object, ?> handlerMethods = (Map<Object, ?>) mappingType.getMethod("getHandlerMethods").invoke(mapping);
+            List<String> allPaths = handlerMethods.keySet().stream()
+                    .flatMap(info -> {
+                        try {
+                            @SuppressWarnings("unchecked")
+                            Set<String> patterns = (Set<String>) info.getClass().getMethod("getPatternValues").invoke(info);
+                            return patterns.stream();
+                        } catch (Exception e2) {
+                            return Stream.empty();
+                        }
+                    })
+                    .distinct()
+                    .toList();
+            List<String> bad = findHardcodedApiPaths(allPaths);
+            if (!bad.isEmpty()) {
+                throw new IllegalStateException(
+                        "Controller paths must not start with '/api/...' — context-path already adds '"
+                                + expected + "'. Offenders: " + bad);
+            }
+        } catch (ClassNotFoundException e) {
+            // spring-webmvc not on classpath — guard not applicable, skip
+        } catch (IllegalStateException e) {
+            throw e;
         } catch (Exception ignored) {
-            return;
-        }
-        List<String> allPaths = mapping.getHandlerMethods().keySet().stream()
-            .flatMap(info -> info.getPatternValues().stream())
-            .distinct()
-            .toList();
-        List<String> bad = findHardcodedApiPaths(allPaths);
-        if (!bad.isEmpty()) {
-            throw new IllegalStateException(
-                "Controller paths must not start with '/api/...' — context-path already adds '"
-                + expected + "'. Offenders: " + bad);
+            // bean not found or reflection failed — skip guard
         }
     }
 
@@ -207,9 +225,14 @@ public class PlatformRegistrationClient {
                 new HttpEntity<>(headers),
                 new ParameterizedTypeReference<RegistrySnapshot>() {});
             if (resp.getBody() != null) {
-                localRegistry.updateFromSnapshot(resp.getBody());
+                RegistrySnapshot snapshot = resp.getBody();
+                localRegistry.updateFromSnapshot(snapshot);
                 log.debug("Local registry refreshed: {} services (snapshot v{})",
-                    resp.getBody().services().size(), resp.getBody().version());
+                    snapshot.services().size(), snapshot.version());
+                if (applicationContext != null) {
+                    applicationContext.publishEvent(
+                        new EnvironmentSnapshotRefreshedEvent(this, snapshot.version()));
+                }
             }
         } catch (Exception e) {
             log.warn("Failed to pull registry snapshot: {}", e.getMessage());

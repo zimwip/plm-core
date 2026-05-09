@@ -235,7 +235,7 @@ services:
 
   # ============================================================
   # PSM API — Product Structure Management microservice (internal only)
-  # Two replicas with isolated PostgreSQL schemas (psm1 / psm2).
+  # Two replicas sharing the same PostgreSQL schema (psm).
   # Each replica self-registers with its own DNS hostname and space tag,
   # so spe-api routes project spaces to the correct instance.
   # Flyway creates and migrates each schema independently.
@@ -253,9 +253,9 @@ services:
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_JOOQ_SQL_DIALECT:             POSTGRES
       SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
-      SPRING_FLYWAY_DEFAULT_SCHEMA:        ${PSM_SCHEMA:-psm1}
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        ${PSM_SCHEMA:-psm}
       SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
-      SPRING_DATASOURCE_HIKARI_SCHEMA:     ${PSM_SCHEMA:-psm1}
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     ${PSM_SCHEMA:-psm}
       # PLM_SERVICE_SECRET + PG_PASSWORD now resolved at bootstrap from Vault (secret/plm).
       VAULT_ADDR:                          http://vault:8200
       VAULT_TOKEN:                         plm-demo-services
@@ -273,6 +273,7 @@ services:
       PLM_PLATFORM_URL:                    http://platform-api:8084
       NATS_URL:                            nats://nats:4222
       PLM_NATS_ENABLED:                    "true"
+      CAD_API_INTERNAL_URL:                http://cad-api:8087
     depends_on:
       vault-bootstrap:
         condition: service_completed_successfully
@@ -303,8 +304,8 @@ services:
     container_name: psm-api-2
     environment:
       <<: *psm-env
-      SPRING_FLYWAY_DEFAULT_SCHEMA:        ${PSM2_SCHEMA:-psm2}
-      SPRING_DATASOURCE_HIKARI_SCHEMA:     ${PSM2_SCHEMA:-psm2}
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        ${PSM_SCHEMA:-psm}
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     ${PSM_SCHEMA:-psm}
       SPE_SELF_BASE_URL:                   http://psm-api-2:8080
       SPE_SPACE_TAG:                       ${SPE_PSM2_TAG:-PSM2}
       PSM_CONFIG_ADMIN_URL:                http://psm-admin:8083
@@ -354,7 +355,7 @@ services:
       NATS_URL:                            nats://nats:4222
       NATS_MONITORING_URL:                 http://nats:8222
       PLM_NATS_ENABLED:                    "true"
-      PLATFORM_EXPECTED_SERVICES:          psm,pno,psa,platform,ws,spe,dst
+      PLATFORM_EXPECTED_SERVICES:          psm,pno,psa,platform,ws,spe,dst,cad
       SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
       SPRING_DATASOURCE_USERNAME:          plm
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
@@ -534,6 +535,82 @@ services:
     depends_on:
       spe-api:
         condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  # ============================================================
+  # CAD PARSER — Python+OCC sidecar. Parses STEP/CATIA files → JSON tree.
+  # Internal only, no external port.
+  # ============================================================
+  cad-parser:
+    build:
+      context: ./cad-parser
+      dockerfile: Dockerfile
+    image: cad-parser:dev
+    container_name: cad-parser
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node --input-type=commonjs -e \"require('http').get('http://localhost:8090/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - plm-net
+
+  # ============================================================
+  # CAD API — CAD ingestion service. Accepts STEP/CATIA uploads,
+  # drives PSM node creation via import context algorithm.
+  # ============================================================
+  cad-api:
+    build:
+      context: .
+      dockerfile: cad-api/Dockerfile
+      target: runtime
+    image: cad-api:dev
+    container_name: cad-api
+    environment:
+      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
+      SPRING_DATASOURCE_USERNAME:          plm
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_HIKARI_SCHEMA:     cad
+      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
+      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
+      SPRING_FLYWAY_DEFAULT_SCHEMA:        cad
+      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
+      SPE_API_URL:                         http://spe-api:8082
+      SPE_SELF_BASE_URL:                   http://cad-api:8087
+      PNO_API_URL:                         http://pno-api:8081
+      PLM_PLATFORM_URL:                    http://platform-api:8084
+      PLM_PERMISSION_ENABLED:              "true"
+      PLM_SETTINGS_ENABLED:                "true"
+      NATS_URL:                            nats://nats:4222
+      PLM_NATS_ENABLED:                    "true"
+      CAD_PARSER_URL:                      http://cad-parser:8090
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_CAD:               INFO
+    depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      cad-parser:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8087/api/cad/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
     networks:
       - plm-net

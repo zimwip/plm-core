@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
 import ReactDOM from 'react-dom';
-import { api, txApi, authoringApi } from '../services/api';
+import { api, txApi, authoringApi, cadApi } from '../services/api';
 import { getDraggedNode, clearDraggedNode } from '../services/dragState';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { usePlmStore } from '../store/usePlmStore';
@@ -70,6 +70,64 @@ async function collectStepNodes(userId, nodeId, nodeLabel, stateColor, links, de
   return result;
 }
 
+function CadJobStatus({ jobData, onClose }) {
+  const { job, results = [] } = jobData;
+  const done = job.status === 'DONE' || job.status === 'FAILED';
+  const summary = results.reduce((acc, r) => { acc[r.action] = (acc[r.action] || 0) + 1; return acc; }, {});
+  const actionColor = a => a === 'CREATED' ? 'var(--success)' : a === 'UPDATED' ? 'var(--accent)' : a === 'REJECTED' ? 'var(--danger)' : 'var(--muted)';
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <span style={{ fontSize: 18 }}>{job.status === 'DONE' ? '✓' : job.status === 'FAILED' ? '✕' : '⏳'}</span>
+        <span style={{ fontWeight: 600, color: job.status === 'FAILED' ? 'var(--danger)' : job.status === 'DONE' ? 'var(--success)' : undefined }}>
+          {job.status === 'PENDING' && 'Queued…'}
+          {job.status === 'RUNNING' && 'Processing…'}
+          {job.status === 'DONE'    && `Complete — ${results.length} node${results.length !== 1 ? 's' : ''}`}
+          {job.status === 'FAILED'  && `Failed: ${job.errorSummary || 'unknown error'}`}
+        </span>
+      </div>
+      {Object.keys(summary).length > 0 && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+          {Object.entries(summary).map(([action, count]) => (
+            <span key={action} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 4, border: `1px solid ${actionColor(action)}40`, color: actionColor(action) }}>
+              {action}: {count}
+            </span>
+          ))}
+        </div>
+      )}
+      {results.length > 0 && (
+        <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 16 }}>
+          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--surface)', position: 'sticky', top: 0 }}>
+                <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>Name</th>
+                <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>Type</th>
+                <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((r, i) => (
+                <tr key={r.id || i} style={{ borderTop: i > 0 ? '1px solid var(--border)' : undefined }}>
+                  <td style={{ padding: '5px 10px' }}>{r.cadNodeName}</td>
+                  <td style={{ padding: '5px 10px', color: 'var(--muted)', fontSize: 11 }}>{r.cadNodeType}</td>
+                  <td style={{ padding: '5px 10px' }}>
+                    <span style={{ color: actionColor(r.action), fontSize: 11 }}>
+                      {r.action}{r.errorMessage ? ` — ${r.errorMessage}` : ''}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button className="btn btn-sm" onClick={onClose}>{done ? 'Close' : 'Dismiss (job continues in background)'}</button>
+      </div>
+    </>
+  );
+}
+
 export default function NodeEditor({
   nodeId,
   userId,
@@ -94,6 +152,8 @@ export default function NodeEditor({
   const [saveStatus,     setSaveStatus]    = useState(null); // null | 'saving' | 'saved'
   const [actionDialog,     setActionDialog]     = useState(null);  // action object | null
   const [actionParams,     setActionParams]     = useState({});    // param values for dialog
+  const [activeJob,        setActiveJob]        = useState(null);  // { id, data } | null
+  const cadJobPollRef = useRef(null);
   const [diff,        setDiff]       = useState(null);   // { data, v1Num, v2Num } | null
   const [diffLoading, setDiffLoading]= useState(false);
   const [children,    setChildren]   = useState([]);
@@ -286,6 +346,7 @@ export default function NodeEditor({
   useEffect(() => () => {
     clearTimeout(saveTimer.current);
     clearTimeout(savedTimer.current);
+    if (cadJobPollRef.current) clearInterval(cadJobPollRef.current);
   }, []);
 
   // Scroll the link panel into view whenever it opens (important for DnD where the
@@ -497,8 +558,24 @@ export default function NodeEditor({
         : await authoringApi.executeAction(
             nodeId, action.actionCode, userId, txId, params, action.transitionId);
 
-      if (result?.message) toast(result.message, 'success');
+      if (result?.jobId) {
+        setActiveJob({ id: result.jobId, data: { job: { id: result.jobId, status: result.status || 'PENDING' }, results: [] } });
+        if (cadJobPollRef.current) clearInterval(cadJobPollRef.current);
+        cadJobPollRef.current = setInterval(async () => {
+          try {
+            const data = await cadApi.getJobStatus(result.jobId);
+            setActiveJob(prev => prev ? { ...prev, data } : null);
+            if (data.job?.status === 'DONE' || data.job?.status === 'FAILED') {
+              clearInterval(cadJobPollRef.current);
+              cadJobPollRef.current = null;
+              if (data.job?.status === 'DONE') { await refreshAll(); await load(); }
+            }
+          } catch (_) {}
+        }, 2000);
+        return;
+      }
 
+      if (result?.message) toast(result.message, 'success');
       await refreshAll();
       await load();
     } catch (e) {
@@ -806,7 +883,16 @@ export default function NodeEditor({
                     {p.label || p.name}
                     {p.required && <span className="field-req">*</span>}
                   </label>
-                  {enumValues ? (
+                  {p.widget === 'FILE' ? (
+                    <>
+                      <input
+                        type="file"
+                        style={{ color: 'var(--text)' }}
+                        onChange={e => setActionParams(prev => ({ ...prev, [p.name]: e.target.files?.[0] || null }))}
+                      />
+                      {p.tooltip && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{p.tooltip}</div>}
+                    </>
+                  ) : enumValues ? (
                     <select
                       className="field-input"
                       value={val}
@@ -845,7 +931,10 @@ export default function NodeEditor({
               <button
                 className="btn btn-sm btn-success"
                 disabled={
-                  (actionDialog.parameters || []).filter(p => p.widget && p.required).some(p => !actionParams[p.name]?.trim?.())
+                  (actionDialog.parameters || []).filter(p => p.widget && p.required).some(p => {
+                    const v = actionParams[p.name];
+                    return p.widget === 'FILE' ? !v : !String(v || '').trim();
+                  })
                 }
                 onClick={() => executeAction(actionDialog, actionParams)}
               >
@@ -857,6 +946,16 @@ export default function NodeEditor({
         document.body
       )}
 
+
+      {activeJob && ReactDOM.createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '28px 32px', maxWidth: 560, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,.4)' }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>CAD Import</div>
+            <CadJobStatus jobData={activeJob.data} onClose={() => { if (cadJobPollRef.current) clearInterval(cadJobPollRef.current); setActiveJob(null); }} />
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Validation violations from last save (dry-run) */}
       {saveViolations.length > 0 && (

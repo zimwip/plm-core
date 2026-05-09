@@ -30,6 +30,10 @@ public class PlatformContextPathPostProcessor implements EnvironmentPostProcesso
         // context-path = /api/platform so the auth filter strips it correctly.
         String serviceCode = env.getProperty("platform.registration.service-code");
         if (serviceCode == null || serviceCode.isBlank()) return;
+        // Reactive runtimes (Spring Cloud Gateway, WebFlux-only) have no servlet
+        // container — server.servlet.context-path is meaningless and must not be
+        // injected, or PlatformRegistrationClient will compute a wrong health URL.
+        if ("reactive".equalsIgnoreCase(env.getProperty("spring.main.web-application-type"))) return;
         if (env.getProperty(CONTEXT_PATH_KEY) != null) return;
         String explicitRoutePrefix = env.getProperty("platform.registration.route-prefix");
         if (explicitRoutePrefix != null && !explicitRoutePrefix.isBlank()) return;

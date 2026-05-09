@@ -13,6 +13,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
@@ -101,6 +102,26 @@ public class ServiceClient {
     }
 
     /**
+     * Full exchange with extra headers (e.g. X-PLM-Tx for background/async S2S calls).
+     */
+    public <T> T exchange(String serviceCode, String path, HttpMethod method,
+                          Object body, Class<T> responseType, Map<String, String> extraHeaders) {
+        ensureRegistryPopulated();
+        CircuitBreaker cb = resilience.breakerFor(serviceCode);
+        Retry retry = resilience.retryFor(serviceCode);
+
+        Supplier<T> call = () -> {
+            ServiceInstanceInfo instance = pickOrThrow(serviceCode);
+            String url = instance.baseUrl() + path;
+            HttpEntity<?> entity = buildEntity(body, extraHeaders);
+            ResponseEntity<T> resp = restTemplate.exchange(url, method, entity, responseType);
+            return resp.getBody();
+        };
+
+        return Retry.decorateSupplier(retry, CircuitBreaker.decorateSupplier(cb, call)).get();
+    }
+
+    /**
      * Full exchange with parameterized response type.
      */
     public <T> T exchangeParameterized(String serviceCode, String path, HttpMethod method,
@@ -134,16 +155,72 @@ public class ServiceClient {
             .orElseThrow(() -> new ServiceUnavailableException(serviceCode));
     }
 
+    /**
+     * Upload raw bytes as multipart/form-data to the named service.
+     * Returns the {@code id} field from the JSON response body.
+     */
+    public String uploadMultipart(String serviceCode, String path,
+                                  byte[] bytes, String filename, String fileContentType) {
+        ensureRegistryPopulated();
+        CircuitBreaker cb = resilience.breakerFor(serviceCode);
+        Retry retry = resilience.retryFor(serviceCode);
+
+        Supplier<String> call = () -> {
+            ServiceInstanceInfo instance = pickOrThrow(serviceCode);
+            String url = instance.baseUrl() + path;
+
+            HttpHeaders authHeaders = buildAuthHeaders();
+            org.springframework.util.LinkedMultiValueMap<String, Object> parts =
+                new org.springframework.util.LinkedMultiValueMap<>();
+            org.springframework.core.io.ByteArrayResource resource =
+                new org.springframework.core.io.ByteArrayResource(bytes) {
+                    @Override public String getFilename() { return filename; }
+                };
+            HttpHeaders partHeaders = new HttpHeaders();
+            if (fileContentType != null) partHeaders.setContentType(MediaType.parseMediaType(fileContentType));
+            parts.add("file", new HttpEntity<>(resource, partHeaders));
+            if (filename != null) parts.add("name", filename);
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> body = restTemplate.exchange(
+                url, HttpMethod.POST,
+                new HttpEntity<>(parts, authHeaders),
+                Map.class).getBody();
+            if (body == null || !body.containsKey("id")) {
+                throw new IllegalStateException("Multipart upload to " + path + " returned no id");
+            }
+            return body.get("id").toString();
+        };
+
+        return Retry.decorateSupplier(retry, CircuitBreaker.decorateSupplier(cb, call)).get();
+    }
+
+    private HttpEntity<?> buildEntity(Object body, Map<String, String> extraHeaders) {
+        HttpEntity<?> base = buildEntity(body);
+        if (extraHeaders == null || extraHeaders.isEmpty()) return base;
+        HttpHeaders headers = new HttpHeaders();
+        headers.addAll(base.getHeaders());
+        extraHeaders.forEach(headers::set);
+        return body != null ? new HttpEntity<>(body, headers) : new HttpEntity<>(headers);
+    }
+
     private HttpEntity<?> buildEntity(Object body) {
+        HttpHeaders headers = buildAuthHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return body != null ? new HttpEntity<>(body, headers) : new HttpEntity<>(headers);
+    }
+
+    /** Builds auth+tracing headers without setting Content-Type (caller controls it). */
+    private HttpHeaders buildAuthHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Service-Secret", props.serviceSecret());
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        String auth = null;
         try {
             ServletRequestAttributes attrs =
                 (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
             if (attrs != null) {
                 HttpServletRequest req = attrs.getRequest();
-                String auth = req.getHeader("Authorization");
+                auth = req.getHeader("Authorization");
                 if (auth != null) headers.set("Authorization", auth);
                 String ps = req.getHeader("X-PLM-ProjectSpace");
                 if (ps != null) headers.set("X-PLM-ProjectSpace", ps);
@@ -155,7 +232,12 @@ public class ServiceClient {
                 if (tracestate != null) headers.set("tracestate", tracestate);
             }
         } catch (Exception ignored) {}
-        return body != null ? new HttpEntity<>(body, headers) : new HttpEntity<>(headers);
+        // Fallback for async contexts where the request may have been recycled
+        if (auth == null) {
+            String override = ServiceClientTokenContext.get();
+            if (override != null) headers.set("Authorization", override);
+        }
+        return headers;
     }
 
     private void ensureRegistryPopulated() {

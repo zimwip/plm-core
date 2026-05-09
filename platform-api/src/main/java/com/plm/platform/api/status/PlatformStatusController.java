@@ -18,7 +18,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Public platform status — exposes the cluster topology view served from
@@ -31,17 +30,16 @@ import java.util.stream.Collectors;
  *   <li>{@code down}     — no expected service has any healthy instance.</li>
  * </ul>
  *
- * <p>Synthesises entries for the gateway ({@code spe-api}) and for
- * platform-api itself: if a request reaches this controller, both are
- * routable. Failures inside individual sub-fetches are caught so a
- * transient NATS or registry hiccup never breaks the whole status call.
+ * <p>Synthesises a self-entry for platform-api if it is not yet in the
+ * registry. All other services, including the gateway ({@code spe}), appear
+ * via normal registration. Failures inside individual sub-fetches are caught
+ * so a transient NATS or registry hiccup never breaks the whole status call.
  */
 @Slf4j
 @RestController
 @RequestMapping("/status")
 public class PlatformStatusController {
 
-    private static final String GATEWAY_CODE = "spe";
     private static final String PLATFORM_CODE = "platform";
 
     private final EnvironmentRegistry registry;
@@ -101,14 +99,6 @@ public class PlatformStatusController {
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("serviceCode", code);
 
-                if (GATEWAY_CODE.equals(code)) {
-                    appendGatewaySelf(entry);
-                    totalInstances++;
-                    totalHealthyInstances++;
-                    servicesWithHealthy++;
-                    services.add(entry);
-                    continue;
-                }
                 if (PLATFORM_CODE.equals(code)) {
                     Collection<ServiceRegistration> instances = safeInstances(byService, code);
                     if (instances.isEmpty()) {
@@ -153,7 +143,7 @@ public class PlatformStatusController {
             // ("extra"). Useful when admin forgot to add a service to the list.
             for (var e : byService.entrySet()) {
                 String code = e.getKey();
-                if (emitted.contains(code) || GATEWAY_CODE.equals(code)) continue;
+                if (emitted.contains(code)) continue;
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("serviceCode", code);
                 entry.put("expected", false);
@@ -202,22 +192,6 @@ public class PlatformStatusController {
         } catch (Exception e) {
             return List.of();
         }
-    }
-
-    private void appendGatewaySelf(Map<String, Object> entry) {
-        entry.put("registered", true);
-        entry.put("healthy", true);
-        entry.put("status", "up");
-        entry.put("instanceCount", 1);
-        entry.put("healthyInstances", 1);
-        entry.put("version", "gateway");
-        entry.put("path", "/api/spe/");
-        Map<String, Object> inst = new LinkedHashMap<>();
-        inst.put("instanceId", "gateway");
-        inst.put("healthy", true);
-        inst.put("status", "up");
-        inst.put("synthetic", true);
-        entry.put("instances", List.of(inst));
     }
 
     private void appendPlatformSelf(Map<String, Object> entry) {

@@ -214,7 +214,7 @@ Request POST /nodes/{id}/actions/{code}
 - `@PlmPermission` : annotation dans shared.authorization (pas scope — scope vient de table `permission`), aspect dans permission module (@Order 1). Vérifie permissions via `authorization_policy`.
 - `@PlmAction` : aspect dans action (@Order 2). Auto-résout permissions requises depuis `action_required_permission`, scope via `PermissionCatalogPort`, puis évalue guards.
 - `PermissionRegistry` : cache in-memory de table `permission`, implémente `PermissionCatalogPort` (shared). Chargé au startup.
-- `action_required_permission` : table N:M reliant action → permission_code(s). FK vers `permission`. Ex: ABORT requiert UPDATE_NODE.
+- `action_required_permission` : table N:M reliant action → permission_code(s). Référence souple — FK vers `permission` supprimée (platform-api V7) ; `permission` vit dans pno-api. Ex: ABORT requiert UPDATE_NODE.
 - `authorization_policy` : table grants role × permission_code × nodeType × transition. FK vers `permission`.
 
 ### Wrappers configurés par action via table `action_wrapper`
@@ -296,7 +296,7 @@ Tests injectent contexte via `PlmSecurityContext.set(...)` (dans `shared.securit
 
 ## Ajouter handler / wrapper / guard
 
-- **Handler** : `@AlgorithmBean(code = "CODE")` implémentant `ActionHandler` dans `node.handler`. Ajouter entrées dans `algorithm`, `algorithm_instance`, `action`, `action_wrapper`.
+- **Handler** : `@AlgorithmBean(code = "CODE")` implémentant `ActionHandler` dans `node.handler`. Auto-enregistré à platform-api au démarrage. Pré-seeder si nécessaire : migration `platform-api/V<n>__<feature>.sql` (`algorithm`, `algorithm_instance`, `action`, `action_wrapper`, `action_guard`, `action_required_permission`).
 - **Wrapper** : `@AlgorithmBean` implémentant `ActionWrapper` dans module pertinent. Attacher via `action_wrapper`.
 - **Guard** : `@AlgorithmBean` implémentant `ActionGuard` ou `LifecycleGuard` dans sous-module guard approprié.
 - **Cycle dépendance** : guard/state services utilisent `AlgorithmRegistry.getInstance(appCtx)` (lazy) au lieu d'injection constructeur.
