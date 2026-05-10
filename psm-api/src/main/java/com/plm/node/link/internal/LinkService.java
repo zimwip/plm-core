@@ -177,6 +177,8 @@ public class LinkService {
         String fp = fingerPrintService.compute(nodeId, sourceVersionId);
         dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
 
+        resolver.attach(rctx);
+
         log.info("Link created: {}→{}/{}/{} type={} logicalId={}",
             nodeId, sourceCode, type, targetKey, linkTypeId, linkLogicalId);
         return linkId;
@@ -189,12 +191,24 @@ public class LinkService {
     @PlmAction("delete_link")
     @Transactional
     public void deleteLink(String linkId, String userId, String txId) {
-        String sourceNodeId = resolveLinkSourceNodeId(linkId);
-        String sourceVersionId = dsl.select(DSL.field("source_node_version_id"))
-            .from("node_version_link").where("id = ?", linkId)
-            .fetchOne(DSL.field("source_node_version_id"), String.class);
+        Record link = dsl.select().from("node_version_link").where("id = ?", linkId).fetchOne();
+        if (link == null) throw new IllegalArgumentException("Link not found: " + linkId);
+        String sourceVersionId = link.get("source_node_version_id", String.class);
+        String targetSourceCode = link.get("target_source_id",       String.class);
+        String targetType       = link.get("target_type",            String.class);
+        String targetKey        = link.get("target_key",             String.class);
+        String linkTypeId       = link.get("link_type_id",           String.class);
+
+        String sourceNodeId = dsl.select().from("node_version")
+            .where("id = ?", sourceVersionId).fetchOne("node_id", String.class);
+        if (sourceNodeId == null) throw new IllegalArgumentException("Source node not found for link: " + linkId);
+
         lockService.tryLock(sourceNodeId, userId);
         dsl.execute("DELETE FROM node_version_link WHERE id = ?", linkId);
+
+        sourceResolverRegistry.getResolverFor(targetSourceCode)
+            .detach(new SourceResolverContext(linkTypeId, targetType, targetKey, sourceVersionId, sourceNodeId));
+
         if (sourceVersionId != null) {
             String fp = fingerPrintService.compute(sourceNodeId, sourceVersionId);
             dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
@@ -268,6 +282,14 @@ public class LinkService {
                 "UPDATE node_version_link SET target_source_id = ?, target_type = ?, target_key = ? WHERE id = ?",
                 sourceCode, type, key, linkId
             );
+
+            // Detach old target, attach new target
+            String oldSourceCode = link.get("target_source_id", String.class);
+            sourceResolverRegistry.getResolverFor(oldSourceCode)
+                .detach(new SourceResolverContext(
+                    linkTypeId, link.get("target_type", String.class), link.get("target_key", String.class),
+                    sourceVersionId, sourceNodeId));
+            resolver.attach(new SourceResolverContext(linkTypeId, type, key, sourceVersionId, sourceNodeId));
         }
 
         if (newLogicalId != null && !newLogicalId.isBlank()) {

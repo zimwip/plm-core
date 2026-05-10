@@ -2,6 +2,7 @@ package com.dst.api;
 
 import com.dst.domain.DataMetadata;
 import com.dst.domain.DataService;
+import com.dst.domain.DataUploadResult;
 import com.dst.security.DstSecurityContext;
 import com.dst.security.DstUserContext;
 import com.plm.platform.action.guard.ActionGuardContext;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,15 +49,30 @@ public class DataController {
 
     @PostMapping
     @PlmPermission("WRITE_DATA")
-    public ResponseEntity<DataMetadata> upload(
+    public ResponseEntity<DataUploadResult> upload(
         @RequestParam("file") MultipartFile file,
         @RequestParam(value = "name", required = false) String name
     ) throws IOException {
         DstUserContext ctx = DstSecurityContext.get();
         String originalName = (name != null && !name.isBlank()) ? name : file.getOriginalFilename();
-        DataMetadata meta = dataService.upload(
+        DataUploadResult result = dataService.upload(
             ctx.getUserId(), ctx.getProjectSpaceId(), originalName, file.getContentType(), file.getInputStream());
-        return ResponseEntity.ok(meta);
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/{id}/ref")
+    @PlmPermission("WRITE_DATA")
+    public ResponseEntity<DataMetadata> ref(@PathVariable String id) {
+        DstUserContext ctx = DstSecurityContext.get();
+        return ResponseEntity.ok(dataService.reference(id, ctx.getUserId(), ctx.getProjectSpaceId()));
+    }
+
+    @PostMapping("/{id}/unref")
+    @PlmPermission("WRITE_DATA")
+    public ResponseEntity<Void> unref(@PathVariable String id) {
+        DstUserContext ctx = DstSecurityContext.get();
+        dataService.unreference(id, ctx.getUserId(), ctx.getProjectSpaceId());
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
     @GetMapping("/{id}/metadata")
@@ -76,6 +93,7 @@ public class DataController {
             new DetailField("contentType",  "Content type",  m.contentType()),
             new DetailField("sizeBytes",    "Size (bytes)",  m.sizeBytes(), "number"),
             new DetailField("sha256",       "SHA-256",       m.sha256(), "code"),
+            new DetailField("refCount",     "References",    m.refCount(), "number"),
             new DetailField("createdBy",    "Created by",    m.createdBy()),
             new DetailField("createdAt",    "Created at",
                 m.createdAt() != null ? m.createdAt().toString() : null, "datetime"),

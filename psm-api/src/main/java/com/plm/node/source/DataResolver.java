@@ -110,6 +110,26 @@ public class DataResolver implements SourceResolver {
         return List.of();
     }
 
+    @Override
+    public void attach(SourceResolverContext ctx) {
+        try {
+            serviceClient.post(DST_SERVICE_CODE, "/api/dst/data/" + ctx.key() + "/ref", null, Void.class);
+            log.info("DST ref++ key={}", ctx.key());
+        } catch (Exception e) {
+            log.warn("DST attach failed key={}: {}", ctx.key(), e.getMessage());
+        }
+    }
+
+    @Override
+    public void detach(SourceResolverContext ctx) {
+        try {
+            serviceClient.post(DST_SERVICE_CODE, "/api/dst/data/" + ctx.key() + "/unref", null, Void.class);
+            log.info("DST ref-- key={}", ctx.key());
+        } catch (Exception e) {
+            log.warn("DST detach failed key={}: {}", ctx.key(), e.getMessage());
+        }
+    }
+
     private Map<String, Object> fetchMetadata(String dataId) {
         Map<String, Object> meta = serviceClient.get(
             DST_SERVICE_CODE,

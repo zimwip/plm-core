@@ -76,4 +76,18 @@ public interface SourceResolver {
     default List<Reference> findReferencesTo(String type, String key) {
         return List.of();
     }
+
+    /**
+     * Called after a link pointing at this source is created (or a duplicate upload
+     * is confirmed). Implementations may increment a reference counter or register
+     * a back-reference. Default is a no-op.
+     */
+    default void attach(SourceResolverContext ctx) {}
+
+    /**
+     * Called after a link pointing at this source is deleted, or before its target
+     * is replaced. Implementations may decrement a reference counter or clean up
+     * back-references. Default is a no-op.
+     */
+    default void detach(SourceResolverContext ctx) {}
 }

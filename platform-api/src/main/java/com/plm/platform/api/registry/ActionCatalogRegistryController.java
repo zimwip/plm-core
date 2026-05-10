@@ -1,8 +1,10 @@
 package com.plm.platform.api.registry;
 
+import com.plm.platform.api.actions.ConfigChangedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -26,8 +28,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ActionCatalogRegistryController {
 
-    private final ActionCatalogRegistry registry;
-    private final DSLContext            dsl;
+    private final ActionCatalogRegistry    registry;
+    private final DSLContext               dsl;
+    private final ApplicationEventPublisher eventPublisher;
 
     @PostMapping("/internal/registry/actions")
     public ResponseEntity<Map<String, Object>> register(@RequestBody RegisterRequest request) {
@@ -56,6 +59,16 @@ public class ActionCatalogRegistryController {
             persistToDB(request.serviceCode(), handlers, guards, contributions);
         } catch (Exception e) {
             log.warn("Registration DB persist failed for service {}: {}", request.serviceCode(), e.getMessage());
+        }
+
+        // Notify psm-admin (via PlatformConfigRelay) so it rebuilds its config snapshot.
+        // Fires after persistToDB regardless of success — psm-admin re-fetches from our DB.
+        if (!handlers.isEmpty() || !guards.isEmpty() || !contributions.isEmpty()) {
+            try {
+                eventPublisher.publishEvent(new ConfigChangedEvent("REGISTER", "ACTION_CATALOG", request.serviceCode()));
+            } catch (Exception e) {
+                log.warn("Failed to publish CONFIG_CHANGED after registration for {}: {}", request.serviceCode(), e.getMessage());
+            }
         }
 
         int algCount = contributions.stream()
@@ -167,14 +180,29 @@ public class ActionCatalogRegistryController {
                 String lbl    = a.label() != null ? a.label() : a.code();
                 String mod    = a.module();
 
-                dsl.execute(
-                    "INSERT INTO algorithm (id, service_code, algorithm_type_id, code, name, handler_ref, module_name) VALUES (?,?,?,?,?,?,?) " +
-                    "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, module_name = EXCLUDED.module_name",
-                    algId, svc, typeId, a.code(), lbl, a.code(), mod);
-                dsl.execute(
-                    "INSERT INTO algorithm_instance (id, service_code, algorithm_id, name) VALUES (?,?,?,?) " +
-                    "ON CONFLICT (id) DO NOTHING",
-                    instId, svc, algId, lbl);
+                try {
+                    // Use (service_code, code) as conflict target — seed migrations may use a
+                    // different id pattern (e.g. alg-psm-wrapper-lock vs alg-psm-c-wrapper-lock).
+                    dsl.execute(
+                        "INSERT INTO algorithm (id, service_code, algorithm_type_id, code, name, handler_ref, module_name) VALUES (?,?,?,?,?,?,?) " +
+                        "ON CONFLICT (service_code, code) DO UPDATE SET name = EXCLUDED.name, module_name = EXCLUDED.module_name",
+                        algId, svc, typeId, a.code(), lbl, a.code(), mod);
+
+                    // Resolve the actual algorithm id (may differ from algId if conflict fired)
+                    var rows = dsl.fetch("SELECT id FROM algorithm WHERE service_code = ? AND code = ?", svc, a.code());
+                    String resolvedAlgId = rows.isEmpty() ? algId : rows.get(0).get("id", String.class);
+
+                    // ON CONFLICT (id) handles concurrent duplicate inserts from multiple instances.
+                    // Concurrent inserts racing on (service_code, name) are caught and ignored below.
+                    dsl.execute(
+                        "INSERT INTO algorithm_instance (id, service_code, algorithm_id, name) VALUES (?,?,?,?) " +
+                        "ON CONFLICT (id) DO NOTHING",
+                        instId, svc, resolvedAlgId, lbl);
+                } catch (Exception e) {
+                    // Expected: concurrent registration from another instance, or name conflict
+                    // with a differently-IDed seed row. Seed migrations are authoritative.
+                    log.debug("Contribution {}/{} instance skipped (concurrent/seed conflict): {}", svc, a.code(), e.getMessage());
+                }
             }
         }
 

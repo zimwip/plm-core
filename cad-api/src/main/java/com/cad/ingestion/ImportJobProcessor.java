@@ -148,6 +148,7 @@ public class ImportJobProcessor {
                                 if (dstFileId != null) {
                                     psmClient.createLink(result.getPsmNodeId(), dstFileId,
                                                          "lt-part-data", txId, ctx.projectSpaceId());
+                                    dstClient.unref(dstFileId, authToken, ctx.projectSpaceId(), dstBaseUrl);
                                     log.debug("Job {}: part {} → DST {} lt-part-data", jobId, sd.part().cadId(), dstFileId);
                                 }
                             } catch (Exception e) {
@@ -298,6 +299,7 @@ public class ImportJobProcessor {
                                 }
                             }
                         }
+                        dstClient.unref(dstFileId, authToken, ctx.projectSpaceId(), dstBaseUrl);
                     } else {
                         log.warn("Job {}: DST upload returned no ID, skipping lt-part-data links", jobId);
                     }

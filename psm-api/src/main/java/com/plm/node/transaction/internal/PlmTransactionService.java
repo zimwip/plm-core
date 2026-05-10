@@ -74,6 +74,8 @@ public class PlmTransactionService {
         new LinkedHashMap<>();
     private final LinkedHashMap<String, PostCommitHook> postCommitHooks =
         new LinkedHashMap<>();
+    private final LinkedHashMap<String, PostRollbackHook> postRollbackHooks =
+        new LinkedHashMap<>();
 
     public void registerPreCommitValidator(PreCommitValidator v) {
         preCommitValidators.put(v.name(), v);
@@ -100,6 +102,15 @@ public class PlmTransactionService {
 
     public void unregisterPostCommitHook(String name) {
         postCommitHooks.remove(name);
+    }
+
+    public void registerPostRollbackHook(PostRollbackHook h) {
+        postRollbackHooks.put(h.name(), h);
+        log.info("PostRollbackHook registered: {}", h.name());
+    }
+
+    public void unregisterPostRollbackHook(String name) {
+        postRollbackHooks.remove(name);
     }
 
     /** Registers built-in validators wrapping the existing services. */
@@ -499,6 +510,23 @@ public class PlmTransactionService {
             "SELECT DISTINCT node_id FROM node_version WHERE tx_id = ?", txId
         ).stream().map(r -> r.get("node_id", String.class)).collect(Collectors.toList());
 
+        // Collect links before deletion so PostRollbackHooks can act on them
+        List<RollbackContext.RolledBackLink> rolledBackLinks = dsl.fetch("""
+            SELECT nvl.id, nvl.link_type_id, nvl.source_node_version_id,
+                   nvl.target_source_id, nvl.target_type, nvl.target_key, nv.node_id
+            FROM node_version_link nvl
+            JOIN node_version nv ON nv.id = nvl.source_node_version_id
+            WHERE nv.tx_id = ?
+            """, txId).stream().map(r -> new RollbackContext.RolledBackLink(
+                r.get("id",                    String.class),
+                r.get("link_type_id",          String.class),
+                r.get("node_id",               String.class),
+                r.get("source_node_version_id",String.class),
+                r.get("target_source_id",      String.class),
+                r.get("target_type",           String.class),
+                r.get("target_key",            String.class)
+        )).collect(Collectors.toList());
+
         // Unlock all affected nodes before deleting versions
         for (String nodeId : affectedNodeIds) {
             lockService.unlock(nodeId);
@@ -553,6 +581,16 @@ public class PlmTransactionService {
         eventPublisher.transactionRolledBack(txId, affectedNodeIds, userId);
         log.info("Transaction rolled back and deleted: id={} owner={} versions={} attrs={}",
             txId, userId, versionsDeleted, attrsDeleted);
+
+        RollbackContext rollbackCtx = new RollbackContext(txId, userId, rolledBackLinks);
+        for (PostRollbackHook hook : postRollbackHooks.values()) {
+            try {
+                hook.afterRollback(rollbackCtx);
+            } catch (Exception e) {
+                log.warn("PostRollbackHook '{}' threw an exception (ignored): {}",
+                    hook.name(), e.getMessage(), e);
+            }
+        }
     }
 
     // ================================================================

@@ -2,9 +2,17 @@ import express from 'express';
 import multer from 'multer';
 import { XMLParser } from 'fast-xml-parser';
 import { randomUUID } from 'crypto';
+import { mkdir, writeFile, rm } from 'fs/promises';
+import { createReadStream } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
+
+// In-memory job store: jobId → { status, parts?, error?, dir? }
+const splitJobs = new Map();
+const JOB_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 app.get('/health', (_req, res) => res.json({ status: 'UP' }));
 
@@ -25,18 +33,69 @@ app.post('/parse', upload.single('file'), async (req, res) => {
   }
 });
 
-app.post('/split', upload.single('file'), async (req, res) => {
+// POST /split — submits async job, returns 202 + jobId immediately
+app.post('/split', upload.single('file'), (req, res) => {
   const format = (req.body?.format ?? 'STEP').toUpperCase();
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
   if (format !== 'STEP') return res.status(422).json({ error: `Split not supported for format: ${format}` });
 
-  try {
-    const content = req.file.buffer.toString('utf8');
-    const parts = splitStep(content);
-    res.json({ format, parts });
-  } catch (err) {
-    res.status(422).json({ error: err.message });
+  const jobId  = randomUUID();
+  const jobDir = join(tmpdir(), 'cad-split', jobId);
+  splitJobs.set(jobId, { status: 'PENDING' });
+
+  res.status(202).json({ jobId });
+
+  // Process in background — release the HTTP response immediately
+  const content = req.file.buffer.toString('utf8');
+  setImmediate(async () => {
+    try {
+      await mkdir(jobDir, { recursive: true });
+      const parts = splitStep(content);
+
+      const partMeta = [];
+      for (let i = 0; i < parts.length; i++) {
+        const { stepContent, ...meta } = parts[i];
+        await writeFile(join(jobDir, `part-${i}.stp`), stepContent, 'utf8');
+        partMeta.push(meta);
+      }
+
+      splitJobs.set(jobId, { status: 'DONE', parts: partMeta, dir: jobDir });
+      console.log(`Split job ${jobId} done: ${partMeta.length} parts`);
+
+      setTimeout(() => {
+        rm(jobDir, { recursive: true, force: true }).catch(() => {});
+        splitJobs.delete(jobId);
+      }, JOB_TTL_MS);
+    } catch (err) {
+      console.error(`Split job ${jobId} failed:`, err.message);
+      splitJobs.set(jobId, { status: 'ERROR', error: err.message });
+    }
+  });
+});
+
+// GET /split/:jobId — poll job status + metadata (no file bytes)
+app.get('/split/:jobId', (req, res) => {
+  const job = splitJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.status === 'PENDING') return res.json({ status: 'PENDING' });
+  if (job.status === 'ERROR')   return res.status(422).json({ status: 'ERROR', error: job.error });
+  res.json({ status: 'DONE', parts: job.parts });
+});
+
+// GET /split/:jobId/part/:index — stream part STEP file bytes
+app.get('/split/:jobId/part/:index', (req, res) => {
+  const job = splitJobs.get(req.params.jobId);
+  if (!job)                    return res.status(404).json({ error: 'Job not found' });
+  if (job.status !== 'DONE')   return res.status(409).json({ error: 'Job not ready' });
+
+  const index = parseInt(req.params.index, 10);
+  if (isNaN(index) || index < 0 || index >= job.parts.length) {
+    return res.status(404).json({ error: 'Part index out of range' });
   }
+
+  const partPath = join(job.dir, `part-${index}.stp`);
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  createReadStream(partPath).pipe(res);
 });
 
 app.listen(8090, () => console.log('cad-parser listening on :8090'));
@@ -234,8 +293,9 @@ function findDefinitionalChain(productStepId, reverseRefGraph, refGraph, product
 
   const chain = new Set([productStepId]);
   const queue = [productStepId];
-  while (queue.length > 0) {
-    const id = queue.shift();
+  let ptr = 0;
+  while (ptr < queue.length) {
+    const id = queue[ptr++];
     for (const referrer of (reverseRefGraph[id] ?? [])) {
       if (chain.has(referrer)) continue;
       if (productStepIds.has(referrer)) continue; // other PRODUCT entity — stop
@@ -259,15 +319,14 @@ function findDefinitionalChain(productStepId, reverseRefGraph, refGraph, product
 // Phase 2 — unrestricted forward BFS from the clean definitional chain.
 // No product boundary stopping: the chain already excludes cross-product entities,
 // so forward refs lead only to this product's own geometry and shared contexts.
-function collectForwardClosure(chain, refGraph) {
-  const visited = new Set();
-  const queue = [...chain];
-  while (queue.length > 0) {
-    const id = queue.shift();
-    if (visited.has(id)) continue;
-    visited.add(id);
+function collectForwardClosure(seeds, refGraph) {
+  const visited = new Set(seeds);
+  const queue = [...seeds];
+  let ptr = 0;
+  while (ptr < queue.length) {
+    const id = queue[ptr++];
     const deps = refGraph[id];
-    if (deps) for (const dep of deps) if (!visited.has(dep)) queue.push(dep);
+    if (deps) for (const dep of deps) if (!visited.has(dep)) { visited.add(dep); queue.push(dep); }
   }
   return visited;
 }
@@ -411,15 +470,19 @@ function splitStep(content) {
     // in AP203 (where SDR links directly to the geometry SR) all geometry too.
     const closure = collectForwardClosure(chain, refGraph);
 
-    // Phase 3: SRR expansion — for each entity already in the closure, find any
+    // Phase 3: SRR expansion — for each entity in the closure, find any
     // SHAPE_REPRESENTATION_RELATIONSHIP that references it, then include the SRR
     // and the geometry SR on the other end (plus its full forward closure).
     // Skip SRRs that bridge to another product's entry SR (assembly-context links).
-    const expansionQueue = [...closure];
-    const checkedForSRR  = new Set();
+    //
+    // Uses a growing array with a forward pointer (O(n)) instead of shift() (O(n²)).
+    // New entities discovered during expansion are appended to the array and processed
+    // in subsequent iterations of the same loop.
+    const srrCheckQueue = [...closure];
+    const checkedForSRR = new Set();
 
-    while (expansionQueue.length > 0) {
-      const entityId = expansionQueue.shift();
+    for (let i = 0; i < srrCheckQueue.length; i++) {
+      const entityId = srrCheckQueue[i];
       if (checkedForSRR.has(entityId)) continue;
       checkedForSRR.add(entityId);
 
@@ -435,6 +498,7 @@ function splitStep(content) {
         // Always include the SRR itself (both same-product geometry bridges and
         // cross-product assembly-context links with their transformation matrices).
         closure.add(srrId);
+        srrCheckQueue.push(srrId);
 
         if (crossRefs.length > 0) {
           // Assembly-context SRR: include the SRR + transformation entities (safeRefs),
@@ -445,7 +509,7 @@ function splitStep(content) {
 
           const sub = collectForwardClosure(new Set(safeRefs), refGraph);
           for (const e of sub) {
-            if (!closure.has(e)) { closure.add(e); expansionQueue.push(e); }
+            if (!closure.has(e)) { closure.add(e); srrCheckQueue.push(e); }
           }
 
           // Pull in CDSRs (CONTEXT_DEPENDENT_SHAPE_REPRESENTATION) that reference
@@ -453,16 +517,16 @@ function splitStep(content) {
           for (const cdsr of (reverseRefGraph[srrId] ?? [])) {
             if (closure.has(cdsr)) continue;
             closure.add(cdsr);
-            // Include direct refs of CDSR (SRR already in closure, occurrence PDS as stub)
+            srrCheckQueue.push(cdsr);
             for (const r of (refGraph[cdsr] ?? [])) {
-              if (!closure.has(r)) closure.add(r);
+              if (!closure.has(r)) { closure.add(r); srrCheckQueue.push(r); }
             }
           }
         } else {
           // Same-product SRR (geometry bridge): full forward expansion.
           const sub = collectForwardClosure(new Set(newRefs), refGraph);
           for (const e of sub) {
-            if (!closure.has(e)) { closure.add(e); expansionQueue.push(e); }
+            if (!closure.has(e)) { closure.add(e); srrCheckQueue.push(e); }
           }
         }
       }
@@ -470,14 +534,14 @@ function splitStep(content) {
 
     const stepContent = reconstructStepFile(headerSection, closure, entityMap);
     return {
-      nodeId:      idMap[stepId],
-      name:        prod.name || prod.partNumber || `Part-${stepId}`,
-      cadType:     hasChildren.has(stepId) ? 'ASSEMBLY' : 'PART',
+      nodeId:       idMap[stepId],
+      name:         prod.name || prod.partNumber || `Part-${stepId}`,
+      cadType:      hasChildren.has(stepId) ? 'ASSEMBLY' : 'PART',
       parentNodeId: parentOf[stepId] ? (idMap[parentOf[stepId]] ?? null) : null,
-      attributes:  Object.fromEntries(
+      attributes:   Object.fromEntries(
         [['partNumber', prod.partNumber], ['description', prod.description]].filter(([, v]) => v)
       ),
-      fileBytes: Buffer.from(stepContent, 'utf8').toString('base64'),
+      stepContent,
     };
   });
 }

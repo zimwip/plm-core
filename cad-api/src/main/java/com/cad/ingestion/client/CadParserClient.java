@@ -5,14 +5,14 @@ import com.cad.ingestion.model.SplitPart;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.Base64;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -22,17 +22,21 @@ public class CadParserClient {
 
     private record ParserResponse(String format, List<CadNodeData> nodes) {}
 
-    private record SplitPartDto(
-            String nodeId, String name, String cadType,
-            Map<String, String> attributes, String parentNodeId, String fileBytes) {}
-    private record SplitResponse(String format, List<SplitPartDto> parts) {}
+    // Async job responses
+    private record SubmitResponse(String jobId) {}
+    private record PartMeta(String nodeId, String name, String cadType,
+                            Map<String, String> attributes, String parentNodeId) {}
+    private record JobStatusResponse(String status, String error, List<PartMeta> parts) {}
 
     private final RestTemplate rest;
     private final String parserUrl;
 
     public CadParserClient(RestTemplateBuilder builder,
                            @Value("${cad.parser.url}") String parserUrl) {
-        this.rest      = builder.build();
+        this.rest      = builder
+                .connectTimeout(Duration.ofSeconds(10))
+                .readTimeout(Duration.ofMinutes(2))
+                .build();
         this.parserUrl = parserUrl;
     }
 
@@ -56,12 +60,10 @@ public class CadParserClient {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
-        HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
-
         ResponseEntity<ParserResponse> response = rest.exchange(
             parserUrl + "/parse",
             HttpMethod.POST,
-            request,
+            new HttpEntity<>(body, headers),
             ParserResponse.class
         );
 
@@ -71,10 +73,15 @@ public class CadParserClient {
         return nodes;
     }
 
+    /**
+     * Submits a split job to the parser (returns immediately), polls until done,
+     * then downloads each part file individually.
+     */
     public List<SplitPart> split(byte[] fileBytes, String filename) {
         String format = detectFormat(filename);
-        log.info("Requesting split for {} ({} bytes, format={}) from {}", filename, fileBytes.length, format, parserUrl);
+        log.info("Submitting async split for {} ({} bytes, format={}) to {}", filename, fileBytes.length, format, parserUrl);
 
+        // Step 1 — submit job (fast, parser returns 202 immediately)
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("file", new org.springframework.core.io.ByteArrayResource(fileBytes) {
             @Override public String getFilename() { return filename; }
@@ -84,25 +91,70 @@ public class CadParserClient {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
-        ResponseEntity<SplitResponse> response = rest.exchange(
+        ResponseEntity<SubmitResponse> submitResp = rest.exchange(
             parserUrl + "/split",
             HttpMethod.POST,
             new HttpEntity<>(body, headers),
-            SplitResponse.class
+            SubmitResponse.class
         );
 
-        SplitResponse parsed = response.getBody();
-        if (parsed == null || parsed.parts() == null) return List.of();
-        log.info("Parser /split returned {} parts for {}", parsed.parts().size(), filename);
+        SubmitResponse submit = submitResp.getBody();
+        if (submit == null || submit.jobId() == null) throw new RuntimeException("Parser returned no jobId");
+        String jobId = submit.jobId();
+        log.info("Split job submitted: jobId={}", jobId);
 
-        return parsed.parts().stream().map(dto -> new SplitPart(
-            dto.nodeId(),
-            dto.name(),
-            dto.cadType(),
-            dto.attributes() != null ? dto.attributes() : Map.of(),
-            dto.parentNodeId(),
-            dto.fileBytes() != null ? Base64.getDecoder().decode(dto.fileBytes()) : new byte[0]
-        )).toList();
+        // Step 2 — poll until DONE (3s interval, up to 10 minutes)
+        JobStatusResponse status = pollUntilDone(jobId);
+
+        // Step 3 — download each part file
+        List<PartMeta> parts = status.parts();
+        log.info("Downloading {} parts for job {}", parts.size(), jobId);
+        List<SplitPart> result = new ArrayList<>(parts.size());
+        for (int i = 0; i < parts.size(); i++) {
+            PartMeta meta = parts.get(i);
+            ResponseEntity<byte[]> partResp = rest.exchange(
+                parserUrl + "/split/" + jobId + "/part/" + i,
+                HttpMethod.GET,
+                null,
+                byte[].class
+            );
+            byte[] partBytes = partResp.getBody() != null ? partResp.getBody() : new byte[0];
+            result.add(new SplitPart(
+                meta.nodeId(),
+                meta.name(),
+                meta.cadType(),
+                meta.attributes() != null ? meta.attributes() : Map.of(),
+                meta.parentNodeId(),
+                partBytes
+            ));
+        }
+        log.info("Downloaded {} parts for split job {}", result.size(), jobId);
+        return result;
+    }
+
+    private JobStatusResponse pollUntilDone(String jobId) {
+        int maxAttempts = 200; // ~10 minutes at 3s intervals
+        for (int i = 0; i < maxAttempts; i++) {
+            try { Thread.sleep(3_000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+
+            ResponseEntity<JobStatusResponse> resp = rest.exchange(
+                parserUrl + "/split/" + jobId,
+                HttpMethod.GET,
+                null,
+                JobStatusResponse.class
+            );
+            JobStatusResponse status = resp.getBody();
+            if (status == null) continue;
+            log.debug("Split job {} status: {}", jobId, status.status());
+
+            switch (status.status()) {
+                case "DONE"    -> { return status; }
+                case "ERROR"   -> throw new RuntimeException("Parser split failed: " + status.error());
+                case "PENDING" -> { /* continue polling */ }
+                default        -> throw new RuntimeException("Unknown split job status: " + status.status());
+            }
+        }
+        throw new RuntimeException("Split job timed out: jobId=" + jobId);
     }
 
     private String detectFormat(String filename) {

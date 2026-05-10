@@ -69,4 +69,26 @@ public class DstStorageClient {
             return null;
         }
     }
+
+    /**
+     * Releases the uploader's reference on a DST data object.
+     * Called after a PSM link has taken ownership (ref_count 2→1).
+     */
+    public void unref(String dstFileId, String authorizationHeader, String projectSpaceId, String dstBaseUrl) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            if (authorizationHeader != null) headers.set("Authorization", authorizationHeader);
+            if (projectSpaceId != null)      headers.set("X-PLM-ProjectSpace", projectSpaceId);
+
+            rest.exchange(
+                dstBaseUrl + "/api/dst/data/" + dstFileId + "/unref",
+                HttpMethod.POST,
+                new HttpEntity<>(headers),
+                Void.class
+            );
+            log.debug("Unreferenced DST object {}", dstFileId);
+        } catch (Exception e) {
+            log.warn("DST unref failed for {}: {}", dstFileId, e.getMessage());
+        }
+    }
 }

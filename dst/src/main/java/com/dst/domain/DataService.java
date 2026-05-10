@@ -22,6 +22,10 @@ import java.util.UUID;
  * <p>Every stored object is scoped to a {@code projectSpaceId}. Non-admin callers
  * can only access objects owned by their active project space.
  *
+ * <p>Deduplication: if the SHA-256 already exists in the same project space the
+ * just-written file is discarded, the existing row's ref_count is incremented,
+ * and the upload result carries {@code duplicate=true}.
+ *
  * <p>Every action is logged at INFO so the standard application log gives an
  * append-only audit trail without a separate audit table.
  */
@@ -35,23 +39,64 @@ public class DataService {
 
     @PlmPermission("WRITE_DATA")
     @Transactional
-    public DataMetadata upload(String userId, String projectSpaceId,
-                               String originalName, String contentType, InputStream in) {
+    public DataUploadResult upload(String userId, String projectSpaceId,
+                                   String originalName, String contentType, InputStream in) {
         String id = UUID.randomUUID().toString();
         BinaryStorage.StoreResult res = storage.store(id, in);
+
+        Record existing = dsl.fetchOne(
+            "SELECT * FROM data_object WHERE sha256 = ? AND project_space_id = ?",
+            res.sha256Hex(), projectSpaceId);
+
+        if (existing != null) {
+            storage.delete(res.location());
+            String existingId = existing.get("id", String.class);
+            dsl.execute("UPDATE data_object SET ref_count = ref_count + 1 WHERE id = ?", existingId);
+            DataMetadata m = loadOrThrow(existingId, projectSpaceId);
+            log.info("DATA upload-dup id={} sha256={} ref_count={} by={} ps={}",
+                m.id(), m.sha256(), m.refCount(), userId, projectSpaceId);
+            return new DataUploadResult(m, true);
+        }
+
         LocalDateTime now = LocalDateTime.now();
         dsl.execute("""
             INSERT INTO data_object
               (id, sha256, size_bytes, content_type, original_name, location,
-               created_by, created_at, project_space_id)
-            VALUES (?,?,?,?,?,?,?,?,?)
+               created_by, created_at, project_space_id, ref_count)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
             """,
             id, res.sha256Hex(), res.sizeBytes(), contentType, originalName,
-            res.location(), userId, now, projectSpaceId);
+            res.location(), userId, now, projectSpaceId, 1);
         log.info("DATA upload id={} sha256={} size={} contentType={} by={} ps={}",
             id, res.sha256Hex(), res.sizeBytes(), contentType, userId, projectSpaceId);
-        return new DataMetadata(id, res.sha256Hex(), res.sizeBytes(), contentType, originalName,
-            res.location(), userId, now, null, projectSpaceId);
+        return new DataUploadResult(
+            new DataMetadata(id, res.sha256Hex(), res.sizeBytes(), contentType, originalName,
+                res.location(), userId, now, null, projectSpaceId, 1),
+            false);
+    }
+
+    @PlmPermission("WRITE_DATA")
+    @Transactional
+    public DataMetadata reference(String id, String userId, String projectSpaceId) {
+        loadOrThrow(id, projectSpaceId);
+        dsl.execute("UPDATE data_object SET ref_count = ref_count + 1 WHERE id = ?", id);
+        DataMetadata m = loadOrThrow(id, projectSpaceId);
+        log.info("DATA ref id={} ref_count={} by={} ps={}", id, m.refCount(), userId, projectSpaceId);
+        return m;
+    }
+
+    @PlmPermission("WRITE_DATA")
+    @Transactional
+    public void unreference(String id, String userId, String projectSpaceId) {
+        DataMetadata m = loadOrThrow(id, projectSpaceId);
+        if (m.refCount() <= 1) {
+            dsl.execute("DELETE FROM data_object WHERE id = ?", id);
+            storage.delete(m.location());
+            log.info("DATA unref-gc id={} sha256={} by={} ps={}", id, m.sha256(), userId, projectSpaceId);
+        } else {
+            dsl.execute("UPDATE data_object SET ref_count = ref_count - 1 WHERE id = ?", id);
+            log.info("DATA unref id={} ref_count={} by={} ps={}", id, m.refCount() - 1, userId, projectSpaceId);
+        }
     }
 
     @PlmPermission("READ_DATA")
@@ -81,7 +126,7 @@ public class DataService {
         dsl.execute("UPDATE data_object SET last_accessed = ? WHERE id = ?", now, id);
         log.info("DATA download id={} sha256={} size={} by={} ps={}", id, m.sha256(), m.sizeBytes(), userId, projectSpaceId);
         return new DataMetadata(m.id(), m.sha256(), m.sizeBytes(), m.contentType(), m.originalName(),
-            m.location(), m.createdBy(), m.createdAt(), now, m.projectSpaceId());
+            m.location(), m.createdBy(), m.createdAt(), now, m.projectSpaceId(), m.refCount());
     }
 
     public InputStream openStream(String location) {
@@ -115,7 +160,8 @@ public class DataService {
             r.get("created_by", String.class),
             r.get("created_at", LocalDateTime.class),
             r.get("last_accessed", LocalDateTime.class),
-            r.get("project_space_id", String.class)
+            r.get("project_space_id", String.class),
+            r.get("ref_count", Integer.class)
         );
     }
 }

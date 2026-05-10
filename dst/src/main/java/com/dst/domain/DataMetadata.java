@@ -17,5 +17,6 @@ public record DataMetadata(
     String createdBy,
     LocalDateTime createdAt,
     LocalDateTime lastAccessed,
-    String projectSpaceId
+    String projectSpaceId,
+    int refCount
 ) {}
