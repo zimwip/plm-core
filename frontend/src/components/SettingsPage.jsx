@@ -13,6 +13,7 @@ import ApiPlayground from './ApiPlayground';
 import UserManual from './UserManual';
 import LifecycleDiagram from './LifecycleDiagram';
 import { registerSettingsPlugin, lookupSettingsPlugin } from '../services/settingsPlugins';
+import { findSettingsSectionComponent } from '../shell/pluginRegistry';
 import { ActionsCatalogSection } from './ActionsCatalogSection';
 import { AlgorithmSection }      from './AlgorithmSection';
 
@@ -4637,17 +4638,20 @@ export function ServiceRegistrySection({ userId, toast }) {
   const [tags,     setTags]     = useState(null);
   const [overview, setOverview] = useState(null);
   const [error,    setError]    = useState(null);
+  const [manifest, setManifest] = useState(null);
 
   async function reload() {
     try {
-      const [g, t, o] = await Promise.all([
+      const [g, t, o, m] = await Promise.all([
         api.getRegistryGrouped(userId).catch(() => ({})),
         api.getRegistryTagsAdmin(userId).catch(() => null),
         api.getRegistryOverview(userId).catch(() => null),
+        api.getUiManifest().catch(() => null),
       ]);
       setGrouped(g);
       setTags(t);
       setOverview(o);
+      setManifest(m);
       setError(null);
     } catch (e) {
       setError(e.message || String(e));
@@ -4743,6 +4747,44 @@ export function ServiceRegistrySection({ userId, toast }) {
         </>
       )}
 
+      {/* ── UI Plugin Registrations ───────────────────────────── */}
+      <div className="settings-sub-label">UI Plugin Registrations</div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+        Plugin bundles declared by each service and loaded by the shell at boot. Source: <code style={{ fontSize: 11 }}>/api/platform/ui/manifest</code>.
+      </div>
+      {manifest == null ? (
+        <div className="settings-empty-row" style={{ marginBottom: 16 }}>Manifest unavailable.</div>
+      ) : manifest.length === 0 ? (
+        <div className="settings-empty-row" style={{ marginBottom: 16 }}>No UI plugins declared.</div>
+      ) : (
+        <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse', marginBottom: 16 }}>
+          <thead>
+            <tr style={{ color: 'var(--muted)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+              <th style={{ padding: '4px 6px' }}>Service</th>
+              <th style={{ padding: '4px 6px' }}>Plugin ID</th>
+              <th style={{ padding: '4px 6px' }}>Zone</th>
+              <th style={{ padding: '4px 6px' }}>Bundle URL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {manifest.map(e => (
+              <tr key={e.pluginId} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{e.serviceCode}</td>
+                <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{e.pluginId}</td>
+                <td style={{ padding: '4px 6px' }}>
+                  <span style={{
+                    display: 'inline-block', padding: '1px 6px', borderRadius: 10,
+                    fontSize: 10, fontWeight: 600, background: 'var(--surface2)',
+                    color: 'var(--muted)', border: '1px solid var(--border)',
+                  }}>{e.zone}</span>
+                </td>
+                <td style={{ padding: '4px 6px', fontFamily: 'monospace', color: 'var(--muted2)' }}>{e.url}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
       <div className="settings-sub-label">Registered Services (platform-api)</div>
       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
         Live snapshot from platform-api environment registry. {codes.length} service{codes.length === 1 ? '' : 's'} known.
@@ -4815,7 +4857,9 @@ function ActiveSectionContent({ sectionKey, userId, projectSpaceId, canWrite, to
   if (sectionKey === null) {
     return <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>;
   }
-  const plugin = lookupSettingsPlugin(sectionKey);
+  // New plugin registry first (settings zone plugins from services)
+  const regPlugin = findSettingsSectionComponent(sectionKey);
+  const plugin = regPlugin ?? lookupSettingsPlugin(sectionKey);
   if (!plugin) {
     return <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Unknown section: {sectionKey}</div>;
   }
@@ -5420,15 +5464,10 @@ function StorageStatsSection({ toast }) {
 registerSettingsPlugin('my-profile',           MyProfileSection);
 registerSettingsPlugin('api-playground',       ApiPlayground,           { wrapBody: false });
 registerSettingsPlugin('user-manual',          UserManual,              { wrapBody: false });
-registerSettingsPlugin('node-types',           NodeTypesSection);
-registerSettingsPlugin('domains',              DomainsSection);
-registerSettingsPlugin('enums',                EnumsSection);
-registerSettingsPlugin('lifecycles',           LifecyclesSection);
+// psa sections registered via pluginRegistry ('psa-settings' plugin in plugins/index.js)
 registerSettingsPlugin('proj-spaces',          ProjectSpacesSection);
 registerSettingsPlugin('users-roles',          UsersRolesSection);
 registerSettingsPlugin('access-rights',        AccessRightsSection);
-registerSettingsPlugin('sources',              SourcesSection);
-registerSettingsPlugin('import-contexts',      ImportContextsSection);
 registerSettingsPlugin('secrets',              SecretsSection);
 registerSettingsPlugin('service-registry',     ServiceRegistrySection);
 registerSettingsPlugin('platform-environment', PlatformEnvironmentSection);

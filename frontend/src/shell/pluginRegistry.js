@@ -21,3 +21,13 @@ export function findNavPlugin(context) {
   const navPlugins = byZone.get('nav') ?? [];
   return navPlugins.find(p => p.matches?.(context)) ?? navPlugins[0] ?? null;
 }
+
+// Returns { Component, wrapBody } for the given settings section key, or null.
+export function findSettingsSectionComponent(key) {
+  for (const plugin of byZone.get('settings') ?? []) {
+    if (plugin.sections?.[key]) {
+      return { Component: plugin.sections[key], wrapBody: true };
+    }
+  }
+  return null;
+}
