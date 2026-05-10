@@ -69,6 +69,7 @@ public class ImportJobProcessor {
         boolean ownTx = ctx.psmTxId() == null;
         String txId = null;
         int nodeCount = 0;
+        List<String> warnings = new ArrayList<>();
         try {
             txId = ownTx ? psmClient.openTransaction() : ctx.psmTxId();
             if (ownTx) repository.savePsmTxId(jobId, UUID.fromString(txId));
@@ -131,6 +132,9 @@ public class ImportJobProcessor {
                         sd.part().attributes(), sd.part().parentCadId(), 0);
                     ImportJobResult result = processNode(jobId, nodeData, sd.decision(), txId, ctx.projectSpaceId());
                     repository.saveResult(result);
+                    if ("REJECTED".equals(result.getAction())) {
+                        warnings.add("Node rejected [" + result.getCadNodeName() + "]: " + result.getErrorMessage());
+                    }
 
                     if (result.getPsmNodeId() != null) {
                         cadIdToNodeId.put(sd.part().cadId(), result.getPsmNodeId());
@@ -150,9 +154,16 @@ public class ImportJobProcessor {
                                                          "lt-part-data", txId, ctx.projectSpaceId());
                                     dstClient.unref(dstFileId, authToken, ctx.projectSpaceId(), dstBaseUrl);
                                     log.debug("Job {}: part {} → DST {} lt-part-data", jobId, sd.part().cadId(), dstFileId);
+                                } else {
+                                    String msg = "DST upload returned no ID for part " + sd.part().cadId() + ", lt-part-data link skipped";
+                                    log.warn("Job {}: {}", jobId, msg);
+                                    warnings.add(msg);
                                 }
                             } catch (Exception e) {
-                                log.warn("Job {}: DST upload for part {} failed: {}", jobId, sd.part().cadId(), e.getMessage());
+                                String msg = "lt-part-data link failed [cadId=" + sd.part().cadId()
+                                    + ", node=" + result.getPsmNodeId() + "]: " + e.getMessage();
+                                log.warn("Job {}: {}", jobId, msg);
+                                warnings.add(msg);
                             }
                         }
                     }
@@ -168,7 +179,9 @@ public class ImportJobProcessor {
                             try {
                                 psmClient.createLink(parentPsmId, childLogicalId, "lt-composed-of", txId, ctx.projectSpaceId());
                             } catch (Exception e) {
-                                log.warn("Job {}: BOM link {} -> {} failed: {}", jobId, parentPsmId, childLogicalId, e.getMessage());
+                                String msg = "BOM link failed [" + parentPsmId + " -> " + childPsmId + "]: " + e.getMessage();
+                                log.warn("Job {}: {}", jobId, msg);
+                                warnings.add(msg);
                             }
                         }
                     }
@@ -183,7 +196,9 @@ public class ImportJobProcessor {
                                 try {
                                     psmClient.createLink(rootPsmId, childLogicalId, "lt-composed-of", txId, ctx.projectSpaceId());
                                 } catch (Exception e) {
-                                    log.warn("Job {}: root link {} -> {} failed: {}", jobId, rootPsmId, childLogicalId, e.getMessage());
+                                    String msg = "root BOM link failed [" + rootPsmId + " -> " + childPsmId + "]: " + e.getMessage();
+                                    log.warn("Job {}: {}", jobId, msg);
+                                    warnings.add(msg);
                                 }
                             }
                         }
@@ -236,6 +251,9 @@ public class ImportJobProcessor {
                 for (NodeDecision nd : planned) {
                     ImportJobResult result = processNode(jobId, nd.node(), nd.decision(), txId, ctx.projectSpaceId());
                     repository.saveResult(result);
+                    if ("REJECTED".equals(result.getAction())) {
+                        warnings.add("Node rejected [" + result.getCadNodeName() + "]: " + result.getErrorMessage());
+                    }
                     if (result.getPsmNodeId() != null) {
                         cadIdToNodeId.put(nd.node().cadId(), result.getPsmNodeId());
                         if (nd.decision().logicalId() != null)
@@ -253,8 +271,9 @@ public class ImportJobProcessor {
                             try {
                                 psmClient.createLink(parentPsmId, childLogicalId, "lt-composed-of", txId, ctx.projectSpaceId());
                             } catch (Exception e) {
-                                log.warn("Job {}: failed to create BOM link {} -> {}: {}",
-                                    jobId, parentPsmId, childLogicalId, e.getMessage());
+                                String msg = "BOM link failed [" + parentPsmId + " -> " + childPsmId + "]: " + e.getMessage();
+                                log.warn("Job {}: {}", jobId, msg);
+                                warnings.add(msg);
                             }
                         }
                     }
@@ -269,8 +288,9 @@ public class ImportJobProcessor {
                                 try {
                                     psmClient.createLink(rootPsmId, childLogicalId, "lt-composed-of", txId, ctx.projectSpaceId());
                                 } catch (Exception e) {
-                                    log.warn("Job {}: failed to link root {} -> {}: {}",
-                                        jobId, rootPsmId, childLogicalId, e.getMessage());
+                                    String msg = "root BOM link failed [" + rootPsmId + " -> " + childPsmId + "]: " + e.getMessage();
+                                    log.warn("Job {}: {}", jobId, msg);
+                                    warnings.add(msg);
                                 }
                             }
                         }
@@ -293,32 +313,41 @@ public class ImportJobProcessor {
                                         psmClient.createLink(rootImportedId, dstFileId,
                                                              "lt-part-data", txId, ctx.projectSpaceId());
                                     } catch (Exception e) {
-                                        log.warn("Job {}: lt-part-data link {} -> {} failed: {}",
-                                                 jobId, rootImportedId, dstFileId, e.getMessage());
+                                        String msg = "lt-part-data link failed [node=" + rootImportedId
+                                            + " -> dst/" + dstFileId + "]: " + e.getMessage();
+                                        log.warn("Job {}: {}", jobId, msg);
+                                        warnings.add(msg);
                                     }
                                 }
                             }
                         }
                         dstClient.unref(dstFileId, authToken, ctx.projectSpaceId(), dstBaseUrl);
                     } else {
-                        log.warn("Job {}: DST upload returned no ID, skipping lt-part-data links", jobId);
+                        String msg = "DST upload returned no ID, lt-part-data links skipped";
+                        log.warn("Job {}: {}", jobId, msg);
+                        warnings.add(msg);
                     }
                 } catch (Exception e) {
-                    log.warn("Job {}: DST upload failed: {}", jobId, e.getMessage());
+                    String msg = "DST upload failed: " + e.getMessage();
+                    log.warn("Job {}: {}", jobId, msg);
+                    warnings.add(msg);
                 }
             }
 
             // Transaction is left open: user reviews imported nodes and commits/rolls back manually.
-            repository.updateStatus(jobId, "DONE", LocalDateTime.now(), null);
-            log.info("Import job {} completed ({} nodes, tx={} open for review)", jobId, nodeCount, txId);
+            String warningSummary = warnings.isEmpty() ? null
+                : warnings.size() + " warning(s): " + String.join("; ", warnings);
+            repository.updateStatus(jobId, "DONE", LocalDateTime.now(), warningSummary);
+            log.info("Import job {} completed ({} nodes, tx={} open for review, {} warning(s))",
+                jobId, nodeCount, txId, warnings.size());
 
-            publishJobEvent(ctx, jobId.toString(), "DONE", nodeCount, null);
+            publishJobEvent(ctx, jobId.toString(), "DONE", nodeCount, null, warnings);
 
         } catch (Exception e) {
             log.error("Import job {} failed: {}", jobId, e.getMessage(), e);
             if (ownTx && txId != null) psmClient.rollback(txId, ctx.projectSpaceId());
             repository.updateStatus(jobId, "FAILED", LocalDateTime.now(), e.getMessage());
-            publishJobEvent(ctx, jobId.toString(), "FAILED", nodeCount, e.getMessage());
+            publishJobEvent(ctx, jobId.toString(), "FAILED", nodeCount, e.getMessage(), List.of());
         }
     }
 
@@ -382,7 +411,7 @@ public class ImportJobProcessor {
     }
 
     private void publishJobEvent(ImportJobContext ctx, String jobId, String status,
-                                  int nodeCount, String errorSummary) {
+                                  int nodeCount, String errorSummary, List<String> warnings) {
         if (messageBus == null) return;
         try {
             Map<String, Object> payload = new HashMap<>();
@@ -392,6 +421,7 @@ public class ImportJobProcessor {
             payload.put("rootNodeId",   ctx.rootNodeId());
             payload.put("contextCode",  ctx.importContextCode());
             if (errorSummary != null) payload.put("errorSummary", errorSummary);
+            if (warnings != null && !warnings.isEmpty()) payload.put("warnings", warnings);
 
             messageBus.sendToUser(ctx.projectSpaceId(), ctx.userId(), "IMPORT_JOB_DONE", payload);
             log.debug("Published IMPORT_JOB_DONE for job={} user={}", jobId, ctx.userId());

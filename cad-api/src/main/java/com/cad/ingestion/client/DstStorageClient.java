@@ -55,8 +55,8 @@ public class DstStorageClient {
                 Map.class
             );
 
-            if (response != null && response.containsKey("id")) {
-                String dstFileId = response.get("id").toString();
+            if (response != null && response.get("metadata") instanceof Map<?,?> meta && meta.containsKey("id")) {
+                String dstFileId = meta.get("id").toString();
                 log.info("Uploaded {} to DST: dstFileId={}", filename, dstFileId);
                 return dstFileId;
             }
