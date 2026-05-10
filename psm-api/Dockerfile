@@ -2,15 +2,27 @@
 # PSM API - Dockerfile (multi-stage)
 #
 # Build context is the repo root (see docker-compose.yml).
-# Stage 0 (lib-builder) : mvn install platform-lib into ~/.m2
-# Stage 1 (builder)     : Maven compile psm-api → Spring Boot layered JAR
-# Stage 2 (runtime)     : Eclipse Temurin JRE + layered app
+# Stage 0 (lib-builder)  : mvn install platform-lib into ~/.m2
+# Stage 1 (ui-builder)   : Vite build psm-api/ui → ESM plugin bundles
+# Stage 2 (builder)      : Maven compile psm-api → Spring Boot layered JAR
+# Stage 3 (runtime)      : Eclipse Temurin JRE + layered app
 # ============================================================
 
 # ── Stage 0: reuse pre-built platform-lib base image (run.sh builds it) ──
 FROM plm-platform-lib:dev AS lib-builder
 
-# ── Stage 1: build psm-api ───────────────────────────────────
+# ── Stage 1: build psm-api/ui Vite subproject ────────────────
+FROM docker.io/library/node:20-alpine AS ui-builder
+WORKDIR /ui
+COPY psm-api/ui/package.json psm-api/ui/package-lock.json ./
+RUN npm ci --silent
+COPY psm-api/ui/vite.config.js .
+COPY psm-api/ui/src ./src
+# Override outDir so output lands at a predictable path (outDir in vite.config.js
+# is relative to psm-api/ui/ for local dev; inside Docker we copy explicitly).
+RUN npx vite build --outDir /ui-dist --emptyOutDir
+
+# ── Stage 2: build psm-api ───────────────────────────────────
 FROM docker.io/library/maven:3.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /build
 
@@ -21,6 +33,9 @@ COPY psm-api/pom.xml .
 RUN mvn dependency:go-offline --no-transfer-progress 2>/dev/null || true
 
 COPY psm-api/src ./src
+# Inject UI plugin bundles so Spring Boot serves them at /api/psm/ui/*
+COPY --from=ui-builder /ui-dist ./src/main/resources/static/ui/
+
 # MAVEN_EXTRA_OPTS is injected by run.sh package as -Pdist to strip Swagger UI.
 ARG MAVEN_EXTRA_OPTS=""
 RUN mvn clean package -Dmaven.test.skip=true --no-transfer-progress $MAVEN_EXTRA_OPTS
@@ -29,7 +44,7 @@ RUN mvn clean package -Dmaven.test.skip=true --no-transfer-progress $MAVEN_EXTRA
 RUN JAR=$(find target -name '*.jar' ! -name '*original*' | head -1) && \
     java -Djarmode=layertools -jar "$JAR" extract --destination target/extracted
 
-# ── Stage 2: runtime ─────────────────────────────────────────
+# ── Stage 3: runtime ─────────────────────────────────────────
 FROM docker.io/library/eclipse-temurin:21-jre-alpine AS runtime
 
 RUN addgroup -S plm && adduser -S plm -G plm

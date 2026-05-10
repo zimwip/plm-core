@@ -13,6 +13,10 @@ export default defineConfig({
     },
     rollupOptions: {
       external: ['react', 'react-dom', 'react-dom/client'],
+      output: {
+        entryFileNames: '[name].js',
+        chunkFileNames: '[name]-[hash].js',
+      },
     },
     outDir: '../src/main/resources/static/ui',
     emptyOutDir: true,

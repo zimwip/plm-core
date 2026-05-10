@@ -261,6 +261,21 @@ run_local() {
     ok "platform-lib installed"
     echo ""
 
+    # Build UI subprojects for services that have one (e.g. psm-api/ui/)
+    for svc in "${SVC_NAMES[@]}"; do
+        if [[ -f "$svc/ui/package.json" ]]; then
+            log "Building UI subproject for $svc…"
+            if ! npm --prefix "$svc/ui" ci --silent; then
+                warn "[$svc] npm ci failed — UI bundle may be missing"
+            elif ! npm --prefix "$svc/ui" run build --silent; then
+                warn "[$svc] UI build failed — plugin bundles may be missing"
+            else
+                ok "[$svc] UI bundle built"
+            fi
+        fi
+    done
+    echo ""
+
     for svc in "${SVC_NAMES[@]}"; do
         local_start_backend "$svc"
     done
