@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { lookupPluginForTab } from '../services/sourcePlugins';
 import DashboardView from './DashboardView';
-import CommentPanel from './CommentPanel';
+import { useShellStore } from '../shell/shellStore';
 import { PinIcon, PinOffIcon, CloseIcon, PlusIcon, MaximizeIcon, MinimizeIcon, NODE_ICONS } from './Icons';
 
 export default function EditorArea({
@@ -19,17 +19,11 @@ export default function EditorArea({
   onNavigate,
   onAutoOpenTx,
   onDescriptionLoaded,
-  showCommentPanel,
-  commentPanelWidth,
-  onToggleCommentPanel,
-  onStartResizeRight,
-  commentVersionFilter,
   onOpenCommentsForVersion,
-  users,
-  commentTriggerText,
-  onClearCommentTrigger,
   onCommentAttribute,
 }) {
+  const showCollab    = useShellStore(s => s.showCollab);
+  const toggleCollab  = useShellStore(s => s.toggleCollab);
   const DASHBOARD_ID = 'dashboard';
   const activeTab = tabs.find(t => t.id === activeTabId);
   const hasNode   = !!activeTab?.nodeId;
@@ -158,9 +152,9 @@ export default function EditorArea({
           {/* Comments toggle — only shown when a node tab is active */}
           {hasNode && (
             <button
-              className={`tab-comments-toggle${showCommentPanel ? ' active' : ''}`}
-              onClick={onToggleCommentPanel}
-              title={showCommentPanel ? 'Hide comments' : 'Show comments'}
+              className={`tab-comments-toggle${showCollab ? ' active' : ''}`}
+              onClick={toggleCollab}
+              title={showCollab ? 'Hide comments' : 'Show comments'}
             >
               💬
             </button>
@@ -281,23 +275,6 @@ export default function EditorArea({
         </div>
       </div>
 
-      {/* ── Right: comment panel ────────────────────────────── */}
-      {showCommentPanel && hasNode && (
-        <>
-          <div className="resize-handle comment-resize" onMouseDown={onStartResizeRight} />
-          <CommentPanel
-            nodeId={activeTab.nodeId}
-            userId={userId}
-            width={commentPanelWidth}
-            onClose={onToggleCommentPanel}
-            filterVersionId={commentVersionFilter}
-            onClearFilter={() => onOpenCommentsForVersion(null)}
-            users={users}
-            triggerText={commentTriggerText}
-            onClearTrigger={onClearCommentTrigger}
-          />
-        </>
-      )}
     </div>
   );
 }

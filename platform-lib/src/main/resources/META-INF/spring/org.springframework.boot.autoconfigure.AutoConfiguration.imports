@@ -14,3 +14,4 @@ com.plm.platform.action.guard.PlmActionGuardAutoConfiguration
 com.plm.platform.action.ActionCatalogRegistrationAutoConfiguration
 com.plm.platform.action.ActionHandlerRouteAutoConfiguration
 com.plm.platform.action.PlmActionAutoConfiguration
+com.plm.platform.ui.UiPluginsAutoConfiguration

@@ -829,6 +829,9 @@ export const api = {
   getSettingsSections: (userId) =>
     platformRequest('GET', '/sections', userId),
 
+  getUiManifest: () =>
+    platformRequest('GET', '/ui/manifest', null),
+
   // Generic create entry-point — dispatches the descriptor's create action.
   // bodyShape:
   //   - WRAPPED  → JSON `{ parameters: {...values} }` (psm action convention)

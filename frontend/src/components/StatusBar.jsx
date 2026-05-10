@@ -166,7 +166,7 @@ function PercentileChart({ sorted }) {
   );
 }
 
-export default function StatusBar({ showSettings, onToggleSettings }) {
+export default function StatusBar({ showSettings, onToggleSettings, consoleVisible, onToggleConsole }) {
   const [status, setStatus] = useState(null);
   const [error,  setError]  = useState(null);
   const [open,   setOpen]   = useState(false);
@@ -247,6 +247,18 @@ export default function StatusBar({ showSettings, onToggleSettings }) {
               <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
             </svg>
             <span>Settings</span>
+          </button>
+        )}
+        {onToggleConsole && (
+          <button
+            type="button"
+            className={`status-bar-settings${consoleVisible ? ' active' : ''}`}
+            onClick={onToggleConsole}
+            title={consoleVisible ? 'Hide console' : 'Show console'}
+            style={{ marginLeft: 4 }}
+          >
+            <span style={{ fontSize: 11 }}>≡</span>
+            <span>Console</span>
           </button>
         )}
         <button
