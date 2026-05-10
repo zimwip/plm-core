@@ -59,7 +59,8 @@ public class AuthenticationFilter implements WebFilter {
             || path.equals("/api/spe/auth/login")
             || path.equals("/api/spe/auth/logout")
             || path.equals("/api/platform/status")
-            || path.startsWith("/api/platform/status/")) {
+            || path.startsWith("/api/platform/status/")
+            || isUiBundlePath(path)) {
             return chain.filter(exchange);
         }
 
@@ -102,6 +103,14 @@ public class AuthenticationFilter implements WebFilter {
                     .build();
                 return chain.filter(exchange.mutate().request(mutated).build());
             });
+    }
+
+    // /api/<serviceCode>/ui/** — static plugin bundles, loaded via dynamic import()
+    // which cannot attach Authorization headers.
+    private static boolean isUiBundlePath(String path) {
+        if (!path.startsWith("/api/")) return false;
+        int second = path.indexOf('/', 5);
+        return second > 0 && path.startsWith("/ui/", second);
     }
 
     private Mono<Void> unauthorized(ServerHttpResponse response, String message) {

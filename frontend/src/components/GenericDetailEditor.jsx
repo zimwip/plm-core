@@ -53,8 +53,10 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState(null);
-  const [textPreview, setTextPreview] = useState(null);
-  const [textPreviewLoading, setTextPreviewLoading] = useState(false);
+  const [textPreview,          setTextPreview]          = useState(null);
+  const [textPreviewLoading,   setTextPreviewLoading]   = useState(false);
+  const [textPreviewTruncated, setTextPreviewTruncated] = useState(false);
+  const [textPreviewTotalBytes,setTextPreviewTotalBytes] = useState(null);
 
   const loadDetail = useCallback(async () => {
     if (!detailPathTpl || !tab.nodeId) {
@@ -79,19 +81,26 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
 
   useEffect(() => {
     const url = detail?.metadata?.downloadUrl;
-    if (!url) { setTextPreview(null); return; }
+    if (!url) { setTextPreview(null); setTextPreviewTruncated(false); setTextPreviewTotalBytes(null); return; }
     let cancelled = false;
     setTextPreviewLoading(true);
     api.gatewayRawText(url)
-      .then(text => { if (!cancelled) { setTextPreview(text); setTextPreviewLoading(false); } })
+      .then(({ text, truncated, totalBytes }) => {
+        if (!cancelled) {
+          setTextPreview(text);
+          setTextPreviewTruncated(truncated);
+          setTextPreviewTotalBytes(totalBytes);
+          setTextPreviewLoading(false);
+        }
+      })
       .catch(() => { if (!cancelled) { setTextPreview(null); setTextPreviewLoading(false); } });
     return () => { cancelled = true; };
   }, [detail?.metadata?.downloadUrl]);
 
   // Push text content to the central preview pane
   useEffect(() => {
-    ctx?.onRegisterPreview?.({ text: textPreview, loading: textPreviewLoading });
-  }, [textPreview, textPreviewLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+    ctx?.onRegisterPreview?.({ text: textPreview, truncated: textPreviewTruncated, totalBytes: textPreviewTotalBytes, loading: textPreviewLoading });
+  }, [textPreview, textPreviewLoading, textPreviewTruncated, textPreviewTotalBytes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clear preview on unmount / item change
   useEffect(() => () => { ctx?.onRegisterPreview?.(null); }, [tab.nodeId]); // eslint-disable-line react-hooks/exhaustive-deps

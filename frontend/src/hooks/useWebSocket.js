@@ -1,6 +1,19 @@
 // hooks/useWebSocket.js
 import { useEffect, useRef } from 'react';
 import { getSessionToken } from '../services/api';
+import { useShellStore } from '../shell/shellStore';
+
+function wsLog(level, message) {
+  useShellStore.getState().appendLog(level, message);
+}
+
+function fmtEvent(evt) {
+  const parts = [evt.event || '(unknown)'];
+  if (evt.byUser) parts.push(`by ${evt.byUser}`);
+  if (evt.nodeId) parts.push(`node=${evt.nodeId}`);
+  if (evt.entity) parts.push(evt.entity);
+  return `[WS] ${parts.join(' · ')}`;
+}
 
 /**
  * Subscribe to real-time PLM events via native WebSocket.
@@ -48,30 +61,33 @@ export function useWebSocket(topics, onEvent, userId) {
       ws = new WebSocket(url);
 
       ws.onopen = () => {
-        reconnectDelay = 1000; // reset on successful connect
+        reconnectDelay = 1000;
+        wsLog('debug', '[WS] connected');
       };
 
       ws.onmessage = (e) => {
         try {
           const event = JSON.parse(e.data);
+          wsLog('info', fmtEvent(event));
           onEventRef.current(event);
         } catch (err) {
           console.warn('WS parse error', err);
+          wsLog('warn', `[WS] parse error: ${err.message}`);
         }
       };
 
       ws.onclose = (e) => {
         if (disposed) return;
-        console.warn('WS closed, reconnecting in', reconnectDelay, 'ms');
+        wsLog('warn', `[WS] disconnected — reconnecting in ${reconnectDelay}ms`);
         reconnectTimer = setTimeout(() => {
           reconnectDelay = Math.min(reconnectDelay * 2, 30000);
           connect();
         }, reconnectDelay);
       };
 
-      ws.onerror = (e) => {
-        console.warn('WS error', e);
-        // onclose will fire after onerror, triggering reconnect
+      ws.onerror = () => {
+        wsLog('warn', '[WS] connection error');
+        // onclose fires after onerror, triggering reconnect
       };
     }
 

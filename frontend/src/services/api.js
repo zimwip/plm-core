@@ -11,6 +11,25 @@ const BASE_PLATFORM = '/api/platform';
 function serviceBase(code) { return `/api/${code}`; }
 
 // Wrap fetch to record timing + status into apiStats.
+function uploadWithProgress(url, method, headers, formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.upload.addEventListener('progress', e => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    });
+    xhr.onload = () => {
+      const text = () => Promise.resolve(xhr.responseText);
+      const json = () => Promise.resolve(JSON.parse(xhr.responseText));
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, text, json });
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.onabort = () => reject(new Error('Upload cancelled'));
+    xhr.send(formData);
+  });
+}
+
 async function timedFetch(url, init, method) {
   const t0 = performance.now();
   let res, err;
@@ -412,14 +431,34 @@ export const api = {
   // so the surface stays uniform across user services.
   gatewayJson: (method, fullPath, body) => gatewayJson(method, fullPath, body),
 
-  gatewayRawText: async (url) => {
+  // Fetches a text file with a hard byte cap (default 64 KB).
+  // Sends Range: bytes=0-N so well-behaved servers stop early.
+  // Also caps the stream client-side to guard against servers that ignore Range.
+  // Returns { text, truncated, totalBytes } — totalBytes from Content-Range header if available.
+  gatewayRawText: async (url, maxBytes = 64 * 1024) => {
     const h = {};
     if (_sessionToken) h['Authorization'] = `Bearer ${_sessionToken}`;
     if (_projectSpaceId) h['X-PLM-ProjectSpace'] = _projectSpaceId;
+    h['Range'] = `bytes=0-${maxBytes - 1}`;
     const res = await timedFetch(url, { method: 'GET', headers: h }, 'GET');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const buf = await res.arrayBuffer();
-    return new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(buf));
+    if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`);
+    const reader = res.body.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) { chunks.push(value); total += value.length; }
+      if (total >= maxBytes) { reader.cancel(); break; }
+    }
+    const buf = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { buf.set(c, off); off += c.length; }
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    const contentRange = res.headers.get('Content-Range'); // e.g. "bytes 0-65535/1234567"
+    const totalBytes = contentRange ? parseInt(contentRange.split('/')[1], 10) || null : null;
+    const truncated = res.status === 206 || total >= maxBytes;
+    return { text, truncated, totalBytes };
   },
 
   // Generic federated list call: hits descriptor.list.path with paging.
@@ -1041,14 +1080,16 @@ export const dstApi = {
 };
 
 export const cadApi = {
-  submitImport: async (file, rootNodeId, contextCode) => {
+  submitImport: async (file, rootNodeId, contextCode, onProgress) => {
     const headers = {};
     if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
     if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
     const fd = new FormData();
     fd.append('file', file);
     if (contextCode) fd.append('contextCode', contextCode);
-    const res = await timedFetch(`/api/psm/cad/import/${rootNodeId}`, { method: 'POST', headers, body: fd }, 'POST');
+    const res = onProgress
+      ? await uploadWithProgress(`/api/psm/cad/import/${rootNodeId}`, 'POST', headers, fd, onProgress)
+      : await timedFetch(`/api/psm/cad/import/${rootNodeId}`, { method: 'POST', headers, body: fd }, 'POST');
     if (!res.ok) { const msg = await res.text(); throw new Error(`HTTP ${res.status}: ${msg}`); }
     return res.json();
   },
@@ -1086,7 +1127,7 @@ export const authoringApi = {
   // Use httpMethod + path from ActionDescriptor instead of constructing the URL.
   // path is a full gateway path (e.g. /api/psm/actions/checkout/{id}); strip the
   // service prefix before passing to txRequest which prepends /api/psm itself.
-  executeViaDescriptor: async (action, nodeId, userId, txId, parameters) => {
+  executeViaDescriptor: async (action, nodeId, userId, txId, parameters, onProgress) => {
     const template = (action.path || '').replace(/^\/api\/psm/, '');
     const path = template
       .replace('{id}', nodeId)
@@ -1102,7 +1143,9 @@ export const authoringApi = {
       if (_sessionToken)    headers['Authorization']     = `Bearer ${_sessionToken}`;
       if (_projectSpaceId)  headers['X-PLM-ProjectSpace'] = _projectSpaceId;
       if (txId)             headers['X-PLM-Tx']           = txId;
-      const res = await timedFetch('/api/psm' + path, { method, headers, body: fd }, method);
+      const res = onProgress
+        ? await uploadWithProgress('/api/psm' + path, method, headers, fd, onProgress)
+        : await timedFetch('/api/psm' + path, { method, headers, body: fd }, method);
       if (!res.ok) { const msg = await res.text(); throw new Error(`HTTP ${res.status}: ${msg}`); }
       const text = await res.text();
       return text ? JSON.parse(text) : null;

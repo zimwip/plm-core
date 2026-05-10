@@ -78,13 +78,18 @@ function CadJobStatus({ jobData, onClose }) {
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <span style={{ fontSize: 18 }}>{job.status === 'DONE' ? '✓' : job.status === 'FAILED' ? '✕' : '⏳'}</span>
-        <span style={{ fontWeight: 600, color: job.status === 'FAILED' ? 'var(--danger)' : job.status === 'DONE' ? 'var(--success)' : undefined }}>
+        <span style={{ fontWeight: 600, color: job.status === 'FAILED' ? 'var(--danger)' : job.status === 'DONE' ? (job.errorSummary ? 'var(--warning, #f5a623)' : 'var(--success)') : undefined }}>
           {job.status === 'PENDING' && 'Queued…'}
           {job.status === 'RUNNING' && 'Processing…'}
-          {job.status === 'DONE'    && `Complete — ${results.length} node${results.length !== 1 ? 's' : ''}`}
+          {job.status === 'DONE'    && `Complete — ${results.length} node${results.length !== 1 ? 's' : ''}${job.errorSummary ? ' (with warnings)' : ''}`}
           {job.status === 'FAILED'  && `Failed: ${job.errorSummary || 'unknown error'}`}
         </span>
       </div>
+      {job.status === 'DONE' && job.errorSummary && (
+        <div style={{ marginBottom: 12, padding: '8px 10px', background: 'var(--warning-bg, #fff8e1)', border: '1px solid var(--warning, #f5a623)', borderRadius: 6, fontSize: 12, color: 'var(--warning-text, #7a4f00)', whiteSpace: 'pre-wrap' }}>
+          {job.errorSummary}
+        </div>
+      )}
       {Object.keys(summary).length > 0 && (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
           {Object.entries(summary).map(([action, count]) => (
@@ -152,6 +157,7 @@ export default function NodeEditor({
   const [saveStatus,     setSaveStatus]    = useState(null); // null | 'saving' | 'saved'
   const [actionDialog,     setActionDialog]     = useState(null);  // action object | null
   const [actionParams,     setActionParams]     = useState({});    // param values for dialog
+  const [uploadProgress,   setUploadProgress]   = useState(null);  // null | 0-100
   const [activeJob,        setActiveJob]        = useState(null);  // { id, data } | null
   const cadJobPollRef = useRef(null);
   const [diff,        setDiff]       = useState(null);   // { data, v1Num, v2Num } | null
@@ -589,13 +595,17 @@ export default function NodeEditor({
    * (ActionDispatcher reads action.tx_mode and wraps handler accordingly).
    */
   async function executeAction(action, params = {}) {
-    setActionDialog(null);
+    const isMultipart = action.bodyShape === 'MULTIPART';
+    if (!isMultipart) setActionDialog(null);
     setLoading(true);
+    if (isMultipart) setUploadProgress(0);
     try {
+      const onProgress = isMultipart ? (pct) => setUploadProgress(pct) : undefined;
       const result = action.path
-        ? await authoringApi.executeViaDescriptor(action, nodeId, userId, txId, params)
+        ? await authoringApi.executeViaDescriptor(action, nodeId, userId, txId, params, onProgress)
         : await authoringApi.executeAction(
             nodeId, action.actionCode, userId, txId, params, action.transitionId);
+      if (isMultipart) { setActionDialog(null); setUploadProgress(null); }
 
       if (result?.jobId) {
         setActiveJob({ id: result.jobId, data: { job: { id: result.jobId, status: result.status || 'PENDING' }, results: [] } });
@@ -619,6 +629,8 @@ export default function NodeEditor({
       await refreshAll();
       await load();
     } catch (e) {
+      setActionDialog(null);
+      setUploadProgress(null);
       toast(e, 'error');
     } finally { setLoading(false); }
   }
@@ -910,13 +922,24 @@ export default function NodeEditor({
         <div style={{
           position: 'fixed', inset: 0, zIndex: 2000,
           background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => setActionDialog(null)}>
+        }} onClick={uploadProgress === null ? () => setActionDialog(null) : undefined}>
           <div style={{
             background: 'var(--surface)', border: '1px solid var(--border)',
             borderRadius: 10, padding: '28px 32px', maxWidth: 440, width: '90%',
             boxShadow: '0 8px 32px rgba(0,0,0,.4)',
           }} onClick={e => e.stopPropagation()}>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>{actionDialog.name}</div>
+            {uploadProgress !== null && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+                  <span>Uploading…</span>
+                  <span>{uploadProgress}%</span>
+                </div>
+                <div style={{ height: 6, background: 'var(--surface2)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${uploadProgress}%`, background: 'var(--accent)', borderRadius: 3, transition: 'width 0.15s ease' }} />
+                </div>
+              </div>
+            )}
             {(actionDialog.parameters || []).filter(p => p.widget).map(p => {
               const val = actionParams[p.name] || '';
               let enumValues = null;
@@ -982,15 +1005,13 @@ export default function NodeEditor({
               );
             })}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-              <button className="btn btn-sm" onClick={() => setActionDialog(null)}>Cancel</button>
+              <button className="btn btn-sm" disabled={uploadProgress !== null} onClick={() => setActionDialog(null)}>Cancel</button>
               <button
                 className="btn btn-sm btn-success"
-                disabled={
-                  (actionDialog.parameters || []).filter(p => p.widget && p.required).some(p => {
-                    const v = actionParams[p.name];
-                    return p.widget === 'FILE' ? !v : !String(v || '').trim();
-                  })
-                }
+                disabled={uploadProgress !== null || (actionDialog.parameters || []).filter(p => p.widget && p.required).some(p => {
+                  const v = actionParams[p.name];
+                  return p.widget === 'FILE' ? !v : !String(v || '').trim();
+                })}
                 onClick={() => executeAction(actionDialog, actionParams)}
               >
                 {actionDialog.name}
