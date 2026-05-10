@@ -27,7 +27,17 @@ export default defineConfig({
           if (id.includes('lucide-react'))   return 'icons';
           if (id.includes('node_modules/three')) return 'three';
           if (id.includes('occt-import-js')) return 'occt';
+          // React must land at predictable, stable URLs so service plugins
+          // can declare them as externals and resolve via the importmap.
+          if (id.includes('react-dom'))      return 'vendor-react-dom';
+          if (id.includes('react'))          return 'vendor-react';
           if (id.includes('node_modules'))   return 'vendor';
+        },
+        chunkFileNames: (chunkInfo) => {
+          // Vendor-react chunks must have stable names (no hash) so the importmap
+          // in index.html can reference them without a build step to update it.
+          if (chunkInfo.name?.startsWith('vendor-react')) return 'assets/[name].js';
+          return 'assets/[name]-[hash].js';
         },
       },
     },

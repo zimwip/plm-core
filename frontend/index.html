@@ -16,6 +16,19 @@
 </head>
 <body>
   <div id="root"></div>
+  <!-- Importmap: lets service plugin bundles resolve 'react' / 'react-dom'
+       to the same instance already loaded by the shell, avoiding duplicate
+       React copies and hook errors. URLs must match the stable chunk names
+       produced by vite.config.js manualChunks / chunkFileNames. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react":            "/assets/vendor-react.js",
+      "react-dom":        "/assets/vendor-react-dom.js",
+      "react-dom/client": "/assets/vendor-react-dom.js"
+    }
+  }
+  </script>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

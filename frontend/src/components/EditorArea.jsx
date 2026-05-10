@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { lookupPluginForTab } from '../services/sourcePlugins';
+import { findEditorPlugin } from '../shell/pluginRegistry';
 import DashboardView from './DashboardView';
 import { useShellStore } from '../shell/shellStore';
 import { PinIcon, PinOffIcon, CloseIcon, PlusIcon, MaximizeIcon, MinimizeIcon, NODE_ICONS } from './Icons';
@@ -75,8 +76,10 @@ export default function EditorArea({
     window.addEventListener('mouseup', onUp);
   }
 
-  // Resolve preview component from active tab's plugin
-  const plugin = activeTab && activeTab.id !== DASHBOARD_ID ? lookupPluginForTab(activeTab) : null;
+  // Resolve plugin: new registry (remote plugins) first, old system as fallback.
+  const plugin = activeTab && activeTab.id !== DASHBOARD_ID
+    ? (findEditorPlugin(activeTab) ?? lookupPluginForTab(activeTab))
+    : null;
   const PreviewComponent = plugin?.Preview ?? null;
   const previewLabel = plugin?.previewLabel ?? 'Preview';
   const showPreviewPane = !!PreviewComponent;
