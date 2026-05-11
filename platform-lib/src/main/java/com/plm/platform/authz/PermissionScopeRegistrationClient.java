@@ -3,7 +3,7 @@ package com.plm.platform.authz;
 import com.plm.platform.authz.dto.ScopeRegistration;
 import com.plm.platform.authz.dto.ScopeRegistrationRequest;
 import com.plm.platform.authz.dto.ScopeRegistrationResponse;
-import com.plm.platform.spe.PlatformPaths;
+import com.plm.platform.PlatformPaths;
 import com.plm.platform.environment.PlatformRegistrationProperties;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;

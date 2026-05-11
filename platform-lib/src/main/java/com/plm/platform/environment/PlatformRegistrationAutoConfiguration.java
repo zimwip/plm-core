@@ -1,7 +1,7 @@
 package com.plm.platform.environment;
 
 import com.plm.platform.nats.NatsListenerFactory;
-import com.plm.platform.spe.registry.LocalServiceRegistry;
+import com.plm.platform.registry.LocalServiceRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;

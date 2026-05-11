@@ -2,7 +2,7 @@ package com.plm.platform.api.client;
 
 import com.plm.platform.api.api.UiPluginManifestEntry;
 import com.plm.platform.api.environment.EnvironmentRegistry;
-import com.plm.platform.spe.client.ServiceClient;
+import com.plm.platform.client.ServiceClient;
 import com.plm.platform.ui.UiPluginDeclaration;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

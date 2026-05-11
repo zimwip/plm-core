@@ -10,6 +10,15 @@
 # -- Stage 0: reuse pre-built platform-lib base image (run.sh builds it) --
 FROM plm-platform-lib:dev AS lib-builder
 
+# ── Stage UI: build psm-admin/ui Vite subproject ─────────────────────
+FROM docker.io/library/node:20-alpine AS ui-builder
+WORKDIR /ui
+COPY psm-admin/ui/package.json psm-admin/ui/package-lock.json ./
+RUN npm ci --silent
+COPY psm-admin/ui/vite.config.js .
+COPY psm-admin/ui/src ./src
+RUN npx vite build --outDir /ui-dist --emptyOutDir
+
 # -- Stage 1: build psm-admin ----------------------------------------
 FROM docker.io/library/maven:3.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /build
@@ -21,6 +30,8 @@ COPY psm-admin/pom.xml .
 RUN mvn dependency:go-offline --no-transfer-progress 2>/dev/null || true
 
 COPY psm-admin/src ./src
+# Inject UI plugin bundles so Spring Boot serves them at /api/psa/ui/*
+COPY --from=ui-builder /ui-dist ./src/main/resources/static/ui/
 # MAVEN_EXTRA_OPTS is injected by run.sh package as -Pdist to strip Swagger UI.
 ARG MAVEN_EXTRA_OPTS=""
 RUN mvn clean package -Dmaven.test.skip=true --no-transfer-progress $MAVEN_EXTRA_OPTS

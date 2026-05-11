@@ -3,7 +3,7 @@ package com.plm.platform.settings;
 import com.plm.platform.nats.NatsListenerFactory;
 import com.plm.platform.settings.dto.SettingSectionDto;
 import com.plm.platform.settings.dto.SettingsRegisterRequest;
-import com.plm.platform.spe.PlatformPaths;
+import com.plm.platform.PlatformPaths;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;

@@ -2,6 +2,7 @@ package com.plm;
 
 import com.plm.shared.exception.AccessDeniedException;
 import com.plm.shared.security.PlmUserContext;
+import com.plm.platform.action.ActionService;
 import com.plm.node.NodeService;
 import com.plm.node.lifecycle.internal.LifecycleService;
 import com.plm.node.signature.internal.SignatureService;
@@ -34,6 +35,7 @@ class PlmRoleAndViewTest {
 
     @Autowired DSLContext            dsl;
     @Autowired NodeService           nodeService;
+    @Autowired ActionService         actionService;
     @Autowired com.plm.platform.authz.PolicyPort policyService;
     @Autowired LifecycleService      lifecycleService;
     @Autowired SignatureService      signatureService;
@@ -202,19 +204,15 @@ class PlmRoleAndViewTest {
         asReviewer();
         var desc = nodeService.buildObjectDescription(nodeId, USER_BOB, ROLE_REVIEWER);
 
-        @SuppressWarnings("unchecked")
-        var attributes = (List<Map<String, Object>>) desc.get("attributes");
-
-        // reviewNote doit être visible et en premier (displayOrder=1)
-        var reviewNote = attributes.stream()
-            .filter(a -> "reviewNote".equals(a.get("name")))
+        // reviewNote doit être visible et en premier (displayOrder=1 → sorted first)
+        var reviewNote = desc.fields().stream()
+            .filter(f -> "reviewNote".equals(f.name()))
             .findFirst();
-        // Presence in the list means visible=true (invisible attributes are filtered out)
         assertThat(reviewNote).isPresent();
-        assertThat(reviewNote.get().get("displayOrder")).isEqualTo(1);
+        assertThat(desc.fields().get(0).name()).isEqualTo("reviewNote");
 
         // reviewer a can_write=false → editable=false même si la vue dit editable=true
-        assertThat(reviewNote.get().get("editable")).isEqualTo(false);
+        assertThat(reviewNote.get().editable()).isFalse();
     }
 
     @Test
@@ -226,12 +224,9 @@ class PlmRoleAndViewTest {
         asReader();
         var desc = nodeService.buildObjectDescription(nodeId, USER_CHARLIE, ROLE_READER);
 
-        @SuppressWarnings("unchecked")
-        var attributes = (List<Map<String, Object>>) desc.get("attributes");
-
         // reviewNote masquée → absente du payload
-        boolean reviewNotePresent = attributes.stream()
-            .anyMatch(a -> "reviewNote".equals(a.get("name")));
+        boolean reviewNotePresent = desc.fields().stream()
+            .anyMatch(f -> "reviewNote".equals(f.name()));
         assertThat(reviewNotePresent).isFalse();
     }
 
@@ -243,12 +238,9 @@ class PlmRoleAndViewTest {
 
         var desc = nodeService.buildObjectDescription(nodeId, USER_ALICE, ROLE_DESIGNER);
 
-        @SuppressWarnings("unchecked")
-        var attributes = (List<Map<String, Object>>) desc.get("attributes");
-
         // En Draft, reviewNote est invisible (AttributeStateRule asr-01)
-        boolean reviewNotePresent = attributes.stream()
-            .anyMatch(a -> "reviewNote".equals(a.get("name")));
+        boolean reviewNotePresent = desc.fields().stream()
+            .anyMatch(f -> "reviewNote".equals(f.name()));
         assertThat(reviewNotePresent).isFalse();
     }
 
@@ -265,15 +257,11 @@ class PlmRoleAndViewTest {
         asReviewer();
         var desc = nodeService.buildObjectDescription(nodeId, USER_BOB, ROLE_REVIEWER);
 
-        @SuppressWarnings("unchecked")
-        var attributes = (List<Map<String, Object>>) desc.get("attributes");
-
-        // Tous les attributs visibles doivent être readonly SAUF reviewNote
-        // (car reviewer peut éditer reviewNote, mais can_write=false l'emporte)
-        // → en fait la règle est : finalEditable = globalCanWrite && viewEditable
-        //   reviewer a can_write=false donc TOUT est readonly dans le payload
-        boolean anyEditable = attributes.stream()
-            .anyMatch(a -> Boolean.TRUE.equals(a.get("editable")));
+        // Tous les attributs visibles doivent être readonly — reviewer a can_write=false
+        // (globalCanWrite override appliqué par NodeController, pas par le service)
+        // → le service retourne les flags tels que la vue les définit ; le controller les écrase
+        // → ici on vérifie que la vue reviewer ne produit pas de champ editable sans override
+        boolean anyEditable = desc.fields().stream().anyMatch(f -> f.editable());
         assertThat(anyEditable).isFalse();
     }
 
@@ -285,18 +273,23 @@ class PlmRoleAndViewTest {
 
         // Designer en In Work : doit voir tr-freeze
         var descDesigner = nodeService.buildObjectDescription(nodeId, USER_ALICE, ROLE_DESIGNER);
-        @SuppressWarnings("unchecked")
-        var actionsDesigner = (List<Map<String, Object>>) descDesigner.get("actions");
-        // The action ID is now the node_type_action id; the transition is referenced via transitionId
-        assertThat(actionsDesigner).anyMatch(a -> TR_FREEZE.equals(a.get("transitionId")));
+        var actionsDesigner = actionService.resolveActionsForNode(
+            nodeId,
+            (String) descDesigner.metadata().get("nodeTypeId"),
+            (String) descDesigner.metadata().get("state"),
+            false, false);
+        assertThat(actionsDesigner).anyMatch(a -> TR_FREEZE.equals(a.metadata().get("transitionId")));
 
-        // Reader en Draft : all actions present but unauthorized (authorized=false)
+        // Reader en Draft : all actions present but unauthorized (guardViolations non-empty)
         asReader();
         var descReader = nodeService.buildObjectDescription(nodeId, USER_CHARLIE, ROLE_READER);
-        @SuppressWarnings("unchecked")
-        var actionsReader = (List<Map<String, Object>>) descReader.get("actions");
+        var actionsReader = actionService.resolveActionsForNode(
+            nodeId,
+            (String) descReader.metadata().get("nodeTypeId"),
+            (String) descReader.metadata().get("state"),
+            false, false);
         assertThat(actionsReader).isNotEmpty();
-        assertThat(actionsReader).allMatch(a -> Boolean.FALSE.equals(a.get("authorized")));
+        assertThat(actionsReader).allMatch(a -> !a.guardViolations().isEmpty());
     }
 
     // ================================================================

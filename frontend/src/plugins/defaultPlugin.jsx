@@ -1,5 +1,6 @@
 import React from 'react';
 import GenericDetailEditor from '../components/GenericDetailEditor';
+import { PinIcon, PinOffIcon } from '../components/Icons';
 
 /**
  * Catch-all plugin used when no source-specific plugin matches a
@@ -10,7 +11,7 @@ import GenericDetailEditor from '../components/GenericDetailEditor';
  * three-action contract works without a bespoke plugin.
  */
 
-export function DefaultNavRow({ descriptor, item, ctx, isActive }) {
+export function DefaultNavRow({ descriptor, item, ctx, isActive, isPinned, onPin, onUnpin }) {
   const idField = descriptor.list?.itemShape?.idField || 'id';
   const labelField = descriptor.list?.itemShape?.labelField || 'id';
   const id = item[idField] || item.id;
@@ -25,6 +26,15 @@ export function DefaultNavRow({ descriptor, item, ctx, isActive }) {
       <span className="ni-logical" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {label}
       </span>
+      {(onPin || onUnpin) && (
+        <button
+          className={`search-pin-btn${isPinned ? ' pinned' : ''}`}
+          title={isPinned ? 'Remove from basket' : 'Add to basket'}
+          onClick={e => { e.stopPropagation(); isPinned ? onUnpin?.() : onPin?.(); }}
+        >
+          {isPinned ? <PinOffIcon size={11} strokeWidth={2} /> : <PinIcon size={11} strokeWidth={2} />}
+        </button>
+      )}
     </div>
   );
 }

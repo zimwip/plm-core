@@ -8,10 +8,16 @@ function wsLog(level, message) {
 }
 
 function fmtEvent(evt) {
-  const parts = [evt.event || '(unknown)'];
-  if (evt.byUser) parts.push(`by ${evt.byUser}`);
-  if (evt.nodeId) parts.push(`node=${evt.nodeId}`);
-  if (evt.entity) parts.push(evt.entity);
+  if (!evt.event) {
+    return `[WS] (unknown) ${JSON.stringify(evt)}`;
+  }
+  const parts = [evt.event];
+  if (evt.byUser)  parts.push(`by ${evt.byUser}`);
+  if (evt.nodeId)  parts.push(`node=${evt.nodeId}`);
+  if (evt.userId)  parts.push(`user=${evt.userId}`);
+  if (evt.entity)  parts.push(evt.entity);
+  if (evt.status)  parts.push(evt.status);
+  if (evt.jobId)   parts.push(`job=${evt.jobId}`);
   return `[WS] ${parts.join(' · ')}`;
 }
 

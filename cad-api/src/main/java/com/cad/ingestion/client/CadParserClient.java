@@ -1,6 +1,7 @@
 package com.cad.ingestion.client;
 
 import com.cad.algorithm.CadNodeData;
+import com.cad.algorithm.CadOccurrence;
 import com.cad.ingestion.model.SplitPart;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,7 +26,7 @@ public class CadParserClient {
     // Async job responses
     private record SubmitResponse(String jobId) {}
     private record PartMeta(String nodeId, String name, String cadType,
-                            Map<String, String> attributes, String parentNodeId) {}
+                            Map<String, String> attributes, List<CadOccurrence> occurrences) {}
     private record JobStatusResponse(String status, String error, List<PartMeta> parts) {}
 
     private final RestTemplate rest;
@@ -124,7 +125,7 @@ public class CadParserClient {
                 meta.name(),
                 meta.cadType(),
                 meta.attributes() != null ? meta.attributes() : Map.of(),
-                meta.parentNodeId(),
+                meta.occurrences() != null ? meta.occurrences() : List.of(),
                 partBytes
             ));
         }
@@ -155,6 +156,36 @@ public class CadParserClient {
             }
         }
         throw new RuntimeException("Split job timed out: jobId=" + jobId);
+    }
+
+    /**
+     * Converts a STEP file to GLB binary via the parser /convert endpoint.
+     * Returns null (non-fatal) if the parser is unavailable or conversion fails.
+     */
+    public byte[] convertToGlb(byte[] stepBytes, String filename) {
+        log.info("Requesting GLB conversion for {} ({} bytes)", filename, stepBytes.length);
+        try {
+            MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+            body.add("file", new org.springframework.core.io.ByteArrayResource(stepBytes) {
+                @Override public String getFilename() { return filename; }
+            });
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+            ResponseEntity<byte[]> response = rest.exchange(
+                parserUrl + "/convert",
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                byte[].class
+            );
+            byte[] glb = response.getBody();
+            log.info("GLB conversion for {}: {} bytes", filename, glb != null ? glb.length : 0);
+            return glb;
+        } catch (Exception e) {
+            log.warn("GLB conversion failed for {}: {}", filename, e.getMessage());
+            return null;
+        }
     }
 
     private String detectFormat(String filename) {

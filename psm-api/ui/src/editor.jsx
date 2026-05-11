@@ -7,54 +7,37 @@
  * Plugin contract:
  *   { id, zone, init(shellAPI), matches(descriptor), Component }
  *
- * Component props (injected by the shell's editor zone renderer):
- *   { shellAPI, tab, ctx }
+ * Component props (injected by the shell's EditorArea):
+ *   { tab, ctx }
  *
- * Phase 3 note: the full NodeEditor lives in the shell bundle and is rendered
- * by the shell's EditorArea when this plugin is selected. This entry point
- * satisfies the plugin registry contract and exposes the matches() predicate
- * so the shell knows which tabs this plugin owns. The Component below delegates
- * rendering to the shell via shellAPI.emit('psm:renderEditor', { tab, ctx }),
- * keeping a clean boundary until the editor is fully migrated to this subproject.
+ * All shell services (api, store, hooks, components) are accessed via shellAPI
+ * which is passed down to NodeEditor as a prop.
  */
-import React, { useEffect, useRef } from 'react';
+import NodeEditor from './NodeEditor';
+import { initPsmApi } from './psmApi';
 
 let _shellAPI = null;
 
-/**
- * Editor component — rendered by the shell inside the editor zone.
- *
- * For Phase 3 we use a portal-style delegation: the shell's EditorArea still
- * owns the NodeEditor render tree; this component acts as a mount point that
- * signals the shell to inject its NodeEditor here.
- *
- * When the shell's EditorArea is updated in Phase 4+ to call
- * plugin.Component directly, this can be replaced with the full editor.
- */
-function PsmEditorComponent({ shellAPI, tab, ctx }) {
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    if (!shellAPI || !containerRef.current) return;
-
-    // Signal the shell to render its NodeEditor into this container.
-    // The shell's EditorArea listens for this event and uses ReactDOM.createPortal
-    // or a direct render into the provided element.
-    shellAPI.emit('psm:mount-editor', {
-      tab,
-      ctx,
-      container: containerRef.current,
-    });
-
-    return () => {
-      shellAPI.emit('psm:unmount-editor', { tab });
-    };
-  }, [tab?.id]);
-
+function PsmEditorComponent({ tab, ctx }) {
   return (
-    <div
-      ref={containerRef}
-      style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}
+    <NodeEditor
+      shellAPI={_shellAPI}
+      nodeId={tab.nodeId}
+      userId={ctx.userId}
+      tx={ctx.tx}
+      nodeTypes={ctx.nodeTypes}
+      stateColorMap={ctx.stateColorMap}
+      activeSubTab={tab.activeSubTab || 'attributes'}
+      onSubTabChange={key => ctx.onSubTabChange(tab.id, key)}
+      toast={ctx.toast}
+      onAutoOpenTx={ctx.onAutoOpenTx}
+      onDescriptionLoaded={ctx.onDescriptionLoaded}
+      onRefreshItemData={ctx.onRefreshItemData}
+      itemData={ctx.itemData}
+      onOpenCommentsForVersion={ctx.onOpenCommentsForVersion}
+      onCommentAttribute={ctx.onCommentAttribute}
+      onNavigate={ctx.onNavigate}
+      onRegisterPreview={ctx.onRegisterPreview}
     />
   );
 }
@@ -65,6 +48,7 @@ export default {
 
   init(shellAPI) {
     _shellAPI = shellAPI;
+    initPsmApi(shellAPI);
   },
 
   matches(descriptor) {

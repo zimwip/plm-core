@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { NODE_ICONS, SECTION_ICONS, CommitIcon, RollbackIcon, PlusIcon, XCircleIcon } from './Icons';
 import BrowseNav from './BrowseNav';
-import { psmNodeDescriptor } from '../plugins/psmNodePlugin';
+import { psmNodeDescriptor } from '../plugins/psmDescriptor';
+import { usePlmStore } from '../store/usePlmStore';
 
 const CHANGE_BADGE = {
   CONTENT:   { label: 'edit',  bg: 'rgba(106,172,255,.15)', color: 'var(--accent)'  },
@@ -30,8 +31,12 @@ function LeftPanel({
   onOpenDashboard,
   browseRefreshKey,     // bumped by App on websocket events to force /browse re-fetch
   style,
+  toast,
 }) {
   const [releaseConfirmId, setReleaseConfirmId] = useState(null);
+
+  const basketItems    = usePlmStore(s => s.basketItems);
+
   const txId = tx?.ID || tx?.id;
   const txNodeList = txNodes || [];
 
@@ -84,7 +89,7 @@ function LeftPanel({
           </button>
         )}
 
-        {/* ── Create object shortcut (header for the unified browse nav) ── */}
+        {/* ── Nav header: create shortcut ── */}
         {canCreateNode && (
           <div className="panel-section-header" style={{ flex: '0 0 auto' }}>
             <div style={{ flex: 1 }} />
@@ -107,6 +112,9 @@ function LeftPanel({
             onCreateNode={onCreateNode}
             refreshKey={browseRefreshKey}
             panelSection="MAIN"
+            toast={toast}
+            basketView={true}
+            basketItems={basketItems}
           />
         </div>
 
@@ -120,6 +128,7 @@ function LeftPanel({
           onNavigate={onNavigate}
           refreshKey={browseRefreshKey}
           panelSection="INFO"
+          toast={toast}
         />
 
         {/* ── Transaction (PSM-specific for now; may move into a browse

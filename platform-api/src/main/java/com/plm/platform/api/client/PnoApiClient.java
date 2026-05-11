@@ -10,7 +10,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.plm.platform.spe.client.ServiceClient;
+import com.plm.platform.client.ServiceClient;
 import com.plm.platform.api.security.SettingsUserContext;
 
 import lombok.extern.slf4j.Slf4j;

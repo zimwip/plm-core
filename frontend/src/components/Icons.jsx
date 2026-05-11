@@ -18,6 +18,9 @@ import {
   Cable, Gauge, Radio, Scan, LayoutDashboard,
   List, Plug, KeyRound, Network,
   Maximize2, Minimize2,
+  LogOut,
+  Upload,
+  ShoppingBasket,
 } from 'lucide-react';
 
 export {
@@ -66,6 +69,9 @@ export {
 
   Maximize2    as MaximizeIcon,
   Minimize2    as MinimizeIcon,
+  LogOut           as LogOutIcon,
+  Upload           as UploadIcon,
+  ShoppingBasket   as ShoppingBasketIcon,
 };
 
 /**

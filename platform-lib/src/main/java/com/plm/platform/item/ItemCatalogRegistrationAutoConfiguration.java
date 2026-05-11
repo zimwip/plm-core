@@ -13,9 +13,9 @@ import java.util.List;
  * {@code plm.resources.enabled=true}.
  *
  * <p>Platform-api discovers services through
- * {@link com.plm.platform.spe.registry.LocalServiceRegistry} and fans out
+ * {@link com.plm.platform.registry.LocalServiceRegistry} and fans out
  * live to every source's {@code /internal/items/visible} via
- * {@link com.plm.platform.spe.client.ServiceClient}. So this auto-config
+ * {@link com.plm.platform.client.ServiceClient}. So this auto-config
  * only wires the service-side endpoint + its default resolver — no
  * registration sidecar, no cached state.
  *

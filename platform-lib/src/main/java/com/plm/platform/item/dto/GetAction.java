@@ -7,7 +7,7 @@ package com.plm.platform.item.dto;
  *
  * <p>Mirrors {@link ListAction} for the single-item axis: list endpoints
  * return JSON arrays that the navigation panel renders, get endpoints
- * return a {@link com.plm.platform.detail.dto.DetailDescriptor} that the
+ * return a {@link com.plm.platform.action.dto.DetailDescriptor} that the
  * editor renders directly.
  *
  * @param httpMethod       always {@code GET} today; reserved for future verbs

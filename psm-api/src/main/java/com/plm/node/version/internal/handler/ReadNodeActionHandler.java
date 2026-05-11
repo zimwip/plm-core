@@ -23,13 +23,11 @@ public class ReadNodeActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/read_node/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/read_node/{id}").metadataOnly());
     }
 
     @Override
     public ActionResult execute(ActionContext ctx, Map<String, String> params) {
-        Map<String, Object> desc = nodeService.buildObjectDescription(
-            ctx.nodeId(), ctx.userId(), ctx.txId());
-        return ActionResult.ok(desc);
+        return ActionResult.ok(nodeService.buildObjectDescription(ctx.nodeId(), ctx.userId(), ctx.txId()));
     }
 }

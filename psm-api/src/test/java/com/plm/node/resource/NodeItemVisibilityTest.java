@@ -48,7 +48,9 @@ class NodeItemVisibilityTest {
                 "application/json", "WRAPPED", List.of(), "Create", null, "PRIMARY", 0),
             new ListAction("GET", "/nodes?type=" + nodeTypeId, "page", "size",
                 List.of("type"), new ListItemShape("id", "logical_id", "icon"), "Browse", null, "SECONDARY", 10),
-            new GetAction("GET", "/nodes/{id}/detail", "Open", null, "SECONDARY", 20)
+            new GetAction("GET", "/nodes/{id}/description", "Open", null, "SECONDARY", 20),
+            null,
+            null
         );
     }
 
@@ -125,7 +127,9 @@ class NodeItemVisibilityTest {
             PanelSection.MAIN, 500,
             new CreateAction("POST", "/data", "multipart/form-data", "MULTIPART", List.of(), "Upload", null, "PRIMARY", 0),
             new ListAction("GET", "/data", "page", "size", List.of(), null, "Browse", null, "SECONDARY", 10),
-            new GetAction("GET", "/data/{id}/detail", "Open", null, "SECONDARY", 20)
+            new GetAction("GET", "/data/{id}/detail", "Open", null, "SECONDARY", 20),
+            null,
+            null
         );
 
         ItemDescriptor out = visibility.filter(ctx(), dst);

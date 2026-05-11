@@ -9,6 +9,7 @@ import java.util.List;
  */
 public record CommitResult(
     String          txId,
+    String          userId,
     List<String>    committedNodeIds,
     String          continuationTxId,
     LocalDateTime   committedAt

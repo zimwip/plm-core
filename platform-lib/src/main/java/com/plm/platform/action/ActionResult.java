@@ -6,11 +6,11 @@ import java.util.Map;
  * Result returned by an ActionHandler.
  *
  * @param status  "OK" or "BLOCKED"
- * @param data    arbitrary key-value payload (versionId, txId, signatureId, …)
+ * @param data    payload — either a Map&lt;String,Object&gt; or a typed DTO record
  */
-public record ActionResult(String status, Map<String, Object> data) {
+public record ActionResult(String status, Object data) {
 
-    public static ActionResult ok(Map<String, Object> data) {
+    public static ActionResult ok(Object data) {
         return new ActionResult("OK", data);
     }
 

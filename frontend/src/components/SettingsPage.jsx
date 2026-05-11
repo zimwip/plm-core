@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { api, speApi, dstApi } from '../services/api';
+import { api, speApi } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { getTheme, setTheme as applyTheme } from '../theme';
 
@@ -3994,8 +3994,96 @@ function PermissionCatalog({ permissions, userId, canWrite, toast, onReload }) {
   );
 }
 
+/* ── ScopedGrantsPanel — generic keyed-scope grant table ─────────── */
+function ScopedGrantsPanel({ scopeDef, allPermissions, roleId, projectSpaceId, userId, canWrite, toast }) {
+  const [grants, setGrants] = useState(null); // Set<"permCode|keyValue">
+
+  useEffect(() => {
+    api.getGrantsForRoleAndScope(userId, roleId, scopeDef.code)
+      .then(rows => {
+        const keyDef = (scopeDef.keys || []).find(k => k.values?.length > 0);
+        const keyName = keyDef?.name;
+        const set = new Set(
+          (Array.isArray(rows) ? rows : []).map(r => `${r.permission_code}|${r.keys?.[keyName]}`)
+        );
+        setGrants(set);
+      })
+      .catch(() => setGrants(new Set()));
+  }, [roleId, scopeDef.code, userId]);
+
+  const keyDef = (scopeDef.keys || []).find(k => k.values?.length > 0);
+  if (!keyDef) return null;
+  const { name: keyName, values } = keyDef;
+  const perms = (allPermissions || []).filter(p => p.scope === scopeDef.code);
+  if (perms.length === 0 || values.length === 0) return null;
+
+  async function toggle(permCode, keyValue) {
+    if (!canWrite) return;
+    const grantKey = `${permCode}|${keyValue}`;
+    const isGranted = grants?.has(grantKey);
+    setGrants(s => { const n = new Set(s); isGranted ? n.delete(grantKey) : n.add(grantKey); return n; });
+    try {
+      const req = { permissionCode: permCode, scopeCode: scopeDef.code, roleId, projectSpaceId, keys: { [keyName]: keyValue } };
+      if (isGranted) await api.removeScopedGrant(userId, req);
+      else           await api.addScopedGrant(userId, req);
+    } catch (e) {
+      setGrants(s => { const n = new Set(s); isGranted ? n.add(grantKey) : n.delete(grantKey); return n; });
+      toast(e, 'error');
+    }
+  }
+
+  const granted = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>;
+  const empty   = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="2"><circle cx="12" cy="12" r="9"/></svg>;
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div className="settings-sub-label">{scopeDef.code} Permissions</div>
+      {scopeDef.description && (
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6 }}>{scopeDef.description}</div>
+      )}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', color: 'var(--muted)', fontWeight: 500, borderBottom: '1px solid var(--border)' }}>
+              <code>{keyName}</code>
+            </th>
+            {perms.map(p => (
+              <th key={p.permissionCode} style={{ textAlign: 'center', padding: '4px 8px', color: 'var(--muted)', fontWeight: 500, borderBottom: '1px solid var(--border)', minWidth: 80 }}>
+                <code style={{ color: 'var(--accent)', fontSize: 10 }}>{p.permissionCode}</code>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {values.map(v => (
+            <tr key={v.id} style={{ borderBottom: '1px solid var(--border)' }}>
+              <td style={{ padding: '4px 8px 4px 0' }}>
+                <code style={{ color: 'var(--text)' }}>{v.label}</code>
+              </td>
+              {perms.map(p => {
+                const isPending = grants === null;
+                const isGranted = !isPending && grants.has(`${p.permissionCode}|${v.id}`);
+                return (
+                  <td key={p.permissionCode} style={{ textAlign: 'center', padding: '4px 8px' }}>
+                    <button className="panel-icon-btn" disabled={isPending || !canWrite}
+                      title={!canWrite ? 'Requires MANAGE_ROLES' : isGranted ? `Revoke from this role` : `Grant to this role`}
+                      onClick={() => toggle(p.permissionCode, v.id)}
+                      style={{ width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {isPending ? <span style={{ color: 'var(--muted)', fontSize: 10 }}>…</span> : isGranted ? granted : empty}
+                    </button>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* ── Access Rights section ──────────────────────────────────────────── */
-export function AccessRightsSection({ userId, canWrite, toast }) {
+export function AccessRightsSection({ userId, projectSpaceId, canWrite, toast }) {
   const [roles,       setRoles]       = useState(null);
   const [permissions, setPermissions] = useState([]); // full catalog {permissionCode, scope, displayName}
   const [nodeTypes,   setNodeTypes]   = useState([]);
@@ -4005,6 +4093,8 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
   const [globalPerms, setGlobalPerms] = useState({});
   // scopePerms: roleId → { scopeCode → Set<permissionCode> } for non-GLOBAL/NODE/LIFECYCLE scopes (e.g. dst's DATA).
   const [scopePerms, setScopePerms] = useState({});
+  // tree: access-rights tree from pno (scope definitions + value sources)
+  const [tree, setTree] = useState(null);
 
   // ── Load everything from backend introspection ──────────────────
   useEffect(() => {
@@ -4042,7 +4132,10 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
       }));
       setTransitions(allTrans);
     }).catch(() => { setRoles([]); });
-  }, [userId]);
+    api.getAccessRightsTree(userId, projectSpaceId)
+      .then(setTree)
+      .catch(() => setTree({ scopes: [] }));
+  }, [userId, projectSpaceId]);
 
   async function reloadPermissions() {
     const permList = await api.listPermissions(userId).catch(() => []);
@@ -4058,10 +4151,17 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
   // Split permissions by scope. Anything that isn't GLOBAL/NODE/LIFECYCLE is
   // treated as a role-only "extra scope" (e.g. dst's DATA) and rendered with
   // the same toggle UI as GLOBAL via the generic /scope-permissions endpoints.
+  // Scopes with keys and flat values (e.g. SERVICE) use ScopedGrantsPanel instead.
   const globalPermsSet = permissions.filter(p => p.scope === 'GLOBAL');
   const nodePerms      = permissions.filter(p => p.scope === 'NODE');
   const lcPerms        = permissions.filter(p => p.scope === 'LIFECYCLE');
-  const KNOWN_SCOPES   = new Set(['GLOBAL', 'NODE', 'LIFECYCLE']);
+  // keyedScopes: scopes from tree that have ≥1 key with populated flat values
+  const keyedScopes    = Object.fromEntries(
+    ((tree?.scopes) || [])
+      .filter(s => s.keys?.some(k => k.values?.length > 0))
+      .map(s => [s.code, s])
+  );
+  const KNOWN_SCOPES   = new Set(['GLOBAL', 'NODE', 'LIFECYCLE', ...Object.keys(keyedScopes)]);
   const extraScopes    = [...new Set(permissions.map(p => p.scope).filter(s => s && !KNOWN_SCOPES.has(s)))];
   const permsByScope   = (sc) => permissions.filter(p => p.scope === sc);
 
@@ -4073,8 +4173,10 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
       const granted = new Set((Array.isArray(rows) ? rows : []).map(r => r.permissionCode || r.permission_code));
       setGlobalPerms(s => ({ ...s, [roleId]: granted }));
     }
-    if (extraScopes.length > 0 && !scopePerms[roleId]) {
-      const entries = await Promise.all(extraScopes.map(async sc => {
+    // Only load role-only scope perms for scopes without keys (keyed scopes use ScopedGrantsPanel)
+    const roleOnlyExtraScopes = extraScopes.filter(sc => !keyedScopes[sc]);
+    if (roleOnlyExtraScopes.length > 0 && !scopePerms[roleId]) {
+      const entries = await Promise.all(roleOnlyExtraScopes.map(async sc => {
         const rows = await api.getRoleScopePermissions(userId, roleId, sc).catch(() => []);
         const set = new Set((Array.isArray(rows) ? rows : []).map(r => r.permissionCode || r.permission_code));
         return [sc, set];
@@ -4216,6 +4318,17 @@ export function AccessRightsSection({ userId, canWrite, toast }) {
                     </div>
                   );
                 })}
+
+                {/* ── Keyed scopes (e.g. SERVICE) — per-key grant table ── */}
+                {Object.values(keyedScopes).map(sd =>
+                  permsByScope(sd.code).length > 0 ? (
+                    <ScopedGrantsPanel key={sd.code}
+                      scopeDef={sd} allPermissions={permissions}
+                      roleId={role.id} projectSpaceId={projectSpaceId}
+                      userId={userId} canWrite={canWrite} toast={toast}
+                    />
+                  ) : null
+                )}
 
                 {/* ── NODE + LIFECYCLE scope permissions ── */}
                 {(nodePerms.length > 0 || lcPerms.length > 0) && (
@@ -4853,7 +4966,7 @@ export function ServiceRegistrySection({ userId, toast }) {
 }
 
 /* ── Active section dispatcher ───────────────────────────────────── */
-function ActiveSectionContent({ sectionKey, userId, projectSpaceId, canWrite, toast }) {
+function ActiveSectionContent({ sectionKey, userId, projectSpaceId, canWrite, toast, pluginsLoaded }) {
   if (sectionKey === null) {
     return <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>;
   }
@@ -4861,6 +4974,9 @@ function ActiveSectionContent({ sectionKey, userId, projectSpaceId, canWrite, to
   const regPlugin = findSettingsSectionComponent(sectionKey);
   const plugin = regPlugin ?? lookupSettingsPlugin(sectionKey);
   if (!plugin) {
+    if (!pluginsLoaded) {
+      return <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Loading plugins…</div>;
+    }
     return <div style={{ padding: '32px 24px', color: 'var(--muted)', fontSize: 13 }}>Unknown section: {sectionKey}</div>;
   }
   const { Component, wrapBody } = plugin;
@@ -4869,7 +4985,7 @@ function ActiveSectionContent({ sectionKey, userId, projectSpaceId, canWrite, to
 }
 
 /* ── Main SettingsPage ───────────────────────────────────────────── */
-export default function SettingsPage({ userId, projectSpaceId, activeSection, onSectionChange, settingsSections, toast }) {
+export default function SettingsPage({ userId, projectSpaceId, activeSection, onSectionChange, settingsSections, pluginsLoaded, toast }) {
 
   // Build canWrite lookup from backend-provided sections
   const sectionPerms = useMemo(() => {
@@ -4898,6 +5014,7 @@ export default function SettingsPage({ userId, projectSpaceId, activeSection, on
         userId={userId}
         projectSpaceId={projectSpaceId}
         canWrite={sectionPerms[activeSection] ?? false}
+        pluginsLoaded={pluginsLoaded}
         toast={toast}
       />
     </div>
@@ -5345,126 +5462,12 @@ export function ImportContextsSection({ userId, canWrite, toast }) {
   );
 }
 
-// ── Data Storage Settings section ─────────────────────────────────────────────
-
-function fmtStorageBytes(b) {
-  if (!b) return '0 B';
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-  if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function StorageStatsSection({ toast }) {
-  const [stats, setStats]   = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  async function refresh() {
-    setLoading(true);
-    try {
-      setStats(await dstApi.getStats());
-    } catch (e) {
-      toast(e?.message || String(e), 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (loading && !stats) return <div style={{ padding: 24, color: 'var(--muted)', fontSize: 12 }}>Loading…</div>;
-  if (!stats) return null;
-
-  return (
-    <div className="settings-section">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-        <h2 style={{ margin: 0 }}>Storage Statistics</h2>
-        <button className="btn btn-xs" onClick={refresh} disabled={loading}>Refresh</button>
-      </div>
-
-      {/* Summary row */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-        {[
-          { v: stats.totalFiles.toLocaleString(), l: 'Total Files' },
-          { v: fmtStorageBytes(stats.totalSizeBytes), l: 'Total Size' },
-          { v: stats.maxFileSize, l: 'Max Upload' },
-        ].map(({ v, l }) => (
-          <div key={l} style={{
-            background: 'var(--surface2)', borderRadius: 8, padding: '12px 18px', flex: 1,
-          }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>{v}</div>
-            <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 4 }}>{l}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Storage root */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>Storage Root</div>
-        <code style={{ fontSize: 12, color: 'var(--text2)', background: 'var(--surface2)', padding: '4px 8px', borderRadius: 4 }}>
-          {stats.storageRoot}
-        </code>
-      </div>
-
-      {/* Per project space */}
-      {stats.perProjectSpace?.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>By Project Space</div>
-          <table className="settings-table">
-            <thead>
-              <tr>
-                <th>Project Space</th>
-                <th style={{ textAlign: 'right' }}>Files</th>
-                <th style={{ textAlign: 'right' }}>Size</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.perProjectSpace.map(ps => (
-                <tr key={ps.projectSpaceId}>
-                  <td><code style={{ fontSize: 11 }}>{ps.projectSpaceId || '—'}</code></td>
-                  <td style={{ textAlign: 'right' }}>{ps.fileCount.toLocaleString()}</td>
-                  <td style={{ textAlign: 'right' }}>{fmtStorageBytes(ps.totalSizeBytes)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Per content type */}
-      {stats.perContentType?.length > 0 && (
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>By Content Type</div>
-          <table className="settings-table">
-            <thead>
-              <tr>
-                <th>Content Type</th>
-                <th style={{ textAlign: 'right' }}>Files</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.perContentType.map(ct => (
-                <tr key={ct.contentType || 'unknown'}>
-                  <td><code style={{ fontSize: 11 }}>{ct.contentType || '—'}</code></td>
-                  <td style={{ textAlign: 'right' }}>{ct.fileCount.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Settings section registrations ───────────────────────────────────────────
-// Runs at module load. To add sections from a new service: write the component,
-// call registerSettingsPlugin here (or in a dedicated plugin file imported from
-// plugins/index.js). SettingsPage itself never needs to change.
+// Shell owns platform/pno sections; service-owned sections (psa-*, dst-*)
+// come from remote plugins via platform-api manifest federation.
 registerSettingsPlugin('my-profile',           MyProfileSection);
 registerSettingsPlugin('api-playground',       ApiPlayground,           { wrapBody: false });
 registerSettingsPlugin('user-manual',          UserManual,              { wrapBody: false });
-// psa sections registered via pluginRegistry ('psa-settings' plugin in plugins/index.js)
 registerSettingsPlugin('proj-spaces',          ProjectSpacesSection);
 registerSettingsPlugin('users-roles',          UsersRolesSection);
 registerSettingsPlugin('access-rights',        AccessRightsSection);
@@ -5473,4 +5476,3 @@ registerSettingsPlugin('service-registry',     ServiceRegistrySection);
 registerSettingsPlugin('platform-environment', PlatformEnvironmentSection);
 registerSettingsPlugin('actions-catalog',      ActionsCatalogSection);
 registerSettingsPlugin('platform-algorithms',  AlgorithmSection);
-registerSettingsPlugin('dst-stats',            StorageStatsSection);

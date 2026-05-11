@@ -1,6 +1,7 @@
 package com.dst.domain;
 
 import com.dst.domain.storage.BinaryStorage;
+import com.dst.event.DstEventPublisher;
 import com.plm.platform.authz.PlmPermission;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,7 @@ public class DataService {
 
     private final DSLContext dsl;
     private final BinaryStorage storage;
+    private final DstEventPublisher eventPublisher;
 
     @PlmPermission("WRITE_DATA")
     @Transactional
@@ -69,6 +71,7 @@ public class DataService {
             res.location(), userId, now, projectSpaceId, 1);
         log.info("DATA upload id={} sha256={} size={} contentType={} by={} ps={}",
             id, res.sha256Hex(), res.sizeBytes(), contentType, userId, projectSpaceId);
+        eventPublisher.itemCreated(id, userId, projectSpaceId);
         return new DataUploadResult(
             new DataMetadata(id, res.sha256Hex(), res.sizeBytes(), contentType, originalName,
                 res.location(), userId, now, null, projectSpaceId, 1),
@@ -93,6 +96,7 @@ public class DataService {
             dsl.execute("DELETE FROM data_object WHERE id = ?", id);
             storage.delete(m.location());
             log.info("DATA unref-gc id={} sha256={} by={} ps={}", id, m.sha256(), userId, projectSpaceId);
+            eventPublisher.itemDeleted(id, userId);
         } else {
             dsl.execute("UPDATE data_object SET ref_count = ref_count - 1 WHERE id = ?", id);
             log.info("DATA unref id={} ref_count={} by={} ps={}", id, m.refCount() - 1, userId, projectSpaceId);
@@ -140,6 +144,7 @@ public class DataService {
         dsl.execute("DELETE FROM data_object WHERE id = ?", id);
         storage.delete(m.location());
         log.info("DATA delete id={} sha256={} by={} ps={}", id, m.sha256(), userId, projectSpaceId);
+        eventPublisher.itemDeleted(id, userId);
     }
 
     private DataMetadata loadOrThrow(String id, String projectSpaceId) {

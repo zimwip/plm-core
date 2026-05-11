@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api, txApi } from '../services/api';
+import { api, basketApi, kvApi, txApi } from '../services/api';
 
 /**
  * Global PLM store — single source of truth for navigation tree,
@@ -18,6 +18,8 @@ export const usePlmStore = create((set, get) => ({
   // Identity
   userId: null,
   setUserId: (id) => set({ userId: id }),
+  projectSpaceId: null,
+  setProjectSpaceId: (id) => set({ projectSpaceId: id }),
 
   // ── Metadata: platform/items ──────────────────────────────────────
   // Raw item descriptors from platform-api. Derived slices:
@@ -131,6 +133,14 @@ export const usePlmStore = create((set, get) => ({
   activeTx: null,
   txNodes: [],
 
+  // IDs of psm nodes currently locked by the current user (checked out or
+  // just locked). Seeded from txNodes on refreshTx; kept in sync via
+  // LOCK_ACQUIRED / LOCK_RELEASED WS events. Used to block basket unpin.
+  lockedByMe: new Set(),
+  lockItem:   (nodeId) => set(s => { const n = new Set(s.lockedByMe); n.add(nodeId);    return { lockedByMe: n }; }),
+  unlockItem: (nodeId) => set(s => { const n = new Set(s.lockedByMe); n.delete(nodeId); return { lockedByMe: n }; }),
+  unlockAll:  ()       => set({ lockedByMe: new Set() }),
+
   refreshTx: async () => {
     const { userId } = get();
     if (!userId) return;
@@ -139,16 +149,18 @@ export const usePlmStore = create((set, get) => ({
       if (t) {
         const txId = t.ID || t.id;
         const tvn  = await txApi.nodes(userId, txId).catch(() => []);
-        set({ activeTx: t, txNodes: Array.isArray(tvn) ? tvn : [] });
+        const nodes = Array.isArray(tvn) ? tvn : [];
+        const locked = new Set(nodes.map(n => n.node_id || n.NODE_ID).filter(Boolean));
+        set({ activeTx: t, txNodes: nodes, lockedByMe: locked });
       } else {
-        set({ activeTx: null, txNodes: [] });
+        set({ activeTx: null, txNodes: [], lockedByMe: new Set() });
       }
     } catch {
-      set({ activeTx: null, txNodes: [] });
+      set({ activeTx: null, txNodes: [], lockedByMe: new Set() });
     }
   },
 
-  clearTx: () => set({ activeTx: null, txNodes: [] }),
+  clearTx: () => set({ activeTx: null, txNodes: [], lockedByMe: new Set() }),
 
   // Full refresh: items (+ nodes derived) + tx in parallel.
   // Replaces the previous refreshNodes+refreshTx pair so a single
@@ -158,58 +170,116 @@ export const usePlmStore = create((set, get) => ({
     await Promise.all([refreshItems(), refreshTx()]);
   },
 
-  // ── Node description cache ────────────────────────────────────────
-  // Keyed by nodeId. Populated when a NodeEditor tab opens; evicted when closed.
-  // WS events and explicit refreshes update this map so all subscribers re-render.
-  activeNodeDescs: {},
+  // ── Basket ────────────────────────────────────────────────────────
+  // Maps "source:typeCode" → Set<itemId>.
+  // Scoped to the active project space. Auto-populated on ITEM_CREATED events
+  // and by direct user interactions (pin/unpin). Loaded once per login.
+  basketItems: {},
+  basketLoaded: false,
 
-  // Sequence counter per nodeId — incremented on every refreshNodeDesc call.
-  // Only the response to the latest request is applied; stale concurrent responses
-  // are silently discarded.
-  _nodeDescSeq: {},
-
-  refreshNodeDesc: async (nodeId) => {
-    const { userId, activeTx, _nodeDescSeq } = get();
-    const txId = activeTx?.ID || activeTx?.id || null;
-    if (!nodeId || !userId) return;
-
-    const seq = (_nodeDescSeq[nodeId] || 0) + 1;
-    set(state => ({ _nodeDescSeq: { ...state._nodeDescSeq, [nodeId]: seq } }));
-
+  loadBasket: async (userId) => {
+    if (!userId) return;
     try {
-      const desc = await api.getNodeDescription(userId, nodeId, txId);
-      if ((get()._nodeDescSeq[nodeId] || 0) === seq) {
-        set(state => ({
-          activeNodeDescs: { ...state.activeNodeDescs, [nodeId]: desc },
-        }));
-      }
-    } catch {}
+      const entries = await basketApi.list(userId);
+      const map = {};
+      (entries || []).forEach(({ source, typeCode, itemId }) => {
+        const key = `${source}:${typeCode}`;
+        if (!map[key]) map[key] = new Set();
+        map[key].add(itemId);
+      });
+      set({ basketItems: map, basketLoaded: true });
+    } catch {
+      set({ basketItems: {}, basketLoaded: true });
+    }
   },
 
-  patchNodeDescAttrs: (nodeId, pendingEdits) => set(state => {
-    const prev = state.activeNodeDescs[nodeId];
-    if (!prev) return state;
-    const updatedAttrs = (prev.attributes || []).map(a =>
-      pendingEdits[a.id] !== undefined ? { ...a, value: pendingEdits[a.id] } : a
+  addToBasket: async (userId, source, typeCode, itemId) => {
+    const key = `${source}:${typeCode}`;
+    set(state => {
+      const prev = state.basketItems[key] ? new Set(state.basketItems[key]) : new Set();
+      prev.add(itemId);
+      return { basketItems: { ...state.basketItems, [key]: prev } };
+    });
+    try {
+      await basketApi.add(userId, source, typeCode, itemId);
+    } catch { /* best-effort */ }
+  },
+
+  removeFromBasket: async (userId, source, typeCode, itemId) => {
+    const key = `${source}:${typeCode}`;
+    set(state => {
+      const prev = state.basketItems[key] ? new Set(state.basketItems[key]) : new Set();
+      prev.delete(itemId);
+      return { basketItems: { ...state.basketItems, [key]: prev } };
+    });
+    try {
+      await basketApi.remove(userId, source, typeCode, itemId);
+    } catch { /* best-effort */ }
+  },
+
+  emptyBasket: async (userId) => {
+    const { lockedByMe, basketItems } = get();
+    const lockedPsmIds = new Set(lockedByMe);
+    const hasLocked = [...Object.entries(basketItems)].some(([key, ids]) =>
+      key.startsWith('psm:') && [...ids].some(id => lockedPsmIds.has(id))
     );
-    return {
-      activeNodeDescs: {
-        ...state.activeNodeDescs,
-        [nodeId]: { ...prev, attributes: updatedAttrs },
-      },
-    };
-  }),
-
-  evictNodeDesc: (nodeId) => set(state => {
-    const copy = { ...state.activeNodeDescs };
-    delete copy[nodeId];
-    return { activeNodeDescs: copy };
-  }),
-
-  refreshAllNodeDescs: async () => {
-    const { activeNodeDescs, refreshNodeDesc } = get();
-    const nodeIds = Object.keys(activeNodeDescs);
-    if (nodeIds.length === 0) return;
-    await Promise.all(nodeIds.map(nid => refreshNodeDesc(nid)));
+    if (!hasLocked) {
+      set({ basketItems: {} });
+      try { await basketApi.clear(userId); } catch { /* best-effort */ }
+      return;
+    }
+    // Slow path: remove only non-locked items one by one.
+    const nextItems = {};
+    const removes = [];
+    for (const [key, ids] of Object.entries(basketItems)) {
+      const colonIdx = key.indexOf(':');
+      const source   = colonIdx > -1 ? key.slice(0, colonIdx) : key;
+      const typeCode = colonIdx > -1 ? key.slice(colonIdx + 1) : '';
+      const kept = new Set();
+      for (const id of ids) {
+        if (source === 'psm' && lockedPsmIds.has(id)) { kept.add(id); continue; }
+        removes.push(basketApi.remove(userId, source, typeCode, id).catch(() => {}));
+      }
+      if (kept.size > 0) nextItems[key] = kept;
+    }
+    set({ basketItems: nextItems });
+    await Promise.all(removes);
   },
+
+  isInBasket: (source, typeCode, itemId) => {
+    const key = `${source}:${typeCode}`;
+    const { basketItems } = usePlmStore.getState();
+    return !!(basketItems[key] && basketItems[key].has(itemId));
+  },
+
+  syncBasketAdd: (key, value) => set(state => {
+    const prev = state.basketItems[key] ? new Set(state.basketItems[key]) : new Set();
+    prev.add(value);
+    return { basketItems: { ...state.basketItems, [key]: prev } };
+  }),
+  syncBasketRemove: (key, value) => set(state => {
+    if (!state.basketItems[key]) return {};
+    const next = new Set(state.basketItems[key]);
+    next.delete(value);
+    return { basketItems: { ...state.basketItems, [key]: next } };
+  }),
+  syncBasketClear: () => set({ basketItems: {} }),
+
+  // Remove specific item IDs (e.g. nodes deleted by rollback) from all basket keys.
+  removeBasketItemIds: (itemIds) => set(state => {
+    const ids = new Set(itemIds);
+    const next = {};
+    for (const [key, values] of Object.entries(state.basketItems)) {
+      const filtered = new Set([...values].filter(v => !ids.has(v)));
+      if (filtered.size > 0) next[key] = filtered;
+    }
+    return { basketItems: next };
+  }),
+
+  // ── Plugin store slices ───────────────────────────────────────────
+  // Remote plugins register their own state via shellAPI.store.registerSlice().
+  // State lives under _slices[name]; actions under _sliceActions[name].
+  _slices: {},
+  _sliceActions: {},
+
 }));

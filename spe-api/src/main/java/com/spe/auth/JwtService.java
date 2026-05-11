@@ -77,6 +77,7 @@ public class JwtService {
             .claim("roleIds", ctx.roleIds())
             .claim("isAdmin", ctx.isAdmin())
             .claim("ps", ctx.projectSpaceId())
+            .claim("svcCodes", ctx.allowedServiceCodes())
             .id(UUID.randomUUID().toString())
             .issuedAt(Date.from(now))
             .expiration(Date.from(now.plusSeconds(forwardTtl)))
@@ -115,12 +116,14 @@ public class JwtService {
     public Optional<SpeUserContext> verify(String token) {
         return parse(token).map(c -> {
             List<String> roleIds = (List<String>) c.getOrDefault("roleIds", List.of());
+            List<String> svcCodes = (List<String>) c.getOrDefault("svcCodes", List.of());
             return new SpeUserContext(
                 c.getSubject(),
                 c.get("username", String.class),
                 List.copyOf(roleIds),
                 Boolean.TRUE.equals(c.get("isAdmin", Boolean.class)),
-                c.get("ps", String.class)
+                c.get("ps", String.class),
+                List.copyOf(svcCodes)
             );
         });
     }

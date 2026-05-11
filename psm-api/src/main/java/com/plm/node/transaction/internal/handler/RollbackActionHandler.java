@@ -22,7 +22,7 @@ public class RollbackActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/rollback/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/rollback/{id}").metadataOnly());
     }
 
     @Override

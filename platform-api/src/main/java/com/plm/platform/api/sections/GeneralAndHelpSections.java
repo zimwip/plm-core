@@ -8,11 +8,6 @@ import org.springframework.context.annotation.Configuration;
 class GeneralAndHelpSections {
 
     @Bean
-    SettingSectionDto myProfileSection() {
-        return new SettingSectionDto("my-profile", "My Profile", "GENERAL", 1, null, "user");
-    }
-
-    @Bean
     SettingSectionDto apiPlaygroundSection() {
         return new SettingSectionDto("api-playground", "API Playground", "HELP", 10, null, "terminal");
     }

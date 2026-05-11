@@ -1,5 +1,6 @@
 package com.plm.platform.auth;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -13,5 +14,10 @@ public record PlmPrincipal(
     boolean isAdmin,
     Set<String> roleIds,
     String projectSpaceId,
-    String tokenType
-) {}
+    String tokenType,
+    List<String> allowedServiceCodes
+) {
+    public boolean canAccessService(String serviceCode) {
+        return isAdmin || (allowedServiceCodes != null && allowedServiceCodes.contains(serviceCode));
+    }
+}

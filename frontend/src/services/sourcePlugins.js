@@ -115,6 +115,28 @@ export function lookupLinkRowForSource(sourceCode) {
   return null;
 }
 
+/**
+ * Merge additional properties into an existing plugin that matches the given
+ * serviceCode + itemCode, or register a new one if no match is found.
+ * Used by PluginLoader to inject nav capabilities (NavRow, ChildRow, …) from
+ * a remote plugin into the boot-time shell plugin that owns Editor + Preview.
+ *
+ * @param {string}  serviceCode
+ * @param {string=} itemCode     optional — narrows to one item type
+ * @param {Object}  updates      properties to merge (shallow)
+ */
+export function updateSourcePlugin(serviceCode, itemCode, updates) {
+  const existing = _plugins.find(p =>
+    p.match.serviceCode === serviceCode &&
+    (!itemCode || p.match.itemCode === itemCode),
+  );
+  if (existing) {
+    Object.assign(existing, updates);
+  } else {
+    registerSourcePlugin({ match: { serviceCode, itemCode }, ...updates });
+  }
+}
+
 // Test / inspection hook — never called in prod paths.
 export function _debugListPlugins() {
   return _plugins.map(p => ({ name: p.name, match: p.match, specificity: p._specificity }));

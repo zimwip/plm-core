@@ -54,11 +54,14 @@ public class SettingsSectionRegistry {
         if (prev == null) {
             log.info("Settings registered: {} ({} sections, instance {})",
                 request.serviceCode(), reg.sections().size(), request.instanceId());
+            publishChange();
         } else {
             log.debug("Settings re-registered: {} ({} sections, instance {})",
                 request.serviceCode(), reg.sections().size(), request.instanceId());
+            if (!prev.sections().equals(reg.sections())) {
+                publishChange();
+            }
         }
-        publishChange();
         return reg;
     }
 

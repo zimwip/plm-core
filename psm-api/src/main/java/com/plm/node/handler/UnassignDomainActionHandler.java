@@ -36,7 +36,7 @@ public class UnassignDomainActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/unassign_domain/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/unassign_domain/{id}").metadataOnly());
     }
 
     @Override

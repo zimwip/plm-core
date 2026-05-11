@@ -1,5 +1,5 @@
 com.plm.platform.environment.PlatformRegistrationAutoConfiguration
-com.plm.platform.spe.client.ServiceClientAutoConfiguration
+com.plm.platform.client.ServiceClientAutoConfiguration
 com.plm.platform.config.ConfigRegistrationAutoConfiguration
 com.plm.platform.settings.SettingsRegistrationAutoConfiguration
 com.plm.platform.item.ItemCatalogRegistrationAutoConfiguration
@@ -14,4 +14,5 @@ com.plm.platform.action.guard.PlmActionGuardAutoConfiguration
 com.plm.platform.action.ActionCatalogRegistrationAutoConfiguration
 com.plm.platform.action.ActionHandlerRouteAutoConfiguration
 com.plm.platform.action.PlmActionAutoConfiguration
+com.plm.platform.action.ActionFrameworkAutoConfiguration
 com.plm.platform.ui.UiPluginsAutoConfiguration

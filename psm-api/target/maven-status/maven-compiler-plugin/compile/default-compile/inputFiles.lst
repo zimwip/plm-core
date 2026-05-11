@@ -1,10 +1,7 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/PlmApplication.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/action/ActionController.java
-/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/action/ActionService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/action/guard/ActionGuard.java
-/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/action/guard/ActionGuardService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/action/guard/package-info.java
-/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/action/internal/ActionDispatcher.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/action/internal/ActionParameterValidator.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/action/package-info.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/cad/CadApiClient.java
@@ -47,6 +44,7 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/lifecycle/internal/stateaction/StateActionService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/lifecycle/internal/stateaction/StateActionTrigger.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/lifecycle/internal/stateaction/impl/CollapseHistoryAction.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/link/internal/DstDetachRollbackHook.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/link/internal/GraphValidationService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/link/internal/LinkScope.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/link/internal/LinkService.java
@@ -97,6 +95,7 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/action/ActionScope.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/action/GlobalScope.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/config/JacksonConfig.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/config/UiPluginsConfig.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/event/OutboxPoller.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/event/PlmEventPublisher.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/exception/AccessDeniedException.java
@@ -110,7 +109,9 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/hook/CommitResult.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/hook/CommitViolation.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/hook/PostCommitHook.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/hook/PostRollbackHook.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/hook/PreCommitValidator.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/hook/RollbackContext.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/metadata/Metadata.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/metadata/MetadataRegistry.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/metadata/MetadataService.java

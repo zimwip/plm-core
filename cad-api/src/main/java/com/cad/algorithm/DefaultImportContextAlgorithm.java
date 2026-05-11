@@ -12,12 +12,21 @@ public class DefaultImportContextAlgorithm implements ImportContextAlgorithm {
 
     @Override
     public ImportDecision evaluate(CadNodeData node, ImportJobContext ctx) {
-        Map<String, String> attrs = new HashMap<>(node.attributes());
-        attrs.put("name", node.name());
-        String nodeTypeId = "nt-" + node.cadType().toLowerCase();
-        // Derive a P-XXXXXX logical ID from the CAD node ID (pattern required by nt-part/nt-assembly)
-        int hash = (Objects.hash(node.cadId(), node.cadType()) >>> 1) % 1000000;
-        String logicalId = String.format("P-%06d", hash);
+        String type = node.cadType().toLowerCase();
+        if (!"part".equals(type) && !"assembly".equals(type)) {
+            return ImportDecision.skip();
+        }
+
+        String partNumber  = node.attributes().getOrDefault("partNumber", "");
+        String description = node.attributes().getOrDefault("description", "");
+
+        Map<String, String> attrs = new HashMap<>();
+        attrs.put("ad-part-name", partNumber.isBlank() ? node.name() : partNumber);
+        if (!description.isBlank()) attrs.put("ad-part-desc", description);
+
+        String nodeTypeId = "nt-" + type;
+        String logicalId = String.format("P-%06d",
+                (Objects.hash(node.cadId(), node.cadType()) >>> 1) % 1_000_000);
         return ImportDecision.create(nodeTypeId, logicalId, attrs);
     }
 }

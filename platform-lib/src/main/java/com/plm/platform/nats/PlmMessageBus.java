@@ -70,9 +70,22 @@ public class PlmMessageBus {
         }
     }
 
+    @SuppressWarnings("unchecked")
     private void publish(String subject, Object payload) {
         try {
-            String json = objectMapper.writeValueAsString(payload);
+            // Inject "event" key (last subject segment) so the frontend console can
+            // display a meaningful label regardless of which service built the payload.
+            String eventType = subject.contains(".")
+                ? subject.substring(subject.lastIndexOf('.') + 1)
+                : subject;
+            String json;
+            if (payload instanceof java.util.Map<?, ?> map) {
+                java.util.Map<String, Object> enriched = new java.util.LinkedHashMap<>((java.util.Map<String, Object>) map);
+                enriched.putIfAbsent("event", eventType);
+                json = objectMapper.writeValueAsString(enriched);
+            } else {
+                json = objectMapper.writeValueAsString(payload);
+            }
             publishRaw(subject, json);
         } catch (Exception e) {
             log.error("NATS publish failed: subject={} error={}", subject, e.getMessage(), e);

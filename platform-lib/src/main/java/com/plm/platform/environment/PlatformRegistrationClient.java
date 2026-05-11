@@ -1,9 +1,9 @@
 package com.plm.platform.environment;
 
 import com.plm.platform.nats.NatsListenerFactory;
-import com.plm.platform.spe.dto.RegisterRequest;
-import com.plm.platform.spe.dto.RegistrySnapshot;
-import com.plm.platform.spe.registry.LocalServiceRegistry;
+import com.plm.platform.action.dto.RegisterRequest;
+import com.plm.platform.action.dto.RegistrySnapshot;
+import com.plm.platform.registry.LocalServiceRegistry;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;

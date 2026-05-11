@@ -20,15 +20,16 @@ public class ActionCatalogRegistry {
     private final ConcurrentHashMap<String, ServiceActionCatalog> byService = new ConcurrentHashMap<>();
 
     public ServiceActionCatalog register(String serviceCode, List<HandlerEntry> handlers,
-                                          List<GuardEntry> guards) {
-        ServiceActionCatalog catalog = new ServiceActionCatalog(serviceCode, handlers, guards, Instant.now());
+                                          List<GuardEntry> guards, List<EventEntry> events) {
+        List<EventEntry> evts = events != null ? events : List.of();
+        ServiceActionCatalog catalog = new ServiceActionCatalog(serviceCode, handlers, guards, evts, Instant.now());
         ServiceActionCatalog prev = byService.put(serviceCode, catalog);
         if (prev == null) {
-            log.info("Action catalog registered: {} ({} handlers, {} guards)",
-                serviceCode, handlers.size(), guards.size());
+            log.info("Action catalog registered: {} ({} handlers, {} guards, {} events)",
+                serviceCode, handlers.size(), guards.size(), evts.size());
         } else {
-            log.debug("Action catalog re-registered: {} ({} handlers, {} guards)",
-                serviceCode, handlers.size(), guards.size());
+            log.debug("Action catalog re-registered: {} ({} handlers, {} guards, {} events)",
+                serviceCode, handlers.size(), guards.size(), evts.size());
         }
         return catalog;
     }
@@ -54,5 +55,11 @@ public class ActionCatalogRegistry {
         String code,
         String label,
         String module
+    ) {}
+
+    public record EventEntry(
+        String code,
+        String description,
+        String scope
     ) {}
 }

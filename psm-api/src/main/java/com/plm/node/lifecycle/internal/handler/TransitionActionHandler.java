@@ -22,7 +22,7 @@ public class TransitionActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/transition/{id}/{transitionId}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/transition/{id}/{transitionId}").metadataOnly());
     }
 
     @Override

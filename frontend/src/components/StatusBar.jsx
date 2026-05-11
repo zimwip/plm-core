@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { speApi } from '../services/api';
 import { getApiStats, getWindowStats, resetApiStats, subscribeApiStats } from '../services/apiStats';
-import { useCacheStats } from '../workers/stepWorkerInstance';
+import { useCacheStats, clearWorkerCache, setWorkerMaxBytes } from '../workers/stepWorkerInstance';
 import { getStatusPlugins } from '../services/statusPlugins';
 
 const POLL_MS = 10_000;
@@ -333,6 +333,10 @@ export default function StatusBar({ showSettings, onToggleSettings, consoleVisib
                 className={`status-tab${tab === 'nats' ? ' status-tab-active' : ''}`}
                 onClick={() => setTab('nats')}
               >NATS</button>
+              <button
+                className={`status-tab${tab === 'workers' ? ' status-tab-active' : ''}`}
+                onClick={() => setTab('workers')}
+              >3D Workers</button>
               {statusPlugins.map(p => (
                 <button
                   key={p.key}
@@ -615,6 +619,90 @@ export default function StatusBar({ showSettings, onToggleSettings, consoleVisib
                 )}
               </>
             )}
+            {tab === 'workers' && (
+              <div style={{ padding: '12px 16px', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                  {[
+                    { v: cacheStats.workers,                    l: 'Workers' },
+                    { v: cacheStats.entries,                    l: 'Cached Parts' },
+                    { v: fmtBytes(cacheStats.cacheBytes),       l: 'Memory Used' },
+                    { v: fmtBytes(cacheStats.maxBytes),         l: 'Memory Limit' },
+                    { v: cacheStats.memHits,                    l: 'Mem Hits' },
+                    { v: cacheStats.idbHits,                    l: 'IDB Hits' },
+                    { v: cacheStats.netFetches,                 l: 'Downloads' },
+                    { v: fmtMs(cacheStats.avgDownloadMs),       l: 'Avg Download' },
+                    { v: fmtMs(cacheStats.avgParseMs),          l: 'Avg Parse' },
+                  ].map(({ v, l }) => (
+                    <div key={l} style={{ background: 'var(--surface2)', borderRadius: 6, padding: '8px 14px', minWidth: 90 }}>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>{v ?? '—'}</div>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted2)' }}>
+                  Cache: {fmtBytes(cacheStats.cacheBytes)} / {fmtBytes(cacheStats.maxBytes)} ({cacheStats.maxBytes > 0 ? ((cacheStats.cacheBytes / cacheStats.maxBytes) * 100).toFixed(1) : 0}%)
+                </div>
+                <div style={{ marginTop: 6, height: 6, background: 'var(--surface2)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${cacheStats.maxBytes > 0 ? Math.min(100, (cacheStats.cacheBytes / cacheStats.maxBytes) * 100) : 0}%`,
+                    background: 'var(--accent)',
+                    borderRadius: 3,
+                    transition: 'width .3s',
+                  }} />
+                </div>
+                <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', marginRight: 4 }}>Limit / worker</span>
+                  {[
+                    { label: '128 MB', bytes: 128 * 1024 * 1024 },
+                    { label: '256 MB', bytes: 256 * 1024 * 1024 },
+                    { label: '512 MB', bytes: 512 * 1024 * 1024 },
+                    { label: '1 GB',   bytes: 1024 * 1024 * 1024 },
+                  ].map(({ label, bytes }) => {
+                    const perWorker = cacheStats.workers > 0 ? cacheStats.maxBytes / cacheStats.workers : 0;
+                    const active = Math.abs(perWorker - bytes) < 1024;
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => setWorkerMaxBytes(bytes)}
+                        style={{
+                          padding: '3px 10px', fontSize: 11, borderRadius: 4, border: '1px solid',
+                          borderColor: active ? 'var(--accent)' : 'var(--border)',
+                          background: active ? 'var(--accent)' : 'var(--surface2)',
+                          color: active ? '#fff' : 'var(--text)',
+                          cursor: 'pointer', fontWeight: active ? 700 : 400,
+                        }}
+                      >{label}</button>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => clearWorkerCache({ idb: false })}
+                    style={{
+                      padding: '4px 12px', fontSize: 11, borderRadius: 4,
+                      border: '1px solid var(--border)', background: 'var(--surface2)',
+                      color: 'var(--text)', cursor: 'pointer',
+                    }}
+                  >Clear Memory</button>
+                  <button
+                    type="button"
+                    onClick={() => clearWorkerCache({ idb: true })}
+                    style={{
+                      padding: '4px 12px', fontSize: 11, borderRadius: 4,
+                      border: '1px solid var(--border)', background: 'var(--surface2)',
+                      color: 'var(--text)', cursor: 'pointer',
+                    }}
+                  >Clear All + IDB</button>
+                </div>
+                <div style={{ marginTop: 12, fontSize: 11, color: 'var(--muted2)' }}>
+                  Avg timings = rolling average over last 50 loads per worker. IDB = IndexedDB persistent cache. Mem = in-memory LRU.
+                </div>
+              </div>
+            )}
+
           {statusPlugins.map(p => tab === p.key && (
             <p.Component key={p.key} />
           ))}

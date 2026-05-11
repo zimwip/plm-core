@@ -1,6 +1,6 @@
 package com.plm.cad;
 
-import com.plm.platform.spe.client.ServiceClient;
+import com.plm.platform.client.ServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

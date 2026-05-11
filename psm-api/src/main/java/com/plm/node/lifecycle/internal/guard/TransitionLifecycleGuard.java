@@ -14,7 +14,7 @@ import java.util.Map;
  * Bridge between the action guard system and lifecycle guards.
  *
  * <p>Attached to the TRANSITION action via {@code action_guard} table.
- * When evaluated by {@link com.plm.action.guard.ActionGuardService},
+ * When evaluated by {@link com.plm.platform.action.guard.ActionGuardService},
  * delegates to {@link LifecycleGuardService} which evaluates transition-specific
  * guards (AllSignaturesDone, AllRequiredFilled, etc.).
  *

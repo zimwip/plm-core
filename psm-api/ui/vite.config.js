@@ -12,7 +12,7 @@ export default defineConfig({
       formats: ['es'],
     },
     rollupOptions: {
-      external: ['react', 'react-dom', 'react-dom/client'],
+      external: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime'],
       output: {
         entryFileNames: '[name].js',
         chunkFileNames: '[name]-[hash].js',

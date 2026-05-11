@@ -27,7 +27,9 @@ class ItemVisibilityControllerTest {
             PanelSection.MAIN, 100,
             new CreateAction("POST", "/c", "application/json", "WRAPPED", List.of(), "Create", null, "PRIMARY", 0),
             new ListAction("GET", "/l", "page", "size", List.of(), new ListItemShape("id", "name", null), "Browse", null, "SECONDARY", 10),
-            new GetAction("GET", "/g/{id}/detail", "Open", null, "SECONDARY", 20)
+            new GetAction("GET", "/g/{id}/detail", "Open", null, "SECONDARY", 20),
+            null,
+            null
         );
     }
 
@@ -41,7 +43,7 @@ class ItemVisibilityControllerTest {
         ItemVisibilityResolver r = (ctx, x) -> new ItemDescriptor(
             x.serviceCode(), x.itemCode(), x.itemKey(), x.displayName(), x.description(),
             x.icon(), x.color(), x.sourceLabel(), x.panelSection(), x.priority(),
-            null, x.list(), x.get()
+            null, x.list(), x.get(), x.importActions(), x.events()
         );
         var c = new ItemVisibilityController(List.of(() -> List.of(d)), r);
 
@@ -70,7 +72,8 @@ class ItemVisibilityControllerTest {
         ItemVisibilityResolver r = (ctx, x) -> new ItemDescriptor(
             x.serviceCode(), x.itemCode(), x.itemKey(), x.displayName(), x.description(),
             x.icon(), x.color(), x.sourceLabel(), x.panelSection(), x.priority(),
-            null, null, null
+            null, null, null, null,
+            null
         );
         var c = new ItemVisibilityController(List.of(() -> List.of(d)), r);
 

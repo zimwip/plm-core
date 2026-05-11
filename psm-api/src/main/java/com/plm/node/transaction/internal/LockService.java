@@ -2,6 +2,7 @@ package com.plm.node.transaction.internal;
 import com.plm.node.NodeService;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.LinkTypeConfig;
+import com.plm.shared.event.PlmEventPublisher;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +40,7 @@ public class LockService {
 
     private final DSLContext dsl;
     private final ConfigCache configCache;
+    private final PlmEventPublisher eventPublisher;
 
     /**
      * Self-reference via Spring proxy for cascade calls.
@@ -80,6 +82,7 @@ public class LockService {
             dsl.execute(
                 "UPDATE node SET locked_by = ?, locked_at = ? WHERE id = ?",
                 userId, LocalDateTime.now(), nodeId);
+            eventPublisher.lockAcquired(nodeId, userId);
             log.debug("Node {} locked by {}", nodeId, userId);
         } else if (currentOwner.equals(userId)) {
             log.debug("Node {} already locked by {} — idempotent", nodeId, userId);
@@ -113,10 +116,13 @@ public class LockService {
      */
     @Transactional
     public void unlock(String nodeId) {
+        Record ownerRow = dsl.fetchOne("SELECT locked_by FROM node WHERE id = ?", nodeId);
+        String owner = ownerRow != null ? ownerRow.get("locked_by", String.class) : null;
         dsl.execute(
             "UPDATE node SET locked_by = NULL, locked_at = NULL WHERE id = ?",
             nodeId);
-        log.debug("Node {} unlocked", nodeId);
+        if (owner != null) eventPublisher.lockReleased(nodeId, owner);
+        log.debug("Node {} unlocked (was owned by {})", nodeId, owner);
     }
 
     // ================================================================

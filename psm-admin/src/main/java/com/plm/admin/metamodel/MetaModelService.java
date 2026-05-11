@@ -258,10 +258,9 @@ public class MetaModelService {
         Set<String> seenNames = new LinkedHashSet<>();
         List<Map<String, Object>> result = new ArrayList<>();
 
-        // Own links: outgoing (source = this type) + incoming targeting this type
+        // Own links: outgoing only (source = this type)
         List<Record> ownLinks = dsl.select().from("link_type")
-            .where("source_node_type_id = ? OR (target_source_id = 'SELF' AND target_type = ?)",
-                   nodeTypeId, nodeTypeId)
+            .where("source_node_type_id = ?", nodeTypeId)
             .orderBy(DSL.field("name"))
             .fetch();
         for (Record lt : ownLinks) {

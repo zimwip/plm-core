@@ -10,8 +10,29 @@ const BASE_PLATFORM = '/api/platform';
 // into top-level constants.
 function serviceBase(code) { return `/api/${code}`; }
 
+export class ApiError extends Error {
+  constructor(status, message, detail) {
+    super(message);
+    this.name  = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+/**
+ * Swallows ApiErrors whose status code is in the given list, returning null.
+ * Any other error (different status or non-ApiError) is re-thrown.
+ * Usage: const res = await swallowStatus(kvApi.getSingle(...), 404);
+ */
+export function swallowStatus(promise, ...statuses) {
+  return promise.catch(err => {
+    if (err instanceof ApiError && statuses.includes(err.status)) return null;
+    throw err;
+  });
+}
+
 // Wrap fetch to record timing + status into apiStats.
-function uploadWithProgress(url, method, headers, formData, onProgress) {
+export function uploadWithProgress(url, method, headers, formData, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open(method, url);
@@ -197,6 +218,7 @@ async function gatewayJson(method, fullPath, body, isRetry = false) {
       ? payload.violations.map(v => typeof v === 'string' ? v : v.message).join('; ')
       : (payload.error || payload.message || `HTTP ${res.status}`);
     const err = new Error(msg);
+    err.status = res.status;
     err.detail = payload;
     // Per-field violations are handled inline by the caller — skip global error modal
     const hasFieldViolations = payload.violations?.some(v => v?.attrCode);
@@ -244,8 +266,7 @@ async function doFetch(baseUrl, method, path, body, { txId, psOverride } = {}, i
     const msg = payload.violations?.length
       ? payload.violations.map(v => typeof v === 'string' ? v : v.message).join('; ')
       : (payload.error || payload.message || `HTTP ${res.status}`);
-    const err = new Error(msg);
-    err.detail = payload;
+    const err = new ApiError(res.status, msg, payload);
     const hasFieldViolations = payload.violations?.some(v => v?.attrCode);
     if (_onError && !hasFieldViolations) _onError(err);
     throw err;
@@ -255,12 +276,25 @@ async function doFetch(baseUrl, method, path, body, { txId, psOverride } = {}, i
 }
 
 // userId args kept for API compatibility but no longer sent — the session token identifies the user.
-async function pnoRequest(method, path, _userId, body) {
-  return doFetch(serviceBase('pno'), method, path, body);
+async function pnoRequest(method, path, _userId, body, opts = {}) {
+  return doFetch(serviceBase('pno'), method, path, body, opts);
 }
 
 async function platformRequest(method, path, _userId, body) {
   return doFetch(BASE_PLATFORM, method, path, body);
+}
+
+// Fetch item detail via the registered GetAction. Used by the shell to populate
+// tab data before handing off to the editor plugin.
+// extraParams (e.g. { txId }) are appended as query-string; null/undefined values skipped.
+export function fetchItemDetail(serviceCode, getAction, itemId, extraParams = {}) {
+  let path = getAction.path.replace('{id}', itemId);
+  const qs = Object.entries(extraParams)
+    .filter(([, v]) => v != null)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&');
+  if (qs) path += `?${qs}`;
+  return gatewayJson(getAction.httpMethod || 'GET', serviceBase(serviceCode) + path, undefined);
 }
 
 // Generic item-create dispatcher used by the federated create modal.
@@ -312,6 +346,10 @@ async function request(method, path, _userId, body, psOverride) {
 
 async function adminRequest(method, path, _userId, body) {
   return doFetch(serviceBase('psa'), method, path, body);
+}
+
+export function serviceRequest(serviceCode, method, path, body) {
+  return doFetch(serviceBase(serviceCode), method, path, body);
 }
 
 // ── Platform status surface ────────────────────────────────────────
@@ -378,10 +416,11 @@ export const api = {
   // Description complète (Server-Driven UI) — txId optionnel pour voir les versions OPEN
   // versionNumber optionnel pour voir une version historique (lecture seule)
   getNodeDescription: (userId, nodeId, txId, versionNumber) => {
-    let params = `userId=${userId}`;
-    if (txId)          params += `&txId=${txId}`;
-    if (versionNumber) params += `&versionNumber=${versionNumber}`;
-    return request('GET', `/nodes/${nodeId}/description?${params}`, userId);
+    const parts = [];
+    if (txId)          parts.push(`txId=${txId}`);
+    if (versionNumber) parts.push(`versionNumber=${versionNumber}`);
+    const qs = parts.length ? `?${parts.join('&')}` : '';
+    return request('GET', `/nodes/${nodeId}/description${qs}`, userId);
   },
 
   updateExternalId: (userId, nodeId, externalId) =>
@@ -899,6 +938,16 @@ export const api = {
   removeRoleScopePermission: (userId, roleId, scopeCode, permissionCode) =>
     pnoRequest('DELETE', `/roles/${roleId}/scope-permissions/${scopeCode}/${permissionCode}`, userId),
 
+  /** Generic keyed-scope grants via AccessRightsController (SERVICE, future scopes with key values). */
+  getAccessRightsTree: (userId, projectSpaceId) =>
+    pnoRequest('GET', `/access-rights/tree${projectSpaceId ? `?projectSpaceId=${projectSpaceId}` : ''}`, userId),
+  getGrantsForRoleAndScope: (userId, roleId, scopeCode) =>
+    pnoRequest('GET', `/access-rights/roles/${roleId}/grants?scopeCode=${scopeCode}`, userId),
+  addScopedGrant: (userId, req) =>
+    pnoRequest('POST', `/access-rights/grants`, userId, req),
+  removeScopedGrant: (userId, req) =>
+    pnoRequest('DELETE', `/access-rights/grants`, userId, req),
+
   // ── Secrets (Vault-backed, served by platform-api at /api/platform/admin/secrets) ──
 
   listSecrets: (userId) =>
@@ -1079,6 +1128,16 @@ export const dstApi = {
   },
 };
 
+/** Generic job status poll — works for any service that returns jobStatusUrl in its upload response. */
+export async function pollJobStatus(serviceCode, jobStatusUrl) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (_sessionToken)    headers['Authorization']     = `Bearer ${_sessionToken}`;
+  if (_projectSpaceId)  headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+  const res = await timedFetch(`/api/${serviceCode}${jobStatusUrl}`, { method: 'GET', headers }, 'GET');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export const cadApi = {
   submitImport: async (file, rootNodeId, contextCode, onProgress) => {
     const headers = {};
@@ -1124,14 +1183,12 @@ export const authoringApi = {
     return txRequest('POST', path, userId, txId, { parameters: parameters || {} });
   },
 
-  // Use httpMethod + path from ActionDescriptor instead of constructing the URL.
-  // path is a full gateway path (e.g. /api/psm/actions/checkout/{id}); strip the
-  // service prefix before passing to txRequest which prepends /api/psm itself.
+  // Use httpMethod + path from ActionDescriptor. path is service-relative (e.g. /actions/checkout/{id}).
+  // txRequest prepends /api/psm; MULTIPART branch adds it explicitly.
   executeViaDescriptor: async (action, nodeId, userId, txId, parameters, onProgress) => {
-    const template = (action.path || '').replace(/^\/api\/psm/, '');
-    const path = template
+    const path = (action.path || '')
       .replace('{id}', nodeId)
-      .replace('{transitionId}', action.transitionId || '');
+      .replace('{transitionId}', action.metadata?.transitionId || '');
     const method = action.httpMethod || 'POST';
 
     if (action.bodyShape === 'MULTIPART') {
@@ -1153,4 +1210,27 @@ export const authoringApi = {
 
     return txRequest(method, path, userId, txId, { parameters: parameters || {} });
   },
+};
+
+// KV store for user preferences and basket.
+// Basket API — dedicated first-class endpoints (PS from X-PLM-ProjectSpace header).
+export const basketApi = {
+  list:   (userId)                          =>
+    pnoRequest('GET',    `/users/${encodeURIComponent(userId)}/basket`),
+  add:    (userId, source, typeCode, itemId) =>
+    pnoRequest('PUT',    `/users/${encodeURIComponent(userId)}/basket/${encodeURIComponent(source)}/${encodeURIComponent(typeCode)}/${encodeURIComponent(itemId)}`),
+  remove: (userId, source, typeCode, itemId) =>
+    pnoRequest('DELETE', `/users/${encodeURIComponent(userId)}/basket/${encodeURIComponent(source)}/${encodeURIComponent(typeCode)}/${encodeURIComponent(itemId)}`),
+  clear:  (userId)                          =>
+    pnoRequest('DELETE', `/users/${encodeURIComponent(userId)}/basket`),
+};
+
+// KV API — user preferences only (UI_PREF). PS header suppressed for global scope.
+export const kvApi = {
+  // UI_PREF is user-global — suppress X-PLM-ProjectSpace header so backend uses empty scope.
+  getSingle: (userId, group, key) =>
+    pnoRequest('GET', `/users/${encodeURIComponent(userId)}/kv/${encodeURIComponent(group)}/single/${encodeURIComponent(key)}`, undefined, undefined, { psOverride: '' }),
+
+  setSingle: (userId, group, key, value) =>
+    pnoRequest('PUT', `/users/${encodeURIComponent(userId)}/kv/${encodeURIComponent(group)}/single/${encodeURIComponent(key)}/${encodeURIComponent(value)}`, undefined, undefined, { psOverride: '' }),
 };

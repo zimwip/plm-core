@@ -12,8 +12,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
+import com.plm.shared.security.PlmSecurityContext;
+import com.plm.shared.security.PlmUserContext;
 
 import java.util.Map;
 
@@ -45,7 +45,7 @@ public class CadApiClient {
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("file", fileResource);
-        body.add("nodeId", nodeId);
+        if (nodeId != null) body.add("nodeId", nodeId);
         body.add("contextCode", contextCode != null ? contextCode : "default");
         body.add("userId", userId);
         body.add("projectSpaceId", projectSpaceId);
@@ -55,11 +55,17 @@ public class CadApiClient {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         headers.set("X-Service-Secret", serviceSecret);
+        // Forward user identity so cad-api can propagate it to psm-api from the async thread
+        // (cad-api's forward JWT would expire mid-import; delegated headers are TTL-free).
+        if (projectSpaceId != null && !projectSpaceId.isBlank()) {
+            headers.set("X-PLM-ProjectSpace", projectSpaceId);
+        }
         try {
-            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (attrs != null) {
-                String auth = attrs.getRequest().getHeader("Authorization");
-                if (auth != null) headers.set("Authorization", auth);
+            PlmUserContext user = PlmSecurityContext.get();
+            headers.set("X-PLM-User-Id", user.getUserId());
+            headers.set("X-PLM-Is-Admin", String.valueOf(user.isAdmin()));
+            if (user.getRoleIds() != null && !user.getRoleIds().isEmpty()) {
+                headers.set("X-PLM-User-Roles", String.join(",", user.getRoleIds()));
             }
         } catch (Exception ignored) {}
 

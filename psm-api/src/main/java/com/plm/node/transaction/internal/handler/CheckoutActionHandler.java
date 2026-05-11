@@ -24,7 +24,7 @@ public class CheckoutActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/checkout/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/checkout/{id}").metadataOnly());
     }
 
     @Override

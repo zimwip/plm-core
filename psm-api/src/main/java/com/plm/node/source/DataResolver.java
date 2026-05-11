@@ -1,7 +1,7 @@
 package com.plm.node.source;
 
 import com.plm.platform.algorithm.AlgorithmBean;
-import com.plm.platform.spe.client.ServiceClient;
+import com.plm.platform.client.ServiceClient;
 import com.plm.platform.action.guard.GuardEffect;
 import com.plm.platform.action.guard.GuardViolation;
 import com.plm.source.KeyHint;

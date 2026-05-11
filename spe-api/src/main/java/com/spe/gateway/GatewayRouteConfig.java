@@ -1,7 +1,7 @@
 package com.spe.gateway;
 
-import com.plm.platform.spe.dto.ServiceInstanceInfo;
-import com.plm.platform.spe.registry.LocalServiceRegistry;
+import com.plm.platform.action.dto.ServiceInstanceInfo;
+import com.plm.platform.registry.LocalServiceRegistry;
 import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
 import org.springframework.context.annotation.Bean;

@@ -74,7 +74,7 @@ public class LifecycleGuardService {
 
             for (GuardViolation v : rawViolations) {
                 blockViolations.add(new GuardViolation(
-                    v.guardCode(), v.message(), rg.effect(), v.fieldRef(), v.details()));
+                    v.code(), v.message(), rg.effect(), v.fieldRef(), v.details()));
             }
         }
 

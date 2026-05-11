@@ -26,7 +26,7 @@ public class UpdateNodeActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/update_node/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/update_node/{id}").metadataOnly());
     }
 
     @Override

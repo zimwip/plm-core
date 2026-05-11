@@ -23,7 +23,7 @@ public class CheckinActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/checkin/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/checkin/{id}").metadataOnly());
     }
 
     @Override

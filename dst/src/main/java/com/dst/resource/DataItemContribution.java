@@ -3,10 +3,12 @@ package com.dst.resource;
 import com.plm.platform.item.ItemCatalogContribution;
 import com.plm.platform.item.dto.CreateAction;
 import com.plm.platform.item.dto.GetAction;
+import com.plm.platform.item.dto.ImportAction;
 import com.plm.platform.item.dto.ItemDescriptor;
 import com.plm.platform.item.dto.ItemParameter;
 import com.plm.platform.item.dto.ListAction;
 import com.plm.platform.item.dto.ListItemShape;
+import com.plm.platform.item.dto.ItemEventType;
 import com.plm.platform.item.dto.PanelSection;
 import org.springframework.stereotype.Component;
 
@@ -56,6 +58,14 @@ public class DataItemContribution implements ItemCatalogContribution {
             "Open", "View file details",
             "SECONDARY", 20);
 
+        ImportAction importStep = new ImportAction(
+            "/data",
+            "*",
+            "Import file",
+            "Upload any file to the data store",
+            0,
+            null);
+
         return List.of(new ItemDescriptor(
             "dst",
             "data-object",
@@ -69,7 +79,9 @@ public class DataItemContribution implements ItemCatalogContribution {
             500,
             create,
             list,
-            get
+            get,
+            List.of(importStep),
+            List.of(ItemEventType.CREATED, ItemEventType.UPDATED)
         ));
     }
 }

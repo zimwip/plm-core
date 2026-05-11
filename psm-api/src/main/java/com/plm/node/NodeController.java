@@ -3,7 +3,7 @@ import com.plm.node.signature.internal.CommentService;
 import com.plm.node.signature.internal.SignatureService;
 import com.plm.node.transaction.internal.LockService;
 
-import com.plm.action.ActionService;
+import com.plm.platform.action.ActionService;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.authz.KeyExpr;
 import com.plm.platform.authz.PlmPermission;
@@ -12,6 +12,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.plm.platform.action.dto.ActionDescriptor;
+import com.plm.platform.action.dto.DetailDescriptor;
+import com.plm.platform.action.dto.DetailField;
 import java.util.List;
 import java.util.Map;
 
@@ -57,9 +60,8 @@ public class NodeController {
      * txId optionnel : si fourni, montre la version OPEN de la transaction (si owner).
      */
     @GetMapping("/{nodeId}/description")
-    @SuppressWarnings("unchecked")
     @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
-    public ResponseEntity<Map<String, Object>> getDescription(
+    public ResponseEntity<DetailDescriptor> getDescription(
         @PathVariable String nodeId,
         @RequestParam(required = false) String txId,
         @RequestParam(required = false) Integer versionNumber
@@ -68,44 +70,35 @@ public class NodeController {
             configCache.awaitPopulated(10, java.util.concurrent.TimeUnit.SECONDS);
         }
         String userId = secCtx.currentUser().getUserId();
-        Map<String, Object> description = nodeService.buildObjectDescription(nodeId, userId, txId, versionNumber);
+        DetailDescriptor base = nodeService.buildObjectDescription(nodeId, userId, txId, versionNumber);
 
-        // Resolve actions (skip for historical views)
-        boolean historicalView = Boolean.TRUE.equals(description.get("historicalView"));
-        List<Map<String, Object>> actions = List.of();
+        boolean historicalView = Boolean.TRUE.equals(base.metadata().get("historicalView"));
+        List<ActionDescriptor> actions = List.of();
         if (!historicalView) {
-            String nodeTypeId = (String) description.get("nodeTypeId");
-            String currentStateId = (String) description.get("state");
-            Map<String, Object> lockInfo = (Map<String, Object>) description.get("lock");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> lockInfo = (Map<String, Object>) base.metadata().get("lock");
             boolean isLocked = Boolean.TRUE.equals(lockInfo.get("locked"));
             boolean isLockedByCurrentUser = isLocked && userId.equals(lockInfo.get("lockedBy"));
             actions = actionService.resolveActionsForNode(
-                nodeId, nodeTypeId, currentStateId, isLocked, isLockedByCurrentUser);
+                nodeId,
+                (String) base.metadata().get("nodeTypeId"),
+                (String) base.metadata().get("state"),
+                isLocked, isLockedByCurrentUser);
         }
 
-        // Derive globalCanWrite from actions
         boolean globalCanWrite = !historicalView && actions.stream()
-            .anyMatch(a -> "update_node".equals(a.get("actionCode"))
-                && Boolean.TRUE.equals(a.get("authorized"))
-                && ((List<?>) a.getOrDefault("guardViolations", List.of())).isEmpty());
+            .anyMatch(a -> "update_node".equals(a.code())
+                && a.guardViolations().isEmpty());
 
-        // If not globally writable, override all attribute editable flags to false
-        if (!globalCanWrite) {
-            List<Map<String, Object>> attrs = (List<Map<String, Object>>) description.get("attributes");
-            if (attrs != null) {
-                List<Map<String, Object>> mutableAttrs = attrs.stream()
-                    .map(a -> {
-                        Map<String, Object> m = new java.util.HashMap<>(a);
-                        m.put("editable", false);
-                        return m;
-                    })
-                    .toList();
-                description.put("attributes", mutableAttrs);
-            }
-        }
+        List<DetailField> fields = globalCanWrite ? base.fields() : base.fields().stream()
+            .map(f -> f.editable()
+                ? new DetailField(f.name(), f.label(), f.value(), f.widget(), false, f.hint())
+                : f)
+            .toList();
 
-        description.put("actions", actions);
-        return ResponseEntity.ok(description);
+        return ResponseEntity.ok(new DetailDescriptor(
+            base.id(), base.title(), base.subtitle(), base.icon(), base.color(),
+            fields, actions, base.metadata()));
     }
 
     // ── Liens — lecture ───────────────────────────────────────────────

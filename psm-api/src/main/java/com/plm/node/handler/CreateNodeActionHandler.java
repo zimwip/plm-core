@@ -34,7 +34,7 @@ public class CreateNodeActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/create_node/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/create_node/{id}").metadataOnly());
     }
 
     @Override

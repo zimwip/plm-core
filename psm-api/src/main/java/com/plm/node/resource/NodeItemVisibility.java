@@ -78,7 +78,9 @@ public class NodeItemVisibility implements ItemVisibilityResolver {
                 descriptor.priority(),
                 createAllowed ? descriptor.create() : null,
                 readAllowed   ? descriptor.list()   : null,
-                readAllowed   ? descriptor.get()    : null
+                readAllowed   ? descriptor.get()    : null,
+                descriptor.importActions(),
+                descriptor.events()
             );
         } finally {
             if (previousUser != null) PlmSecurityContext.set(previousUser);

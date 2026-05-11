@@ -1,6 +1,6 @@
 import React from 'react';
 import { CommitIcon, RollbackIcon, ChevronDownIcon, ChevronRightIcon } from './Icons';
-import { psmNodeDescriptor } from '../plugins/psmNodePlugin';
+import { psmNodeDescriptor } from '../plugins/psmDescriptor';
 
 const STATE_COLORS = {
   'st-draft':    '#5b9cf6',

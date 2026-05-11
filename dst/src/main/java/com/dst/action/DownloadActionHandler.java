@@ -34,7 +34,7 @@ public class DownloadActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.get("/api/dst/data/{id}"));
+        return Optional.of(ActionRouteDescriptor.get("/data/{id}"));
     }
 
     @Override

@@ -40,7 +40,7 @@ public class AssignDomainActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/assign_domain/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/assign_domain/{id}").metadataOnly());
     }
 
     @Override

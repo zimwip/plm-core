@@ -32,7 +32,7 @@ public class ImportController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, Object> submit(
             @RequestPart("file") MultipartFile file,
-            @RequestParam String nodeId,
+            @RequestParam(required = false) String nodeId,
             @RequestParam(defaultValue = "default") String contextCode,
             @RequestParam String userId,
             @RequestParam(required = false) String projectSpaceId,
@@ -88,8 +88,8 @@ public class ImportController {
         java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
         m.put("id",           r.getId());
         m.put("cadNodeId",    r.getCadNodeId());
-        m.put("cadNodeName",  r.getCadNodeName());
-        m.put("cadNodeType",  r.getCadNodeType());
+        m.put("name",         r.getCadNodeName());
+        m.put("type",         r.getCadNodeType());
         m.put("action",       r.getAction());
         m.put("psmNodeId",    r.getPsmNodeId());
         m.put("errorMessage", r.getErrorMessage());

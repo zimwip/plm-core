@@ -2,7 +2,7 @@ package com.plm.platform.config;
 
 import com.plm.platform.config.dto.ConfigSnapshot;
 import com.plm.platform.nats.NatsListenerFactory;
-import com.plm.platform.spe.PlatformPaths;
+import com.plm.platform.PlatformPaths;
 import io.nats.client.Dispatcher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;

@@ -7,5 +7,6 @@ public record ServiceActionCatalog(
     String serviceCode,
     List<ActionCatalogRegistry.HandlerEntry> handlers,
     List<ActionCatalogRegistry.GuardEntry> guards,
+    List<ActionCatalogRegistry.EventEntry> events,
     Instant registeredAt
 ) {}

@@ -1,5 +1,7 @@
 package com.plm.platform.item.dto;
 
+import java.util.List;
+
 /**
  * One item managed by a service, with the actions the calling user may
  * perform on it. Replaces the previous {@code ResourceDescriptor} (create
@@ -32,6 +34,8 @@ package com.plm.platform.item.dto;
  * @param create         how to create one — null when not creatable / not permitted
  * @param list           how to list — null when not listable / not permitted
  * @param get            how to fetch one — null when not viewable / not permitted
+ * @param importActions  available import entry-points (multipart POST); null or empty = none
+ * @param events         standard item lifecycle events this type supports; null or empty = none declared
  */
 public record ItemDescriptor(
     String serviceCode,
@@ -46,14 +50,18 @@ public record ItemDescriptor(
     int priority,
     CreateAction create,
     ListAction list,
-    GetAction get
+    GetAction get,
+    List<ImportAction> importActions,
+    List<ItemEventType> events
 ) {
     public ItemDescriptor {
         if (panelSection == null) panelSection = PanelSection.MAIN;
+        if (importActions == null) importActions = List.of();
+        if (events == null) events = List.of();
     }
 
     /** True when at least one action is applicable for the caller. */
     public boolean hasAnyAction() {
-        return create != null || list != null || get != null;
+        return create != null || list != null || get != null || !importActions.isEmpty();
     }
 }

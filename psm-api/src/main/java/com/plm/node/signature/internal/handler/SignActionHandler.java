@@ -22,7 +22,7 @@ public class SignActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/sign/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/sign/{id}").metadataOnly());
     }
 
     @Override

@@ -1,6 +1,6 @@
 package com.cad.ingestion.client;
 
-import com.plm.platform.spe.client.ServiceClient;
+import com.plm.platform.client.ServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpMethod;
@@ -40,10 +40,10 @@ public class PsmActionClient {
 
     public String openTransaction() {
         Map<?, ?> response = serviceClient.post("psm", "/api/psm/transactions", Map.of(), Map.class);
-        if (response == null || !response.containsKey("id")) {
+        if (response == null || !response.containsKey("txId")) {
             throw new IllegalStateException("PSM transaction open returned no id");
         }
-        String txId = response.get("id").toString();
+        String txId = response.get("txId").toString();
         log.debug("Opened PSM transaction: {}", txId);
         return txId;
     }
@@ -87,8 +87,8 @@ public class PsmActionClient {
         log.debug("Updated PSM node: nodeId={} tx={}", nodeId, txId);
     }
 
-    public void createLink(UUID sourceNodeId, String targetLogicalId, String linkTypeId,
-                           String txId, String projectSpaceId) {
+    public String createLink(UUID sourceNodeId, String targetLogicalId, String linkTypeId,
+                             String txId, String projectSpaceId) {
         Map<String, Object> body = Map.of(
             "parameters", Map.of(
                 "linkTypeId",    linkTypeId,
@@ -96,7 +96,8 @@ public class PsmActionClient {
                 "linkLogicalId", UUID.randomUUID().toString()
             )
         );
-        serviceClient.exchange(
+        @SuppressWarnings("unchecked")
+        Map<String, Object> response = serviceClient.exchange(
             "psm",
             "/api/psm/actions/create_link/" + sourceNodeId,
             HttpMethod.POST,
@@ -104,7 +105,28 @@ public class PsmActionClient {
             Map.class,
             txHeaders(txId)
         );
-        log.debug("Created PSM link: {} -> {} type={} tx={}", sourceNodeId, targetLogicalId, linkTypeId, txId);
+        String linkId = response != null && response.containsKey("linkId")
+                ? response.get("linkId").toString() : null;
+        log.debug("Created PSM link: {} -> {} type={} linkId={} tx={}", sourceNodeId, targetLogicalId, linkTypeId, linkId, txId);
+        return linkId;
+    }
+
+    public void updateLinkAttributes(String linkId, UUID sourceNodeId,
+                                     Map<String, String> attributes,
+                                     String txId, String projectSpaceId) {
+        if (linkId == null || attributes == null || attributes.isEmpty()) return;
+        Map<String, Object> params = new HashMap<>();
+        params.put("linkId", linkId);
+        attributes.forEach((k, v) -> params.put("linkAttr_" + k, v));
+        serviceClient.exchange(
+            "psm",
+            "/api/psm/actions/update_link/" + linkId,
+            HttpMethod.POST,
+            Map.of("parameters", params),
+            Map.class,
+            txHeaders(txId)
+        );
+        log.debug("Updated link attributes: linkId={} attrs={} tx={}", linkId, attributes.keySet(), txId);
     }
 
     private static Map<String, String> txHeaders(String txId) {

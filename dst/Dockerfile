@@ -3,12 +3,23 @@
 #
 # Build context is the repo root (see docker-compose.yml).
 # Stage 0 (lib-builder) : reuse pre-built platform-lib base image
-# Stage 1 (builder)     : Maven compile dst -> Spring Boot layered JAR
-# Stage 2 (runtime)     : Eclipse Temurin JRE + layered app
+# Stage 1 (ui-builder)  : Vite build dst/ui → ESM plugin bundles
+# Stage 2 (builder)     : Maven compile dst -> Spring Boot layered JAR
+# Stage 3 (runtime)     : Eclipse Temurin JRE + layered app
 # ============================================================
 
 FROM plm-platform-lib:dev AS lib-builder
 
+# ── Stage 1: build dst/ui Vite subproject ────────────────────
+FROM docker.io/library/node:20-alpine AS ui-builder
+WORKDIR /ui
+COPY dst/ui/package.json dst/ui/package-lock.json ./
+RUN npm ci --silent
+COPY dst/ui/vite.config.js .
+COPY dst/ui/src ./src
+RUN npx vite build --outDir /ui-dist --emptyOutDir
+
+# ── Stage 2: build dst ───────────────────────────────────────
 FROM docker.io/library/maven:3.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /build
 
@@ -18,6 +29,8 @@ COPY dst/pom.xml .
 RUN mvn dependency:go-offline --no-transfer-progress 2>/dev/null || true
 
 COPY dst/src ./src
+# Inject UI plugin bundles so Spring Boot serves them at /api/dst/ui/*
+COPY --from=ui-builder /ui-dist ./src/main/resources/static/ui/
 ARG MAVEN_EXTRA_OPTS=""
 RUN mvn clean package -Dmaven.test.skip=true --no-transfer-progress $MAVEN_EXTRA_OPTS
 

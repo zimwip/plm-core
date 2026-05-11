@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
+import { resolve } from 'path'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
@@ -15,30 +16,42 @@ export default defineConfig({
   build: {
     sourcemap: true,   // ← temporary: gives real file+line in browser errors
     rollupOptions: {
+      // Explicit shim entries are the key to stable export names.
+      // Rollup preserves export names for entry-point chunks but may mangle
+      // them for shared chunks (manualChunks).  React packages must be owned
+      // by their shim entry so the importmap URLs resolve with correct names.
+      input: {
+        index:                     resolve(__dirname, 'index.html'),
+        'vendor-react':            resolve(__dirname, 'src/react-shim.js'),
+        'vendor-react-dom':        resolve(__dirname, 'src/react-dom-shim.js'),
+        'vendor-react-jsx-runtime': resolve(__dirname, 'src/react-jsx-runtime-shim.js'),
+      },
+      // Remote plugins are loaded at runtime and are not in the Rollup module
+      // graph.  Rollup would normally tree-shake shim exports that appear unused,
+      // breaking `import { useState } from 'react'` inside plugin bundles.
+      // 'strict' preserves every export declared by each entry point as-is.
+      preserveEntrySignatures: 'strict',
       output: {
-        // Route modules to chunks by path, not just by entry point.
-        // The object form of manualChunks only covers the listed entry points;
-        // lucide-react v1.x ships 1700+ individual ESM files which Rollup resolves
-        // to separate module IDs — only the function form catches all of them.
-        // Putting every lucide-react module in its own chunk guarantees the entire
-        // library (including the shared Icon const) is fully initialised before any
-        // app code that imports from it, eliminating the ESM TDZ crash.
-        manualChunks(id) {
-          if (id.includes('lucide-react'))   return 'icons';
-          if (id.includes('node_modules/three')) return 'three';
-          if (id.includes('occt-import-js')) return 'occt';
-          // React must land at predictable, stable URLs so service plugins
-          // can declare them as externals and resolve via the importmap.
-          if (id.includes('react-dom'))      return 'vendor-react-dom';
-          if (id.includes('react'))          return 'vendor-react';
-          if (id.includes('node_modules'))   return 'vendor';
-        },
-        chunkFileNames: (chunkInfo) => {
-          // Vendor-react chunks must have stable names (no hash) so the importmap
-          // in index.html can reference them without a build step to update it.
+        entryFileNames: (chunkInfo) => {
+          // Shim entries get stable names (no hash) so the importmap in index.html
+          // can reference them without a build step to update it.
           if (chunkInfo.name?.startsWith('vendor-react')) return 'assets/[name].js';
           return 'assets/[name]-[hash].js';
         },
+        manualChunks(id) {
+          if (id.includes('lucide-react'))       return 'icons';
+          if (id.includes('node_modules/three')) return 'three';
+          if (id.includes('occt-import-js'))     return 'occt';
+          // React packages (react, react-dom, react/jsx-runtime, scheduler) must NOT
+          // be assigned here.  Assigning them to 'vendor' puts them in a non-entry
+          // chunk whose exports Rollup mangles, breaking remote plugin bare imports.
+          // Leaving them unassigned lets Rollup place them relative to their shim
+          // entry points, keeping the entry-level exports intact.
+          if (id.includes('/node_modules/react') ||
+              id.includes('/node_modules/scheduler')) return undefined;
+          if (id.includes('node_modules'))       return 'vendor';
+        },
+        chunkFileNames: 'assets/[name]-[hash].js',
       },
     },
   },

@@ -23,7 +23,7 @@ public class AbortActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/abort/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/abort/{id}").metadataOnly());
     }
 
     @Override

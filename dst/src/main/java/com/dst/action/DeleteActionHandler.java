@@ -28,7 +28,7 @@ public class DeleteActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.delete("/api/dst/data/{id}"));
+        return Optional.of(ActionRouteDescriptor.delete("/data/{id}"));
     }
 
     @Override

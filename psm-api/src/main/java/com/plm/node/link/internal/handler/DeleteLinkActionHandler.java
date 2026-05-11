@@ -22,7 +22,7 @@ public class DeleteLinkActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/delete_link/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/delete_link/{id}").metadataOnly());
     }
 
     @Override

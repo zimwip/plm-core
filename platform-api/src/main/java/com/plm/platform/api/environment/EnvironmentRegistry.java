@@ -1,8 +1,8 @@
 package com.plm.platform.api.environment;
 
 import com.plm.platform.nats.PlmMessageBus;
-import com.plm.platform.spe.dto.RegistrySnapshot;
-import com.plm.platform.spe.dto.ServiceInstanceInfo;
+import com.plm.platform.action.dto.RegistrySnapshot;
+import com.plm.platform.action.dto.ServiceInstanceInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;

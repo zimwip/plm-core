@@ -2,7 +2,7 @@ package com.pno.domain.accessrights;
 
 import com.plm.platform.authz.dto.KeyValue;
 import com.plm.platform.authz.dto.ScopeKeyDefinition;
-import com.plm.platform.spe.client.ServiceClient;
+import com.plm.platform.client.ServiceClient;
 import com.pno.domain.scope.AuthorizationSnapshotVersion;
 import com.pno.domain.scope.PermissionScopeRegistry;
 import com.pno.domain.scope.PermissionScopeRegistry.ScopeRecord;

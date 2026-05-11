@@ -9,7 +9,8 @@ import java.util.List;
 public record RollbackContext(
     String txId,
     String userId,
-    List<RolledBackLink> links
+    List<RolledBackLink> links,
+    List<String> deletedNodeIds
 ) {
     public record RolledBackLink(
         String linkId,

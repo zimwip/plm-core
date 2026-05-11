@@ -7,8 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <p>Service identity ({@code serviceCode}, {@code selfBaseUrl}, {@code serviceSecret})
  * is intentionally <em>not</em> redeclared here — those are shared sidecar
- * concerns and already live on {@code spe.registration} (see
- * {@link com.plm.platform.spe.SpeRegistrationProperties}). The auto-config
+ * concerns and already live on {@code platform.registration} (see
+ * {@link com.plm.platform.environment.PlatformRegistrationProperties}). The auto-config
  * reads them from there so a service declares its identity exactly once.
  *
  * <p>{@code enabled} defaults to {@code false} — pno-api itself never enables

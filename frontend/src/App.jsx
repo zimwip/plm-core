@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { api, txApi, setProjectSpaceId, setApiErrorHandler, authApi, setAuthExpiredHandler } from './services/api';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { api, txApi, fetchItemDetail, setProjectSpaceId, setApiErrorHandler, authApi, setAuthExpiredHandler } from './services/api';
 import { usePlmStore } from './store/usePlmStore';
+import { loadThemeFromBackend } from './theme';
 import { useWebSocket } from './hooks/useWebSocket';
 import Header          from './components/Header';
 import SettingsPage    from './components/SettingsPage';
@@ -8,7 +9,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import CommitModal     from './components/CommitModal';
 import CreateResourceModal from './components/CreateResourceModal';
 import ErrorDetailModal from './components/ErrorDetailModal';
-import { psmNodeDescriptor } from './plugins/psmNodePlugin';
+import { psmNodeDescriptor } from './plugins/psmDescriptor';
 import { registerBuiltinPlugins } from './plugins';
 import { ShellContext, createShellAPI } from './shell/ShellContext';
 import { loadRemotePlugins } from './shell/PluginLoader';
@@ -17,6 +18,7 @@ import EditorZone      from './zones/EditorZone';
 import CollabZone      from './zones/CollabZone';
 import ConsolePanelZone from './zones/ConsolePanelZone';
 import StatusBarZone   from './zones/StatusBarZone';
+import SearchPanel     from './components/SearchPanel';
 
 registerBuiltinPlugins();
 
@@ -63,7 +65,8 @@ export default function App() {
   const [userId,         setUserId]             = useState('user-alice');
   const [projectSpaceId, setProjectSpaceIdState] = useState(DEFAULT_PROJECT_SPACE);
 
-  const storeSetUserId       = usePlmStore(s => s.setUserId);
+  const storeSetUserId         = usePlmStore(s => s.setUserId);
+  const storeSetProjectSpaceId = usePlmStore(s => s.setProjectSpaceId);
   const nodes                = usePlmStore(s => s.nodes);
   const nodeTypes            = usePlmStore(s => s.nodeTypes);
   const resources            = usePlmStore(s => s.resources);
@@ -81,11 +84,20 @@ export default function App() {
   const refreshProjectSpaces = usePlmStore(s => s.refreshProjectSpaces);
   const refreshUsers         = usePlmStore(s => s.refreshUsers);
   const clearTx              = usePlmStore(s => s.clearTx);
-  const refreshAllNodeDescs  = usePlmStore(s => s.refreshAllNodeDescs);
-  const refreshNodeDesc      = usePlmStore(s => s.refreshNodeDesc);
-  const evictNodeDesc        = usePlmStore(s => s.evictNodeDesc);
+  const loadBasket           = usePlmStore(s => s.loadBasket);
+  const addToBasket          = usePlmStore(s => s.addToBasket);
+  const basketItems          = usePlmStore(s => s.basketItems);
+  const syncBasketAdd        = usePlmStore(s => s.syncBasketAdd);
+  const syncBasketRemove     = usePlmStore(s => s.syncBasketRemove);
+  const syncBasketClear      = usePlmStore(s => s.syncBasketClear);
+  const removeBasketItemIds  = usePlmStore(s => s.removeBasketItemIds);
+  const lockItem             = usePlmStore(s => s.lockItem);
+  const unlockItem           = usePlmStore(s => s.unlockItem);
+  const unlockAll            = usePlmStore(s => s.unlockAll);
 
   const [browseRefreshKey, setBrowseRefreshKey] = useState(0);
+  const [searchPanelVisible, setSearchPanelVisible] = useState(false);
+  const [searchPanelQuery,   setSearchPanelQuery]   = useState('');
   const bumpBrowse = useCallback(() => setBrowseRefreshKey(k => k + 1), []);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -95,6 +107,58 @@ export default function App() {
   const [tabs,        setTabs]        = useState([DASHBOARD_TAB]);
   const [activeTabId, setActiveTabId] = useState('dashboard');
   const [selectedDesc, setSelectedDesc] = useState(null);
+
+  // Shell-level item data: { [nodeId]: { status: 'loading'|'ok'|'error', data, error } }
+  // Populated (and refreshed) by the registered GetAction.
+  // txId is forwarded so the backend returns the OPEN draft when a node is checked out.
+  const [tabData,       setTabData]      = useState({});
+  const fetchedNodeIds = useRef(new Set());
+
+  const refreshTabData = useCallback((nodeId) => {
+    const tab = tabs.find(t => t.nodeId === nodeId);
+    if (!tab?.get?.path) return;
+    const currentTxId = tx?.ID || tx?.id || null;
+    setTabData(prev => ({ ...prev, [nodeId]: { ...(prev[nodeId] ?? {}), status: 'loading' } }));
+    fetchItemDetail(tab.serviceCode, tab.get, nodeId, currentTxId ? { txId: currentTxId } : {})
+      .then(data => setTabData(prev => ({ ...prev, [nodeId]: { status: 'ok', data } })))
+      .catch(err  => {
+        if (err?.status === 404) {
+          fetchedNodeIds.current.delete(nodeId);
+          setTabData(prev => { const next = { ...prev }; delete next[nodeId]; return next; });
+          setTabs(ts => {
+            const remaining = ts.filter(t => t.nodeId !== nodeId);
+            setActiveTabId(aid => aid === tab.id ? (remaining.at(-1)?.id ?? null) : aid);
+            return remaining;
+          });
+        } else {
+          setTabData(prev => ({ ...prev, [nodeId]: { status: 'error', error: err.message } }));
+        }
+      });
+  }, [tabs, tx]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refreshAllTabData = useCallback(() => {
+    tabs.filter(t => t.nodeId && t.get?.path).forEach(t => refreshTabData(t.nodeId));
+  }, [tabs, refreshTabData]);
+
+  // Fetch on tab activation (first open). Uses txId so checkout drafts are visible immediately.
+  useEffect(() => {
+    if (!activeTabId || activeTabId === 'dashboard') return;
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (!tab?.get?.path || !tab.nodeId || fetchedNodeIds.current.has(tab.nodeId)) return;
+    fetchedNodeIds.current.add(tab.nodeId);
+    refreshTabData(tab.nodeId);
+  }, [activeTabId, tabs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch active tab when txId changes (checkout → show OPEN draft; commit → show committed).
+  const prevTxIdRef = useRef(null);
+  useEffect(() => {
+    const currentTxId = tx?.ID || tx?.id || null;
+    if (currentTxId === prevTxIdRef.current) return;
+    prevTxIdRef.current = currentTxId;
+    if (!activeTabId || activeTabId === 'dashboard') return;
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (tab?.nodeId) refreshTabData(tab.nodeId);
+  }, [tx, activeTabId, tabs, refreshTabData]);
 
   const [showCommit,          setShowCommit]          = useState(false);
   const [showCreateNode,      setShowCreateNode]      = useState(false);
@@ -107,6 +171,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState(null);
   const [authRetry, setAuthRetry] = useState(0);
+  const [pluginsLoaded, setPluginsLoaded] = useState(false);
 
   // ── Tab management ────────────────────────────────────────────────
   const navigate = useCallback((nodeId, label, descriptor) => {
@@ -144,7 +209,10 @@ export default function App() {
   const closeTab = useCallback((tabId) => {
     setTabs(ts => {
       const closing = ts.find(t => t.id === tabId);
-      if (closing?.nodeId) evictNodeDesc(closing.nodeId);
+      if (closing?.nodeId) {
+        fetchedNodeIds.current.delete(closing.nodeId);
+        setTabData(prev => { const next = { ...prev }; delete next[closing.nodeId]; return next; });
+      }
       const remaining = ts.filter(t => t.id !== tabId);
       if (activeTabId === tabId) {
         setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
@@ -152,7 +220,7 @@ export default function App() {
       }
       return remaining;
     });
-  }, [activeTabId, evictNodeDesc]);
+  }, [activeTabId]);
 
   // ── Shell API — stable across renders ────────────────────────────
   const shellAPI = useMemo(() => createShellAPI({ navigate, openTab, closeTab }), []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -161,22 +229,52 @@ export default function App() {
   useWebSocket(
     ['/topic/transactions', '/topic/global', '/topic/metamodel'],
     async (evt) => {
-      if (evt.event === 'TX_COMMITTED') {
+      if (evt.event === 'LOCK_ACQUIRED') {
+        if (evt.lockedBy === userId) lockItem(evt.nodeId);
+      } else if (evt.event === 'LOCK_RELEASED') {
+        if (evt.releasedBy === userId) unlockItem(evt.nodeId);
+      } else if (evt.event === 'TX_COMMITTED') {
+        if (evt.byUser === userId) unlockAll();
         await refreshTx();
         if (evt.byUser && evt.byUser !== userId)
           toast(`${evt.byUser} committed a transaction`, 'info');
+      } else if (evt.event === 'ITEM_DELETED') {
+        if (evt.nodeId) {
+          removeBasketItemIds([evt.nodeId]);
+          // Close tab for this item if open (item is gone — refreshTabData would 404).
+          setTabs(ts => {
+            const tab = ts.find(t => t.nodeId === evt.nodeId);
+            if (!tab) return ts;
+            fetchedNodeIds.current.delete(evt.nodeId);
+            setTabData(prev => { const n = { ...prev }; delete n[evt.nodeId]; return n; });
+            const remaining = ts.filter(t => t.nodeId !== evt.nodeId);
+            setActiveTabId(aid => aid === tab.id ? (remaining.at(-1)?.id ?? null) : aid);
+            return remaining;
+          });
+        }
+        refreshNodes(); bumpBrowse();
       } else if (evt.event === 'TX_ROLLED_BACK') {
+        if (evt.byUser === userId) unlockAll();
         await refreshTx();
-        await Promise.all([refreshNodes(), refreshAllNodeDescs()]);
+        await refreshNodes(); refreshAllTabData();
         bumpBrowse();
         if (evt.byUser && evt.byUser !== userId)
           toast(`${evt.byUser} rolled back a transaction`, 'warn');
-      } else if (evt.event === 'NODES_RELEASED') {
+      } else if (evt.event === 'ITEMS_RELEASED') {
+        if (evt.byUser === userId) (evt.nodeIds || []).forEach(unlockItem);
         refreshTx(); bumpBrowse();
-      } else if (evt.event === 'NODE_CREATED') {
+      } else if (evt.event === 'ITEM_CREATED') {
         refreshNodes(); refreshTx(); bumpBrowse();
-      } else if (evt.event === 'NODE_UPDATED') {
-        if (evt.nodeId) refreshNodeDesc(evt.nodeId);
+      } else if (evt.event === 'ITEM_CAPTURED') {
+        refreshTx();
+      } else if (evt.event === 'BASKET_ITEM_ADDED') {
+        syncBasketAdd(evt.key, evt.value);
+      } else if (evt.event === 'BASKET_ITEM_REMOVED') {
+        syncBasketRemove(evt.key, evt.value);
+      } else if (evt.event === 'BASKET_CLEARED') {
+        syncBasketClear();
+      } else if (evt.event === 'ITEM_VERSION_CREATED' || evt.event === 'ITEM_UPDATED') {
+        if (evt.nodeId) refreshTabData(evt.nodeId);
         refreshNodes(); bumpBrowse();
       } else if (evt.event === 'METAMODEL_CHANGED') {
         refreshItems(); bumpBrowse();
@@ -232,10 +330,13 @@ export default function App() {
 
       setAuthReady(true);
       storeSetUserId(userId);
+      storeSetProjectSpaceId(projectSpaceId);
       refreshAll();
       refreshProjectSpaces();
       refreshUsers();
       refreshStateColorMap();
+      loadBasket(userId);
+      loadThemeFromBackend(userId);
       if (showSettings) {
         api.getSettingsSections(userId).then(groups => {
           setSettingsSections(groups);
@@ -244,7 +345,17 @@ export default function App() {
         }).catch(() => setSettingsSections([]));
       }
 
-      loadRemotePlugins(shellAPI).catch(e => console.warn('[Shell] Plugin load failed:', e));
+      try {
+        const pluginErrors = await loadRemotePlugins(shellAPI);
+        if (pluginErrors.length > 0) {
+          toast(`Some plugins failed to load: ${pluginErrors.join('; ')}`, 'error');
+        }
+      } catch (e) {
+        toast(`Plugin manifest unavailable: ${e.message || e}`, 'error');
+      } finally {
+        setPluginsLoaded(true);
+        setBrowseRefreshKey(k => k + 1);
+      }
     })();
     return () => { cancelled = true; };
   }, [userId, projectSpaceId, authRetry]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -260,6 +371,8 @@ export default function App() {
   function handleProjectSpaceChange(psId) {
     setProjectSpaceIdState(psId);
     setProjectSpaceId(psId);
+    storeSetProjectSpaceId(psId);
+    loadBasket(userId);
     setTabs([DASHBOARD_TAB]);
     setActiveTabId('dashboard');
     setSelectedDesc(null);
@@ -290,7 +403,7 @@ export default function App() {
       toast('Transaction rolled back', 'warn');
       clearTx();
       await refreshNodes();
-      refreshAllNodeDescs();
+      refreshAllTabData();
     } catch (e) { toast(e, 'error'); }
   }
 
@@ -305,7 +418,7 @@ export default function App() {
 
   async function handleCommitted(continuationTxId, deferredCount) {
     await refreshAll();
-    refreshAllNodeDescs();
+    refreshAllTabData();
     if (continuationTxId && deferredCount > 0) {
       const n = deferredCount;
       toast(`${n} object${n > 1 ? 's' : ''} deferred — new transaction opened`, 'info');
@@ -361,6 +474,7 @@ export default function App() {
           searchType={searchType}
           onSearchChange={setSearchQuery}
           onSearchTypeChange={setSearchType}
+          onSearchSubmit={(q) => { setSearchPanelQuery(q); setSearchPanelVisible(true); }}
           projectSpaces={projectSpaces}
           projectSpaceId={projectSpaceId}
           onProjectSpaceChange={handleProjectSpaceChange}
@@ -369,6 +483,15 @@ export default function App() {
         />
 
         <div className="body">
+          <div
+            className={`search-strip${searchPanelVisible ? ' search-strip--open' : ''}`}
+            onClick={() => setSearchPanelVisible(v => !v)}
+            title={searchPanelVisible ? 'Close search' : 'Search items'}
+          >
+            <span className="search-strip-label">
+              {searchPanelVisible ? '◀' : '▶'} Search
+            </span>
+          </div>
           <ErrorBoundary>
             <NavZone
               nodeTypes={nodeTypes}
@@ -392,6 +515,7 @@ export default function App() {
               onOpenDashboard={() => setActiveTabId('dashboard')}
               browseRefreshKey={browseRefreshKey}
               style={{ width: panelWidth }}
+              toast={toast}
             />
           </ErrorBoundary>
 
@@ -406,6 +530,7 @@ export default function App() {
                   activeSection={activeSettingsSection}
                   onSectionChange={setActiveSettingsSection}
                   settingsSections={settingsSections}
+                  pluginsLoaded={pluginsLoaded}
                   toast={toast}
                 />
               </ErrorBoundary>
@@ -426,6 +551,8 @@ export default function App() {
                   onNavigate={navigate}
                   onAutoOpenTx={autoOpenTx}
                   onDescriptionLoaded={onDescriptionLoaded}
+                  onRefreshItemData={refreshTabData}
+                  tabItemData={activeTab?.nodeId ? (tabData[activeTab.nodeId] ?? null) : null}
                 />
               </ErrorBoundary>
             )}
@@ -438,6 +565,17 @@ export default function App() {
             users={users}
           />
         </div>
+
+        {searchPanelVisible && (
+          <SearchPanel
+            query={searchPanelQuery}
+            onQueryChange={setSearchPanelQuery}
+            onClose={() => setSearchPanelVisible(false)}
+            userId={userId}
+            projectSpaceId={projectSpaceId}
+            onNavigate={navigate}
+          />
+        )}
 
         {showCommit && tx && (
           <CommitModal

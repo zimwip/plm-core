@@ -6,7 +6,7 @@ import { getSessionToken, getProjectSpaceId } from '../services/api';
 import { stepWorker as _stepWorker } from '../workers/stepWorkerInstance';
 import { ChevronRightIcon, ChevronLeftIcon } from './Icons';
 
-// nodes: [{ nodeId, nodeLabel, stateColor, depth, parts: [{ uuid, fileName, sizeBytes }] }]
+// nodes: [{ nodeId, nodeLabel, stateColor, depth, instanceId, parts: [{ uuid, fileName, sizeBytes, instanceKey, matrix }] }]
 export default function StepViewer({ nodes = [], loading = false, onNavigateToNode }) {
   const mountRef    = useRef(null);
   const sceneRef    = useRef(null);
@@ -15,20 +15,26 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
   const controlsRef = useRef(null);
   const gizmoRef    = useRef(null);
   const rafRef      = useRef(null);
-  const groupsRef   = useRef({});     // uuid → THREE.Group
+  const groupsRef   = useRef({});     // instanceKey → THREE.Group
   const loadingRef  = useRef(new Set());
-  const partNodeMapRef  = useRef({}); // uuid → nodeId
-  const partColorRef    = useRef({}); // uuid → stateColor
+  const partNodeMapRef  = useRef({}); // instanceKey → nodeId
+  const partColorRef    = useRef({}); // instanceKey → stateColor
   const onNavRef      = useRef(onNavigateToNode);
   const hoveredUuidRef = useRef(null);
+  const meshDataRef    = useRef({});  // uuid → meshes array (cache for multi-instance)
+  const activePartsRef = useRef([]);  // current activeParts (for worker handler closure)
 
   useEffect(() => { onNavRef.current = onNavigateToNode; }, [onNavigateToNode]);
 
   const [partStates,      setPartStates]      = useState({});
   // { [uuid]: { phase: 'loading'|'ready'|'error', error, visible } }
 
-  const [removedUuids,    setRemovedUuids]    = useState(() => new Set());
+  const [removedKeys,     setRemovedKeys]     = useState(() => new Set());
   const [collapsedNodes,  setCollapsedNodes]  = useState(() => new Set());
+
+  // Reset manual removals when the primary node changes (editor switched to different node)
+  const primaryNodeId = nodes[0]?.nodeId;
+  useEffect(() => { setRemovedKeys(new Set()); }, [primaryNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Rebuild part → node maps; also patch outline materials on already-loaded groups
@@ -36,15 +42,16 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
     const nodeMap  = {};
     const colorMap = {};
     nodes.forEach(n => n.parts.forEach(p => {
-      nodeMap[p.uuid]  = n.nodeId;
-      colorMap[p.uuid] = n.stateColor || '#6b7280';
+      const key = p.instanceKey || p.uuid;
+      nodeMap[key]  = n.nodeId;
+      colorMap[key] = n.stateColor || '#6b7280';
     }));
     partNodeMapRef.current = nodeMap;
     partColorRef.current   = colorMap;
 
     // Patch materials on groups that were built before the correct color was known
-    Object.entries(colorMap).forEach(([uuid, color]) => {
-      const group = groupsRef.current[uuid];
+    Object.entries(colorMap).forEach(([key, color]) => {
+      const group = groupsRef.current[key];
       if (!group) return;
       const olColor = new THREE.Color(color);
       group.traverse(obj => {
@@ -54,8 +61,9 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
   }, [nodes]);
 
   const allParts    = nodes.flatMap(n => n.parts);
-  const activeParts = allParts.filter(p => !removedUuids.has(p.uuid));
-  const activeKey   = activeParts.map(p => p.uuid).join(',');
+  const activeParts = allParts.filter(p => !removedKeys.has(p.instanceKey || p.uuid));
+  const activeKey   = activeParts.map(p => `${p.instanceKey || p.uuid}@${p.matrix ? p.matrix.join(',') : 'I'}`).join('|');
+  activePartsRef.current = activeParts;
 
   // ── Scene init (once) ────────────────────────────────────────
   useEffect(() => {
@@ -210,56 +218,136 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
     const handler = ({ data }) => {
       const { type, uuid } = data;
       if (!loadingRef.current.has(uuid)) return;
+      loadingRef.current.delete(uuid);
       if (type === 'ready') {
-        const outlineColor = partColorRef.current[uuid] || '#6b7280';
-        const group = buildGroup(data.meshes, outlineColor);
-        group.name = uuid;
-        sceneRef.current?.add(group);
-        groupsRef.current[uuid] = group;
+        // Cache mesh data for multi-instance reuse
+        meshDataRef.current[uuid] = data.meshes;
+        // Find all active instances of this uuid
+        const instances = activePartsRef.current.filter(p => p.uuid === uuid);
+        const newStates = {};
+        for (const p of instances) {
+          const key = p.instanceKey || p.uuid;
+          if (groupsRef.current[key]) continue;
+          const outlineColor = partColorRef.current[key] || '#6b7280';
+          const group = buildGroup(data.meshes, outlineColor);
+          group.name = key;
+          if (p.matrix) {
+            const m4 = new THREE.Matrix4();
+            m4.set(
+              p.matrix[0],  p.matrix[1],  p.matrix[2],  p.matrix[3],
+              p.matrix[4],  p.matrix[5],  p.matrix[6],  p.matrix[7],
+              p.matrix[8],  p.matrix[9],  p.matrix[10], p.matrix[11],
+              p.matrix[12], p.matrix[13], p.matrix[14], p.matrix[15]
+            );
+            group.matrix.copy(m4);
+            group.matrixAutoUpdate = false;
+          }
+          sceneRef.current?.add(group);
+          groupsRef.current[key] = group;
+          newStates[key] = { phase: 'ready', error: null, visible: true };
+        }
         fitCamera();
-        loadingRef.current.delete(uuid);
-        setPartStates(prev => ({ ...prev, [uuid]: { phase: 'ready', error: null, visible: true } }));
+        if (Object.keys(newStates).length > 0) {
+          setPartStates(prev => ({ ...prev, ...newStates }));
+        }
       } else if (type === 'error') {
-        loadingRef.current.delete(uuid);
-        setPartStates(prev => ({ ...prev, [uuid]: { phase: 'error', error: data.message, visible: false } }));
+        const instances = activePartsRef.current.filter(p => p.uuid === uuid);
+        const newStates = {};
+        for (const p of instances) {
+          const key = p.instanceKey || p.uuid;
+          newStates[key] = { phase: 'error', error: data.message, visible: false };
+        }
+        if (Object.keys(newStates).length > 0) {
+          setPartStates(prev => ({ ...prev, ...newStates }));
+        }
       }
     };
     _stepWorker.addEventListener('message', handler);
     return () => _stepWorker.removeEventListener('message', handler);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Load new parts ───────────────────────────────────────────
-  // ── Sync scene: remove stale, load new ──────────────────────
+  // ── Sync scene: remove stale, load/instantiate new ──────────
   useEffect(() => {
-    const activeUuids = new Set(activeParts.map(p => p.uuid));
+    const instanceKeys = new Set(activeParts.map(p => p.instanceKey || p.uuid));
+    const rawUuids     = new Set(activeParts.map(p => p.uuid));
 
-    // Remove groups no longer in active set
-    for (const uuid of Object.keys(groupsRef.current)) {
-      if (!activeUuids.has(uuid)) {
-        disposeGroup(groupsRef.current[uuid]);
-        sceneRef.current?.remove(groupsRef.current[uuid]);
-        delete groupsRef.current[uuid];
+    // Remove stale groups
+    for (const key of Object.keys(groupsRef.current)) {
+      if (!instanceKeys.has(key)) {
+        disposeGroup(groupsRef.current[key]);
+        sceneRef.current?.remove(groupsRef.current[key]);
+        delete groupsRef.current[key];
       }
     }
     for (const uuid of [...loadingRef.current]) {
-      if (!activeUuids.has(uuid)) loadingRef.current.delete(uuid);
+      if (!rawUuids.has(uuid)) loadingRef.current.delete(uuid);
+    }
+    for (const uuid of Object.keys(meshDataRef.current)) {
+      if (!rawUuids.has(uuid)) delete meshDataRef.current[uuid];
     }
     setPartStates(prev => {
       const next = { ...prev };
-      for (const uuid of Object.keys(next)) {
-        if (!activeUuids.has(uuid)) delete next[uuid];
+      for (const key of Object.keys(next)) {
+        if (!instanceKeys.has(key)) delete next[key];
       }
       return next;
     });
 
-    // Load new parts
+    // Create/load new instances; update matrix in-place for existing groups
+    const newStates = {};
+    let needFit = false;
     for (const part of activeParts) {
-      const { uuid } = part;
-      if (groupsRef.current[uuid] || loadingRef.current.has(uuid)) continue;
-      loadingRef.current.add(uuid);
-      setPartStates(prev => ({ ...prev, [uuid]: { phase: 'loading', error: null, visible: true } }));
-      _stepWorker.postMessage({ type: 'load', uuid, token: getSessionToken(), projectSpace: getProjectSpaceId() });
+      const key = part.instanceKey || part.uuid;
+      if (groupsRef.current[key]) {
+        // Group exists — update matrix if it changed (e.g. re-import updated position attr)
+        if (part.matrix) {
+          const m4 = new THREE.Matrix4();
+          m4.set(
+            part.matrix[0],  part.matrix[1],  part.matrix[2],  part.matrix[3],
+            part.matrix[4],  part.matrix[5],  part.matrix[6],  part.matrix[7],
+            part.matrix[8],  part.matrix[9],  part.matrix[10], part.matrix[11],
+            part.matrix[12], part.matrix[13], part.matrix[14], part.matrix[15]
+          );
+          if (!groupsRef.current[key].matrix.equals(m4)) {
+            groupsRef.current[key].matrix.copy(m4);
+            groupsRef.current[key].matrixAutoUpdate = false;
+            needFit = true;
+          }
+        }
+        continue;
+      }
+
+      if (meshDataRef.current[part.uuid]) {
+        // Cached — create instance immediately without re-loading
+        const outlineColor = partColorRef.current[key] || '#6b7280';
+        const group = buildGroup(meshDataRef.current[part.uuid], outlineColor);
+        group.name = key;
+        if (part.matrix) {
+          const m4 = new THREE.Matrix4();
+          m4.set(
+            part.matrix[0],  part.matrix[1],  part.matrix[2],  part.matrix[3],
+            part.matrix[4],  part.matrix[5],  part.matrix[6],  part.matrix[7],
+            part.matrix[8],  part.matrix[9],  part.matrix[10], part.matrix[11],
+            part.matrix[12], part.matrix[13], part.matrix[14], part.matrix[15]
+          );
+          group.matrix.copy(m4);
+          group.matrixAutoUpdate = false;
+        }
+        sceneRef.current?.add(group);
+        groupsRef.current[key] = group;
+        newStates[key] = { phase: 'ready', error: null, visible: true };
+        needFit = true;
+      } else if (!loadingRef.current.has(part.uuid)) {
+        loadingRef.current.add(part.uuid);
+        newStates[key] = { phase: 'loading', error: null, visible: true };
+        _stepWorker.postMessage({ type: 'load', uuid: part.uuid, kind: part.kind || 'design', token: getSessionToken(), projectSpace: getProjectSpaceId() });
+      } else {
+        // In-flight load — set loading state for this instance key
+        newStates[key] = { phase: 'loading', error: null, visible: true };
+      }
     }
+    if (needFit) fitCamera();
+    if (Object.keys(newStates).length > 0) setPartStates(prev => ({ ...prev, ...newStates }));
   }, [activeKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ──────────────────────────────────────────────────
@@ -286,24 +374,23 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
     camera.updateProjectionMatrix();
   }
 
-  function toggleVisibility(uuid) {
-    const group = groupsRef.current[uuid];
+  function toggleVisibility(key) {
+    const group = groupsRef.current[key];
     if (!group) return;
     const next = !group.visible;
     group.visible = next;
-    setPartStates(prev => ({ ...prev, [uuid]: { ...prev[uuid], visible: next } }));
+    setPartStates(prev => ({ ...prev, [key]: { ...prev[key], visible: next } }));
   }
 
-  function removePart(uuid) {
-    const group = groupsRef.current[uuid];
+  function removePart(key) {
+    const group = groupsRef.current[key];
     if (group) {
       disposeGroup(group);
       sceneRef.current?.remove(group);
-      delete groupsRef.current[uuid];
+      delete groupsRef.current[key];
     }
-    loadingRef.current.delete(uuid);
-    setRemovedUuids(prev => new Set([...prev, uuid]));
-    setPartStates(prev => { const n = { ...prev }; delete n[uuid]; return n; });
+    setRemovedKeys(prev => new Set([...prev, key]));
+    setPartStates(prev => { const n = { ...prev }; delete n[key]; return n; });
   }
 
   function toggleNodeCollapse(nodeId) {
@@ -380,12 +467,12 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
           {/* Node groups */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {nodes.map(node => {
-              const nodeActiveParts = node.parts.filter(p => !removedUuids.has(p.uuid));
+              const nodeActiveParts = node.parts.filter(p => !removedKeys.has(p.instanceKey || p.uuid));
               if (nodeActiveParts.length === 0) return null;
               const isCollapsed = collapsedNodes.has(node.nodeId);
               const dotColor    = node.stateColor || '#6b7280';
               return (
-                <div key={node.nodeId}>
+                <div key={node.instanceId || node.nodeId}>
                   {/* Group header */}
                   <div
                     onClick={() => toggleNodeCollapse(node.nodeId)}
@@ -412,10 +499,11 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
 
                   {/* Part rows */}
                   {!isCollapsed && nodeActiveParts.map(part => {
-                    const st  = partStates[part.uuid] || {};
+                    const partKey = part.instanceKey || part.uuid;
+                    const st  = partStates[partKey] || {};
                     const vis = st.visible !== false;
                     return (
-                      <div key={part.uuid} style={{
+                      <div key={partKey} style={{
                         display: 'flex', alignItems: 'center', gap: 6,
                         padding: `4px 8px 4px ${14 + node.depth * 12}px`,
                         fontSize: 12, borderBottom: '1px solid var(--border)',
@@ -424,7 +512,7 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
                           type="checkbox"
                           checked={vis}
                           disabled={st.phase !== 'ready'}
-                          onChange={() => toggleVisibility(part.uuid)}
+                          onChange={() => toggleVisibility(partKey)}
                           style={{ flexShrink: 0, cursor: st.phase === 'ready' ? 'pointer' : 'default' }}
                         />
                         <span style={{
@@ -441,7 +529,7 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
                         </span>
                         <button
                           className="panel-icon-btn"
-                          onClick={() => removePart(part.uuid)}
+                          onClick={() => removePart(partKey)}
                           title="Remove from scene"
                           style={{ fontSize: 13, lineHeight: 1 }}
                         >
@@ -473,7 +561,6 @@ function buildGroup(meshes, outlineColor = '#6b7280') {
     geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
     if (mesh.normals)  geo.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     if (mesh.indices)  geo.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
-    if (!mesh.normals) geo.computeVertexNormals();
     const color = mesh.color
       ? new THREE.Color(mesh.color[0], mesh.color[1], mesh.color[2])
       : new THREE.Color(0x5b9cf6);

@@ -1,6 +1,6 @@
 package com.plm.platform.authz;
 
-import com.plm.platform.spe.client.ServiceClient;
+import com.plm.platform.client.ServiceClient;
 import lombok.extern.slf4j.Slf4j;
 import org.casbin.jcasbin.main.Enforcer;
 import org.springframework.core.ParameterizedTypeReference;

@@ -1,3 +1,5 @@
+import { initPsmApi, psmApi } from './psmApi';
+
 /**
  * PSM nav plugin — microfrontend entry point.
  *
@@ -11,8 +13,6 @@
  *   { shellAPI, descriptor, item, isActive, hasChildren, isExpanded,
  *     isLoading, onToggleChildren }
  */
-import React from 'react';
-
 // ── Inline icon primitives (no lucide-react / shell Icons dependency) ────────
 
 function ChevronRight({ size = 9, color = 'currentColor', strokeWidth = 2.5 }) {
@@ -99,7 +99,7 @@ function PsmNavRow({
   const typeColor = descriptor?.color ?? null;
 
   function handleClick() {
-    shellAPI?.navigate?.({ ...descriptor, itemKey: descriptor.itemKey, nodeId: id, logicalId: logicalId || undefined });
+    shellAPI?.navigate?.(id, logicalId || id, descriptor);
   }
 
   function handleDragStart(e) {
@@ -167,19 +167,168 @@ function PsmNavRow({
   );
 }
 
+// Inlined — cannot import from shell internals
+const PSM_NODE_DESCRIPTOR = Object.freeze({
+  serviceCode: 'psm',
+  itemCode:    'node',
+  itemKey:     null,
+  get:         Object.freeze({ httpMethod: 'GET', path: '/nodes/{id}/description' }),
+});
+
+// ── NavRow — ctx interface (for sourcePlugins / BrowseNav) ────────────────────
+
+function PsmNavRowCtx({
+  descriptor, item, ctx,
+  isActive, hasChildren, isExpanded, isLoading,
+  onToggleChildren,
+}) {
+  const { userId, stateColorMap, onNavigate } = ctx;
+  const id        = item.id || item.ID;
+  const rev       = item.revision || item.REVISION || 'A';
+  const iter      = item.iteration ?? item.ITERATION ?? 1;
+  const state     = item.lifecycle_state_id || item.LIFECYCLE_STATE_ID;
+  const logicalId = item.logical_id || item.LOGICAL_ID || '';
+  const lockedBy  = item.locked_by || item.LOCKED_BY || null;
+  const txStatus  = item.tx_status || item.TX_STATUS || 'COMMITTED';
+  const isPending = txStatus === 'OPEN';
+  const lockedByOther = lockedBy && lockedBy !== userId;
+  const lockedByMe    = lockedBy && lockedBy === userId;
+  const typeColor = descriptor?.color ?? null;
+
+  return (
+    <div
+      className={`node-item${isActive ? ' active' : ''}`}
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.effectAllowed = 'link';
+        setDraggedNode({ nodeId: id, nodeTypeId: descriptor?.itemKey, logicalId, typeName: descriptor?.displayName });
+        e.dataTransfer.setData('text/plain', 'plm-node');
+      }}
+      onDragEnd={() => clearDraggedNode()}
+      onClick={() => onNavigate(id, logicalId || undefined, descriptor)}
+      title={lockedByOther ? `Locked by ${lockedBy}` : isPending ? `${iter === 0 ? rev : rev + '.' + iter} — pending changes` : (logicalId || id)}
+    >
+      <span
+        className="ni-expand"
+        style={{ visibility: (isLoading || hasChildren) ? 'visible' : 'hidden' }}
+        onClick={e => onToggleChildren && onToggleChildren(e)}
+      >
+        {isLoading
+          ? <span style={{ fontSize: 9, color: 'var(--muted)', lineHeight: 1 }}>…</span>
+          : isExpanded
+            ? <ChevronDown size={9} strokeWidth={2.5} color="var(--muted)" />
+            : <ChevronRight size={9} strokeWidth={2.5} color="var(--muted)" />}
+      </span>
+      {typeColor && (
+        <span style={{ width: 6, height: 6, borderRadius: 1, background: typeColor, flexShrink: 0, display: 'inline-block' }} />
+      )}
+      <span className="ni-dot" style={{ background: stateColorMap?.[state] || '#6b7280' }} />
+      <span className="ni-logical" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {logicalId || <span className="ni-no-id">—</span>}
+        {(item.display_name || item.DISPLAY_NAME) && (
+          <span className="ni-dname">{item.display_name || item.DISPLAY_NAME}</span>
+        )}
+      </span>
+      <span className="ni-reviter" style={isPending ? { color: 'var(--warn)' } : undefined}>
+        {iter === 0 ? rev : `${rev}.${iter}`}
+      </span>
+      {lockedByOther && <LockIcon size={10} strokeWidth={2.5} color="var(--muted)" style={{ flexShrink: 0 }} />}
+      {lockedByMe    && <EditIcon size={10} strokeWidth={2.5} color="var(--accent)" style={{ flexShrink: 0 }} />}
+    </div>
+  );
+}
+
+// ── ChildRow — link tree row (ctx interface) ──────────────────────────────────
+
+function PsmLinkRowRemote({
+  link, depth, parentPath, ancestorIds,
+  ctx,
+  childCacheRef, expandedPaths, toggleNodeChildren,
+}) {
+  const { stateColorMap, onNavigate, activeNodeId } = ctx;
+  const tgtId   = link.targetNodeId;
+  const isV2V   = link.linkPolicy === 'VERSION_TO_VERSION';
+  const isCycle = ancestorIds.has(tgtId);
+  const childPath = `${parentPath}/${link.linkId}`;
+  const isExp   = !isCycle && expandedPaths.has(childPath);
+  const cached  = childCacheRef.current[tgtId];
+  const loading = cached === 'loading';
+  const paddingLeft = 10 + depth * 14;
+  const ltColor = link.linkTypeColor || null;
+  const hasChildrenFromApi = link.targetChildrenCount != null
+    ? link.targetChildrenCount > 0
+    : !Array.isArray(cached) || cached.length > 0;
+  const showChevron = !isCycle && hasChildrenFromApi;
+
+  return (
+    <div
+      className={`ni-link-row${tgtId === activeNodeId ? ' active' : ''}`}
+      style={{ paddingLeft }}
+      onClick={() => onNavigate(tgtId, link.targetLogicalId || undefined, PSM_NODE_DESCRIPTOR)}
+      title={`${link.linkLogicalId || link.linkId} → ${link.targetLogicalId || tgtId} ${link.targetRevision}.${link.targetIteration}`}
+    >
+      <span
+        className="ni-expand"
+        style={{ visibility: (showChevron || loading) ? 'visible' : 'hidden' }}
+        onClick={e => { if (!isCycle) toggleNodeChildren(childPath, tgtId, e); else e.stopPropagation(); }}
+      >
+        {isCycle
+          ? <span style={{ fontSize: 9, color: 'var(--muted2)', lineHeight: 1 }}>↺</span>
+          : loading
+            ? <span style={{ fontSize: 9, color: 'var(--muted)', lineHeight: 1 }}>…</span>
+            : isExp
+              ? <ChevronDown size={9} strokeWidth={2.5} color="var(--muted)" />
+              : <ChevronRight size={9} strokeWidth={2.5} color="var(--muted)" />}
+      </span>
+      {ltColor && (
+        <span style={{ width: 6, height: 6, borderRadius: 1, background: ltColor, flexShrink: 0, display: 'inline-block' }} />
+      )}
+      <span className="ni-dot" style={{ background: stateColorMap?.[link.targetState] || '#6b7280' }} />
+      <span className="ni-logical" style={{ flex: 1, minWidth: 0, color: ltColor || undefined }}>
+        {link.targetLogicalId || <span className="ni-no-id" style={{ color: 'var(--muted2)' }}>—</span>}
+        {link.linkLogicalId && (
+          <span style={{ opacity: 0.65, marginLeft: 3 }}>[{link.linkLogicalId}]</span>
+        )}
+      </span>
+      <span className="ni-reviter">{link.targetRevision}.{link.targetIteration}</span>
+      <span className={`ni-policy ni-policy-${isV2V ? 'v2v' : 'v2m'}`}>{isV2V ? 'V2V' : 'V2M'}</span>
+    </div>
+  );
+}
+
 // ── Plugin export ─────────────────────────────────────────────────────────────
 
 export default {
   id: 'psm-nav',
   zone: 'nav',
 
+  // sourcePlugins match contract — enables PluginLoader bridge
+  match: { serviceCode: 'psm', itemCode: 'node' },
+
+  // ctx-interface exports (used by BrowseNav via sourcePlugins)
+  NavRow: PsmNavRowCtx,
+  ChildRow: PsmLinkRowRemote,
+  hasItemChildren: (item) => {
+    const cc = item.children_count ?? item.CHILDREN_COUNT;
+    return cc == null || cc > 0;
+  },
+  fetchChildren: async (item) => {
+    const id = item.id || item.ID;
+    try {
+      const data = await psmApi.getChildLinks(null, id);
+      return Array.isArray(data) ? data : [];
+    } catch { return []; }
+  },
+
   init(shellAPI) {
     _shellAPI = shellAPI;
+    initPsmApi(shellAPI);
   },
 
   matches(descriptor) {
     return descriptor?.serviceCode === 'psm';
   },
 
+  // shellAPI-interface Component (used by pluginRegistry nav zone)
   Component: PsmNavRow,
 };

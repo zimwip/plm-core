@@ -5,7 +5,23 @@ import { randomUUID } from 'crypto';
 import { mkdir, writeFile, rm } from 'fs/promises';
 import { createReadStream } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import initOcct from 'occt-import-js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// OCCT initialised once at startup; /convert waits on this promise
+let _occt = null;
+const _occtReady = initOcct({
+  locateFile: (path) => join(__dirname, 'node_modules/occt-import-js/dist', path),
+}).then(inst => { _occt = inst; console.log('OCCT ready'); })
+  .catch(err => console.error('OCCT init failed:', err.message));
+
+async function getOcct() {
+  if (!_occt) await _occtReady;
+  return _occt;
+}
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
@@ -98,11 +114,410 @@ app.get('/split/:jobId/part/:index', (req, res) => {
   createReadStream(partPath).pipe(res);
 });
 
+// POST /convert — STEP bytes → GLB binary (occt tessellate + minimal glTF serialiser)
+app.post('/convert', upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file provided' });
+  try {
+    const occt = await getOcct();
+    if (!occt) return res.status(503).json({ error: 'OCCT not ready' });
+
+    const result = occt.ReadStepFile(new Uint8Array(req.file.buffer), null);
+    if (!result?.success || !result.meshes?.length) {
+      return res.status(422).json({ error: 'No geometry found' });
+    }
+
+    const meshes = result.meshes.map(m => ({
+      positions: new Float32Array(m.attributes.position.array),
+      normals:   m.attributes?.normal ? new Float32Array(m.attributes.normal.array) : null,
+      indices:   m.index             ? new Uint32Array(m.index.array)               : null,
+      color:     m.color ?? null,
+    }));
+
+    const glb = buildGlb(meshes);
+    res.setHeader('Content-Type', 'model/gltf-binary');
+    res.setHeader('Content-Length', glb.length);
+    res.send(glb);
+    console.log(`/convert: ${meshes.length} mesh(es), ${(glb.length / 1024).toFixed(1)} KB`);
+  } catch (err) {
+    console.error('/convert error:', err.message);
+    res.status(422).json({ error: err.message });
+  }
+});
+
 app.listen(8090, () => console.log('cad-parser listening on :8090'));
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+// Serialize an array of {positions, normals, indices, color} mesh objects to GLB.
+// Produces a valid glTF 2.0 binary with one mesh primitive per entry.
+function buildGlb(meshes) {
+  function align4(n) { return (n + 3) & ~3; }
+
+  const bufParts   = [];
+  const bufferViews = [];
+  const accessors  = [];
+  const gltfMeshes = [];
+  const materials  = [];
+  let byteOffset   = 0;
+
+  function pushBytes(typedArray) {
+    const bytes = new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength);
+    bufParts.push(bytes);
+    byteOffset += bytes.byteLength;
+  }
+
+  function padTo4() {
+    const r = byteOffset % 4;
+    if (r === 0) return;
+    const pad = new Uint8Array(4 - r);
+    bufParts.push(pad);
+    byteOffset += pad.byteLength;
+  }
+
+  for (let mi = 0; mi < meshes.length; mi++) {
+    const { positions, normals, indices, color } = meshes[mi];
+    const vertCount = positions.length / 3;
+    const primAttrs = {};
+
+    // Positions
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < positions.length; i += 3) {
+      if (positions[i]   < minX) minX = positions[i];   if (positions[i]   > maxX) maxX = positions[i];
+      if (positions[i+1] < minY) minY = positions[i+1]; if (positions[i+1] > maxY) maxY = positions[i+1];
+      if (positions[i+2] < minZ) minZ = positions[i+2]; if (positions[i+2] > maxZ) maxZ = positions[i+2];
+    }
+    const posView = bufferViews.length;
+    bufferViews.push({ buffer: 0, byteOffset, byteLength: positions.byteLength, target: 34962 });
+    pushBytes(positions);
+    primAttrs.POSITION = accessors.length;
+    accessors.push({ bufferView: posView, byteOffset: 0, componentType: 5126, count: vertCount, type: 'VEC3',
+                     min: [minX, minY, minZ], max: [maxX, maxY, maxZ] });
+
+    // Normals
+    if (normals) {
+      const normView = bufferViews.length;
+      bufferViews.push({ buffer: 0, byteOffset, byteLength: normals.byteLength, target: 34962 });
+      pushBytes(normals);
+      primAttrs.NORMAL = accessors.length;
+      accessors.push({ bufferView: normView, byteOffset: 0, componentType: 5126, count: vertCount, type: 'VEC3' });
+    }
+
+    // Indices (must be 4-byte aligned)
+    const primitive = { attributes: primAttrs, mode: 4 };
+    if (indices) {
+      padTo4();
+      const idxView = bufferViews.length;
+      bufferViews.push({ buffer: 0, byteOffset, byteLength: indices.byteLength, target: 34963 });
+      pushBytes(indices);
+      primitive.indices = accessors.length;
+      accessors.push({ bufferView: idxView, byteOffset: 0, componentType: 5125, count: indices.length, type: 'SCALAR' });
+    }
+
+    // Material
+    const r = color ? color[0] : 0.357, g = color ? color[1] : 0.608, b = color ? color[2] : 0.965;
+    primitive.material = materials.length;
+    materials.push({ pbrMetallicRoughness: { baseColorFactor: [r, g, b, 1.0], metallicFactor: 0.1, roughnessFactor: 0.8 }, doubleSided: true });
+    gltfMeshes.push({ primitives: [primitive] });
+  }
+
+  // Binary buffer
+  const totalBin = align4(byteOffset);
+  const binBuf   = Buffer.alloc(totalBin, 0);
+  let off = 0;
+  for (const part of bufParts) { binBuf.set(part, off); off += part.byteLength; }
+
+  // glTF JSON
+  const gltf = {
+    asset: { version: '2.0', generator: 'cad-parser/occt-import-js' },
+    scene: 0,
+    scenes: [{ nodes: gltfMeshes.map((_, i) => i) }],
+    nodes:  gltfMeshes.map((_, i) => ({ mesh: i })),
+    meshes: gltfMeshes, materials, accessors, bufferViews,
+    buffers: [{ byteLength: totalBin }],
+  };
+  const jsonBuf = Buffer.from(JSON.stringify(gltf), 'utf8');
+  const jsonPad = Buffer.alloc(align4(jsonBuf.length), 0x20); // pad with spaces (valid JSON whitespace)
+  jsonBuf.copy(jsonPad);
+
+  const totalLen = 12 + 8 + jsonPad.length + 8 + binBuf.length;
+  const header = Buffer.alloc(12);
+  header.writeUInt32LE(0x46546C67, 0); // "glTF"
+  header.writeUInt32LE(2, 4);
+  header.writeUInt32LE(totalLen, 8);
+
+  const jsonChunkHdr = Buffer.alloc(8);
+  jsonChunkHdr.writeUInt32LE(jsonPad.length, 0);
+  jsonChunkHdr.writeUInt32LE(0x4E4F534A, 4); // "JSON"
+
+  const binChunkHdr = Buffer.alloc(8);
+  binChunkHdr.writeUInt32LE(binBuf.length, 0);
+  binChunkHdr.writeUInt32LE(0x004E4942, 4); // "BIN\0"
+
+  return Buffer.concat([header, jsonChunkHdr, jsonPad, binChunkHdr, binBuf]);
+}
+
+// Build a row-major 4×4 transformation matrix from STEP AXIS2_PLACEMENT_3D data.
+// origin: [x,y,z] translation; dirX: x-axis direction; dirZ: z-axis direction.
+// Returns 16-element array (row 0 first): [xx,yx,zx,tx, xy,yy,zy,ty, xz,yz,zz,tz, 0,0,0,1]
+function buildMatrix4x4(origin, dirX, dirZ) {
+  const normalize = v => {
+    const len = Math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2);
+    return len > 0 ? v.map(c => c / len) : [0, 0, 0];
+  };
+  const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+
+  const ox = origin[0] ?? 0, oy = origin[1] ?? 0, oz = origin[2] ?? 0;
+  const z = normalize(dirZ ?? [0, 0, 1]);
+  const x = normalize(dirX ?? [1, 0, 0]);
+  const y = normalize(cross(z, x));
+
+  return [
+    x[0], y[0], z[0], ox,
+    x[1], y[1], z[1], oy,
+    x[2], y[2], z[2], oz,
+    0,    0,    0,    1,
+  ];
+}
+
+// Given a normalised STEP data string and the set of NAUO entity IDs, returns a
+// function getMatrixForNauo(nauoId) → double[16] | null.
+// Traversal: NAUO → PRODUCT_DEFINITION_SHAPE → CONTEXT_DEPENDENT_SHAPE_REPRESENTATION
+//            → SHAPE_REPRESENTATION_RELATIONSHIP → SHAPE_REPRESENTATION → AXIS2_PLACEMENT_3D
+// Works for simple AP214 patterns; returns null when chain is absent or uses
+// compound REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION entities.
+function makeNauoMatrixExtractor(data, nauoIdSet) {
+  function byType(typeName) {
+    const re = new RegExp(`#(\\d+)\\s*=\\s*${typeName}\\s*\\(([^;]*)\\)\\s*;`, 'g');
+    const out = {}; let m;
+    while ((m = re.exec(data)) !== null) out[m[1]] = m[2];
+    return out;
+  }
+  function split(s) {
+    const parts = []; let depth = 0, cur = '';
+    for (const ch of s) {
+      if ('(['.includes(ch)) depth++;
+      else if (')]'.includes(ch)) depth--;
+      else if (ch === ',' && depth === 0) { parts.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    if (cur.trim()) parts.push(cur.trim());
+    return parts;
+  }
+  const ref = s => { const m = s?.trim().match(/^#(\d+)$/); return m ? m[1] : null; };
+
+  const cartPoints = {};
+  for (const [id, args] of Object.entries(byType('CARTESIAN_POINT'))) {
+    const p = split(args);
+    const nums = (p[1] ?? '').replace(/[()]/g, '').split(',').map(Number);
+    if (nums.length >= 3 && !nums.some(isNaN)) cartPoints[id] = nums;
+  }
+  const directions = {};
+  for (const [id, args] of Object.entries(byType('DIRECTION'))) {
+    const p = split(args);
+    const nums = (p[1] ?? '').replace(/[()]/g, '').split(',').map(Number);
+    if (nums.length >= 3 && !nums.some(isNaN)) directions[id] = nums;
+  }
+  const axis2p3d = {};
+  for (const [id, args] of Object.entries(byType('AXIS2_PLACEMENT_3D'))) {
+    const p = split(args);
+    axis2p3d[id] = { originId: ref(p[1]), dirZId: ref(p[2]), dirXId: ref(p[3]) };
+  }
+
+  // PRODUCT_DEFINITION_SHAPE entities whose definition arg references a NAUO
+  const nauoToPds = {};
+  for (const [pdsId, args] of Object.entries(byType('PRODUCT_DEFINITION_SHAPE'))) {
+    const p = split(args);
+    const defRef = ref(p[2]);
+    if (defRef && nauoIdSet.has(defRef)) nauoToPds[defRef] = pdsId;
+  }
+
+  // CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#srr_ref, #pds_ref)
+  const pdsToCdsr = {};
+  for (const [, args] of Object.entries(byType('CONTEXT_DEPENDENT_SHAPE_REPRESENTATION'))) {
+    const p = split(args);
+    const srrId = ref(p[0]), pdsId = ref(p[1]);
+    if (srrId && pdsId) pdsToCdsr[pdsId] = srrId;
+  }
+
+  // Simple SHAPE_REPRESENTATION_RELATIONSHIP('','',#sr1,#sr2)
+  const srrMap = {};
+  for (const [id, args] of Object.entries(byType('SHAPE_REPRESENTATION_RELATIONSHIP'))) {
+    const p = split(args);
+    const sr1 = ref(p[2]), sr2 = ref(p[3]);
+    if (sr1 && sr2) srrMap[id] = [sr1, sr2];
+  }
+  // Compound SRR: #N =( REPRESENTATION_RELATIONSHIP(...) REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#idt) SHAPE_REPRESENTATION_RELATIONSHIP() )
+  // Used in AP214 files where positioning is via ITEM_DEFINED_TRANSFORMATION, not SR items
+  const compoundSrrToIdt = {};
+  { const re = /#(\d+)\s*=\s*\(\s*REPRESENTATION_RELATIONSHIP\s*\([^)]*\)\s*REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION\s*\(\s*#(\d+)\s*\)/g; let m;
+    while ((m = re.exec(data)) !== null) compoundSrrToIdt[m[1]] = m[2]; }
+  // ITEM_DEFINED_TRANSFORMATION(name, desc, #occurrence_A2P3D, #identity_A2P3D) — arg[2] = placement in assembly space
+  const idtToA2p3d = {};
+  for (const [id, args] of Object.entries(byType('ITEM_DEFINED_TRANSFORMATION'))) {
+    const a2pId = ref(split(args)[2]);
+    if (a2pId) idtToA2p3d[id] = a2pId;
+  }
+
+  // Shape representation items + reverse index item→SR
+  const itemToSr = {};
+  const srItems = {};
+  for (const [id, args] of Object.entries({
+    ...byType('SHAPE_REPRESENTATION'),
+    ...byType('ADVANCED_BREP_SHAPE_REPRESENTATION'),
+    ...byType('GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION'),
+  })) {
+    const p = split(args);
+    const refs = []; const re2 = /#(\d+)/g; let m;
+    while ((m = re2.exec(p[1] ?? '')) !== null) { refs.push(m[1]); itemToSr[m[1]] = id; }
+    srItems[id] = refs;
+  }
+
+  // AP214 mixed: NAUO occurrence PDS → SDR → SR (handles files that mix AP203/AP214 conventions)
+  const nauoPdsIds = new Set(Object.values(nauoToPds));
+  const pdsToPsr = {};
+  for (const [, args] of Object.entries(byType('SHAPE_DEFINITION_REPRESENTATION'))) {
+    const p = split(args);
+    const pdsId = ref(p[0]), srId = ref(p[1]);
+    if (pdsId && srId && nauoPdsIds.has(pdsId)) pdsToPsr[pdsId] = srId;
+  }
+
+  // AP203 MAPPED_ITEM path — rebuild product chain to connect NAUO → assembly SR → MAPPED_ITEM
+  const _fmts = {};
+  for (const [id, args] of Object.entries({
+    ...byType('PRODUCT_DEFINITION_FORMATION'),
+    ...byType('PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE'),
+  })) {
+    const pid = ref(split(args)[2]);
+    if (pid) _fmts[id] = pid;
+  }
+  const _pdefs = {};  // pd_id → product step id
+  for (const [id, args] of Object.entries(byType('PRODUCT_DEFINITION'))) {
+    const fid = ref(split(args)[2]);
+    if (fid && _fmts[fid]) _pdefs[id] = _fmts[fid];
+  }
+  const nauoInfo = {};  // nauoId → {parentProduct, childProduct} (product step ids)
+  for (const [nauoId, args] of Object.entries({
+    ...byType('NEXT_ASSEMBLY_USAGE_OCCURRENCE'),
+    ...byType('ASSEMBLY_COMPONENT_USAGE'),
+  })) {
+    if (!nauoIdSet.has(nauoId)) continue;
+    const p = split(args);
+    const parPdId = ref(p[3]), chiPdId = ref(p[4]);
+    if (parPdId && chiPdId && _pdefs[parPdId] && _pdefs[chiPdId]) {
+      nauoInfo[nauoId] = { parentProduct: _pdefs[parPdId], childProduct: _pdefs[chiPdId] };
+    }
+  }
+  // Product step id → SR (via product-level PDS → SDR; excludes NAUO-linked PDSes)
+  const _productOfPds = {};
+  for (const [pdsId, args] of Object.entries(byType('PRODUCT_DEFINITION_SHAPE'))) {
+    const defRef = ref(split(args)[2]);
+    if (defRef && _pdefs[defRef]) _productOfPds[pdsId] = _pdefs[defRef];
+  }
+  const productToSr = {};
+  for (const [, args] of Object.entries(byType('SHAPE_DEFINITION_REPRESENTATION'))) {
+    const p = split(args);
+    const pdsId = ref(p[0]), srId = ref(p[1]);
+    if (pdsId && srId && _productOfPds[pdsId]) productToSr[_productOfPds[pdsId]] = srId;
+  }
+  // REPRESENTATION_MAP id → child SR id (arg[1] = mapped_representation)
+  const reprMapToSr = {};
+  for (const [id, args] of Object.entries(byType('REPRESENTATION_MAP'))) {
+    const srId = ref(split(args)[1]);
+    if (srId) reprMapToSr[id] = srId;
+  }
+  // Assembly SR → MAPPED_ITEM list: {reprMapId, targetId (AXIS2_PLACEMENT_3D)}
+  const srToMappedItems = {};
+  for (const [miId, args] of Object.entries(byType('MAPPED_ITEM'))) {
+    const p = split(args);
+    const reprMapId = ref(p[1]), targetId = ref(p[2]);
+    if (!reprMapId || !targetId) continue;
+    const parentSrId = itemToSr[miId];
+    if (parentSrId) (srToMappedItems[parentSrId] ??= []).push({ reprMapId, targetId });
+  }
+  // Index each NAUO among siblings with same parent+child (multi-instance correlation)
+  const nauosByPairKey = {};
+  for (const [nauoId, info] of Object.entries(nauoInfo)) {
+    const key = `${info.parentProduct}:${info.childProduct}`;
+    (nauosByPairKey[key] ??= []).push(nauoId);
+  }
+
+  return function getMatrixForNauo(nauoId) {
+    const pdsId = nauoToPds[nauoId];
+
+    if (pdsId) {
+      // AP214: CDSR arg[1] may be NAUO (standard) or its PDS (some exporters) — try both
+      const srrId = pdsToCdsr[pdsId] ?? pdsToCdsr[nauoId];
+      if (srrId) {
+        // Simple SRR: items-based lookup
+        const srs = srrMap[srrId];
+        if (srs) {
+          for (const srId of srs) {
+            for (const itemId of (srItems[srId] ?? [])) {
+              const a2p = axis2p3d[itemId];
+              if (!a2p) continue;
+              const origin = cartPoints[a2p.originId] ?? [0, 0, 0];
+              const dirZ   = a2p.dirZId ? directions[a2p.dirZId] : null;
+              const dirX   = a2p.dirXId ? directions[a2p.dirXId] : null;
+              return buildMatrix4x4(origin, dirX, dirZ);
+            }
+          }
+        }
+        // Compound SRR: REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION → IDT → A2P3D
+        const a2pId = idtToA2p3d[compoundSrrToIdt[srrId]];
+        if (a2pId) {
+          const a2p = axis2p3d[a2pId];
+          if (a2p) {
+            const origin = cartPoints[a2p.originId] ?? [0, 0, 0];
+            return buildMatrix4x4(origin, a2p.dirXId ? directions[a2p.dirXId] : null, a2p.dirZId ? directions[a2p.dirZId] : null);
+          }
+        }
+      }
+      // Mixed: PDS → SDR → SR → AXIS2_PLACEMENT_3D
+      const srId = pdsToPsr[pdsId];
+      if (srId) {
+        for (const itemId of (srItems[srId] ?? [])) {
+          const a2p = axis2p3d[itemId];
+          if (!a2p) continue;
+          const origin = cartPoints[a2p.originId] ?? [0, 0, 0];
+          const dirZ   = a2p.dirZId ? directions[a2p.dirZId] : null;
+          const dirX   = a2p.dirXId ? directions[a2p.dirXId] : null;
+          return buildMatrix4x4(origin, dirX, dirZ);
+        }
+      }
+    }
+
+    // AP203: assembly SR → MAPPED_ITEM (mapping_source=REPR_MAP → child SR, mapping_target=A2P3D)
+    const info = nauoInfo[nauoId];
+    if (!info) return null;
+    const parentSrId = productToSr[info.parentProduct];
+    const childSrId  = productToSr[info.childProduct];
+    if (!parentSrId || !childSrId) return null;
+
+    const candidates = (srToMappedItems[parentSrId] ?? [])
+        .filter(mi => reprMapToSr[mi.reprMapId] === childSrId);
+    if (!candidates.length) return null;
+
+    const key = `${info.parentProduct}:${info.childProduct}`;
+    const siblings = nauosByPairKey[key] ?? [nauoId];
+    const idx = Math.max(0, siblings.indexOf(nauoId));
+    const mi = candidates[Math.min(idx, candidates.length - 1)];
+
+    const a2p = axis2p3d[mi.targetId];
+    if (!a2p) return null;
+    const origin = cartPoints[a2p.originId] ?? [0, 0, 0];
+    const dirZ   = a2p.dirZId ? directions[a2p.dirZId] : null;
+    const dirX   = a2p.dirXId ? directions[a2p.dirXId] : null;
+    return buildMatrix4x4(origin, dirX, dirZ);
+  };
+}
 
 // ---------------------------------------------------------------------------
 // STEP P21 BOM parser — pure text, no WASM
 // Handles AP203 / AP214 / AP242 assembly structures.
+// Returns nodes with occurrences: [{parentId, positionMatrix}]
 // ---------------------------------------------------------------------------
 function parseStep(content) {
   const dataMatch = content.match(/DATA;([\s\S]*?)ENDSEC;/);
@@ -163,20 +578,25 @@ function parseStep(content) {
     if (fid && formations[fid]) prodDefs[id] = formations[fid].productId;
   }
 
-  // NEXT_ASSEMBLY_USAGE_OCCURRENCE('','','',#PARENT_PD,#CHILD_PD, ...)
-  const parentOf = {};   // childProductId → parentProductId
-  for (const [, args] of Object.entries({
+  // NEXT_ASSEMBLY_USAGE_OCCURRENCE: collect all occurrences per child (multi-instance aware)
+  // occurrencesOf[childProductId] = [{parentProductId, nauoId}]
+  const nauoEntities = {
     ...byType('NEXT_ASSEMBLY_USAGE_OCCURRENCE'),
     ...byType('ASSEMBLY_COMPONENT_USAGE'),
-  })) {
+  };
+  const occurrencesOf = {};
+  for (const [nauoId, args] of Object.entries(nauoEntities)) {
     const p = split(args);
     const par = ref(p[3]), chi = ref(p[4]);
     if (par && chi && prodDefs[par] && prodDefs[chi]) {
-      parentOf[prodDefs[chi]] = prodDefs[par];
+      const childProd = prodDefs[chi], parentProd = prodDefs[par];
+      (occurrencesOf[childProd] ??= []).push({ parentProductId: parentProd, nauoId });
     }
   }
 
   if (!Object.keys(products).length) throw new Error('No PRODUCT entities found — may not be an assembly STEP file');
+
+  const getMatrixForNauo = makeNauoMatrixExtractor(data, new Set(Object.keys(nauoEntities)));
 
   // Build flat node list
   const idMap = {};
@@ -184,7 +604,7 @@ function parseStep(content) {
     const id = randomUUID();
     idMap[stepId] = id;
     return { _s: stepId, id, name: prod.name || prod.partNumber || `Part-${stepId}`,
-             type: 'PART', parentId: null,
+             type: 'PART',
              attributes: Object.fromEntries(
                [['partNumber', prod.partNumber], ['description', prod.description]].filter(([, v]) => v)
              ) };
@@ -192,8 +612,18 @@ function parseStep(content) {
 
   const hasChildren = new Set();
   for (const n of nodes) {
-    const parStepId = parentOf[n._s];
-    if (parStepId && idMap[parStepId]) { n.parentId = idMap[parStepId]; hasChildren.add(idMap[parStepId]); }
+    const occs = occurrencesOf[n._s];
+    if (occs?.length) {
+      n.occurrences = occs
+        .map(occ => {
+          const parentId = idMap[occ.parentProductId] ?? null;
+          if (parentId) hasChildren.add(parentId);
+          return { parentId, positionMatrix: getMatrixForNauo(occ.nauoId) };
+        })
+        .filter(o => o.parentId !== null);
+    } else {
+      n.occurrences = [];
+    }
     delete n._s;
   }
   for (const n of nodes) n.type = hasChildren.has(n.id) ? 'ASSEMBLY' : 'PART';
@@ -211,7 +641,7 @@ function parseCatiaProduct(xml) {
 
   const nodes = [];
   walkXml(doc, null, nodes);
-  if (!nodes.length) nodes.push({ id: randomUUID(), name: 'Unknown', type: 'PART', parentId: null, attributes: {} });
+  if (!nodes.length) nodes.push({ id: randomUUID(), name: 'Unknown', type: 'PART', occurrences: [], attributes: {} });
   return nodes;
 }
 
@@ -231,7 +661,8 @@ function walkXml(el, parentId, out) {
         const desc     = child['@_DescriptionRef'] ?? child['@_description'] ?? '';
         const childKeys = Object.keys(child).filter(k => !k.startsWith('@_') && k !== '#text');
         const hasKids   = childKeys.some(k => CAT_TAGS.has(k));
-        out.push({ id, name, type: hasKids ? 'ASSEMBLY' : 'PART', parentId,
+        out.push({ id, name, type: hasKids ? 'ASSEMBLY' : 'PART',
+                   occurrences: parentId ? [{ parentId, positionMatrix: null }] : [],
                    attributes: Object.fromEntries([['revision', revision], ['description', desc]].filter(([, v]) => v)) });
         walkXml(child, id, out);
       } else {
@@ -397,19 +828,29 @@ function splitStep(content) {
     const fid = ref(splitArgs(args)[2]);
     if (fid && formations[fid]) prodDefs[id] = formations[fid].productId;
   }
-  const parentOf = {};
-  for (const [, args] of Object.entries({
+
+  // Collect all occurrences per child (multi-instance aware)
+  const nauoEntities = {
     ...byType('NEXT_ASSEMBLY_USAGE_OCCURRENCE'),
     ...byType('ASSEMBLY_COMPONENT_USAGE'),
-  })) {
+  };
+  const occurrencesOf = {};
+  for (const [nauoId, args] of Object.entries(nauoEntities)) {
     const p = splitArgs(args);
     const par = ref(p[3]), chi = ref(p[4]);
-    if (par && chi && prodDefs[par] && prodDefs[chi]) parentOf[prodDefs[chi]] = prodDefs[par];
+    if (par && chi && prodDefs[par] && prodDefs[chi]) {
+      const childProd = prodDefs[chi], parentProd = prodDefs[par];
+      (occurrencesOf[childProd] ??= []).push({ parentProductId: parentProd, nauoId });
+    }
   }
 
   if (!Object.keys(products).length) throw new Error('No PRODUCT entities found — may not be an assembly STEP file');
 
-  const hasChildren    = new Set(Object.values(parentOf));
+  const getMatrixForNauo = makeNauoMatrixExtractor(data, new Set(Object.keys(nauoEntities)));
+
+  const hasChildren    = new Set(
+    Object.values(occurrencesOf).flat().map(o => o.parentProductId)
+  );
   const productStepIds = new Set(Object.keys(products));
   const idMap = {};
   for (const stepId of Object.keys(products)) idMap[stepId] = randomUUID();
@@ -534,11 +975,16 @@ function splitStep(content) {
 
     const stepContent = reconstructStepFile(headerSection, closure, entityMap);
     return {
-      nodeId:       idMap[stepId],
-      name:         prod.name || prod.partNumber || `Part-${stepId}`,
-      cadType:      hasChildren.has(stepId) ? 'ASSEMBLY' : 'PART',
-      parentNodeId: parentOf[stepId] ? (idMap[parentOf[stepId]] ?? null) : null,
-      attributes:   Object.fromEntries(
+      nodeId:     idMap[stepId],
+      name:       prod.name || prod.partNumber || `Part-${stepId}`,
+      cadType:    hasChildren.has(stepId) ? 'ASSEMBLY' : 'PART',
+      occurrences: (occurrencesOf[stepId] ?? [])
+        .map(occ => ({
+          parentId:       idMap[occ.parentProductId] ?? null,
+          positionMatrix: getMatrixForNauo(occ.nauoId),
+        }))
+        .filter(o => o.parentId !== null),
+      attributes: Object.fromEntries(
         [['partNumber', prod.partNumber], ['description', prod.description]].filter(([, v]) => v)
       ),
       stepContent,

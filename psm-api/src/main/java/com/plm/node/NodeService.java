@@ -12,6 +12,9 @@ import com.plm.node.transaction.internal.LockService;
 
 import static java.util.Map.entry;
 
+import java.util.Comparator;
+import com.plm.platform.action.dto.DetailDescriptor;
+import com.plm.platform.action.dto.DetailField;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.LifecycleConfig;
 import com.plm.platform.config.dto.LifecycleStateConfig;
@@ -194,7 +197,7 @@ public class NodeService {
             versionId
         );
 
-        eventPublisher.nodeCreated(nodeId, userId);
+        eventPublisher.nodeCreated(nodeId, nodeTypeId, userId, projectSpaceId);
         log.info(
             "Node created: id={} type={} user={}",
             nodeId,
@@ -577,8 +580,10 @@ public class NodeService {
                       END
                     AND n.node_type_id = nl.target_type
                 LEFT JOIN node_version pv ON pv.node_id = n.id
-                    AND POSITION('@' IN nl.target_key) > 0
-                    AND pv.version_number = CAST(SUBSTR(nl.target_key, POSITION('@' IN nl.target_key) + 1) AS INT)
+                    AND nl.target_key LIKE '%@%'
+                    AND pv.version_number = CASE WHEN nl.target_key LIKE '%@%'
+                        THEN CAST(SPLIT_PART(nl.target_key, '@', 2) AS INT)
+                        ELSE NULL END
                 WHERE src.node_id = ?
                   AND (spt.status = 'COMMITTED' OR (spt.status = 'OPEN' AND spt.owner_id = ?))
                   AND src.version_number <= ?
@@ -610,8 +615,9 @@ public class NodeService {
                 String targetNtId = r.get("target_node_type_id", String.class);
                 m.put(
                     "targetNodeType",
-                    configCache.getNodeType(targetNtId)
-                        .map(NodeTypeConfig::name).orElse(targetNtId)
+                    targetNtId != null
+                        ? configCache.getNodeType(targetNtId).map(NodeTypeConfig::name).orElse(targetNtId)
+                        : null
                 );
                 m.put(
                     "pinnedVersionId",
@@ -648,7 +654,6 @@ public class NodeService {
 
         // 1. Acquérir le lock sur le noeud (atomique via SELECT FOR UPDATE, sans dépendance tx)
         lockService.tryLock(nodeId, userId);
-        eventPublisher.lockAcquired(nodeId, userId);
 
         // 2. Trouver ou créer une transaction
         if (txId == null) {
@@ -659,16 +664,19 @@ public class NodeService {
         // 3. Créer la version OPEN dans la transaction (idempotent)
         String existing = findOpenVersionInTx(nodeId, txId);
         if (existing != null) return existing;
-        return versionService.createVersion(
+        final String finalTxId = txId;
+        String newVersionId = versionService.createVersion(
             nodeId,
             userId,
-            txId,
+            finalTxId,
             ChangeType.CONTENT,
             resolveCheckoutStrategy(nodeId),
             null,
             Map.of(),
             "Checkout"
         );
+        eventPublisher.itemCaptured(nodeId, finalTxId, userId);
+        return newVersionId;
     }
 
     // ================================================================
@@ -724,7 +732,7 @@ public class NodeService {
                       description
                   );
 
-        eventPublisher.nodeUpdated(nodeId, userId);
+        eventPublisher.itemUpdated(nodeId, userId);
         return versionId;
     }
 
@@ -779,7 +787,7 @@ public class NodeService {
      */
     /** Backward-compatible overload — no historical version pinning. */
     @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
-    public Map<String, Object> buildObjectDescription(
+    public DetailDescriptor buildObjectDescription(
         String nodeId,
         String userId,
         String txId
@@ -788,13 +796,16 @@ public class NodeService {
     }
 
     /**
-     * Builds the full UI payload for a node.
+     * Builds the full server-driven UI payload for a node as a {@link DetailDescriptor}.
+     * Fields contain visible attributes; PSM-specific node metadata (lock, state, revision,
+     * etc.) is in {@link DetailDescriptor#metadata()}. Actions are NOT included here —
+     * the caller (NodeController) resolves and attaches them after computing globalCanWrite.
      *
-     * @param versionNumber when non-null, pins the view to that specific historical version
-     *                      (all attributes are forced read-only, actions list is empty).
+     * @param versionNumber when non-null, pins to that historical version
+     *                      (all attributes forced read-only, actions list will be empty).
      */
     @PlmPermission(value = "READ_NODE", keyExprs = @KeyExpr(name = "nodeType", expr = "#nodeId"))
-    public Map<String, Object> buildObjectDescription(
+    public DetailDescriptor buildObjectDescription(
         String nodeId,
         String userId,
         String txId,
@@ -816,265 +827,178 @@ public class NodeService {
                 "Version " + versionNumber + " not found for node: " + nodeId
             );
         } else {
-            current =
-                txId != null
-                    ? versionService.getCurrentVersionForTx(nodeId, txId)
-                    : txService.getCurrentVisibleVersion(nodeId);
+            current = txId != null
+                ? versionService.getCurrentVersionForTx(nodeId, txId)
+                : txService.getCurrentVisibleVersion(nodeId);
         }
 
         if (current == null) throw new IllegalStateException(
             "Node has no visible version: " + nodeId
         );
 
-        String nodeTypeId = dsl
-            .select()
-            .from("node")
-            .where("id = ?", nodeId)
+        String nodeTypeId = dsl.select().from("node").where("id = ?", nodeId)
             .fetchOne("node_type_id", String.class);
-        String currentStateId = current.get("lifecycle_state_id", String.class);
-        String currentStateName = currentStateId != null
-            ? findStateName(currentStateId)
-            : null;
-        String revision = current.get("revision", String.class);
-        int iteration = current.get("iteration", Integer.class);
-        String versionId = current.get("id", String.class);
-        String currentTxId = current.get("tx_id", String.class);
-        String txStatus = dsl
-            .select()
-            .from("plm_transaction")
-            .where("id = ?", currentTxId)
+        String currentStateId  = current.get("lifecycle_state_id", String.class);
+        String currentStateName = currentStateId != null ? findStateName(currentStateId) : null;
+        String revision  = current.get("revision",  String.class);
+        int    iteration = current.get("iteration", Integer.class);
+        String versionId = current.get("id",        String.class);
+        String currentTxId = current.get("tx_id",   String.class);
+        String txStatus = dsl.select().from("plm_transaction").where("id = ?", currentTxId)
             .fetchOne("status", String.class);
 
-        String activeViewId = viewService.resolveActiveView(
-            nodeTypeId,
-            currentStateId
-        );
+        String activeViewId   = viewService.resolveActiveView(nodeTypeId, currentStateId);
         LockService.LockInfo lockInfo = lockService.getLockInfo(nodeId);
 
-        // Identity fields — logical_id and external_id are on node (not versioned)
         NodeTypeConfig nodeTypeConfig = configCache.getNodeType(nodeTypeId)
             .orElseThrow(() -> new IllegalStateException(
-                "NodeType not found in config cache: " + nodeTypeId
-            ));
-        String lifecycleId = nodeTypeConfig.lifecycleId();
-        String logicalIdLabel = nodeTypeConfig.logicalIdLabel();
+                "NodeType not found in config cache: " + nodeTypeId));
+        String lifecycleId      = nodeTypeConfig.lifecycleId();
+        String logicalIdLabel   = nodeTypeConfig.logicalIdLabel();
         String logicalIdPattern = nodeTypeConfig.logicalIdPattern();
 
-        Record nodeRecord = dsl
-            .select()
-            .from("node")
-            .where("id = ?", nodeId)
-            .fetchOne();
+        Record nodeRecord = dsl.select().from("node").where("id = ?", nodeId).fetchOne();
         String logicalId = nodeRecord.get("logical_id", String.class);
         String externalId = nodeRecord.get("external_id", String.class);
 
-        // Valeurs courantes
         Map<String, String> currentValues = new java.util.HashMap<>();
-        dsl
-            .select()
-            .from("node_version_attribute")
-            .where("node_version_id = ?", versionId)
+        dsl.select().from("node_version_attribute").where("node_version_id = ?", versionId)
             .fetch()
-            .forEach(r ->
-                currentValues.put(
-                    r.get("attribute_def_id", String.class),
-                    r.get("value", String.class)
-                )
-            );
+            .forEach(r -> currentValues.put(
+                r.get("attribute_def_id", String.class),
+                r.get("value", String.class)));
 
-        // Resolve the as_name attribute value for display (uses cache — includes inherited)
         var resolvedNodeType = metaModelCache.get(nodeTypeId);
         String asNameAttrId = resolvedNodeType != null
             ? resolvedNodeType.attributes().stream()
-                  .filter(ResolvedAttribute::asName)
-                  .map(ResolvedAttribute::id)
-                  .findFirst().orElse(null)
+                .filter(ResolvedAttribute::asName).map(ResolvedAttribute::id)
+                .findFirst().orElse(null)
             : null;
         String displayName = asNameAttrId != null
-            ? currentValues.getOrDefault(asNameAttrId, "")
-            : "";
+            ? currentValues.getOrDefault(asNameAttrId, "") : "";
 
-        // Attributs résolus avec règle d'état + override de vue (inherited attrs included via cache)
-        // Merge node_type attributes + domain attributes
         var baseAttrs = resolvedNodeType != null
-            ? resolvedNodeType.attributes()
-            : List.<ResolvedAttribute>of();
+            ? resolvedNodeType.attributes() : List.<ResolvedAttribute>of();
         List<String> assignedDomainIds = dsl.select(DSL.field("domain_id"))
-            .from("node_version_domain")
-            .where("node_version_id = ?", versionId)
+            .from("node_version_domain").where("node_version_id = ?", versionId)
             .fetch("domain_id", String.class);
         List<ResolvedAttribute> effectiveAttrs = new ArrayList<>(baseAttrs);
         Set<String> nodeTypeAttrNames = baseAttrs.stream()
             .map(ResolvedAttribute::name).collect(Collectors.toSet());
         for (String domId : assignedDomainIds) {
             for (ResolvedAttribute da : metaModelCache.getDomainAttributes(domId)) {
-                if (!nodeTypeAttrNames.contains(da.name())) {
-                    effectiveAttrs.add(da);
-                }
+                if (!nodeTypeAttrNames.contains(da.name())) effectiveAttrs.add(da);
             }
         }
-        var attributes = effectiveAttrs.stream()
-            .map(attr -> {
-                String attrId = attr.id();
-                // Use scoped state rule — child type's override first, then owner's rule
-                MetaModelCachePort.StateRuleInfo rule = currentStateId != null
-                    ? metaModelCache.getStateRuleInfo(nodeTypeId, attrId, currentStateId)
-                    : null;
 
-                boolean stateEditable =
-                    rule == null || rule.editable();
-                boolean stateVisible =
-                    rule == null || rule.visible();
+        // Build fields (sorted by displayOrder) and attributeMeta in a single pass
+        List<DetailField>              fields    = new ArrayList<>();
+        Map<String, Map<String, Object>> attrMeta = new LinkedHashMap<>();
+        for (ResolvedAttribute attr : effectiveAttrs) {
+            String attrId = attr.id();
+            MetaModelCachePort.StateRuleInfo rule = currentStateId != null
+                ? metaModelCache.getStateRuleInfo(nodeTypeId, attrId, currentStateId) : null;
+            boolean stateEditable = rule == null || rule.editable();
+            boolean stateVisible  = rule == null || rule.visible();
+            ViewService.AttributeOverride ov = viewService.applyViewOverride(
+                activeViewId, attrId, stateEditable, stateVisible,
+                attr.displayOrder(), attr.displaySection());
+            if (!ov.visible()) continue;
 
-                ViewService.AttributeOverride ov =
-                    viewService.applyViewOverride(
-                        activeViewId,
-                        attrId,
-                        stateEditable,
-                        stateVisible,
-                        attr.displayOrder(),
-                        attr.displaySection()
-                    );
+            fields.add(new DetailField(
+                attrId,
+                attr.label(),
+                currentValues.getOrDefault(attrId, ""),
+                attr.widgetType() != null ? attr.widgetType() : "text",
+                ov.editable(),
+                attr.tooltip()
+            ));
 
-                if (!ov.visible()) return null;
+            boolean required = (rule != null && rule.required()) || attr.required();
+            Map<String, Object> am = new LinkedHashMap<>();
+            am.put("required",        required);
+            am.put("displayOrder",    ov.displayOrder());
+            am.put("section",         ov.displaySection() != null ? ov.displaySection() : "");
+            am.put("namingRegex",     attr.namingRegex()     != null ? attr.namingRegex()     : "");
+            am.put("allowedValues",   attr.allowedValues()   != null ? attr.allowedValues()   : "");
+            am.put("sourceDomainId",  attr.sourceDomainId()  != null ? attr.sourceDomainId()  : "");
+            am.put("sourceDomainName",attr.sourceDomainName()!= null ? attr.sourceDomainName(): "");
+            attrMeta.put(attrId, am);
+        }
+        fields.sort(Comparator.comparingInt(f ->
+            (int) ((Map<?, ?>) attrMeta.get(f.name())).get("displayOrder")));
 
-                boolean requiredByState =
-                    rule != null && rule.required();
-                boolean requiredGlobal = attr.required();
-
-                return Map.<String, Object>ofEntries(
-                    entry("id", attrId),
-                    entry("code", attrId),
-                    entry("label", attr.label()),
-                    entry("value", currentValues.getOrDefault(attrId, "")),
-                    entry("type", attr.dataType()),
-                    entry("widget", attr.widgetType()),
-                    entry(
-                        "section",
-                        ov.displaySection() != null ? ov.displaySection() : ""
-                    ),
-                    entry("displayOrder", ov.displayOrder()),
-                    entry("editable", ov.editable()),
-                    entry("required", requiredByState || requiredGlobal),
-                    entry(
-                        "namingRegex",
-                        attr.namingRegex() != null ? attr.namingRegex() : ""
-                    ),
-                    entry(
-                        "allowedValues",
-                        attr.allowedValues() != null ? attr.allowedValues() : ""
-                    ),
-                    entry("tooltip", attr.tooltip() != null ? attr.tooltip() : ""),
-                    entry("sourceDomainId", attr.sourceDomainId() != null ? attr.sourceDomainId() : ""),
-                    entry("sourceDomainName", attr.sourceDomainName() != null ? attr.sourceDomainName() : "")
-                );
-            })
-            .filter(Objects::nonNull)
-            .toList();
-
-        var result = new java.util.LinkedHashMap<String, Object>();
-        result.put("nodeId", nodeId);
-        result.put("technicalId", nodeId);
-        result.put("logicalId", logicalId != null ? logicalId : "");
-        result.put("externalId", externalId != null ? externalId : "");
-        result.put("createdBy", Objects.toString(nodeRecord.get("created_by", String.class), ""));
-        java.time.LocalDateTime createdAtTs = nodeRecord.get("created_at", java.time.LocalDateTime.class);
-        result.put("createdAt", createdAtTs != null ? createdAtTs.toString() : "");
-        result.put("modifiedBy", Objects.toString(current.get("created_by", String.class), ""));
-        java.time.LocalDateTime lastUpdateTs = current.get("created_at", java.time.LocalDateTime.class);
-        result.put("lastUpdate", lastUpdateTs != null ? lastUpdateTs.toString() : "");
-        result.put(
-            "logicalIdLabel",
-            logicalIdLabel != null ? logicalIdLabel : "Identifier"
-        );
-        result.put(
-            "logicalIdPattern",
-            logicalIdPattern != null ? logicalIdPattern : ""
-        );
-        result.put(
-            "identity",
-            logicalId != null && !logicalId.isBlank()
-                ? logicalId
-                : revision + "." + iteration
-        );
-        result.put("displayName", displayName);
-        result.put("revision", revision);
-        result.put("iteration", iteration);
-        result.put("state", currentStateId != null ? currentStateId : "");
-        result.put("stateName", currentStateName != null ? currentStateName : "");
-        result.put("txStatus", txStatus != null ? txStatus : "COMMITTED");
-        result.put("lifecycleId", lifecycleId != null ? lifecycleId : "");
-        // Look up the OPEN version's txId separately — lock is tx-agnostic on node table.
+        // Lock info
         String lockTxId = lockInfo.locked()
-            ? dsl
-                  .select(DSL.field("tx_id"))
-                  .from("node_version")
-                  .where("node_id = ?", nodeId)
-                  .and(
-                      DSL.exists(
-                          dsl
-                              .selectOne()
-                              .from("plm_transaction")
-                              .where("id = node_version.tx_id")
-                              .and("status = 'OPEN'")
-                      )
-                  )
-                  .limit(1)
-                  .fetchOne(DSL.field("tx_id"), String.class)
+            ? dsl.select(DSL.field("tx_id")).from("node_version")
+                .where("node_id = ?", nodeId)
+                .and(DSL.exists(dsl.selectOne().from("plm_transaction")
+                    .where("id = node_version.tx_id").and("status = 'OPEN'")))
+                .limit(1).fetchOne(DSL.field("tx_id"), String.class)
             : null;
-        result.put(
-            "lock",
-            Map.of(
-                "locked",
-                lockInfo.locked(),
-                "lockedBy",
-                lockInfo.lockedBy() != null ? lockInfo.lockedBy() : "",
-                "txId",
-                lockTxId != null ? lockTxId : ""
-            )
-        );
-        result.put("nodeTypeId", nodeTypeId);
-        result.put("currentVersionId", versionId);
-        result.put("attributes", attributes);
+
         // Domain assignments
         List<Map<String, Object>> domainList = new ArrayList<>();
         var domainInfos = metaModelCache.getAllDomainInfos();
         for (String domId : assignedDomainIds) {
             var domInfo = domainInfos.get(domId);
-            if (domInfo != null) {
-                domainList.add(Map.of(
-                    "id", domId,
-                    "name", domInfo.name() != null ? domInfo.name() : ""
-                ));
-            }
+            if (domInfo != null)
+                domainList.add(Map.of("id", domId,
+                    "name", domInfo.name() != null ? domInfo.name() : ""));
         }
-        result.put("domains", domainList);
-        result.put("historicalView", historicalView);
-        if (historicalView) result.put("versionNumber", versionNumber);
 
-        // fingerprintChanged: true when the OPEN version has different content than its parent.
-        // Only meaningful when txStatus == OPEN; always null otherwise.
+        LocalDateTime createdAtTs  = nodeRecord.get("created_at", LocalDateTime.class);
+        LocalDateTime lastUpdateTs = current.get("created_at",   LocalDateTime.class);
+        String identity = logicalId != null && !logicalId.isBlank()
+            ? logicalId : revision + "." + iteration;
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("nodeId",           nodeId);
+        metadata.put("nodeTypeId",       nodeTypeId);
+        metadata.put("logicalId",        logicalId    != null ? logicalId    : "");
+        metadata.put("externalId",       externalId   != null ? externalId   : "");
+        metadata.put("identity",         identity);
+        metadata.put("revision",         revision);
+        metadata.put("iteration",        iteration);
+        metadata.put("state",            currentStateId   != null ? currentStateId   : "");
+        metadata.put("stateName",        currentStateName != null ? currentStateName : "");
+        metadata.put("txStatus",         txStatus != null ? txStatus : "COMMITTED");
+        metadata.put("lifecycleId",      lifecycleId      != null ? lifecycleId      : "");
+        metadata.put("logicalIdLabel",   logicalIdLabel   != null ? logicalIdLabel   : "Identifier");
+        metadata.put("logicalIdPattern", logicalIdPattern != null ? logicalIdPattern : "");
+        metadata.put("displayName",      displayName);
+        metadata.put("currentVersionId", versionId);
+        metadata.put("createdBy",  Objects.toString(nodeRecord.get("created_by", String.class), ""));
+        metadata.put("createdAt",  createdAtTs  != null ? createdAtTs.toString()  : "");
+        metadata.put("modifiedBy", Objects.toString(current.get("created_by",    String.class), ""));
+        metadata.put("lastUpdate", lastUpdateTs != null ? lastUpdateTs.toString() : "");
+        metadata.put("lock", Map.of(
+            "locked",   lockInfo.locked(),
+            "lockedBy", lockInfo.lockedBy() != null ? lockInfo.lockedBy() : "",
+            "txId",     lockTxId != null ? lockTxId : ""));
+        metadata.put("domains",       domainList);
+        metadata.put("historicalView", historicalView);
+        metadata.put("attributeMeta",  attrMeta);
+        if (historicalView) metadata.put("versionNumber", versionNumber);
+
         if ("OPEN".equals(txStatus)) {
-            String previousVersionId = dsl
-                .select(DSL.field("previous_version_id"))
-                .from("node_version")
-                .where("id = ?", versionId)
+            String previousVersionId = dsl.select(DSL.field("previous_version_id"))
+                .from("node_version").where("id = ?", versionId)
                 .fetchOne(DSL.field("previous_version_id"), String.class);
-            String parentFingerprint = previousVersionId != null
-                ? dsl
-                    .select(DSL.field("fingerprint"))
-                    .from("node_version")
+            String parentFp = previousVersionId != null
+                ? dsl.select(DSL.field("fingerprint")).from("node_version")
                     .where("id = ?", previousVersionId)
                     .fetchOne(DSL.field("fingerprint"), String.class)
                 : null;
-            String currentFingerprint = fingerPrintService.compute(nodeId, versionId);
-            result.put("fingerprintChanged", !Objects.equals(currentFingerprint, parentFingerprint));
-            result.put("violations", validationService.collectVersionViolations(nodeId, versionId, currentStateId));
+            metadata.put("fingerprintChanged",
+                !Objects.equals(fingerPrintService.compute(nodeId, versionId), parentFp));
+            metadata.put("violations",
+                validationService.collectVersionViolations(nodeId, versionId, currentStateId));
         } else {
-            result.put("fingerprintChanged", null);
+            metadata.put("fingerprintChanged", null);
         }
 
-        return result;
+        return new DetailDescriptor(nodeId, identity, displayName, null, null, fields, List.of(), metadata);
     }
 
     /** Finds the user's existing OPEN transaction or opens a new one. Returns the txId. */

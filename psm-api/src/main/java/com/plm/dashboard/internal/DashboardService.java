@@ -2,7 +2,8 @@ package com.plm.dashboard.internal;
 import com.plm.node.transaction.internal.PlmTransactionService;
 import com.plm.node.transaction.internal.LockService;
 
-import com.plm.action.ActionService;
+import com.plm.platform.action.ActionService;
+import com.plm.platform.action.dto.ActionDescriptor;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.NodeTypeConfig;
 import com.plm.shared.security.SecurityContextPort;
@@ -129,7 +130,7 @@ public class DashboardService {
             LockService.LockInfo lockInfo = lockService.getLockInfo(nodeId);
             boolean isLockedByMe = lockInfo.locked() && userId.equals(lockInfo.lockedBy());
 
-            List<Map<String, Object>> actions = actionService.resolveActionsForNode(
+            List<ActionDescriptor> actions = actionService.resolveActionsForNode(
                 nodeId, nodeTypeId, currentStateId,
                 lockInfo.locked(), isLockedByMe
             );
@@ -138,16 +139,16 @@ public class DashboardService {
 
             // Dashboard only shows feasible actions: authorized + no guard violations.
             List<Map<String, Object>> actionSummary = new ArrayList<>();
-            for (Map<String, Object> a : actions) {
-                if (!Boolean.TRUE.equals(a.get("authorized"))) continue;
+            for (ActionDescriptor a : actions) {
+                if (!Boolean.TRUE.equals(a.metadata().get("authorized"))) continue;
 
                 Map<String, Object> summary = new LinkedHashMap<>();
-                summary.put("id",              a.get("id"));
-                summary.put("actionCode",      a.get("actionCode"));
-                summary.put("name",            a.get("name"));
-                summary.put("description",     a.get("description"));
-                summary.put("displayCategory", a.get("displayCategory"));
-                summary.put("guardViolations", a.get("guardViolations"));
+                summary.put("id",              a.code());
+                summary.put("actionCode",      a.metadata().get("actionCode"));
+                summary.put("name",            a.label());
+                summary.put("description",     a.description());
+                summary.put("displayCategory", a.metadata().get("displayCategory"));
+                summary.put("guardViolations", a.guardViolations());
                 actionSummary.add(summary);
             }
             if (actionSummary.isEmpty()) continue;

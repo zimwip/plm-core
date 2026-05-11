@@ -76,6 +76,18 @@ public class LinkService {
         LinkTypeConfig linkType = configCache.getLinkType(linkTypeId)
             .orElseThrow(() -> new IllegalArgumentException("LinkType not found: " + linkTypeId));
 
+        String allowedSourceTypeId = linkType.sourceNodeTypeId();
+        if (allowedSourceTypeId != null) {
+            String sourceNodeTypeId = dsl.select(DSL.field("node_type_id"))
+                .from("node").where("id = ?", nodeId)
+                .fetchOne(DSL.field("node_type_id"), String.class);
+            if (sourceNodeTypeId == null)
+                throw new IllegalArgumentException("Node not found: " + nodeId);
+            if (!isTypeOrDescendant(sourceNodeTypeId, allowedSourceTypeId))
+                throw new IllegalArgumentException(
+                    "Node type does not support link type '" + linkType.name() + "'");
+        }
+
         String resolvedSourceCode = (targetSourceCode == null || targetSourceCode.isBlank())
             ? linkType.targetSourceId() : targetSourceCode;
         if (resolvedSourceCode == null || resolvedSourceCode.isBlank()) resolvedSourceCode = "SELF";
@@ -147,7 +159,7 @@ public class LinkService {
         if (violations != null) {
             for (GuardViolation v : violations) {
                 if (v.effect() == GuardEffect.BLOCK) {
-                    throw new IllegalArgumentException(v.guardCode() + ": " + v.message());
+                    throw new IllegalArgumentException(v.code() + ": " + v.message());
                 }
             }
         }
@@ -274,7 +286,7 @@ public class LinkService {
             if (violations != null) {
                 for (GuardViolation v : violations) {
                     if (v.effect() == GuardEffect.BLOCK) {
-                        throw new IllegalArgumentException(v.guardCode() + ": " + v.message());
+                        throw new IllegalArgumentException(v.code() + ": " + v.message());
                     }
                 }
             }
@@ -509,6 +521,21 @@ public class LinkService {
         if (self == null) return List.of();
         String targetLogicalId = self.get("logical_id", String.class);
 
+        Map<String, List<Map<String, Object>>> attrsByLink = new java.util.HashMap<>();
+        dsl.fetch("""
+            SELECT nvla.node_link_id, nvla.attribute_id, nvla.value
+            FROM node_version_link_attribute nvla
+            JOIN node_version_link nl ON nl.id = nvla.node_link_id
+            WHERE nl.target_source_id = 'SELF'
+              AND (nl.target_key = ? OR nl.target_key LIKE ?)
+            """, targetLogicalId, targetLogicalId + "@%").forEach(r -> {
+            String lid = r.get("node_link_id", String.class);
+            Map<String, Object> av = new LinkedHashMap<>();
+            av.put("attributeId", r.get("attribute_id", String.class));
+            av.put("value", r.get("value", String.class));
+            attrsByLink.computeIfAbsent(lid, k -> new java.util.ArrayList<>()).add(av);
+        });
+
         return dsl.fetch(
             """
             SELECT nl.id AS link_id, nl.link_type_id,
@@ -542,11 +569,23 @@ public class LinkService {
             currentUserId, isAdminStr
         ).stream().map(r -> {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("linkId",             r.get("link_id",             String.class));
+            String linkId = r.get("link_id", String.class);
+            m.put("linkId",             linkId);
             String ltId = r.get("link_type_id", String.class);
             var lt = configCache.getLinkType(ltId);
+            m.put("linkTypeId",         ltId);
             m.put("linkTypeName",       lt.map(LinkTypeConfig::name).orElse(ltId));
             m.put("linkPolicy",         lt.map(LinkTypeConfig::linkPolicy).orElse(""));
+            m.put("linkTypeAttributes", lt.map(lc -> lc.attributes() != null
+                ? lc.attributes().stream().map(a -> {
+                    Map<String, Object> am = new LinkedHashMap<>();
+                    am.put("id", a.id()); am.put("name", a.name()); am.put("label", a.label());
+                    am.put("dataType", a.dataType()); am.put("widgetType", a.widgetType());
+                    am.put("required", a.required());
+                    return am;
+                }).toList()
+                : List.of()).orElse(List.of()));
+            m.put("linkAttributeValues", attrsByLink.getOrDefault(linkId, List.of()));
             m.put("linkLogicalId",      Objects.toString(r.get("link_logical_id",      String.class), ""));
             m.put("linkLogicalIdLabel", lt.map(LinkTypeConfig::linkLogicalIdLabel).orElse("Link ID"));
             m.put("sourceNodeId",       r.get("source_node_id",      String.class));
@@ -597,5 +636,14 @@ public class LinkService {
             .fetchOne("node_id", String.class);
         if (sourceNodeId == null) throw new IllegalArgumentException("Source node not found for link: " + linkId);
         return sourceNodeId;
+    }
+
+    private boolean isTypeOrDescendant(String typeId, String expectedTypeId) {
+        String current = typeId;
+        while (current != null) {
+            if (expectedTypeId.equals(current)) return true;
+            current = configCache.getNodeType(current).map(NodeTypeConfig::parentNodeTypeId).orElse(null);
+        }
+        return false;
     }
 }

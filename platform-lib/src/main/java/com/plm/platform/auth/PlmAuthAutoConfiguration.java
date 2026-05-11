@@ -3,6 +3,7 @@ package com.plm.platform.auth;
 import java.util.List;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -45,9 +46,10 @@ public class PlmAuthAutoConfiguration {
     @ConditionalOnMissingBean
     public PlmAuthFilter plmAuthFilter(AuthProperties props,
                                        JwtVerifier verifier,
-                                       ObjectProvider<PlmAuthContextBinder> binders) {
+                                       ObjectProvider<PlmAuthContextBinder> binders,
+                                       @Value("${spe.registration.service-code:}") String serviceCode) {
         List<PlmAuthContextBinder> ordered = binders.orderedStream().toList();
-        return new PlmAuthFilter(props, verifier, ordered);
+        return new PlmAuthFilter(props, verifier, ordered, serviceCode);
     }
 
     @Bean

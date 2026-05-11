@@ -1,28 +1,44 @@
 import { registerPlugin } from './pluginRegistry';
+import { registerSourcePlugin, updateSourcePlugin } from '../services/sourcePlugins';
 import { api } from '../services/api';
 
+// Loads all remote plugins declared in the platform-api manifest.
+// Throws if the manifest fetch fails.
+// Returns an array of error strings for any individual plugin that failed to load.
 export async function loadRemotePlugins(shellAPI) {
-  let manifest;
-  try {
-    manifest = await api.getUiManifest();
-  } catch (e) {
-    console.warn('[PluginLoader] Failed to fetch UI manifest:', e.message);
-    return;
-  }
+  const manifest = await api.getUiManifest();
 
-  await Promise.allSettled(manifest.map(async (entry) => {
-    try {
-      // @vite-ignore — URL is dynamic, resolved at runtime from platform-api manifest
-      const mod = await import(/* @vite-ignore */ entry.url);
-      const plugin = mod.default;
-      if (!plugin?.id) {
-        console.warn('[PluginLoader] Plugin at', entry.url, 'has no id — skipped');
-        return;
+  const results = await Promise.allSettled(manifest.map(async (entry) => {
+    // @vite-ignore — URL is dynamic, resolved at runtime from platform-api manifest
+    const mod = await import(/* @vite-ignore */ entry.url);
+    const plugin = mod.default;
+    if (!plugin?.id) throw new Error(`Plugin at ${entry.url} has no id`);
+
+    if (plugin.init) plugin.init(shellAPI);
+    registerPlugin(plugin);
+
+    // Bridge nav plugins into sourcePlugins so BrowseNav can use their
+    // NavRow / ChildRow / fetchChildren without the shell-bundled copies.
+    if (plugin.zone === 'nav' && plugin.match && plugin.NavRow) {
+      updateSourcePlugin(plugin.match.serviceCode, plugin.match.itemCode, {
+        NavRow:          plugin.NavRow,
+        ChildRow:        plugin.ChildRow         ?? null,
+        hasItemChildren: plugin.hasItemChildren  ?? (() => false),
+        fetchChildren:   plugin.fetchChildren    ?? null,
+        LinkRow:         plugin.LinkRow          ?? null,
+      });
+
+      if (plugin.linkSources && plugin.LinkRow) {
+        for (const sc of plugin.linkSources) {
+          updateSourcePlugin(sc, null, { LinkRow: plugin.LinkRow });
+        }
       }
-      if (plugin.init) plugin.init(shellAPI);
-      registerPlugin(plugin);
-    } catch (e) {
-      console.warn('[PluginLoader] Failed to load plugin', entry.pluginId, ':', e.message);
     }
   }));
+
+  return results
+    .map((r, i) => r.status === 'rejected'
+      ? `${manifest[i]?.pluginId ?? manifest[i]?.url}: ${r.reason?.message ?? r.reason}`
+      : null)
+    .filter(Boolean);
 }

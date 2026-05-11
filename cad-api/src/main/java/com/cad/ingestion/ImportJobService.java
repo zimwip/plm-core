@@ -6,6 +6,7 @@ import com.cad.ingestion.model.ImportJobResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -21,12 +22,26 @@ public class ImportJobService {
                             String filename, String contextCode,
                             UUID rootNodeId, byte[] fileBytes, String psmTxId,
                             boolean splitMode) {
+
+        List<ZipUtil.FileEntry> zipEntries = null;
+        if (ZipUtil.isZip(fileBytes)) {
+            try {
+                zipEntries = ZipUtil.extractCadFiles(fileBytes);
+            } catch (IOException e) {
+                throw new IllegalArgumentException("Cannot extract ZIP archive: " + e.getMessage());
+            }
+            if (zipEntries.isEmpty()) {
+                throw new IllegalArgumentException(
+                    "ZIP archive contains no recognized CAD files (.step, .stp, .catproduct, .catpart, .igs, .iges)");
+            }
+        }
+
         ImportJob job = new ImportJob();
         job.setId(UUID.randomUUID());
         job.setStatus("PENDING");
         job.setImportContext(contextCode != null ? contextCode : "default");
         job.setFilename(filename);
-        job.setFileCount(1);
+        job.setFileCount(zipEntries != null ? zipEntries.size() : 1);
         job.setRootNodeId(rootNodeId);
         job.setProjectSpaceId(projectSpaceId);
         job.setCreatedBy(userId);
@@ -40,7 +55,12 @@ public class ImportJobService {
             rootNodeId != null ? rootNodeId.toString() : null,
             splitMode
         );
-        processor.process(job.getId(), fileBytes, filename, ctx);
+
+        if (zipEntries != null) {
+            processor.processMulti(job.getId(), fileBytes, filename, zipEntries, ctx);
+        } else {
+            processor.process(job.getId(), fileBytes, filename, ctx);
+        }
 
         return job;
     }

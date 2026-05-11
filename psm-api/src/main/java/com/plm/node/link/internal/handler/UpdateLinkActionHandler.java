@@ -23,7 +23,7 @@ public class UpdateLinkActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/update_link/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/update_link/{id}").metadataOnly());
     }
 
     @Override

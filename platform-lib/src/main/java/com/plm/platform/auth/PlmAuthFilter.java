@@ -1,8 +1,11 @@
 package com.plm.platform.auth;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,11 +41,13 @@ public class PlmAuthFilter implements Filter {
     private final AuthProperties props;
     private final JwtVerifier verifier;
     private final List<PlmAuthContextBinder> binders;
+    private final String selfServiceCode;
 
-    public PlmAuthFilter(AuthProperties props, JwtVerifier verifier, List<PlmAuthContextBinder> binders) {
+    public PlmAuthFilter(AuthProperties props, JwtVerifier verifier, List<PlmAuthContextBinder> binders, String selfServiceCode) {
         this.props = props;
         this.verifier = verifier;
         this.binders = binders;
+        this.selfServiceCode = selfServiceCode;
     }
 
     @Override
@@ -59,6 +64,30 @@ public class PlmAuthFilter implements Filter {
 
         if (matchesAny(pathInCtx, props.getPublicPaths())) {
             chain.doFilter(request, response);
+            return;
+        }
+
+        // Service-delegated auth: a trusted internal service (validated via X-Service-Secret)
+        // forwards the original user's identity via explicit headers. Checked BEFORE secretPaths
+        // so that endpoints like /internal/import can receive user context when needed.
+        String delegatedSecret = req.getHeader("X-Service-Secret");
+        String delegatedUserId = req.getHeader("X-PLM-User-Id");
+        if (delegatedSecret != null && delegatedSecret.equals(props.getServiceSecret())
+                && delegatedUserId != null && !delegatedUserId.isBlank()) {
+            String rolesHeader = req.getHeader("X-PLM-User-Roles");
+            Set<String> roles = (rolesHeader != null && !rolesHeader.isBlank())
+                ? Arrays.stream(rolesHeader.split(",")).map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toSet())
+                : Set.of();
+            boolean isAdmin = "true".equalsIgnoreCase(req.getHeader("X-PLM-Is-Admin"));
+            String ps = req.getHeader("X-PLM-ProjectSpace");
+            PlmPrincipal delegated = new PlmPrincipal(delegatedUserId, delegatedUserId, isAdmin, roles, ps, "service-delegated", null);
+            try {
+                req.setAttribute("plm.principal", delegated);
+                for (PlmAuthContextBinder b : binders) b.bind(delegated, req);
+                chain.doFilter(request, response);
+            } finally {
+                for (PlmAuthContextBinder b : binders) b.clear();
+            }
             return;
         }
 
@@ -82,6 +111,13 @@ public class PlmAuthFilter implements Filter {
             reject(resp, 401, "Invalid or expired token");
             return;
         }
+
+        if (selfServiceCode != null && !selfServiceCode.isBlank()
+                && !principal.get().canAccessService(selfServiceCode)) {
+            reject(resp, 403, "Access to service '" + selfServiceCode + "' not granted");
+            return;
+        }
+
 
         try {
             req.setAttribute("plm.principal", principal.get());

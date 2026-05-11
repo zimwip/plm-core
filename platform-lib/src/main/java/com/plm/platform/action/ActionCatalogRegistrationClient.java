@@ -2,6 +2,7 @@ package com.plm.platform.action;
 
 import com.plm.platform.algorithm.AlgorithmBean;
 import com.plm.platform.algorithm.AlgorithmType;
+import com.plm.platform.event.PlmEvent;
 import com.plm.platform.nats.NatsListenerFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -14,6 +15,7 @@ import org.springframework.util.ClassUtils;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -111,6 +113,7 @@ public class ActionCatalogRegistrationClient {
             body.put("handlers", buildHandlerEntries());
             body.put("guards", buildGuardEntries());
             body.put("contributions", buildContributionEntries());
+            body.put("events", buildEventEntries());
 
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Service-Secret", serviceSecret);
@@ -219,6 +222,31 @@ public class ActionCatalogRegistrationClient {
             result.addAll(allInterfaces(iface));
         }
         return result;
+    }
+
+    /**
+     * Scans all Spring beans for methods annotated with {@link PlmEvent} and
+     * returns the deduplicated event catalog. Deduplication by code is needed
+     * because Spring proxies may expose the same method multiple times.
+     */
+    private List<Map<String, Object>> buildEventEntries() {
+        if (appCtx == null) return List.of();
+        Map<String, Map<String, Object>> byCode = new LinkedHashMap<>();
+        for (Object bean : appCtx.getBeansOfType(Object.class).values()) {
+            Class<?> cls = ClassUtils.getUserClass(bean);
+            for (Method m : cls.getMethods()) {
+                PlmEvent ann = m.getAnnotation(PlmEvent.class);
+                if (ann == null) continue;
+                byCode.computeIfAbsent(ann.code(), k -> {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("code", ann.code());
+                    entry.put("description", ann.description());
+                    entry.put("scope", ann.scope());
+                    return entry;
+                });
+            }
+        }
+        return List.copyOf(byCode.values());
     }
 
     // "com.plm.node.handler.CheckoutActionHandler" → "node"

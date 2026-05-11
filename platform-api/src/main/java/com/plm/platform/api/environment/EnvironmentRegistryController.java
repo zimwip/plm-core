@@ -1,7 +1,7 @@
 package com.plm.platform.api.environment;
 
-import com.plm.platform.spe.dto.RegisterRequest;
-import com.plm.platform.spe.dto.RegistrySnapshot;
+import com.plm.platform.action.dto.RegisterRequest;
+import com.plm.platform.action.dto.RegistrySnapshot;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;

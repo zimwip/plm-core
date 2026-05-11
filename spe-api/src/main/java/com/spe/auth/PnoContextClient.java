@@ -74,6 +74,7 @@ public class PnoContextClient {
         String username = (String) body.get("username");
         boolean isAdmin = Boolean.TRUE.equals(body.get("isAdmin"));
         List<String> roleIds = (List<String>) body.getOrDefault("roleIds", List.of());
-        return new SpeUserContext(userId, username, List.copyOf(roleIds), isAdmin, projectSpaceId);
+        List<String> allowedServiceCodes = (List<String>) body.getOrDefault("allowedServiceCodes", List.of());
+        return new SpeUserContext(userId, username, List.copyOf(roleIds), isAdmin, projectSpaceId, List.copyOf(allowedServiceCodes));
     }
 }

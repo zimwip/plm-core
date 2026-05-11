@@ -2,6 +2,7 @@ package com.plm.action.internal;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.plm.platform.action.ActionParameterValidatorPort;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.ActionConfig;
 import com.plm.platform.config.dto.ActionParameterConfig;
@@ -17,7 +18,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class ActionParameterValidator {
+public class ActionParameterValidator implements ActionParameterValidatorPort {
 
     private final ConfigCache  configCache;
     private final ObjectMapper mapper;

@@ -60,7 +60,9 @@ public class DataItemVisibility implements ItemVisibilityResolver {
                 descriptor.priority(),
                 canWrite ? descriptor.create() : null,
                 canRead  ? descriptor.list()   : null,
-                canRead  ? descriptor.get()    : null
+                canRead  ? descriptor.get()    : null,
+                descriptor.importActions(),
+                descriptor.events()
             );
         } finally {
             if (previous != null) DstSecurityContext.set(previous);

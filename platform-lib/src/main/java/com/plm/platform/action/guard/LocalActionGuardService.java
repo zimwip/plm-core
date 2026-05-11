@@ -69,7 +69,7 @@ public class LocalActionGuardService implements ActionGuardPort {
                 break;
             }
             for (GuardViolation v : violations) {
-                blockViolations.add(new GuardViolation(v.guardCode(), v.message(), ag.effect(), v.fieldRef(), v.details()));
+                blockViolations.add(new GuardViolation(v.code(), v.message(), ag.effect(), v.fieldRef(), v.details()));
             }
         }
 

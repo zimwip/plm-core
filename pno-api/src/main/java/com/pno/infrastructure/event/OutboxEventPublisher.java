@@ -8,6 +8,8 @@ import org.jooq.DSLContext;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -25,12 +27,18 @@ public class OutboxEventPublisher {
     private final DSLContext dsl;
     private final ObjectMapper objectMapper;
 
+    @SuppressWarnings("unchecked")
     public void enqueue(String destination, Object payload) {
         try {
-            String json = objectMapper.writeValueAsString(payload);
+            String id = UUID.randomUUID().toString();
+            var envelope = payload instanceof Map
+                ? new LinkedHashMap<>((Map<String, Object>) payload)
+                : new LinkedHashMap<>(Map.of("payload", payload));
+            envelope.put("id", id);
+            String json = objectMapper.writeValueAsString(envelope);
             dsl.execute(
                 "INSERT INTO event_outbox (id, destination, payload, created_at) VALUES (?,?,?,?)",
-                UUID.randomUUID().toString(), destination, json, LocalDateTime.now()
+                id, destination, json, LocalDateTime.now()
             );
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize outbox payload for destination={} error={}", destination, e.getMessage(), e);

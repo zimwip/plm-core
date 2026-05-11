@@ -1,6 +1,6 @@
 package com.plm.platform.api.environment;
 
-import com.plm.platform.spe.registry.LocalServiceRegistry;
+import com.plm.platform.registry.LocalServiceRegistry;
 import org.springframework.stereotype.Component;
 
 /**

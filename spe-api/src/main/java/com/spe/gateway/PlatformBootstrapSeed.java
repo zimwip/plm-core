@@ -1,9 +1,9 @@
 package com.spe.gateway;
 
 import com.plm.platform.environment.PlatformRegistrationProperties;
-import com.plm.platform.spe.dto.RegistrySnapshot;
-import com.plm.platform.spe.dto.ServiceInstanceInfo;
-import com.plm.platform.spe.registry.LocalServiceRegistry;
+import com.plm.platform.action.dto.RegistrySnapshot;
+import com.plm.platform.action.dto.ServiceInstanceInfo;
+import com.plm.platform.registry.LocalServiceRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

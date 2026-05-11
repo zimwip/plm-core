@@ -1,7 +1,7 @@
 package com.spe.gateway;
 
-import com.plm.platform.spe.dto.ServiceInstanceInfo;
-import com.plm.platform.spe.registry.LocalServiceRegistry;
+import com.plm.platform.action.dto.ServiceInstanceInfo;
+import com.plm.platform.registry.LocalServiceRegistry;
 import com.spe.auth.AuthenticationFilter;
 import com.spe.auth.ProjectSpaceTagClient;
 import com.spe.auth.SpeUserContext;
@@ -103,7 +103,10 @@ public class SvcLoadBalancerFilter implements GlobalFilter, Ordered {
                     return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
                         "Invalid rewritten URI for " + serviceCode));
                 }
-                return chain.filter(exchange);
+                ServerWebExchange withHeader = exchange.mutate()
+                    .request(r -> r.header("X-PLM-Service-Code", serviceCode))
+                    .build();
+                return chain.filter(withHeader);
             });
     }
 

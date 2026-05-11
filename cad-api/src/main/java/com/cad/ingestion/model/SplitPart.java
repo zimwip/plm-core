@@ -1,5 +1,7 @@
 package com.cad.ingestion.model;
 
+import com.cad.algorithm.CadOccurrence;
+import java.util.List;
 import java.util.Map;
 
 public record SplitPart(
@@ -7,6 +9,10 @@ public record SplitPart(
         String name,
         String cadType,
         Map<String, String> attributes,
-        String parentCadId,
+        List<CadOccurrence> occurrences,
         byte[] fileBytes
-) {}
+) {
+    public boolean hasOccurrences() {
+        return occurrences != null && !occurrences.isEmpty();
+    }
+}

@@ -20,8 +20,10 @@ export default function EditorArea({
   onNavigate,
   onAutoOpenTx,
   onDescriptionLoaded,
+  onRefreshItemData,
   onOpenCommentsForVersion,
   onCommentAttribute,
+  tabItemData,
 }) {
   const showCollab    = useShellStore(s => s.showCollab);
   const toggleCollab  = useShellStore(s => s.toggleCollab);
@@ -33,12 +35,29 @@ export default function EditorArea({
   // { [tabId]: { data, closed, maximized, splitPos } }
   const [previewByTab, setPreviewByTab] = useState({});
   const previewSplitRef = useRef(null);
+  const cancelByTabRef  = useRef({}); // tabId → cancel callback registered by the active plugin
 
   // Clean up stale entries when tabs are closed
   useEffect(() => {
     const ids = new Set(tabs.map(t => t.id));
     setPreviewByTab(prev => Object.fromEntries(Object.entries(prev).filter(([k]) => ids.has(k))));
+    for (const id of Object.keys(cancelByTabRef.current)) {
+      if (!ids.has(id)) {
+        cancelByTabRef.current[id]?.();
+        delete cancelByTabRef.current[id];
+      }
+    }
   }, [tabs]);
+
+  // Fire cancel callback when the active tab changes (selection change)
+  useEffect(() => {
+    return () => {
+      if (activeTabId) {
+        cancelByTabRef.current[activeTabId]?.();
+        delete cancelByTabRef.current[activeTabId];
+      }
+    };
+  }, [activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activePreview = activeTabId
     ? (previewByTab[activeTabId] ?? { data: null, closed: false, maximized: false, splitPos: 50 })
@@ -60,6 +79,14 @@ export default function EditorArea({
     }));
   }
 
+  // Plugin calls this to register a cancel callback. Shell fires it on selection change
+  // (tab switch or same-tab node navigation). Calling again replaces and fires the old one.
+  function onRegisterCancel(cb) {
+    if (!activeTabId) return;
+    cancelByTabRef.current[activeTabId]?.();
+    cancelByTabRef.current[activeTabId] = cb;
+  }
+
   function startPreviewSplitDrag(e) {
     e.preventDefault();
     const container = previewSplitRef.current;
@@ -76,12 +103,18 @@ export default function EditorArea({
     window.addEventListener('mouseup', onUp);
   }
 
-  // Resolve plugin: new registry (remote plugins) first, old system as fallback.
-  const plugin = activeTab && activeTab.id !== DASHBOARD_ID
-    ? (findEditorPlugin(activeTab) ?? lookupPluginForTab(activeTab))
+  // Editor: remote plugin (findEditorPlugin) takes priority — psm-editor now has
+  // the real NodeEditor component. Preview always comes from sourcePlugins shell
+  // registration (Preview + previewLabel are not part of the remote plugin contract).
+  const sourcePlugin = activeTab && activeTab.id !== DASHBOARD_ID
+    ? lookupPluginForTab(activeTab)
     : null;
-  const PreviewComponent = plugin?.Preview ?? null;
-  const previewLabel = plugin?.previewLabel ?? 'Preview';
+  const editorPlugin = activeTab && activeTab.id !== DASHBOARD_ID
+    ? (findEditorPlugin(activeTab) ?? sourcePlugin)
+    : null;
+  const plugin = editorPlugin;
+  const PreviewComponent = sourcePlugin?.Preview ?? null;
+  const previewLabel = sourcePlugin?.previewLabel ?? 'Preview';
   const showPreviewPane = !!PreviewComponent;
 
   const previewClosed    = activePreview?.closed    ?? false;
@@ -191,13 +224,15 @@ export default function EditorArea({
                 onNavigate={onNavigate}
               />
             ) : (() => {
-              const Editor = plugin.Editor;
+              const Editor = editorPlugin?.Editor ?? editorPlugin?.Component;
               const ctx = {
                 userId, tx, nodeTypes, stateColorMap, toast,
-                onAutoOpenTx, onDescriptionLoaded,
+                onAutoOpenTx, onDescriptionLoaded, onRefreshItemData,
                 onOpenCommentsForVersion, onCommentAttribute,
-                onSubTabChange, onNavigate, onRegisterPreview,
+                onSubTabChange, onNavigate, onRegisterPreview, onRegisterCancel,
+                itemData: tabItemData,
               };
+              if (!Editor) return <div className="editor-empty"><div className="editor-empty-text">Loading editor…</div></div>;
               return <Editor tab={activeTab} ctx={ctx} />;
             })()}
           </div>
@@ -265,9 +300,10 @@ export default function EditorArea({
                       tab={activeTab}
                       ctx={{
                         userId, tx, nodeTypes, stateColorMap, toast,
-                        onAutoOpenTx, onDescriptionLoaded,
+                        onAutoOpenTx, onDescriptionLoaded, onRefreshItemData,
                         onOpenCommentsForVersion, onCommentAttribute,
                         onSubTabChange, onNavigate, onRegisterPreview,
+                        itemData: tabItemData,
                       }}
                     />
                   </div>

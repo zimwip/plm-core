@@ -42,7 +42,7 @@ public class CreateLinkActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/create_link/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/create_link/{id}").metadataOnly());
     }
 
     @Override

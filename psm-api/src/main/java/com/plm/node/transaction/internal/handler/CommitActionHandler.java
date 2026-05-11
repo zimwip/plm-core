@@ -23,7 +23,7 @@ public class CommitActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/commit/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/commit/{id}").metadataOnly());
     }
 
     @Override

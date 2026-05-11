@@ -6,9 +6,10 @@
 plm-api/target/
 plm-api/*.jar
 
-# ── Frontend ─────────────────────────────────────────────────
-frontend/node_modules/
-frontend/dist/
+# ── Frontend / Node ──────────────────────────────────────────
+**/node_modules/
+**/dist/
+**/build/
 
 # ── Environment / secrets ────────────────────────────────────
 .env

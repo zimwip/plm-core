@@ -9,9 +9,9 @@ import com.plm.platform.action.guard.ActionGuardContext;
 import com.plm.platform.action.guard.ActionGuardPort;
 import com.plm.platform.action.guard.GuardViolation;
 import com.plm.platform.authz.PlmPermission;
-import com.plm.platform.detail.dto.ActionDescriptor;
-import com.plm.platform.detail.dto.DetailDescriptor;
-import com.plm.platform.detail.dto.DetailField;
+import com.plm.platform.action.dto.ActionDescriptor;
+import com.plm.platform.action.dto.DetailDescriptor;
+import com.plm.platform.action.dto.DetailField;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -124,13 +124,13 @@ public class DataController {
         actions.add(new ActionDescriptor(
             "DOWNLOAD", "Download",
             "Stream the binary back to the browser",
-            "Download", "GET", "/api/dst/data/" + id, "RAW", List.of(),
+            "Download", "GET", "/api/dst/data/" + id, "RAW", null, List.of(),
             false, false, null, downloadViolations, Map.of("openInNewTab", true)
         ));
         actions.add(new ActionDescriptor(
             "DELETE", "Delete",
             "Remove the file. Admin only.",
-            "Trash2", "DELETE", "/api/dst/data/" + id, "RAW", List.of(),
+            "Trash2", "DELETE", "/api/dst/data/" + id, "RAW", null, List.of(),
             true, true, null, deleteViolations, Map.of("requiresPermission", "MANAGE_DATA")
         ));
 

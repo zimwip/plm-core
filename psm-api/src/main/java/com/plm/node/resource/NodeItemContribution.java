@@ -1,20 +1,25 @@
 package com.plm.node.resource;
 
+import com.plm.platform.action.ActionService;
+import com.plm.platform.action.dto.ActionParameter;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.NodeTypeConfig;
 import com.plm.platform.item.ItemCatalogContribution;
 import com.plm.platform.item.dto.CreateAction;
 import com.plm.platform.item.dto.GetAction;
+import com.plm.platform.item.dto.ImportAction;
 import com.plm.platform.item.dto.ItemDescriptor;
 import com.plm.platform.item.dto.ItemParameter;
 import com.plm.platform.item.dto.ListAction;
 import com.plm.platform.item.dto.ListItemShape;
+import com.plm.platform.item.dto.ItemEventType;
 import com.plm.platform.item.dto.PanelSection;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Publishes one item descriptor per psm node type. Each descriptor carries
@@ -40,7 +45,8 @@ public class NodeItemContribution implements ItemCatalogContribution {
     private static final String SOURCE_LABEL = "PLM";
     private static final String ITEM_CODE = "node";
 
-    private final ConfigCache configCache;
+    private final ConfigCache   configCache;
+    private final ActionService actionService;
 
     @Override
     public List<ItemDescriptor> descriptors() {
@@ -48,6 +54,7 @@ public class NodeItemContribution implements ItemCatalogContribution {
 
         ListItemShape shape = new ListItemShape("id", "logical_id", "icon");
 
+        List<ItemParameter> importParams = resolveImportParams();
         List<ItemDescriptor> out = new ArrayList<>();
         for (NodeTypeConfig nt : configCache.getAllNodeTypes()) {
             String createPath = "/actions/" + CREATE_NODE + "/" + nt.id();
@@ -67,9 +74,18 @@ public class NodeItemContribution implements ItemCatalogContribution {
                 "SECONDARY", 10);
 
             GetAction get = new GetAction(
-                "GET", "/nodes/{id}/detail",
+                "GET", "/nodes/{id}/description",
                 "Open", "View node details",
                 "SECONDARY", 20);
+
+            ImportAction cadImport = new ImportAction(
+                "/cad/import",
+                ".step,.stp,.catproduct,.catpart",
+                "Import from CAD",
+                "Create a " + nt.name() + " by importing a CAD file",
+                0,
+                "/cad/jobs/{jobId}",
+                importParams);
 
             out.add(new ItemDescriptor(
                 "psm",
@@ -84,10 +100,34 @@ public class NodeItemContribution implements ItemCatalogContribution {
                 1000,
                 create,
                 list,
-                get
+                get,
+                List.of(cadImport),
+                List.of(ItemEventType.CREATED, ItemEventType.UPDATED)
             ));
         }
         return out;
+    }
+
+    private List<ItemParameter> resolveImportParams() {
+        List<ActionParameter> raw = actionService.resolveActionParameters("cad-import-create");
+        List<ItemParameter> result = new ArrayList<>();
+        int order = 0;
+        for (ActionParameter p : raw) {
+            if ("FILE".equalsIgnoreCase(p.widget())) continue;
+            String allowedValues = null;
+            if (p.options() != null && !p.options().isEmpty()) {
+                allowedValues = p.options().stream()
+                    .map(c -> "{\"value\":\"" + c.value() + "\",\"label\":\"" + c.label() + "\"}")
+                    .collect(Collectors.joining(",", "[", "]"));
+            }
+            result.add(new ItemParameter(
+                p.name(), p.label(), "STRING", p.required(),
+                p.defaultValue() != null ? p.defaultValue().toString() : null,
+                allowedValues, p.widget(), p.validationRegex(),
+                p.hint(), order++, null
+            ));
+        }
+        return result;
     }
 
     private List<ItemParameter> identityParameters(NodeTypeConfig nt) {

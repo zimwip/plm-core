@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,14 +51,45 @@ public class UserService {
         query.where(condition).fetch()
             .forEach(r -> roleIds.add(r.get("role_id", String.class)));
 
+        List<String> allowedServiceCodes = resolveAllowedServiceCodes(roleIds, isAdmin, projectSpaceId);
+
         Map<String, Object> ctx = new LinkedHashMap<>();
-        ctx.put("userId",   userId);
-        ctx.put("username", username);
-        ctx.put("isAdmin",  isAdmin);
-        ctx.put("roleIds",  roleIds);
+        ctx.put("userId",               userId);
+        ctx.put("username",             username);
+        ctx.put("isAdmin",              isAdmin);
+        ctx.put("roleIds",              roleIds);
+        ctx.put("allowedServiceCodes",  allowedServiceCodes);
         ctx.put("globalPermissions",
             authorizationService.listPermissionCodesForRoles(new HashSet<>(roleIds), isAdmin));
         return ctx;
+    }
+
+    private List<String> resolveAllowedServiceCodes(List<String> roleIds, boolean isAdmin, String projectSpaceId) {
+        if (isAdmin || roleIds.isEmpty()) return List.of();
+        String placeholders = String.join(",", Collections.nCopies(roleIds.size(), "?"));
+        Object[] params;
+        String sql;
+        if (projectSpaceId != null && !projectSpaceId.isBlank()) {
+            sql = "SELECT DISTINCT apk.key_value FROM authorization_policy ap"
+                + " JOIN authorization_policy_key apk ON apk.policy_id = ap.id"
+                + " WHERE ap.permission_code = 'SERVICE_ACCESS'"
+                + " AND ap.scope_code = 'SERVICE'"
+                + " AND apk.key_name = 'service_code'"
+                + " AND ap.role_id IN (" + placeholders + ")"
+                + " AND ap.project_space_id = ?";
+            params = new Object[roleIds.size() + 1];
+            for (int i = 0; i < roleIds.size(); i++) params[i] = roleIds.get(i);
+            params[roleIds.size()] = projectSpaceId;
+        } else {
+            sql = "SELECT DISTINCT apk.key_value FROM authorization_policy ap"
+                + " JOIN authorization_policy_key apk ON apk.policy_id = ap.id"
+                + " WHERE ap.permission_code = 'SERVICE_ACCESS'"
+                + " AND ap.scope_code = 'SERVICE'"
+                + " AND apk.key_name = 'service_code'"
+                + " AND ap.role_id IN (" + placeholders + ")";
+            params = roleIds.toArray();
+        }
+        return dsl.fetch(sql, params).getValues("key_value", String.class);
     }
 
     public Map<String, Object> getUser(String userId) {

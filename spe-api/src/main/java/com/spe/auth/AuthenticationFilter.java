@@ -87,10 +87,18 @@ public class AuthenticationFilter implements WebFilter {
         String psHeader = headers.getFirst("X-PLM-ProjectSpace");
         String ps = (psHeader != null && !psHeader.isBlank()) ? psHeader : session.get().projectSpaceId();
 
+        String serviceCode = extractServiceCode(path);
+
         return pnoClient.getUserContext(userId, ps)
             .switchIfEmpty(Mono.defer(() ->
                 unauthorized(exchange.getResponse(), "User no longer resolvable").then(Mono.empty())))
             .flatMap(ctx -> {
+                if (serviceCode != null && !ctx.isAdmin()
+                        && !ctx.allowedServiceCodes().contains(serviceCode)) {
+                    return forbidden(exchange.getResponse(),
+                        "Access to service '" + serviceCode + "' not granted");
+                }
+
                 String fwd = jwtService.mint(ctx);
                 exchange.getAttributes().put(CONTEXT_ATTR, ctx);
                 exchange.getAttributes().put(JWT_ATTR, fwd);
@@ -105,6 +113,17 @@ public class AuthenticationFilter implements WebFilter {
             });
     }
 
+    // Returns the serviceCode segment from /api/<serviceCode>/... paths.
+    // Returns null for /api/spe/... (spe's own paths are not proxied).
+    private static String extractServiceCode(String path) {
+        if (!path.startsWith("/api/")) return null;
+        int start = 5;
+        int end = path.indexOf('/', start);
+        String code = end < 0 ? path.substring(start) : path.substring(start, end);
+        if (code.isBlank() || "spe".equals(code)) return null;
+        return code;
+    }
+
     // /api/<serviceCode>/ui/** — static plugin bundles, loaded via dynamic import()
     // which cannot attach Authorization headers.
     private static boolean isUiBundlePath(String path) {
@@ -114,8 +133,16 @@ public class AuthenticationFilter implements WebFilter {
     }
 
     private Mono<Void> unauthorized(ServerHttpResponse response, String message) {
+        return writeError(response, HttpStatus.UNAUTHORIZED, message);
+    }
+
+    private Mono<Void> forbidden(ServerHttpResponse response, String message) {
+        return writeError(response, HttpStatus.FORBIDDEN, message);
+    }
+
+    private static Mono<Void> writeError(ServerHttpResponse response, HttpStatus status, String message) {
         if (response.isCommitted()) return Mono.empty();
-        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+        response.setStatusCode(status);
         response.getHeaders().add("Content-Type", "application/json");
         String body = "{\"error\":\"" + message.replace("\"", "\\\"") + "\"}";
         DataBuffer buf = response.bufferFactory().wrap(body.getBytes(StandardCharsets.UTF_8));

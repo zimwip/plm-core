@@ -380,18 +380,13 @@ public class PlmTransactionService {
             committedAt,
             txId
         );
-        // Unlock every committed node: LockService is the single place that clears
-        // locked_by / locked_at (deferred nodes have already been moved to continuationTxId).
-        for (Record version : openVersions) {
-            lockService.unlock(version.get("node_id", String.class));
-        }
-
         log.info(
             "Transaction committed: id={} owner={} versions={} deferred={} continuation={} comment='{}'",
             txId, userId, openVersions.size(), deferredNodeIds.size(), continuationTxId, comment
         );
 
-        // ── [POST-COMMIT] Run post-commit hooks — exceptions are swallowed ─
+        // ── [POST-COMMIT] Run post-commit hooks before unlock so ITEM_VERSION_CREATED
+        //    fires before LOCK_RELEASED in the outbox. Order: ITEM_VERSION_CREATED → LOCK_RELEASED → TX_COMMITTED.
         List<String> committedNodeIds = openVersions
             .stream()
             .map(v -> v.get("node_id", String.class))
@@ -399,6 +394,7 @@ public class PlmTransactionService {
             .toList();
         CommitResult commitResult = new CommitResult(
             txId,
+            userId,
             committedNodeIds,
             continuationTxId,
             committedAt
@@ -414,6 +410,12 @@ public class PlmTransactionService {
                     e
                 );
             }
+        }
+
+        // Unlock after post-commit hooks: LOCK_RELEASED fires after ITEM_VERSION_CREATED.
+        // Deferred nodes have already been moved to continuationTxId so unlock is safe here.
+        for (Record version : openVersions) {
+            lockService.unlock(version.get("node_id", String.class));
         }
 
         eventPublisher.transactionCommitted(txId, committedNodeIds, userId);
@@ -481,7 +483,7 @@ public class PlmTransactionService {
             log.info("Empty transaction {} deleted after node release", txId);
         }
 
-        eventPublisher.nodesReleased(nodeIds, userId);
+        eventPublisher.itemsReleased(nodeIds, userId);
     }
 
     // ================================================================
@@ -562,27 +564,34 @@ public class PlmTransactionService {
         // 6. node_version
         int versionsDeleted = dsl.execute("DELETE FROM node_version WHERE tx_id = ?", txId);
 
-        // 6b. Delete nodes orphaned by this rollback (created in this tx, no remaining versions)
+        // 6b. Identify then delete nodes orphaned by this rollback (created in this tx, no remaining versions)
+        List<String> deletedNodeIds = Collections.emptyList();
         if (!affectedNodeIds.isEmpty()) {
             String placeholders = affectedNodeIds.stream()
                 .map(id -> "?")
                 .collect(Collectors.joining(", "));
-            List<Object> params = new ArrayList<>(affectedNodeIds);
-            dsl.execute(
-                "DELETE FROM node WHERE id IN (" + placeholders + ")" +
+            deletedNodeIds = dsl.fetch(
+                "SELECT id FROM node WHERE id IN (" + placeholders + ")" +
                 " AND NOT EXISTS (SELECT 1 FROM node_version WHERE node_id = node.id)",
-                params.toArray()
-            );
+                affectedNodeIds.toArray()
+            ).stream().map(r -> r.get("id", String.class)).collect(Collectors.toList());
+            if (!deletedNodeIds.isEmpty()) {
+                dsl.execute(
+                    "DELETE FROM node WHERE id IN (" + placeholders + ")" +
+                    " AND NOT EXISTS (SELECT 1 FROM node_version WHERE node_id = node.id)",
+                    affectedNodeIds.toArray()
+                );
+            }
         }
 
         // 7. Supprimer la transaction (pas de trace)
         dsl.execute("DELETE FROM plm_transaction WHERE id = ?", txId);
 
         eventPublisher.transactionRolledBack(txId, affectedNodeIds, userId);
-        log.info("Transaction rolled back and deleted: id={} owner={} versions={} attrs={}",
-            txId, userId, versionsDeleted, attrsDeleted);
+        log.info("Transaction rolled back and deleted: id={} owner={} versions={} attrs={} deletedNodes={}",
+            txId, userId, versionsDeleted, attrsDeleted, deletedNodeIds.size());
 
-        RollbackContext rollbackCtx = new RollbackContext(txId, userId, rolledBackLinks);
+        RollbackContext rollbackCtx = new RollbackContext(txId, userId, rolledBackLinks, deletedNodeIds);
         for (PostRollbackHook hook : postRollbackHooks.values()) {
             try {
                 hook.afterRollback(rollbackCtx);

@@ -10,6 +10,7 @@
 #   ./run.sh reset               destroy volumes, rebuild all, start
 #   ./run.sh down                stop and remove containers
 #   ./run.sh local               run all services natively (java + node in PATH)
+#   ./run.sh pull-base           pre-pull all base images once (avoids Docker Hub rate limits)
 #   ./run.sh package             build dist/ (JVM JARs) for compiler-free deploy
 #   ./run.sh package -y          same, skip confirm if dist/ exists
 #   ./run.sh package --native    GraalVM static binaries
@@ -66,6 +67,30 @@ err()  { printf '\033[1;31m[run.sh %s] ✗\033[0m %s\n' "$(date +%H:%M:%S)" "$*"
 # Dockerfile stage 0 (`FROM plm-platform-lib:dev AS lib-builder`).
 # Compiles platform-lib once; Docker layer cache makes this a no-op when
 # platform-lib/ source is unchanged.
+# Public base images used across all Dockerfiles.
+# Run `./run.sh pull-base` once to cache them; subsequent builds skip Docker Hub.
+BASE_IMAGES=(
+    "docker.io/library/maven:3.9-eclipse-temurin-21-alpine"
+    "docker.io/library/eclipse-temurin:21-jre-alpine"
+    "docker.io/library/node:20-alpine"
+    "docker.io/library/node:20-slim"
+    "docker.io/library/nginx:alpine"
+)
+
+pull_base_images() {
+    log "Pulling base images (only fetches if not already cached)…"
+    local failed=0
+    for img in "${BASE_IMAGES[@]}"; do
+        if docker image inspect "$img" &>/dev/null; then
+            ok "  cached: $img"
+        else
+            log "  pulling: $img"
+            docker pull "$img" || { warn "  failed: $img"; (( failed++ )) || true; }
+        fi
+    done
+    [[ $failed -eq 0 ]] && ok "All base images ready." || warn "$failed image(s) failed to pull."
+}
+
 build_platform_lib_image() {
     log "Building $PLATFORM_LIB_IMAGE (shared lib-builder base)…"
     if ! docker build -t "$PLATFORM_LIB_IMAGE" platform-lib/; then
@@ -408,11 +433,7 @@ run_package() {
     done
 
     if [[ -d "$DIST" ]]; then
-        if ! $SKIP_CONFIRM; then
-            warn "Directory '$DIST/' already exists and will be overwritten."
-            read -rp "  Continue? [y/N] " confirm
-            [[ "${confirm,,}" != "y" ]] && { log "Aborted."; exit 0; }
-        fi
+        warn "Directory '$DIST/' exists — overwriting."
         rm -rf "$DIST"
     fi
 
@@ -592,6 +613,10 @@ case "$CMD" in
         run_local
         exit 0
         ;;
+    pull-base|--pull-base)
+        pull_base_images
+        exit 0
+        ;;
 esac
 
 # Default / build / reset paths — compose up-then-exit-when-healthy
@@ -621,7 +646,7 @@ case "$CMD" in
     "") ;;
     *)
         err "Unknown command: $CMD"
-        echo "Usage: $0 [build [all|<svc>...] | reset | down | local | package [-y|--native]]"
+        echo "Usage: $0 [build [all|<svc>...] | reset | down | local | pull-base | package [-y|--native]]"
         exit 1
         ;;
 esac

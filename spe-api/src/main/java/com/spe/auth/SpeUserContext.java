@@ -7,5 +7,6 @@ public record SpeUserContext(
     String username,
     List<String> roleIds,
     boolean isAdmin,
-    String projectSpaceId
+    String projectSpaceId,
+    List<String> allowedServiceCodes
 ) {}

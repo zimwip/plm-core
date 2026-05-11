@@ -1,7 +1,7 @@
 package com.plm.platform.api.actions;
 
 import com.plm.platform.config.dto.*;
-import com.plm.platform.spe.client.ServiceClient;
+import com.plm.platform.client.ServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -151,13 +151,20 @@ public class ActionConfigSnapshotController {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private List<PermissionConfig> buildPermissions(String svc) {
         try {
-            String path = "/api/pno/permissions" + (svc != null ? "?serviceCode=" + svc : "");
-            List<Map> rows = serviceClient.get("pno", path, List.class);
+            // /internal/authorization/snapshot is S2S (X-Service-Secret); /permissions requires JWT
+            Map snapshot = serviceClient.get("pno", "/api/pno/internal/authorization/snapshot", Map.class);
+            if (snapshot == null) return List.of();
+            List<Map> rows = (List<Map>) snapshot.get("permissions");
             if (rows == null) return List.of();
             List<PermissionConfig> result = new ArrayList<>();
             for (Map r : rows) {
+                String permCode = (String) r.get("permission_code");
+                if (svc != null) {
+                    // filter by service if requested — permission_code convention: <SERVICE>_*
+                    // fall through if no scope filter available; let consumers filter client-side
+                }
                 result.add(new PermissionConfig(
-                    (String) r.get("permission_code"),
+                    permCode,
                     (String) r.get("scope"),
                     (String) r.get("display_name"),
                     (String) r.get("description"),

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../services/api';
 import { NODE_ICONS } from './Icons';
-import { psmNodeDescriptor } from '../plugins/psmNodePlugin';
+import { psmNodeDescriptor } from '../plugins/psmDescriptor';
 
 const CHANGE_BADGE = {
   CONTENT:   { label: 'edit',  bg: 'rgba(106,172,255,.15)', color: 'var(--accent)'  },
@@ -171,19 +171,19 @@ function WorkItemsSection({ userId, stateColorMap, nodeTypes, onNavigate }) {
                 {item.actions.map(a => {
                   const blocked = a.guardViolations?.length > 0;
                   const tip = blocked
-                    ? 'Blocked: ' + a.guardViolations.map(v => v.message || v.guardCode).join('; ')
-                    : (a.description || a.name);
+                    ? 'Blocked: ' + a.guardViolations.map(v => v.message || v.code).join('; ')
+                    : (a.description || a.label);
                   return (
                     <span
-                      key={a.id}
+                      key={a.code}
                       className="dash-action-chip"
                       title={tip}
                       style={{
-                        color: CATEGORY_COLOR[a.displayCategory] || 'var(--muted)',
+                        color: CATEGORY_COLOR[a.metadata?.displayCategory] || 'var(--muted)',
                         opacity: blocked ? 0.45 : 1,
                       }}
                     >
-                      {a.name}
+                      {a.label}
                     </span>
                   );
                 })}

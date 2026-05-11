@@ -1,6 +1,7 @@
 package com.plm;
 
 import com.plm.shared.security.PlmUserContext;
+import com.plm.platform.action.ActionService;
 import com.plm.node.NodeService;
 import com.plm.node.lifecycle.internal.LifecycleService;
 import com.plm.node.transaction.internal.LockService;
@@ -30,6 +31,7 @@ class PlmIntegrationTest {
 
     @Autowired DSLContext              dsl;
     @Autowired NodeService             nodeService;
+    @Autowired ActionService           actionService;
     @Autowired LockService             lockService;
     @Autowired VersionService          versionService;
     @Autowired LifecycleService        lifecycleService;
@@ -253,12 +255,14 @@ class PlmIntegrationTest {
 
         var desc = nodeService.buildObjectDescription(nodeId, ALICE, null);
 
-        assertThat(desc).containsKey("attributes");
-        assertThat(desc).containsKey("actions");
-        assertThat(desc.get("identity")).isEqualTo("A.1");
+        assertThat(desc.fields()).isNotEmpty();
+        assertThat(desc.metadata().get("identity")).isEqualTo("A.1");
 
-        @SuppressWarnings("unchecked")
-        var actions = (java.util.List<?>) desc.get("actions");
+        var actions = actionService.resolveActionsForNode(
+            nodeId,
+            (String) desc.metadata().get("nodeTypeId"),
+            (String) desc.metadata().get("state"),
+            false, false);
         assertThat(actions).isNotEmpty(); // transition Draft → InReview disponible
     }
 

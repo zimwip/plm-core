@@ -22,7 +22,7 @@ public class BaselineActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.post("/api/psm/actions/baseline/{id}").metadataOnly());
+        return Optional.of(ActionRouteDescriptor.post("/actions/baseline/{id}").metadataOnly());
     }
 
     @Override

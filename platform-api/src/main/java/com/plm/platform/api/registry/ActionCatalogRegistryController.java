@@ -53,7 +53,13 @@ public class ActionCatalogRegistryController {
 
         List<ContributionInput> contributions = request.contributions() == null ? List.of() : request.contributions();
 
-        ServiceActionCatalog catalog = registry.register(request.serviceCode(), handlers, guards);
+        List<ActionCatalogRegistry.EventEntry> events = request.events() == null
+            ? List.of()
+            : request.events().stream()
+                .map(e -> new ActionCatalogRegistry.EventEntry(e.code(), e.description(), e.scope()))
+                .toList();
+
+        ServiceActionCatalog catalog = registry.register(request.serviceCode(), handlers, guards, events);
 
         try {
             persistToDB(request.serviceCode(), handlers, guards, contributions);
@@ -79,6 +85,7 @@ public class ActionCatalogRegistryController {
             "serviceCode", catalog.serviceCode(),
             "handlerCount", catalog.handlers().size(),
             "guardCount", catalog.guards().size(),
+            "eventCount", catalog.events().size(),
             "contributionAlgorithmCount", algCount,
             "registeredAt", catalog.registeredAt().toString()
         ));
@@ -94,6 +101,7 @@ public class ActionCatalogRegistryController {
                     return Map.of(
                         "handlers", c.handlers(),
                         "guards",   c.guards(),
+                        "events",   c.events(),
                         "registeredAt", c.registeredAt().toString()
                     );
                 }
@@ -217,11 +225,13 @@ public class ActionCatalogRegistryController {
         String serviceCode,
         List<HandlerInput> handlers,
         List<GuardInput> guards,
-        List<ContributionInput> contributions
+        List<ContributionInput> contributions,
+        List<EventInput> events
     ) {}
 
     record HandlerInput(String code, String label, String module, String httpMethod, String pathTemplate, String bodyShape) {}
     record GuardInput(String code, String label, String module) {}
     record ContributionInput(String typeId, String typeName, String javaInterface, List<AlgorithmInput> algorithms) {}
     record AlgorithmInput(String code, String label, String module) {}
+    record EventInput(String code, String description, String scope) {}
 }

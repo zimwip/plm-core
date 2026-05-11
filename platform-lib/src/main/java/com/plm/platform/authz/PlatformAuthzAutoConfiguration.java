@@ -1,8 +1,8 @@
 package com.plm.platform.authz;
 
 import com.plm.platform.nats.NatsListenerFactory;
-import com.plm.platform.spe.client.ServiceClient;
-import com.plm.platform.spe.client.ServiceClientAutoConfiguration;
+import com.plm.platform.client.ServiceClient;
+import com.plm.platform.client.ServiceClientAutoConfiguration;
 import io.nats.client.Dispatcher;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;

@@ -40,7 +40,7 @@ public class CadImportActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.postMultipart("/api/psm/cad/import/{id}"));
+        return Optional.of(ActionRouteDescriptor.postMultipart("/cad/import/{id}").withJobStatusPath("/cad/jobs/{jobId}"));
     }
 
     @Override
@@ -74,7 +74,7 @@ public class CadImportActionHandler implements ActionHandler {
         String contextCode = multipart.getParameter("contextCode");
         if (contextCode == null || contextCode.isBlank()) contextCode = "default";
 
-        boolean splitMode = "true".equalsIgnoreCase(multipart.getParameter("splitMode"));
+        boolean splitMode = true;
 
         String nodeId = ctx.nodeId();
         String userId = ctx.userId();
