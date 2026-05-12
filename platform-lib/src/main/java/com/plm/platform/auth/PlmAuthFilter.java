@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.AntPathMatcher;
 
+import com.plm.platform.client.ServiceClientTokenContext;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -84,9 +85,12 @@ public class PlmAuthFilter implements Filter {
             try {
                 req.setAttribute("plm.principal", delegated);
                 for (PlmAuthContextBinder b : binders) b.bind(delegated, req);
+                ServiceClientTokenContext.setDelegated(new ServiceClientTokenContext.DelegatedContext(
+                    delegated.userId(), delegated.username(), delegated.roleIds(), delegated.isAdmin(), delegated.projectSpaceId()));
                 chain.doFilter(request, response);
             } finally {
                 for (PlmAuthContextBinder b : binders) b.clear();
+                ServiceClientTokenContext.clear();
             }
             return;
         }
@@ -124,12 +128,16 @@ public class PlmAuthFilter implements Filter {
             for (PlmAuthContextBinder b : binders) {
                 b.bind(principal.get(), req);
             }
-            log.debug("Auth: {}", principal.get());
+            PlmPrincipal p = principal.get();
+            ServiceClientTokenContext.setDelegated(new ServiceClientTokenContext.DelegatedContext(
+                p.userId(), p.username(), p.roleIds(), p.isAdmin(), p.projectSpaceId()));
+            log.debug("Auth: {}", p);
             chain.doFilter(request, response);
         } finally {
             for (PlmAuthContextBinder b : binders) {
                 b.clear();
             }
+            ServiceClientTokenContext.clear();
         }
     }
 

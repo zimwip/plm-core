@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PLM Core</title>
+  <style>
+    /* Boot-flash fallback — overridden by theme-aware stylesheet once React
+       mounts. Matches OS preference so the flash is close to the final theme. */
+    html, body { margin: 0; background: #0d0f12; }
+    @media (prefers-color-scheme: light) {
+      html, body { background: #f5f6f8; }
+    }
+    #root { min-height: 100vh; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "react":                "/assets/vendor-react.js",
+      "react-dom":            "/assets/vendor-react-dom.js",
+      "react-dom/client":     "/assets/vendor-react-dom.js",
+      "react/jsx-runtime":    "/assets/vendor-react-jsx-runtime.js"
+    }
+  }
+  </script>
+  <script type="module" crossorigin src="/assets/index-BJQsHEOE.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/vendor-Dw91Z_SL.js">
+  <link rel="modulepreload" crossorigin href="/assets/react-jsx-runtime-shim-DtcNtlUI.js">
+  <link rel="modulepreload" crossorigin href="/assets/react-dom-shim-u_SHOSaN.js">
+  <link rel="modulepreload" crossorigin href="/assets/icons-S3AOjxSR.js">
+  <link rel="modulepreload" crossorigin href="/assets/three-DAyMVibd.js">
+</head>
+<body>
+  <div id="root"></div>
+  <!-- Importmap: lets service plugin bundles resolve 'react' / 'react-dom'
+       to the same instance already loaded by the shell, avoiding duplicate
+       React copies and hook errors. URLs must match the stable chunk names
+       produced by vite.config.js manualChunks / chunkFileNames. -->
+
+</body>
+</html>

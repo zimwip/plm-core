@@ -11,7 +11,6 @@ import com.cad.ingestion.client.CadParserClient;
 import com.cad.ingestion.client.DstStorageClient;
 import com.cad.ingestion.client.PsmActionClient;
 import com.cad.ingestion.client.PsmValidationClient;
-import com.plm.platform.client.ServiceClientTokenContext;
 import com.cad.ingestion.model.ImportJobResult;
 import com.cad.ingestion.model.SplitPart;
 import com.plm.platform.algorithm.AlgorithmRegistry;
@@ -96,7 +95,6 @@ public class ImportJobProcessor {
                 log.info("Job {} split mode: {} parts from {}", jobId, parts.size(), filename);
 
                 String dstBaseUrl = serviceClient.resolveBaseUrl("dst");
-                String authToken  = ServiceClientTokenContext.get();
 
                 record SplitDecision(SplitPart part, ImportDecision decision) {}
                 List<SplitDecision> planned = new ArrayList<>(parts.size());
@@ -148,8 +146,8 @@ public class ImportJobProcessor {
                         boolean acted = "CREATED".equals(result.getAction()) || "UPDATED".equals(result.getAction());
                         if (acted && sd.part().fileBytes().length > 0) {
                             uploadPartRepresentations(jobId, sd.part().cadId(), sd.part().name(),
-                                sd.part().fileBytes(), result.getPsmNodeId(),
-                                authToken, ctx.projectSpaceId(), dstBaseUrl, txId, warnings);
+                                sd.part().fileBytes(), result.getPsmNodeId(), ctx.projectSpaceId(),
+                                dstBaseUrl, txId, warnings);
                         }
                     }
                 }
@@ -303,9 +301,7 @@ public class ImportJobProcessor {
                 // Phase 5 — upload original file to DST (kind=original), link root nodes
                 try {
                     String dstBaseUrl = serviceClient.resolveBaseUrl("dst");
-                    String authToken  = ServiceClientTokenContext.get();
-                    String dstFileId  = dstClient.upload(fileBytes, filename, null,
-                                                          authToken, ctx.projectSpaceId(), dstBaseUrl);
+                    String dstFileId  = dstClient.upload(fileBytes, filename, null, dstBaseUrl);
                     if (dstFileId != null) {
                         log.info("Job {}: DST upload succeeded, dstFileId={}", jobId, dstFileId);
                         for (NodeDecision nd : planned) {
@@ -328,7 +324,7 @@ public class ImportJobProcessor {
                                 }
                             }
                         }
-                        dstClient.unref(dstFileId, authToken, ctx.projectSpaceId(), dstBaseUrl);
+                        dstClient.unref(dstFileId, dstBaseUrl);
                     } else {
                         String msg = "DST upload returned no ID, lt-part-data links skipped";
                         log.warn("Job {}: {}", jobId, msg);
@@ -384,7 +380,6 @@ public class ImportJobProcessor {
 
             ImportContextAlgorithm algorithm = resolveAlgorithm(ctx.importContextCode());
             String dstBaseUrl = serviceClient.resolveBaseUrl("dst");
-            String authToken  = ServiceClientTokenContext.get();
 
             // Shared across all files — cross-file parentCadId references resolve naturally
             Map<String, UUID>   cadIdToNodeId    = new HashMap<>();
@@ -445,8 +440,8 @@ public class ImportJobProcessor {
                         boolean acted = "CREATED".equals(result.getAction()) || "UPDATED".equals(result.getAction());
                         if (acted && sd.part().fileBytes().length > 0) {
                             uploadPartRepresentations(jobId, sd.part().cadId(), sd.part().name(),
-                                sd.part().fileBytes(), result.getPsmNodeId(),
-                                authToken, ctx.projectSpaceId(), dstBaseUrl, txId, warnings);
+                                sd.part().fileBytes(), result.getPsmNodeId(), ctx.projectSpaceId(),
+                                dstBaseUrl, txId, warnings);
                         }
                     }
                 }
@@ -590,8 +585,7 @@ public class ImportJobProcessor {
 
                 // Upload original ZIP to DST (kind=original), link all top-level roots
                 try {
-                    String dstFileId = dstClient.upload(originalZipBytes, zipFilename, null,
-                        authToken, ctx.projectSpaceId(), dstBaseUrl);
+                    String dstFileId = dstClient.upload(originalZipBytes, zipFilename, null, dstBaseUrl);
                     if (dstFileId != null) {
                         for (NodeDecision nd : planned) {
                             CadNodeData node = nd.node();
@@ -609,7 +603,7 @@ public class ImportJobProcessor {
                                 }
                             }
                         }
-                        dstClient.unref(dstFileId, authToken, ctx.projectSpaceId(), dstBaseUrl);
+                        dstClient.unref(dstFileId, dstBaseUrl);
                     } else {
                         warnings.add("DST upload returned no ID for ZIP, lt-part-data links skipped");
                     }
@@ -634,20 +628,19 @@ public class ImportJobProcessor {
     }
 
     private void uploadPartRepresentations(UUID jobId, String cadId, String name, byte[] stepBytes,
-                                            UUID psmNodeId, String authToken, String projectSpaceId,
+                                            UUID psmNodeId, String projectSpaceId,
                                             String dstBaseUrl, String txId, List<String> warnings) {
         String safeFilename = name.replaceAll("[^a-zA-Z0-9._-]", "_");
 
         // Upload STEP (kind=design)
         try {
-            String stepFileId = dstClient.upload(stepBytes, safeFilename + ".step", null,
-                authToken, projectSpaceId, dstBaseUrl);
+            String stepFileId = dstClient.upload(stepBytes, safeFilename + ".step", null, dstBaseUrl);
             if (stepFileId != null) {
                 String linkId = psmClient.createLink(psmNodeId, stepFileId, "lt-part-data", txId, projectSpaceId);
                 if (linkId != null)
                     psmClient.updateLinkAttributes(linkId, psmNodeId,
                         Map.of("kind", "design", "layer", "main"), txId, projectSpaceId);
-                dstClient.unref(stepFileId, authToken, projectSpaceId, dstBaseUrl);
+                dstClient.unref(stepFileId, dstBaseUrl);
                 log.debug("Job {}: {} → DST {} (kind=design)", jobId, cadId, stepFileId);
             } else {
                 warnings.add("DST STEP upload returned no ID for part " + cadId);
@@ -660,14 +653,13 @@ public class ImportJobProcessor {
         try {
             byte[] glbBytes = parserClient.convertToGlb(stepBytes, safeFilename + ".step");
             if (glbBytes != null && glbBytes.length > 0) {
-                String glbFileId = dstClient.upload(glbBytes, safeFilename + ".glb", "model/gltf-binary",
-                    authToken, projectSpaceId, dstBaseUrl);
+                String glbFileId = dstClient.upload(glbBytes, safeFilename + ".glb", "model/gltf-binary", dstBaseUrl);
                 if (glbFileId != null) {
                     String linkId = psmClient.createLink(psmNodeId, glbFileId, "lt-part-data", txId, projectSpaceId);
                     if (linkId != null)
                         psmClient.updateLinkAttributes(linkId, psmNodeId,
                             Map.of("kind", "simplified", "layer", "main"), txId, projectSpaceId);
-                    dstClient.unref(glbFileId, authToken, projectSpaceId, dstBaseUrl);
+                    dstClient.unref(glbFileId, dstBaseUrl);
                     log.debug("Job {}: {} → DST {} (kind=simplified, {} KB)", jobId, cadId, glbFileId, glbBytes.length / 1024);
                 }
             }

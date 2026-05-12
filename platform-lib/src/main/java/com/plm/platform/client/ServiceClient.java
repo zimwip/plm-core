@@ -211,7 +211,7 @@ public class ServiceClient {
     }
 
     /** Builds auth+tracing headers without setting Content-Type (caller controls it). */
-    private HttpHeaders buildAuthHeaders() {
+    public HttpHeaders buildAuthHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Service-Secret", props.serviceSecret());
 
