@@ -26,9 +26,9 @@ const _plugins = []; // ordered: most-specific first
  *
  * @typedef {Object} SourcePlugin
  * @property {SourcePluginMatch}   match
- * @property {React.ComponentType} [NavRow]       optional row renderer; receives
- *                                                 { descriptor, item, ctx, isActive, hasChildren,
- *                                                   isExpanded, isLoading, onToggleChildren }
+ * @property {React.ComponentType} [NavLabel]     content-only renderer; shell owns all chrome (chevron, icon, pin/unpin).
+ *                                                 receives { item, descriptor, ctx }
+ * @property {(item,descriptor,ctx) => object} [getRowProps]  extra props spread on outer div (e.g. drag handlers)
  * @property {(item:any) => boolean}  [hasItemChildren]   show chevron when true
  * @property {(item:any, ctx:any) => Promise<any[]>} [fetchChildren]
  * @property {React.ComponentType} [ChildRow]     row used for each child (psm renders link rows)
@@ -118,7 +118,7 @@ export function lookupLinkRowForSource(sourceCode) {
 /**
  * Merge additional properties into an existing plugin that matches the given
  * serviceCode + itemCode, or register a new one if no match is found.
- * Used by PluginLoader to inject nav capabilities (NavRow, ChildRow, …) from
+ * Used by PluginLoader to inject nav capabilities (NavLabel, ChildRow, …) from
  * a remote plugin into the boot-time shell plugin that owns Editor + Preview.
  *
  * @param {string}  serviceCode

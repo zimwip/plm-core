@@ -15,6 +15,7 @@ import static java.util.Map.entry;
 import java.util.Comparator;
 import com.plm.platform.action.dto.DetailDescriptor;
 import com.plm.platform.action.dto.DetailField;
+import com.plm.platform.item.dto.ItemTypeRef;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.LifecycleConfig;
 import com.plm.platform.config.dto.LifecycleStateConfig;
@@ -928,6 +929,22 @@ public class NodeService {
         fields.sort(Comparator.comparingInt(f ->
             (int) ((Map<?, ?>) attrMeta.get(f.name())).get("displayOrder")));
 
+        // System nav fields — prepended so detailToItem() exposes them as flat item
+        // properties that NavRow components read (logical_id, revision, etc.).
+        // Kept out of attrMeta to avoid polluting the editor attribute list.
+        // All values are strings so the editor's (val || '').trim() pattern never throws.
+        List<DetailField> navFields = new ArrayList<>();
+        navFields.add(new DetailField("logical_id",         "Logical ID",   logicalId       != null ? logicalId                : ""));
+        navFields.add(new DetailField("revision",           "Revision",     revision        != null ? revision                 : ""));
+        navFields.add(new DetailField("iteration",          "Iteration",    String.valueOf(iteration)));
+        navFields.add(new DetailField("lifecycle_state_id", "State",        currentStateId  != null ? currentStateId           : ""));
+        navFields.add(new DetailField("tx_status",          "TX Status",    txStatus        != null ? txStatus                 : "COMMITTED"));
+        navFields.add(new DetailField("locked_by",          "Locked by",    lockInfo.lockedBy() != null ? lockInfo.lockedBy()  : ""));
+        navFields.add(new DetailField("node_type_id",       "Node type ID", nodeTypeId));
+        navFields.add(new DetailField("display_name",       "Display name", displayName     != null ? displayName              : ""));
+        navFields.addAll(fields);
+        fields = navFields;
+
         // Lock info
         String lockTxId = lockInfo.locked()
             ? dsl.select(DSL.field("tx_id")).from("node_version")
@@ -998,7 +1015,8 @@ public class NodeService {
             metadata.put("fingerprintChanged", null);
         }
 
-        return new DetailDescriptor(nodeId, identity, displayName, null, null, fields, List.of(), metadata);
+        return new DetailDescriptor(nodeId, new ItemTypeRef("psm", "node", nodeTypeId),
+            identity, displayName, null, null, fields, List.of(), metadata);
     }
 
     /** Finds the user's existing OPEN transaction or opens a new one. Returns the txId. */

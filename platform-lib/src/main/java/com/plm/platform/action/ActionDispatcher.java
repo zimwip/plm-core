@@ -101,7 +101,7 @@ public class ActionDispatcher {
         log.info("Dispatching action {} scope={} pathIds={} wrappers={} by user {}",
             actionCode, scopeCode, pathIds, wrappers.size(), userId);
 
-        ActionWrapper.Chain chain = buildChain(wrappers, handler);
+        ActionWrapper.Chain chain = buildChain(wrappers, handler::execute);
         try {
             return chain.proceed(ctx, params);
         } catch (PolicyDeniedException e) {
@@ -151,8 +151,19 @@ public class ActionDispatcher {
                 "Algorithm not found for id: " + algorithmId));
     }
 
-    private ActionWrapper.Chain buildChain(List<ResolvedWrapper> wrappers, ActionHandler handler) {
-        ActionWrapper.Chain terminal = handler::execute;
+    /**
+     * Builds a wrapper chain for HTTP-dispatched handlers (e.g., multipart routes).
+     * The {@code httpTerminal} is called at the end of the chain instead of {@code handler.execute()},
+     * allowing wrappers (TransactionWrapper, LockWrapper, etc.) to run even for routes that bypass
+     * the standard {@link #dispatch} path.
+     */
+    public ActionWrapper.Chain wrapForHttp(String actionCode, ActionWrapper.Chain httpTerminal) {
+        return configCache.getAction(actionCode)
+            .map(action -> buildChain(resolveWrappers(action), httpTerminal))
+            .orElse(httpTerminal);
+    }
+
+    private ActionWrapper.Chain buildChain(List<ResolvedWrapper> wrappers, ActionWrapper.Chain terminal) {
         ActionWrapper.Chain chain = terminal;
         for (int i = wrappers.size() - 1; i >= 0; i--) {
             ResolvedWrapper rw = wrappers.get(i);

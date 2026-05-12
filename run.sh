@@ -497,6 +497,18 @@ run_package() {
 
     SVC_NAMES=("${BUILT_SVCS[@]}")
 
+    # ── Node.js sidecar: cad-parser ──────────────────────────────────────────
+    # Not a Spring Boot service — no JAR extraction needed.
+    # Copy source files; the Dockerfile does `npm install` at image-build time.
+    log "[cad-parser] Packaging Node.js service…"
+    mkdir -p "$DIST/cad-parser"
+    for f in cad-parser/package.json cad-parser/app.js cad-parser/step-lib.js cad-parser/worker-split.js; do
+        [[ -f "$f" ]] && cp "$f" "$DIST/cad-parser/" || warn "[cad-parser] missing: $f"
+    done
+    cp cad-parser/Dockerfile "$DIST/cad-parser/"
+    ok "[cad-parser] Done."
+    echo ""
+
     extract_from_builder "frontend" "frontend" "plm-fe-pkg-builder" \
         "/app/dist/." "$DIST/frontend/html"
     cp frontend/nginx.conf           "$DIST/frontend/nginx.conf"

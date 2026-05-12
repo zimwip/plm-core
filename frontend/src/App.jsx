@@ -10,6 +10,7 @@ import CommitModal     from './components/CommitModal';
 import CreateResourceModal from './components/CreateResourceModal';
 import ErrorDetailModal from './components/ErrorDetailModal';
 import { psmNodeDescriptor } from './plugins/psmDescriptor';
+import { tabToNavItemRef, detailToItem } from './shell/navTypes';
 import { registerBuiltinPlugins } from './plugins';
 import { ShellContext, createShellAPI } from './shell/ShellContext';
 import { loadRemotePlugins } from './shell/PluginLoader';
@@ -429,6 +430,23 @@ export default function App() {
   const activeNodeId    = activeTab?.nodeId;
   const isDashboardOpen = activeTabId === 'dashboard';
 
+  // NavItemRefs for all non-dashboard open tabs.
+  const openItems = useMemo(() =>
+    tabs.filter(t => t.id !== 'dashboard' && t.nodeId).map(tabToNavItemRef).filter(Boolean),
+    [tabs],
+  );
+
+  // Flat item data derived from already-loaded tab details.
+  const openItemDataMap = useMemo(() => {
+    const map = {};
+    for (const tab of tabs) {
+      if (!tab.nodeId || tab.id === 'dashboard') continue;
+      const entry = tabData[tab.nodeId];
+      if (entry?.status === 'ok' && entry.data) map[tab.nodeId] = detailToItem(entry.data);
+    }
+    return map;
+  }, [tabs, tabData]);
+
   const onDescriptionLoaded = useCallback((desc) => {
     if (desc?.nodeId === activeNodeId) setSelectedDesc(desc);
     if (desc?.nodeId) {
@@ -514,6 +532,8 @@ export default function App() {
               isDashboardOpen={isDashboardOpen}
               onOpenDashboard={() => setActiveTabId('dashboard')}
               browseRefreshKey={browseRefreshKey}
+              openItems={openItems}
+              openItemDataMap={openItemDataMap}
               style={{ width: panelWidth }}
               toast={toast}
             />

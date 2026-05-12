@@ -1,19 +1,4 @@
-/**
- * DST nav plugin — microfrontend entry point.
- *
- * Exported as an ES module; react + react-dom are external (provided by the
- * shell via importmap). No imports from shell-internal files.
- *
- * Plugin contract:
- *   { id, zone, init(shellAPI), matches(descriptor), Component }
- *
- * Component props (injected by the shell's nav zone renderer):
- *   { shellAPI, descriptor, item, isActive }
- */
-
 import { initDstApi } from './dstApi';
-
-let _shellAPI = null;
 
 function isStepLink(link) {
   const ct   = (link.targetDetails?.contentType || '').toLowerCase();
@@ -30,55 +15,20 @@ function prettySize(bytes) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function DstNavRow({ shellAPI, descriptor, item, isActive }) {
-  const api = shellAPI ?? _shellAPI;
-  const id = item.id;
-  const name = item.originalName || id;
-  const ct = item.contentType || '';
+// ── NavLabel — content area only (shell owns chrome) ─────────────────────────
+
+function DstNavLabel({ item }) {
+  const name = item.originalName || item.id;
   const size = prettySize(item.sizeBytes);
-  const color = descriptor.color || 'var(--muted2)';
-
   return (
-    <div
-      className={`node-item${isActive ? ' active' : ''}`}
-      onClick={() => api?.navigate?.(id, name, descriptor)}
-      title={`${name} — ${ct || 'unknown type'} · ${size}`}
-    >
-      <span className="ni-expand" style={{ visibility: 'hidden' }} />
-      <span style={{ width: 6, height: 6, borderRadius: 1, background: color, flexShrink: 0, display: 'inline-block' }} />
+    <>
       <span className="ni-logical" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {name}
       </span>
       <span className="ni-reviter" style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted2)' }}>
         {size}
       </span>
-    </div>
-  );
-}
-
-// ── NavRow — ctx interface (for sourcePlugins / BrowseNav) ────────────────────
-
-function DstNavRowCtx({ descriptor, item, ctx, isActive }) {
-  const id    = item.id;
-  const name  = item.originalName || id;
-  const ct    = item.contentType || '';
-  const size  = prettySize(item.sizeBytes);
-  const color = descriptor.color || 'var(--muted2)';
-  return (
-    <div
-      className={`node-item${isActive ? ' active' : ''}`}
-      onClick={() => ctx.onNavigate(id, name, descriptor)}
-      title={`${name} — ${ct || 'unknown type'} · ${size}`}
-    >
-      <span className="ni-expand" style={{ visibility: 'hidden' }} />
-      <span style={{ width: 6, height: 6, borderRadius: 1, background: color, flexShrink: 0, display: 'inline-block' }} />
-      <span className="ni-logical" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {name}
-      </span>
-      <span className="ni-reviter" style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted2)' }}>
-        {size}
-      </span>
-    </div>
+    </>
   );
 }
 
@@ -124,25 +74,18 @@ export default {
   id: 'dst-nav',
   zone: 'nav',
 
-  // sourcePlugins match contract — enables PluginLoader bridge
   match: { serviceCode: 'dst', itemCode: 'data-object' },
-  // Also register LinkRow under DATA_LOCAL (targetSourceCode used in PSM PBS links)
   linkSources: ['DATA_LOCAL'],
   hasItemChildren: () => false,
 
-  // ctx-interface exports (used by BrowseNav via sourcePlugins)
-  NavRow: DstNavRowCtx,
+  NavLabel: DstNavLabel,
   LinkRow: DstLinkRow,
 
   init(shellAPI) {
-    _shellAPI = shellAPI;
     initDstApi(shellAPI);
   },
 
   matches(descriptor) {
     return descriptor?.serviceCode === 'dst';
   },
-
-  // shellAPI-interface Component (used by pluginRegistry nav zone)
-  Component: DstNavRow,
 };

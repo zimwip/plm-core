@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NODE_ICONS, SECTION_ICONS, CommitIcon, RollbackIcon, PlusIcon, XCircleIcon } from './Icons';
 import BrowseNav from './BrowseNav';
+import NavPanel from './NavPanel';
 import { psmNodeDescriptor } from '../plugins/psmDescriptor';
 import { usePlmStore } from '../store/usePlmStore';
 
@@ -29,13 +30,15 @@ function LeftPanel({
   settingsSections,
   isDashboardOpen,
   onOpenDashboard,
-  browseRefreshKey,     // bumped by App on websocket events to force /browse re-fetch
+  browseRefreshKey,     // still used by INFO BrowseNav
+  openItems,            // NavItemRef[] — items with open tabs
+  openItemDataMap,      // { [nodeId]: flat item } — detail data for open items
   style,
   toast,
 }) {
   const [releaseConfirmId, setReleaseConfirmId] = useState(null);
 
-  const basketItems    = usePlmStore(s => s.basketItems);
+  // basketItems not needed here — NavPanel reads it directly from store.
 
   const txId = tx?.ID || tx?.id;
   const txNodeList = txNodes || [];
@@ -99,22 +102,18 @@ function LeftPanel({
           </div>
         )}
 
-        {/* ── MAIN browse zone — central scrollable area ─────────
-            Renders only descriptors with panelSection=MAIN. Sources
-            are sorted by the max priority of their descriptors
-            (descending), so the most important source sits at top. */}
+        {/* ── MAIN nav zone — search-first basket+open items view ──
+            NavPanel shows open tabs and pinned basket items only.
+            No server-side list fetch. */}
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          <BrowseNav
-            userId={userId}
+          <NavPanel
+            openItems={openItems}
+            openItemDataMap={openItemDataMap}
             activeNodeId={activeNodeId}
             stateColorMap={stateColorMap}
             onNavigate={onNavigate}
             onCreateNode={onCreateNode}
-            refreshKey={browseRefreshKey}
-            panelSection="MAIN"
             toast={toast}
-            basketView={true}
-            basketItems={basketItems}
           />
         </div>
 

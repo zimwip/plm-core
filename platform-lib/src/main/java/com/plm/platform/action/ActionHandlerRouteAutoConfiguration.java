@@ -26,7 +26,7 @@ import java.util.List;
  * declare their own HTTP binding — the handler's {@link ActionHandler#executeHttp} becomes
  * the actual MVC handler.
  */
-@AutoConfiguration
+@AutoConfiguration(after = ActionFrameworkAutoConfiguration.class)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnProperty(name = "platform.registration.service-code")
 @ConditionalOnBean(ActionHandler.class)
@@ -35,8 +35,12 @@ public class ActionHandlerRouteAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public ActionHandlerRouteController actionHandlerRouteController(
-            ObjectProvider<ActionGuardPort> guardPortProvider) {
-        return new ActionHandlerRouteController(guardPortProvider.getIfAvailable());
+            ObjectProvider<ActionGuardPort> guardPortProvider,
+            ObjectProvider<ActionDispatcher> actionDispatcherProvider) {
+        return new ActionHandlerRouteController(
+            guardPortProvider.getIfAvailable(),
+            actionDispatcherProvider.getIfAvailable()
+        );
     }
 
     @Bean

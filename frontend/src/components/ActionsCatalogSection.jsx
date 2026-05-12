@@ -141,6 +141,14 @@ function ActionsTab({ userId, serviceCode, dbActions: dbActionsProp, canWrite, t
     } catch (e) { toast(String(e), 'error'); }
   }
 
+  async function handleAttachWrapper(actionId, instanceId, executionOrder) {
+    try {
+      await platformActionsApi.attachActionWrapper(userId, actionId, instanceId, executionOrder, serviceCode);
+      loadWrappers(actionId);
+      toast('Wrapper attached', 'success');
+    } catch (e) { toast(String(e), 'error'); }
+  }
+
   if (catalog === null) return <div className="settings-loading">Loading…</div>;
 
   // Build merged action list: DB actions indexed by actionCode, registry handlers as fallback
@@ -205,6 +213,9 @@ function ActionsTab({ userId, serviceCode, dbActions: dbActionsProp, canWrite, t
 
   const guardInstances = (instances || []).filter(i =>
     (i.typeName || '').toLowerCase().includes('guard'));
+
+  const wrapperInstances = (instances || []).filter(i =>
+    (i.typeName || '').toLowerCase().includes('wrapper'));
 
   return (
     <div className="settings-list">
@@ -354,6 +365,12 @@ function ActionsTab({ userId, serviceCode, dbActions: dbActionsProp, canWrite, t
                         </tbody>
                       </table>
                     )}
+                    {canWrite && wrapperInstances.length > 0 && (
+                      <AttachWrapperRow
+                        instances={wrapperInstances}
+                        onAttach={(iid, order) => handleAttachWrapper(actionKey, iid, order)}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -472,6 +489,34 @@ function DescriptionRow({ description, actionId, userId, canWrite, onSaved }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Shared attach wrapper row ────────────────────────────────────── */
+function AttachWrapperRow({ instances, onAttach }) {
+  const [instanceId, setInstanceId] = useState('');
+  const [order, setOrder] = useState(10);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+      <select className="field-input" style={{ fontSize: 11, flex: 1 }}
+        value={instanceId} onChange={e => setInstanceId(e.target.value)}>
+        <option value="">— attach wrapper —</option>
+        {instances.map(i => (
+          <option key={i.id} value={i.id}>
+            {i.algorithmName || i.algorithm_name} — {i.name || i.id}
+          </option>
+        ))}
+      </select>
+      <input type="number" className="field-input" style={{ fontSize: 11, width: 60, padding: '3px 4px' }}
+        value={order} min={1}
+        onChange={e => setOrder(Number(e.target.value))}
+        placeholder="Order" />
+      <button className="btn btn-xs btn-primary"
+        disabled={!instanceId}
+        onClick={() => { if (!instanceId) return; onAttach(instanceId, order); setInstanceId(''); }}>
+        <PlusIcon size={10} /> Attach
+      </button>
     </div>
   );
 }

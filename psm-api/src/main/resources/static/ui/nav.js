@@ -1,6 +1,6 @@
-import { jsxs as r, jsx as t } from "react/jsx-runtime";
-import { i as O, p as R } from "./psmApi-Br1g6HiW.js";
-function _({ size: n = 9, color: e = "currentColor", strokeWidth: a = 2.5 }) {
+import { jsxs as s, jsx as t, Fragment as x } from "react/jsx-runtime";
+import { i as w, p as S } from "./psmApi-Br1g6HiW.js";
+function E({ size: n = 9, color: e = "currentColor", strokeWidth: o = 2.5 }) {
   return /* @__PURE__ */ t(
     "svg",
     {
@@ -9,14 +9,14 @@ function _({ size: n = 9, color: e = "currentColor", strokeWidth: a = 2.5 }) {
       viewBox: "0 0 24 24",
       fill: "none",
       stroke: e,
-      strokeWidth: a,
+      strokeWidth: o,
       strokeLinecap: "round",
       strokeLinejoin: "round",
       children: /* @__PURE__ */ t("polyline", { points: "9 18 15 12 9 6" })
     }
   );
 }
-function w({ size: n = 9, color: e = "currentColor", strokeWidth: a = 2.5 }) {
+function T({ size: n = 9, color: e = "currentColor", strokeWidth: o = 2.5 }) {
   return /* @__PURE__ */ t(
     "svg",
     {
@@ -25,15 +25,15 @@ function w({ size: n = 9, color: e = "currentColor", strokeWidth: a = 2.5 }) {
       viewBox: "0 0 24 24",
       fill: "none",
       stroke: e,
-      strokeWidth: a,
+      strokeWidth: o,
       strokeLinecap: "round",
       strokeLinejoin: "round",
       children: /* @__PURE__ */ t("polyline", { points: "6 9 12 15 18 9" })
     }
   );
 }
-function b({ size: n = 10, color: e = "currentColor", strokeWidth: a = 2.5 }) {
-  return /* @__PURE__ */ r(
+function A({ size: n = 10, color: e = "currentColor", strokeWidth: o = 2.5 }) {
+  return /* @__PURE__ */ s(
     "svg",
     {
       width: n,
@@ -41,7 +41,7 @@ function b({ size: n = 10, color: e = "currentColor", strokeWidth: a = 2.5 }) {
       viewBox: "0 0 24 24",
       fill: "none",
       stroke: e,
-      strokeWidth: a,
+      strokeWidth: o,
       strokeLinecap: "round",
       strokeLinejoin: "round",
       children: [
@@ -51,8 +51,8 @@ function b({ size: n = 10, color: e = "currentColor", strokeWidth: a = 2.5 }) {
     }
   );
 }
-function D({ size: n = 10, color: e = "currentColor", strokeWidth: a = 2.5 }) {
-  return /* @__PURE__ */ r(
+function O({ size: n = 10, color: e = "currentColor", strokeWidth: o = 2.5 }) {
+  return /* @__PURE__ */ s(
     "svg",
     {
       width: n,
@@ -60,7 +60,7 @@ function D({ size: n = 10, color: e = "currentColor", strokeWidth: a = 2.5 }) {
       viewBox: "0 0 24 24",
       fill: "none",
       stroke: e,
-      strokeWidth: a,
+      strokeWidth: o,
       strokeLinecap: "round",
       strokeLinejoin: "round",
       children: [
@@ -70,166 +70,94 @@ function D({ size: n = 10, color: e = "currentColor", strokeWidth: a = 2.5 }) {
     }
   );
 }
-function $({
-  shellAPI: n,
-  descriptor: e,
-  item: a,
-  isActive: m,
-  hasChildren: S,
-  isExpanded: I,
-  isLoading: v,
-  onToggleChildren: y
-}) {
-  var E;
-  const c = ((E = n == null ? void 0 : n.getStore) == null ? void 0 : E.call(n)) ?? {}, g = c.stateColorMap ?? {}, N = c.userId ?? null, l = a.id || a.ID, s = a.revision || a.REVISION || "A", i = a.iteration ?? a.ITERATION ?? 1, C = a.lifecycle_state_id || a.LIFECYCLE_STATE_ID, d = a.logical_id || a.LOGICAL_ID || "", o = a.locked_by || a.LOCKED_BY || null, p = (a.tx_status || a.TX_STATUS || "COMMITTED") === "OPEN", h = o && o !== N, L = o && o === N, f = (e == null ? void 0 : e.color) ?? null;
-  function u() {
-    var k;
-    (k = n == null ? void 0 : n.navigate) == null || k.call(n, l, d || l, e);
-  }
-  function T(k) {
-    k.dataTransfer.effectAllowed = "link", e == null || e.itemKey, e == null || e.displayName, k.dataTransfer.setData("text/plain", "plm-node");
-  }
-  return /* @__PURE__ */ r(
-    "div",
-    {
-      className: `node-item${m ? " active" : ""}`,
-      draggable: !0,
-      onDragStart: T,
-      onDragEnd: () => void 0,
-      onClick: u,
-      title: h ? `Locked by ${o}` : p ? `${i === 0 ? s : s + "." + i} — pending changes` : d || l,
-      children: [
-        /* @__PURE__ */ t(
-          "span",
-          {
-            className: "ni-expand",
-            style: { visibility: v || S ? "visible" : "hidden" },
-            onClick: (k) => y && y(k),
-            children: v ? /* @__PURE__ */ t("span", { style: { fontSize: 9, color: "var(--muted)", lineHeight: 1 }, children: "…" }) : I ? /* @__PURE__ */ t(w, { size: 9, strokeWidth: 2.5, color: "var(--muted)" }) : /* @__PURE__ */ t(_, { size: 9, strokeWidth: 2.5, color: "var(--muted)" })
-          }
-        ),
-        f && /* @__PURE__ */ t("span", { style: { width: 6, height: 6, borderRadius: 1, background: f, flexShrink: 0, display: "inline-block" } }),
-        /* @__PURE__ */ t("span", { className: "ni-dot", style: { background: g[C] || "#6b7280" } }),
-        /* @__PURE__ */ r("span", { className: "ni-logical", style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [
-          d || /* @__PURE__ */ t("span", { className: "ni-no-id", children: "—" }),
-          (a.display_name || a.DISPLAY_NAME) && /* @__PURE__ */ t("span", { className: "ni-dname", children: a.display_name || a.DISPLAY_NAME })
-        ] }),
-        /* @__PURE__ */ t("span", { className: "ni-reviter", style: p ? { color: "var(--warn)" } : void 0, children: i === 0 ? s : `${s}.${i}` }),
-        h && /* @__PURE__ */ t(b, { size: 10, strokeWidth: 2.5, color: "var(--muted)", style: { flexShrink: 0 } }),
-        L && /* @__PURE__ */ t(D, { size: 10, strokeWidth: 2.5, color: "var(--accent)", style: { flexShrink: 0 } })
-      ]
-    }
-  );
+function D({ item: n, ctx: e }) {
+  const { userId: o, stateColorMap: r } = e, c = n.revision || n.REVISION || "A", l = n.iteration ?? n.ITERATION ?? 1, u = n.lifecycle_state_id || n.LIFECYCLE_STATE_ID, h = n.logical_id || n.LOGICAL_ID || "", i = n.locked_by || n.LOCKED_BY || null, d = (n.tx_status || n.TX_STATUS || "COMMITTED") === "OPEN", a = i && i !== o, v = i && i === o;
+  return /* @__PURE__ */ s(x, { children: [
+    /* @__PURE__ */ t("span", { className: "ni-dot", style: { background: (r == null ? void 0 : r[u]) || "#6b7280" } }),
+    /* @__PURE__ */ s("span", { className: "ni-logical", style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [
+      h || /* @__PURE__ */ t("span", { className: "ni-no-id", children: "—" }),
+      (n.display_name || n.DISPLAY_NAME) && /* @__PURE__ */ t("span", { className: "ni-dname", children: n.display_name || n.DISPLAY_NAME })
+    ] }),
+    /* @__PURE__ */ t("span", { className: "ni-reviter", style: d ? { color: "var(--warn)" } : void 0, children: l === 0 ? c : `${c}.${l}` }),
+    a && /* @__PURE__ */ t(A, { size: 10, strokeWidth: 2.5, color: "var(--muted)", style: { flexShrink: 0 } }),
+    v && /* @__PURE__ */ t(O, { size: 10, strokeWidth: 2.5, color: "var(--accent)", style: { flexShrink: 0 } })
+  ] });
 }
-const M = Object.freeze({
+function b(n, e, o) {
+  const r = n.id || n.ID, c = n.logical_id || n.LOGICAL_ID || "", l = n.locked_by || n.LOCKED_BY || null, h = (n.tx_status || n.TX_STATUS || "COMMITTED") === "OPEN", i = n.revision || "A", g = n.iteration ?? 1;
+  return {
+    draggable: !0,
+    title: l ? `Locked by ${l}` : h ? `${g === 0 ? i : i + "." + g} — pending changes` : c || r,
+    onDragStart(d) {
+      d.dataTransfer.effectAllowed = "link", e == null || e.itemKey, e == null || e.displayName, d.dataTransfer.setData("text/plain", "plm-node");
+    },
+    onDragEnd() {
+    }
+  };
+}
+const P = Object.freeze({
   serviceCode: "psm",
   itemCode: "node",
   itemKey: null,
   get: Object.freeze({ httpMethod: "GET", path: "/nodes/{id}/description" })
 });
-function z({
-  descriptor: n,
-  item: e,
-  ctx: a,
-  isActive: m,
-  hasChildren: S,
-  isExpanded: I,
-  isLoading: v,
-  onToggleChildren: y
-}) {
-  const { userId: c, stateColorMap: g, onNavigate: N } = a, l = e.id || e.ID, s = e.revision || e.REVISION || "A", i = e.iteration ?? e.ITERATION ?? 1, C = e.lifecycle_state_id || e.LIFECYCLE_STATE_ID, d = e.logical_id || e.LOGICAL_ID || "", o = e.locked_by || e.LOCKED_BY || null, p = (e.tx_status || e.TX_STATUS || "COMMITTED") === "OPEN", h = o && o !== c, L = o && o === c, f = (n == null ? void 0 : n.color) ?? null;
-  return /* @__PURE__ */ r(
-    "div",
-    {
-      className: `node-item${m ? " active" : ""}`,
-      draggable: !0,
-      onDragStart: (u) => {
-        u.dataTransfer.effectAllowed = "link", n == null || n.itemKey, n == null || n.displayName, u.dataTransfer.setData("text/plain", "plm-node");
-      },
-      onDragEnd: () => void 0,
-      onClick: () => N(l, d || void 0, n),
-      title: h ? `Locked by ${o}` : p ? `${i === 0 ? s : s + "." + i} — pending changes` : d || l,
-      children: [
-        /* @__PURE__ */ t(
-          "span",
-          {
-            className: "ni-expand",
-            style: { visibility: v || S ? "visible" : "hidden" },
-            onClick: (u) => y && y(u),
-            children: v ? /* @__PURE__ */ t("span", { style: { fontSize: 9, color: "var(--muted)", lineHeight: 1 }, children: "…" }) : I ? /* @__PURE__ */ t(w, { size: 9, strokeWidth: 2.5, color: "var(--muted)" }) : /* @__PURE__ */ t(_, { size: 9, strokeWidth: 2.5, color: "var(--muted)" })
-          }
-        ),
-        f && /* @__PURE__ */ t("span", { style: { width: 6, height: 6, borderRadius: 1, background: f, flexShrink: 0, display: "inline-block" } }),
-        /* @__PURE__ */ t("span", { className: "ni-dot", style: { background: (g == null ? void 0 : g[C]) || "#6b7280" } }),
-        /* @__PURE__ */ r("span", { className: "ni-logical", style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [
-          d || /* @__PURE__ */ t("span", { className: "ni-no-id", children: "—" }),
-          (e.display_name || e.DISPLAY_NAME) && /* @__PURE__ */ t("span", { className: "ni-dname", children: e.display_name || e.DISPLAY_NAME })
-        ] }),
-        /* @__PURE__ */ t("span", { className: "ni-reviter", style: p ? { color: "var(--warn)" } : void 0, children: i === 0 ? s : `${s}.${i}` }),
-        h && /* @__PURE__ */ t(b, { size: 10, strokeWidth: 2.5, color: "var(--muted)", style: { flexShrink: 0 } }),
-        L && /* @__PURE__ */ t(D, { size: 10, strokeWidth: 2.5, color: "var(--accent)", style: { flexShrink: 0 } })
-      ]
-    }
-  );
-}
-function W({
+function R({
   link: n,
   depth: e,
-  parentPath: a,
-  ancestorIds: m,
-  ctx: S,
-  childCacheRef: I,
-  expandedPaths: v,
-  toggleNodeChildren: y
+  parentPath: o,
+  ancestorIds: r,
+  ctx: c,
+  childCacheRef: l,
+  expandedPaths: u,
+  toggleNodeChildren: h
 }) {
-  const { stateColorMap: c, onNavigate: g, activeNodeId: N } = S, l = n.targetNodeId, s = n.linkPolicy === "VERSION_TO_VERSION", i = m.has(l), C = `${a}/${n.linkId}`, d = !i && v.has(C), o = I.current[l], x = o === "loading", p = 10 + e * 14, h = n.linkTypeColor || null, L = n.targetChildrenCount != null ? n.targetChildrenCount > 0 : !Array.isArray(o) || o.length > 0, f = !i && L;
-  return /* @__PURE__ */ r(
+  const { stateColorMap: i, onNavigate: g, activeNodeId: d } = c, a = n.targetNodeId, v = n.linkPolicy === "VERSION_TO_VERSION", p = r.has(a), f = `${o}/${n.linkId}`, N = !p && u.has(f), y = l.current[a], C = y === "loading", k = 10 + e * 14, I = n.linkTypeColor || null, _ = n.targetChildrenCount != null ? n.targetChildrenCount > 0 : !Array.isArray(y) || y.length > 0, m = !p && _;
+  return /* @__PURE__ */ s(
     "div",
     {
-      className: `ni-link-row${l === N ? " active" : ""}`,
-      style: { paddingLeft: p },
-      onClick: () => g(l, n.targetLogicalId || void 0, M),
-      title: `${n.linkLogicalId || n.linkId} → ${n.targetLogicalId || l} ${n.targetRevision}.${n.targetIteration}`,
+      className: `ni-link-row${a === d ? " active" : ""}`,
+      style: { paddingLeft: k },
+      onClick: () => g(a, n.targetLogicalId || void 0, P),
+      title: `${n.linkLogicalId || n.linkId} → ${n.targetLogicalId || a} ${n.targetRevision}.${n.targetIteration}`,
       children: [
         /* @__PURE__ */ t(
           "span",
           {
             className: "ni-expand",
-            style: { visibility: f || x ? "visible" : "hidden" },
-            onClick: (u) => {
-              i ? u.stopPropagation() : y(C, l, u);
+            style: { visibility: m || C ? "visible" : "hidden" },
+            onClick: (L) => {
+              p ? L.stopPropagation() : h(f, a, L);
             },
-            children: i ? /* @__PURE__ */ t("span", { style: { fontSize: 9, color: "var(--muted2)", lineHeight: 1 }, children: "↺" }) : x ? /* @__PURE__ */ t("span", { style: { fontSize: 9, color: "var(--muted)", lineHeight: 1 }, children: "…" }) : d ? /* @__PURE__ */ t(w, { size: 9, strokeWidth: 2.5, color: "var(--muted)" }) : /* @__PURE__ */ t(_, { size: 9, strokeWidth: 2.5, color: "var(--muted)" })
+            children: p ? /* @__PURE__ */ t("span", { style: { fontSize: 9, color: "var(--muted2)", lineHeight: 1 }, children: "↺" }) : C ? /* @__PURE__ */ t("span", { style: { fontSize: 9, color: "var(--muted)", lineHeight: 1 }, children: "…" }) : N ? /* @__PURE__ */ t(T, { size: 9, strokeWidth: 2.5, color: "var(--muted)" }) : /* @__PURE__ */ t(E, { size: 9, strokeWidth: 2.5, color: "var(--muted)" })
           }
         ),
-        h && /* @__PURE__ */ t("span", { style: { width: 6, height: 6, borderRadius: 1, background: h, flexShrink: 0, display: "inline-block" } }),
-        /* @__PURE__ */ t("span", { className: "ni-dot", style: { background: (c == null ? void 0 : c[n.targetState]) || "#6b7280" } }),
-        /* @__PURE__ */ r("span", { className: "ni-logical", style: { flex: 1, minWidth: 0, color: h || void 0 }, children: [
+        I && /* @__PURE__ */ t("span", { style: { width: 6, height: 6, borderRadius: 1, background: I, flexShrink: 0, display: "inline-block" } }),
+        /* @__PURE__ */ t("span", { className: "ni-dot", style: { background: (i == null ? void 0 : i[n.targetState]) || "#6b7280" } }),
+        /* @__PURE__ */ s("span", { className: "ni-logical", style: { flex: 1, minWidth: 0, color: I || void 0 }, children: [
           n.targetLogicalId || /* @__PURE__ */ t("span", { className: "ni-no-id", style: { color: "var(--muted2)" }, children: "—" }),
-          n.linkLogicalId && /* @__PURE__ */ r("span", { style: { opacity: 0.65, marginLeft: 3 }, children: [
+          n.linkLogicalId && /* @__PURE__ */ s("span", { style: { opacity: 0.65, marginLeft: 3 }, children: [
             "[",
             n.linkLogicalId,
             "]"
           ] })
         ] }),
-        /* @__PURE__ */ r("span", { className: "ni-reviter", children: [
+        /* @__PURE__ */ s("span", { className: "ni-reviter", children: [
           n.targetRevision,
           ".",
           n.targetIteration
         ] }),
-        /* @__PURE__ */ t("span", { className: `ni-policy ni-policy-${s ? "v2v" : "v2m"}`, children: s ? "V2V" : "V2M" })
+        /* @__PURE__ */ t("span", { className: `ni-policy ni-policy-${v ? "v2v" : "v2m"}`, children: v ? "V2V" : "V2M" })
       ]
     }
   );
 }
-const V = {
+const B = {
   id: "psm-nav",
   zone: "nav",
-  // sourcePlugins match contract — enables PluginLoader bridge
   match: { serviceCode: "psm", itemCode: "node" },
-  // ctx-interface exports (used by BrowseNav via sourcePlugins)
-  NavRow: z,
-  ChildRow: W,
+  NavLabel: D,
+  getRowProps: b,
+  ChildRow: R,
   hasItemChildren: (n) => {
     const e = n.children_count ?? n.CHILDREN_COUNT;
     return e == null || e > 0;
@@ -237,21 +165,19 @@ const V = {
   fetchChildren: async (n) => {
     const e = n.id || n.ID;
     try {
-      const a = await R.getChildLinks(null, e);
-      return Array.isArray(a) ? a : [];
+      const o = await S.getChildLinks(null, e);
+      return Array.isArray(o) ? o : [];
     } catch {
       return [];
     }
   },
   init(n) {
-    O(n);
+    w(n);
   },
   matches(n) {
     return (n == null ? void 0 : n.serviceCode) === "psm";
-  },
-  // shellAPI-interface Component (used by pluginRegistry nav zone)
-  Component: $
+  }
 };
 export {
-  V as default
+  B as default
 };

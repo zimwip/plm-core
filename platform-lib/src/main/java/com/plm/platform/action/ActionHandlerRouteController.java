@@ -22,9 +22,11 @@ public class ActionHandlerRouteController {
 
     private final ConcurrentHashMap<String, ActionHandler> handlersByKey = new ConcurrentHashMap<>();
     private final ActionGuardPort guardPort;
+    private final ActionDispatcher actionDispatcher;
 
-    ActionHandlerRouteController(ActionGuardPort guardPort) {
+    ActionHandlerRouteController(ActionGuardPort guardPort, ActionDispatcher actionDispatcher) {
         this.guardPort = guardPort;
+        this.actionDispatcher = actionDispatcher;
     }
 
     void bind(String routeKey, ActionHandler handler) {
@@ -74,6 +76,15 @@ public class ActionHandlerRouteController {
             }
         }
 
+        if (actionDispatcher != null) {
+            ResponseEntity<?>[] holder = new ResponseEntity<?>[1];
+            ActionWrapper.Chain chain = actionDispatcher.wrapForHttp(
+                handler.actionCode(),
+                (c, p) -> { holder[0] = handler.executeHttp(c, p, req); return ActionResult.ok(Map.of()); }
+            );
+            chain.proceed(ctx, Map.of());
+            return holder[0] != null ? holder[0] : ResponseEntity.internalServerError().build();
+        }
         return handler.executeHttp(ctx, Map.of(), req);
     }
 }

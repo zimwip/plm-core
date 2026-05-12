@@ -6,6 +6,7 @@ import {
   ChevronDownIcon, ChevronRightIcon, LayersIcon, PlusIcon, UploadIcon, CloseIcon,
 } from './Icons';
 import { NODE_ICONS } from './Icons';
+import NavItem from './NavItem';
 
 /**
  * Unified federated navigation. Single `/api/platform/items` fetch →
@@ -464,7 +465,6 @@ export default function BrowseNav({
               const NtIcon = d.icon ? NODE_ICONS[d.icon] : null;
               const moreToLoad = page && (page.totalPages ?? 0) > ((page.page ?? 0) + 1);
               const plugin = lookupPluginForDescriptor(d);
-              const NavRow = plugin.NavRow;
 
               return (
                 <div key={k}>
@@ -527,21 +527,21 @@ export default function BrowseNav({
 
                         return (
                           <React.Fragment key={id}>
-                            {NavRow && (
-                              <NavRow
-                                descriptor={d}
-                                item={item}
-                                ctx={ctx}
-                                isActive={id === activeNodeId}
-                                hasChildren={hasChildren}
-                                isExpanded={isItemExp}
-                                isLoading={isItemLoading}
-                                onToggleChildren={(e) => toggleItemChildren(itemPath, item, d, e)}
-                                isPinned={isPinned}
-                                onPin={() => addToBasket(storeUserId, d.serviceCode, d.itemKey || d.itemCode, id)}
-                                onUnpin={isLocked ? null : () => removeFromBasket(storeUserId, d.serviceCode, d.itemKey || d.itemCode, id)}
-                              />
-                            )}
+                            <NavItem
+                              descriptor={d}
+                              item={item}
+                              ctx={ctx}
+                              isActive={id === activeNodeId}
+                              isOpen={false}
+                              isPinned={isPinned}
+                              hasChildren={hasChildren}
+                              isExpanded={isItemExp}
+                              isLoading={isItemLoading}
+                              onToggleExpand={(e) => toggleItemChildren(itemPath, item, d, e)}
+                              onToggleChildren={(e) => toggleItemChildren(itemPath, item, d, e)}
+                              onPin={() => addToBasket(storeUserId, d.serviceCode, d.itemKey || d.itemCode, id)}
+                              onUnpin={isLocked ? null : () => removeFromBasket(storeUserId, d.serviceCode, d.itemKey || d.itemCode, id)}
+                            />
                             {isItemExp && renderChildren(
                               plugin, d, item, itemPath, 1, new Set([id]),
                             )}

@@ -12,6 +12,7 @@ import com.plm.platform.authz.PlmPermission;
 import com.plm.platform.action.dto.ActionDescriptor;
 import com.plm.platform.action.dto.DetailDescriptor;
 import com.plm.platform.action.dto.DetailField;
+import com.plm.platform.item.dto.ItemTypeRef;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -137,6 +138,7 @@ public class DataController {
         boolean isImage = m.contentType() != null && m.contentType().startsWith("image/");
         DetailDescriptor d = new DetailDescriptor(
             m.id(),
+            new ItemTypeRef("dst", "data-object", null),
             m.originalName() != null ? m.originalName() : m.id(),
             humanSize(m.sizeBytes()) + (m.contentType() != null ? "  ·  " + m.contentType() : ""),
             "FileText", "#6366f1",

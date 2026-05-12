@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { HexIcon, UserIcon, EditIcon, CloseIcon, LogOutIcon, ShoppingBasketIcon, PinIcon, PinOffIcon, LockIcon } from './Icons';
+import { HexIcon, UserIcon, EditIcon, CloseIcon, LogOutIcon, ShoppingBasketIcon } from './Icons';
 import { NODE_ICONS } from './Icons';
 import { psmNodeDescriptor } from '../plugins/psmDescriptor';
 import { api } from '../services/api';
 import { getTheme, setTheme as applyTheme, saveThemeToBackend } from '../theme';
 import { usePlmStore } from '../store/usePlmStore';
+import NavShell from './NavShell';
 
 const THEME_OPTIONS = [
   { value: 'dark',   label: 'Dark',   icon: '●' },
@@ -295,17 +296,12 @@ function ProfileMenu({ currentUser, userId, users, onUserChange, onOpenProfile, 
 
 /* ── Basket Button ──────────────────────────────────────────────────── */
 function BasketButton({ onNavigate }) {
-  const basketItems      = usePlmStore(s => s.basketItems);
-  const emptyBasket      = usePlmStore(s => s.emptyBasket);
-  const removeFromBasket = usePlmStore(s => s.removeFromBasket);
-  const lockedByMe       = usePlmStore(s => s.lockedByMe);
-  const storeUserId      = usePlmStore(s => s.userId);
-  const storePsId        = usePlmStore(s => s.projectSpaceId);
-  const nodes            = usePlmStore(s => s.nodes);
-  const nodeTypes        = usePlmStore(s => s.nodeTypes);
-  const stateColorMap    = usePlmStore(s => s.stateColorMap);
-  const storeItems       = usePlmStore(s => s.items);
-  const [open, setOpen]  = React.useState(false);
+  const basketItems   = usePlmStore(s => s.basketItems);
+  const emptyBasket   = usePlmStore(s => s.emptyBasket);
+  const storeUserId   = usePlmStore(s => s.userId);
+  const storeItems    = usePlmStore(s => s.items);
+  const stateColorMap = usePlmStore(s => s.stateColorMap);
+  const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
 
   const count = Object.values(basketItems).reduce((acc, s) => acc + s.size, 0);
@@ -317,33 +313,30 @@ function BasketButton({ onNavigate }) {
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
 
-  // nodeId → node data lookup
-  const nodeMap = React.useMemo(() => {
-    const m = new Map();
-    (nodes || []).forEach(n => { const id = n.id || n.ID; if (id) m.set(id, n); });
-    return m;
-  }, [nodes]);
+  const ctx = React.useMemo(() => ({
+    userId: storeUserId,
+    activeNodeId: null,
+    stateColorMap,
+    onNavigate: (id, label, descriptor) => { onNavigate?.(id, label, descriptor); setOpen(false); },
+  }), [storeUserId, stateColorMap, onNavigate]);
 
-  // typeId → {color, icon, name} lookup
-  const typeMap = React.useMemo(() => {
-    const m = new Map();
-    (nodeTypes || []).forEach(nt => m.set(nt.id, nt));
-    return m;
-  }, [nodeTypes]);
-
-  // Build flat list of {key, source, typeCode, itemId} for rendering
+  // Resolve descriptor + build itemRef per basket entry.
   const entries = React.useMemo(() => {
     const rows = [];
     for (const [key, ids] of Object.entries(basketItems)) {
       const colonIdx = key.indexOf(':');
       const source   = colonIdx > -1 ? key.slice(0, colonIdx) : key;
       const typeCode = colonIdx > -1 ? key.slice(colonIdx + 1) : '';
+      const descriptor = storeItems.find(d =>
+        d.serviceCode === source && (d.itemKey === typeCode || d.itemCode === typeCode)
+      );
+      if (!descriptor) continue;
       for (const itemId of ids) {
-        rows.push({ key, source, typeCode, itemId });
+        rows.push({ descriptor, itemRef: { source, type: typeCode, key: itemId } });
       }
     }
     return rows;
-  }, [basketItems]);
+  }, [basketItems, storeItems]);
 
   return (
     <div className="basket-btn-wrap" ref={ref}>
@@ -367,63 +360,16 @@ function BasketButton({ onNavigate }) {
             <div className="basket-dropdown-empty">No items pinned</div>
           ) : (
             <div className="basket-dropdown-list">
-              {entries.map(({ key, source, typeCode, itemId }) => {
-                const isLocked = source === 'psm' && lockedByMe.has(itemId);
-                const node     = nodeMap.get(itemId);
-                const typeId   = node?.node_type_id || node?.NODE_TYPE_ID || '';
-                const nt       = typeMap.get(typeId);
-                const NtIcon   = nt?.icon ? NODE_ICONS[nt.icon] : null;
-                const ntColor  = nt?.color || null;
-                const logicalId = node?.logical_id || node?.LOGICAL_ID || itemId.slice(0, 8) + '…';
-                const rev      = node?.revision  || node?.REVISION  || '';
-                const iter     = node?.iteration ?? node?.ITERATION ?? null;
-                const state    = node?.lifecycle_state_id || node?.LIFECYCLE_STATE_ID || '';
-                const stateClr = stateColorMap?.[state] || 'var(--muted2)';
-                const revLabel = iter === 0 ? rev : (rev && iter != null) ? `${rev}.${iter}` : '';
-                // Resolve real descriptor from the item registry so
-                // serviceCode + get.path are guaranteed correct.
-                const navDescriptor = storeItems.find(d =>
-                  d.serviceCode === source &&
-                  (d.itemKey === typeCode || d.itemCode === typeCode) &&
-                  d.get
-                ) || (source ? { serviceCode: source, itemCode: 'node', itemKey: typeCode, get: { path: `/nodes/{id}/description` } } : null);
-                return (
-                  <div
-                    key={`${key}:${itemId}`}
-                    className="basket-dropdown-item"
-                    onClick={() => {
-                      if (!onNavigate || !navDescriptor) return;
-                      onNavigate(itemId, logicalId, navDescriptor);
-                      setOpen(false);
-                    }}
-                    style={{ cursor: onNavigate && navDescriptor ? 'pointer' : 'default' }}
-                  >
-                    <span className="basket-item-icon">
-                      {NtIcon
-                        ? <NtIcon size={11} color={ntColor || 'var(--muted2)'} strokeWidth={2} />
-                        : ntColor
-                          ? <span style={{ width: 7, height: 7, borderRadius: 1, background: ntColor, display: 'inline-block' }} />
-                          : <span style={{ width: 7, height: 7, borderRadius: 1, background: 'var(--muted2)', display: 'inline-block' }} />
-                      }
-                    </span>
-                    {state && <span className="basket-item-state-dot" style={{ background: stateClr }} />}
-                    <span className="basket-item-id" title={itemId}>{logicalId}</span>
-                    {revLabel && <span className="basket-item-rev" style={{ color: stateClr }}>{revLabel}</span>}
-                    {isLocked
-                      ? <span className="basket-item-locked" title="Locked in transaction"><LockIcon size={10} strokeWidth={2} /></span>
-                      : (
-                        <button
-                          className="basket-item-unpin"
-                          title="Unpin"
-                          onClick={e => { e.stopPropagation(); storeUserId && removeFromBasket(storeUserId, source, typeCode, itemId); }}
-                        >
-                          <PinOffIcon size={11} strokeWidth={2} />
-                        </button>
-                      )
-                    }
-                  </div>
-                );
-              })}
+              {entries.map(({ descriptor, itemRef }) => (
+                <NavShell
+                  key={`${itemRef.source}:${itemRef.type}:${itemRef.key}`}
+                  descriptor={descriptor}
+                  itemRef={itemRef}
+                  ctx={ctx}
+                  isOpen={false}
+                  isPinned={true}
+                />
+              ))}
             </div>
           )}
 

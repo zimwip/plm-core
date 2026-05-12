@@ -17,11 +17,12 @@ export async function loadRemotePlugins(shellAPI) {
     if (plugin.init) plugin.init(shellAPI);
     registerPlugin(plugin);
 
-    // Bridge nav plugins into sourcePlugins so BrowseNav can use their
-    // NavRow / ChildRow / fetchChildren without the shell-bundled copies.
-    if (plugin.zone === 'nav' && plugin.match && plugin.NavRow) {
+    // Bridge nav plugins into sourcePlugins so NavItem can use their
+    // NavLabel / getRowProps / ChildRow / fetchChildren.
+    if (plugin.zone === 'nav' && plugin.match) {
       updateSourcePlugin(plugin.match.serviceCode, plugin.match.itemCode, {
-        NavRow:          plugin.NavRow,
+        NavLabel:        plugin.NavLabel        ?? null,
+        getRowProps:     plugin.getRowProps      ?? null,
         ChildRow:        plugin.ChildRow         ?? null,
         hasItemChildren: plugin.hasItemChildren  ?? (() => false),
         fetchChildren:   plugin.fetchChildren    ?? null,

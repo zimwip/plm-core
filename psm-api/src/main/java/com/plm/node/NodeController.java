@@ -97,7 +97,8 @@ public class NodeController {
             .toList();
 
         return ResponseEntity.ok(new DetailDescriptor(
-            base.id(), base.title(), base.subtitle(), base.icon(), base.color(),
+            base.id(), base.itemType(),
+            base.title(), base.subtitle(), base.icon(), base.color(),
             fields, actions, base.metadata()));
     }
 

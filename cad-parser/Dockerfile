@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev
 
-COPY app.js .
+COPY app.js step-lib.js worker-split.js ./
 
 EXPOSE 8090
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

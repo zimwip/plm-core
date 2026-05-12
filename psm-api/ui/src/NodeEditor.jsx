@@ -338,8 +338,24 @@ export default function NodeEditor({
     [saveViolations]
   );
 
-  // Eager PBS load so STEP parts are available regardless of active tab
-  useEffect(() => { loadPds(); }, [nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const loadPds = useCallback(async () => {
+    if (pbsLoaded) return;
+    try {
+      const [c, p] = await Promise.all([
+        psmApi.getChildLinks(userId, nodeId).catch(() => []),
+        psmApi.getParentLinks(userId, nodeId).catch(() => []),
+      ]);
+      setChildren(Array.isArray(c) ? c : []);
+      setParents(Array.isArray(p) ? p : []);
+      setPbsLoaded(true);
+    } catch (e) { toast(e, 'error'); }
+  }, [nodeId, userId, pbsLoaded, toast]);
+
+  // Eager PBS load so STEP parts are available regardless of active tab.
+  // Reacts to pbsLoaded=false (set by the nodeId reset effect below) rather than
+  // nodeId directly — avoids the race where loadPds() saw pbsLoaded=true from the
+  // previous node because the reset effect hadn't fired yet.
+  useEffect(() => { if (!pbsLoaded) loadPds(); }, [pbsLoaded, loadPds]);
 
   // Walk the BOM hierarchy (SELF links) to collect STEP parts from all child nodes.
   // desc?.state is a dep so the root color is correct even if desc loads after pbsLoaded.
@@ -353,7 +369,7 @@ export default function NodeEditor({
       .then(nodes => { if (!cancelled) { stepNodesLoadedRef.current = true; setStepNodes(nodes); setStep3dLoading(false); } })
       .catch(() => { if (!cancelled) { stepNodesLoadedRef.current = true; setStep3dLoading(false); } });
     return () => { cancelled = true; };
-  }, [pbsLoaded, children, desc?.metadata?.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pbsLoaded, nodeId, children, desc?.metadata?.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Push step data to preview only after we have a result for the current node.
   // Skipping the initial empty state preserves cached 3D while new data loads (stale-while-revalidate).
@@ -478,19 +494,6 @@ export default function NodeEditor({
     setPbsLoaded(false); setChildren([]); setParents([]);
     setViewVersionNum(null); setHistoricalDesc(null);
   }, [nodeId]);
-
-  const loadPds = useCallback(async () => {
-    if (pbsLoaded) return;
-    try {
-      const [c, p] = await Promise.all([
-        psmApi.getChildLinks(userId, nodeId).catch(() => []),
-        psmApi.getParentLinks(userId, nodeId).catch(() => []),
-      ]);
-      setChildren(Array.isArray(c) ? c : []);
-      setParents(Array.isArray(p) ? p : []);
-      setPbsLoaded(true);
-    } catch (e) { toast(e, 'error'); }
-  }, [nodeId, userId, pbsLoaded, toast]);
 
   useEffect(() => {
     if (activeSubTab === 'pbs') loadPds();
@@ -815,6 +818,7 @@ export default function NodeEditor({
     const byDomain = new Map();
     const attrMeta = activeDesc?.metadata?.attributeMeta || {};
     (activeDesc?.fields || []).forEach(f => {
+      if (!attrMeta[f.name]) return; // skip system nav fields (no attrMeta entry)
       const meta = attrMeta[f.name] || {};
       const a = {
         ...f,
