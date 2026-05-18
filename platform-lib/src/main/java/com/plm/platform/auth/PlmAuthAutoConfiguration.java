@@ -3,8 +3,8 @@ package com.plm.platform.auth;
 import java.util.List;
 
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -15,21 +15,21 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.Ordered;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.plm.platform.client.OperationTokenClient;
+import com.plm.platform.client.ServiceClient;
+import com.plm.platform.client.ServiceClientAutoConfiguration;
+import com.plm.platform.nats.NatsListenerFactory;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+
 import jakarta.servlet.Filter;
 
 /**
- * Wires the shared {@link PlmAuthFilter} into servlet-based services.
- *
- * Activation:
- * <ul>
- *   <li>{@code jakarta.servlet.Filter} must be on the classpath (Spring MVC apps).</li>
- *   <li>{@code plm.auth.enabled} defaults to true (opt-out with {@code plm.auth.enabled=false}).</li>
- *   <li>{@code plm.auth.service-secret} must resolve (via Vault or env); if absent the filter
- *       will still register but reject every call on non-public paths — that surfaces
- *       misconfiguration immediately instead of silently permitting traffic.</li>
- * </ul>
+ * Wires {@link PlmAuthFilter} + pno role-cache infrastructure into servlet-based services.
  */
-@AutoConfiguration
+@AutoConfiguration(after = ServiceClientAutoConfiguration.class)
 @ConditionalOnClass(Filter.class)
 @ConditionalOnWebApplication(type = Type.SERVLET)
 @ConditionalOnProperty(prefix = "plm.auth", name = "enabled", matchIfMissing = true)
@@ -44,12 +44,35 @@ public class PlmAuthAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(ServiceClient.class)
+    public PnoRoleClient pnoRoleClient(ServiceClient serviceClient) {
+        return new PnoRoleClient(serviceClient);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(PnoRoleClient.class)
+    public PnoRoleCache pnoRoleCache(PnoRoleClient client, AuthProperties props) {
+        return new PnoRoleCache(client, props.getRoleCacheTtlSeconds());
+    }
+
+    @Bean
+    @ConditionalOnBean({PnoRoleCache.class, NatsListenerFactory.class})
+    public PnoChangedSubscriber pnoChangedSubscriber(NatsListenerFactory natsListeners,
+                                                     PnoRoleCache cache,
+                                                     ObjectMapper objectMapper) {
+        return new PnoChangedSubscriber(natsListeners, cache, objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public PlmAuthFilter plmAuthFilter(AuthProperties props,
                                        JwtVerifier verifier,
                                        ObjectProvider<PlmAuthContextBinder> binders,
-                                       @Value("${spe.registration.service-code:}") String serviceCode) {
+                                       ObjectProvider<PnoRoleCache> roleCacheProvider) {
         List<PlmAuthContextBinder> ordered = binders.orderedStream().toList();
-        return new PlmAuthFilter(props, verifier, ordered, serviceCode);
+        PnoRoleCache roleCache = roleCacheProvider.getIfAvailable();
+        return new PlmAuthFilter(props, verifier, ordered, roleCache);
     }
 
     @Bean
@@ -59,5 +82,15 @@ public class PlmAuthAutoConfiguration {
         reg.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
         reg.setName("plmAuthFilter");
         return reg;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "plm.operation-token", name = "spe-url")
+    public OperationTokenClient operationTokenClient(
+            RestTemplateBuilder builder,
+            @Value("${plm.operation-token.spe-url}") String speUrl,
+            @Value("${plm.service.secret}") String serviceSecret) {
+        return new OperationTokenClient(builder, speUrl, serviceSecret);
     }
 }

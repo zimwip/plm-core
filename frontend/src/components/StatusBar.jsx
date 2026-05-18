@@ -166,7 +166,7 @@ function PercentileChart({ sorted }) {
   );
 }
 
-export default function StatusBar({ showSettings, onToggleSettings, consoleVisible, onToggleConsole }) {
+export default function StatusBar({ showSettings, onToggleSettings, consoleVisible, onToggleConsole, leftSlots = [], rightSlots = [] }) {
   const [status, setStatus] = useState(null);
   const [error,  setError]  = useState(null);
   const [open,   setOpen]   = useState(false);
@@ -261,6 +261,7 @@ export default function StatusBar({ showSettings, onToggleSettings, consoleVisib
             <span>Console</span>
           </button>
         )}
+        {leftSlots.map(sl => <sl.Component key={sl.id} />)}
         <button
           type="button"
           className="status-bar"

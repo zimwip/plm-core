@@ -328,7 +328,7 @@ function BasketButton({ onNavigate }) {
       const source   = colonIdx > -1 ? key.slice(0, colonIdx) : key;
       const typeCode = colonIdx > -1 ? key.slice(colonIdx + 1) : '';
       const descriptor = storeItems.find(d =>
-        d.serviceCode === source && (d.itemKey === typeCode || d.itemCode === typeCode)
+        d.serviceCode === source && d.itemCode === typeCode
       );
       if (!descriptor) continue;
       for (const itemId of ids) {

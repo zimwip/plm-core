@@ -7,10 +7,10 @@ const COMMIT_CHANGE_BADGE = {
   SIGNATURE: { label: 'sign',  bg: 'rgba(240,180,41,.15)',  color: 'var(--warn)'    },
 };
 
-export default function CommitModal({ userId, txId, txNodes, stateColorMap, onCommitted, onClose, toast }) {
+export default function CommitModal({ userId, serviceCode, txId, txNodes, stateColorMap, onCommitted, onClose, toast }) {
   const [comment,  setComment]  = useState('');
   const [loading,  setLoading]  = useState(false);
-  const allIds = (txNodes || []).map(n => n.node_id || n.NODE_ID);
+  const allIds = (txNodes || []).map(n => n.itemId || n.node_id || n.NODE_ID);
   const [selectedIds, setSelectedIds] = useState(() => new Set(allIds));
 
   function toggleNode(nid) {
@@ -31,7 +31,7 @@ export default function CommitModal({ userId, txId, txNodes, stateColorMap, onCo
     setLoading(true);
     try {
       const nodeIds = selectedIds.size === allIds.length ? null : [...selectedIds];
-      const res = await txApi.commit(userId, txId, comment, nodeIds);
+      const res = await txApi.commit(userId, serviceCode, txId, comment, nodeIds);
       const contId       = res?.continuationTxId || null;
       const deferredCount = allIds.length - selectedIds.size;
       toast('Transaction committed', 'success');
@@ -78,13 +78,13 @@ export default function CommitModal({ userId, txId, txNodes, stateColorMap, onCo
               </div>
               <div className="commit-node-list-scroll">
                 {txNodes.map(n => {
-                  const nid   = n.node_id || n.NODE_ID;
-                  const lid   = n.logical_id || n.LOGICAL_ID || nid;
-                  const type  = n.node_type_name || n.NODE_TYPE_NAME || '';
+                  const nid   = n.itemId || n.node_id || n.NODE_ID;
+                  const lid   = n.logicalId || n.logical_id || n.LOGICAL_ID || nid;
+                  const type  = n.nodeTypeName || n.node_type_name || n.NODE_TYPE_NAME || '';
                   const rev   = n.revision  || n.REVISION  || 'A';
                   const iter  = n.iteration ?? n.ITERATION ?? 1;
-                  const ct    = (n.change_type || n.CHANGE_TYPE || 'CONTENT').toUpperCase();
-                  const state = n.lifecycle_state_id || n.LIFECYCLE_STATE_ID || '';
+                  const ct    = (n.changeType || n.change_type || n.CHANGE_TYPE || 'CONTENT').toUpperCase();
+                  const state = n.lifecycleStateId || n.lifecycle_state_id || n.LIFECYCLE_STATE_ID || '';
                   const badge = COMMIT_CHANGE_BADGE[ct] || COMMIT_CHANGE_BADGE.CONTENT;
                   return (
                     <label key={nid} className="commit-node-item">

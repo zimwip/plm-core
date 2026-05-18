@@ -1,13 +1,11 @@
 package com.pno.domain.service;
 
+import com.plm.platform.event.PlmEventEnvelope;
 import com.plm.platform.nats.PlmMessageBus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-
-import java.time.LocalDateTime;
-import java.util.Map;
 
 /**
  * Publishes PNO domain events to NATS.
@@ -30,27 +28,26 @@ public class PnoEventPublisher {
     }
 
     public void userChanged(String action, String userId, String byUser) {
-        publish("USER", action, Map.of("userId", userId), byUser);
+        publish("USER", action, "userId", userId, byUser);
     }
 
     public void roleChanged(String action, String roleId, String byUser) {
-        publish("ROLE", action, Map.of("roleId", roleId), byUser);
+        publish("ROLE", action, "roleId", roleId, byUser);
     }
 
     public void projectSpaceChanged(String action, String projectSpaceId, String byUser) {
-        publish("PROJECT_SPACE", action, Map.of("projectSpaceId", projectSpaceId), byUser);
+        publish("PROJECT_SPACE", action, "projectSpaceId", projectSpaceId, byUser);
     }
 
-    private void publish(String entity, String action, Map<String, Object> extra, String byUser) {
+    private void publish(String entity, String action, String entityKey, String entityId, String byUser) {
         if (messageBus == null) return;
         try {
-            var payload = new java.util.LinkedHashMap<String, Object>();
-            payload.put("event", "PNO_CHANGED");
-            payload.put("entity", entity);
-            payload.put("action", action);
-            payload.putAll(extra);
-            payload.put("byUser", byUser != null ? byUser : "unknown");
-            payload.put("at", LocalDateTime.now().toString());
+            var payload = PlmEventEnvelope.of("PNO_CHANGED")
+                .field("entity", entity)
+                .field("action", action)
+                .field(entityKey, entityId)
+                .byUser(byUser)
+                .build();
             messageBus.sendGlobal("PNO_CHANGED", payload);
             log.debug("PNO event: {}.{}", entity, action);
         } catch (Exception e) {

@@ -111,8 +111,6 @@ function psmGetRowProps(item, descriptor, ctx) {
 // Inlined — cannot import from shell internals
 const PSM_NODE_DESCRIPTOR = Object.freeze({
   serviceCode: 'psm',
-  itemCode:    'node',
-  itemKey:     null,
   get:         Object.freeze({ httpMethod: 'GET', path: '/nodes/{id}/description' }),
 });
 
@@ -180,7 +178,7 @@ export default {
   id: 'psm-nav',
   zone: 'nav',
 
-  match: { serviceCode: 'psm', itemCode: 'node' },
+  match: { serviceCode: 'psm' },
 
   NavLabel: PsmNavLabel,
   getRowProps: psmGetRowProps,

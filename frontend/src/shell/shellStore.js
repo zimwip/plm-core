@@ -50,4 +50,27 @@ export const useShellStore = create((set) => ({
       : [...s.statusSlots, { id, Component, position }],
   })),
   unregisterStatus: (id) => set(s => ({ statusSlots: s.statusSlots.filter(sl => sl.id !== id) })),
+
+  // ── Background operations (long-running tasks shown in status bar) ──
+  // Each job: { id, label, status: 'running'|'done'|'failed', onOpen: () => void }
+  bgJobs: [],
+  registerBgJob: (id, label, onOpen) => set(s => ({
+    bgJobs: s.bgJobs.some(j => j.id === id)
+      ? s.bgJobs.map(j => j.id === id ? { ...j, label, onOpen } : j)
+      : [...s.bgJobs, { id, label, status: 'running', onOpen }],
+  })),
+  updateBgJob: (id, status) => set(s => ({
+    bgJobs: s.bgJobs.map(j => j.id === id ? { ...j, status } : j),
+  })),
+  removeBgJob: (id) => set(s => ({ bgJobs: s.bgJobs.filter(j => j.id !== id) })),
+
+  // ── WS event bus ─────────────────────────────────────────────────
+  _wsListeners: new Set(),
+  fireWsEvent: (evt) => {
+    useShellStore.getState()._wsListeners.forEach(fn => fn(evt));
+  },
+  subscribeWsEvent: (fn) => {
+    useShellStore.getState()._wsListeners.add(fn);
+    return () => useShellStore.getState()._wsListeners.delete(fn);
+  },
 }));

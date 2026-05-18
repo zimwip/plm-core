@@ -8,9 +8,12 @@ import org.springframework.web.socket.WebSocketSession;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Tracks active WebSocket sessions and their associated NATS dispatchers.
+ * Tracks active WebSocket sessions and their NATS dispatchers.
+ * Each session has a global dispatcher (always active) and an optional
+ * per-project dispatcher (updated via subscribe messages from the client).
  */
 @Component
 public class SessionRegistry {
@@ -19,11 +22,22 @@ public class SessionRegistry {
 
     private final ConcurrentMap<String, SessionEntry> sessions = new ConcurrentHashMap<>();
 
-    public record SessionEntry(WebSocketSession session, Dispatcher dispatcher, String userId, String projectSpaceId) {}
+    public record SessionEntry(
+            WebSocketSession session,
+            Dispatcher globalDispatcher,
+            AtomicReference<Dispatcher> projectDispatcher,
+            String userId
+    ) {}
 
-    public void register(WebSocketSession session, Dispatcher dispatcher, String userId, String projectSpaceId) {
-        sessions.put(session.getId(), new SessionEntry(session, dispatcher, userId, projectSpaceId));
-        log.info("WS session registered: {} user={} ps={} (total={})", session.getId(), userId, projectSpaceId, sessions.size());
+    public SessionEntry register(WebSocketSession session, Dispatcher globalDispatcher, String userId) {
+        SessionEntry entry = new SessionEntry(session, globalDispatcher, new AtomicReference<>(), userId);
+        sessions.put(session.getId(), entry);
+        log.info("WS session registered: {} user={} (total={})", session.getId(), userId, sessions.size());
+        return entry;
+    }
+
+    public SessionEntry get(String sessionId) {
+        return sessions.get(sessionId);
     }
 
     public SessionEntry remove(String sessionId) {

@@ -20,13 +20,18 @@ public record ServiceRegistration(
     Instant registeredAt,
     Instant lastHeartbeatOk,
     int consecutiveFailures,
-    String spaceTag
+    String spaceTag,
+    List<String> features
 ) {
     public ServiceRegistration withHeartbeat(Instant at, int failures) {
         return new ServiceRegistration(
             instanceId, serviceCode, baseUrl, healthUrl, routePrefix, extraPaths, version,
-            registeredAt, at, failures, spaceTag
+            registeredAt, at, failures, spaceTag, features
         );
+    }
+
+    public boolean hasFeature(String feature) {
+        return features != null && features.contains(feature);
     }
 
     public boolean isUntagged() {

@@ -1,7 +1,7 @@
 package com.plm.wsgateway.handler;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.plm.platform.nats.NatsListenerFactory;
-import com.plm.wsgateway.security.JwtVerifier;
 import io.nats.client.Dispatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,17 +13,21 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 /**
- * WebSocket handler that bridges NATS messages to connected browser clients.
+ * WebSocket handler bridging NATS events to browser clients.
  *
  * On connect:
- *   - Extracts userId + projectSpaceId from forward JWT (passed via handshake attributes)
- *   - Subscribes to NATS: global.> and project.{psId}.users.{userId}.>
- *   - Forwards all matching NATS messages as WebSocket text frames
+ *   - Requires userId from forward JWT (set by JwtHandshakeInterceptor)
+ *   - Subscribes to NATS: global.>
+ *
+ * On client message {"type":"subscribe","projectSpaceId":"ps-1"}:
+ *   - Replaces per-project NATS subscription with project.<psId>.users.<userId>.>
+ *   - Allows the client to switch project space without reconnecting
  *
  * On disconnect:
- *   - Drains NATS dispatcher and removes session from registry
+ *   - Drains both dispatchers
  */
 @Component
 public class PlmWebSocketHandler extends TextWebSocketHandler {
@@ -32,64 +36,89 @@ public class PlmWebSocketHandler extends TextWebSocketHandler {
 
     private final NatsListenerFactory natsListenerFactory;
     private final SessionRegistry sessionRegistry;
+    private final ObjectMapper objectMapper;
 
-    public PlmWebSocketHandler(NatsListenerFactory natsListenerFactory, SessionRegistry sessionRegistry) {
+    public PlmWebSocketHandler(NatsListenerFactory natsListenerFactory,
+                               SessionRegistry sessionRegistry,
+                               ObjectMapper objectMapper) {
         this.natsListenerFactory = natsListenerFactory;
         this.sessionRegistry = sessionRegistry;
+        this.objectMapper = objectMapper;
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         String userId = (String) session.getAttributes().get("userId");
-        String projectSpaceId = (String) session.getAttributes().get("projectSpaceId");
 
-        if (userId == null || projectSpaceId == null) {
-            log.warn("WS connection rejected: missing userId or projectSpaceId");
+        if (userId == null) {
+            log.warn("WS connection rejected: missing userId");
             try { session.close(CloseStatus.POLICY_VIOLATION); } catch (IOException ignored) {}
             return;
         }
 
-        // Subscribe to NATS subjects for this user
-        String globalSubject = "global.>";
-        String userSubject = "project." + projectSpaceId + ".users." + userId + ".>";
-
-        Dispatcher dispatcher = natsListenerFactory.subscribe(
-                new String[]{globalSubject, userSubject},
-                msg -> {
-                    try {
-                        if (session.isOpen()) {
-                            String payload = new String(msg.getData(), StandardCharsets.UTF_8);
-                            session.sendMessage(new TextMessage(payload));
-                        }
-                    } catch (IOException e) {
-                        log.warn("Failed to send WS message to session {}: {}", session.getId(), e.getMessage());
-                    }
-                }
+        Dispatcher globalDispatcher = natsListenerFactory.subscribe(
+                new String[]{"global.>"},
+                msg -> send(session, msg.getData())
         );
 
-        sessionRegistry.register(session, dispatcher, userId, projectSpaceId);
-    }
-
-    @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        SessionRegistry.SessionEntry entry = sessionRegistry.remove(session.getId());
-        if (entry != null) {
-            natsListenerFactory.close(entry.dispatcher());
-        }
+        sessionRegistry.register(session, globalDispatcher, userId);
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
-        // Gateway is push-only for now. Client messages are ignored.
-        log.debug("WS client message ignored: session={} size={}", session.getId(), message.getPayloadLength());
+        SessionRegistry.SessionEntry entry = sessionRegistry.get(session.getId());
+        if (entry == null) return;
+
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> msg = objectMapper.readValue(message.getPayload(), Map.class);
+            String type = (String) msg.get("type");
+            if (!"subscribe".equals(type)) return;
+
+            String ps = (String) msg.get("projectSpaceId");
+            if (ps == null || ps.isBlank()) return;
+
+            String subject = "project." + ps + ".users." + entry.userId() + ".>";
+            Dispatcher newDispatcher = natsListenerFactory.subscribe(
+                    new String[]{subject},
+                    m -> send(session, m.getData())
+            );
+
+            Dispatcher old = entry.projectDispatcher().getAndSet(newDispatcher);
+            if (old != null) natsListenerFactory.close(old);
+
+            log.info("WS project subscription updated: session={} ps={}", session.getId(), ps);
+        } catch (Exception e) {
+            log.warn("WS subscribe message parse error: session={} err={}", session.getId(), e.getMessage());
+        }
+    }
+
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        closeSession(session.getId());
     }
 
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         log.warn("WS transport error: session={} error={}", session.getId(), exception.getMessage());
-        SessionRegistry.SessionEntry entry = sessionRegistry.remove(session.getId());
-        if (entry != null) {
-            natsListenerFactory.close(entry.dispatcher());
+        closeSession(session.getId());
+    }
+
+    private void closeSession(String sessionId) {
+        SessionRegistry.SessionEntry entry = sessionRegistry.remove(sessionId);
+        if (entry == null) return;
+        natsListenerFactory.close(entry.globalDispatcher());
+        Dispatcher pd = entry.projectDispatcher().get();
+        if (pd != null) natsListenerFactory.close(pd);
+    }
+
+    private void send(WebSocketSession session, byte[] data) {
+        try {
+            if (session.isOpen()) {
+                session.sendMessage(new TextMessage(new String(data, StandardCharsets.UTF_8)));
+            }
+        } catch (IOException e) {
+            log.warn("Failed to send WS message to session {}: {}", session.getId(), e.getMessage());
         }
     }
 }

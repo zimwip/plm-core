@@ -2,6 +2,7 @@ package com.dst.event;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.plm.platform.event.PlmEventEnvelope;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -25,25 +26,22 @@ public class DstEventPublisher {
     private final ObjectMapper objectMapper;
 
     public void itemCreated(String id, String userId, String projectSpaceId) {
-        enqueue("global.ITEM_CREATED", Map.of(
-            "event",          "ITEM_CREATED",
-            "source",         "dst",
-            "typeCode",       "data-object",
-            "itemId",         id,
-            "userId",         userId,
-            "projectSpaceId", projectSpaceId != null ? projectSpaceId : "",
-            "at",             LocalDateTime.now().toString()
-        ));
+        enqueue("global.ITEM_CREATED", PlmEventEnvelope.of("ITEM_CREATED")
+            .source("dst")
+            .typeCode("data-object")
+            .itemId(id)
+            .userId(userId)
+            .projectSpaceId(projectSpaceId)
+            .build());
         log.debug("Event enqueued: ITEM_CREATED → id={}", id);
     }
 
-    public void itemDeleted(String id, String userId) {
-        enqueue("global.ITEM_DELETED", Map.of(
-            "event",  "ITEM_DELETED",
-            "nodeId", id,
-            "byUser", userId,
-            "at",     LocalDateTime.now().toString()
-        ));
+    public void itemDeleted(String id, String byUser) {
+        enqueue("global.ITEM_DELETED", PlmEventEnvelope.of("ITEM_DELETED")
+            .source("dst")
+            .itemId(id)
+            .byUser(byUser)
+            .build());
         log.debug("Event enqueued: ITEM_DELETED → id={}", id);
     }
 

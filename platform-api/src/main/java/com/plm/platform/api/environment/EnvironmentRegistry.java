@@ -67,7 +67,8 @@ public class EnvironmentRegistry {
                                         String routePrefix,
                                         List<String> extraPaths,
                                         String version,
-                                        String spaceTag) {
+                                        String spaceTag,
+                                        List<String> features) {
         Instant now = Instant.now();
         String instanceId = deriveInstanceId(baseUrl);
         String tag = (spaceTag != null && !spaceTag.isBlank()) ? spaceTag.trim() : null;
@@ -75,7 +76,8 @@ public class EnvironmentRegistry {
             instanceId, serviceCode, baseUrl, healthUrl, routePrefix,
             extraPaths == null ? List.of() : List.copyOf(extraPaths),
             version != null ? version : "unknown",
-            now, now, 0, tag
+            now, now, 0, tag,
+            features == null ? List.of() : List.copyOf(features)
         );
 
         ConcurrentHashMap<String, ServiceRegistration> pool =
@@ -150,6 +152,19 @@ public class EnvironmentRegistry {
 
     public Set<String> serviceCodes() {
         return Set.copyOf(byService.keySet());
+    }
+
+    public Set<String> servicesWithFeature(String feature) {
+        Set<String> result = new java.util.HashSet<>();
+        for (var entry : byService.entrySet()) {
+            for (ServiceRegistration reg : entry.getValue().values()) {
+                if (reg.hasFeature(feature)) {
+                    result.add(entry.getKey());
+                    break;
+                }
+            }
+        }
+        return Set.copyOf(result);
     }
 
     public Map<String, Collection<ServiceRegistration>> allInstancesByService() {

@@ -1,5 +1,6 @@
 package com.spe.auth;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,41 +14,74 @@ import java.util.Map;
 @RequestMapping("/api/spe/auth")
 public class AuthController {
 
+    private record OperationTokenRequest(String jobId, long ttlSeconds) {}
+
     private final PnoContextClient pnoClient;
     private final JwtService jwtService;
+    private final String serviceSecret;
 
-    public AuthController(PnoContextClient pnoClient, JwtService jwtService) {
+    public AuthController(PnoContextClient pnoClient, JwtService jwtService,
+                          @Value("${plm.service.secret}") String serviceSecret) {
         this.pnoClient = pnoClient;
         this.jwtService = jwtService;
+        this.serviceSecret = serviceSecret;
     }
 
-    public record LoginRequest(String userId, String projectSpaceId) {}
-
     /**
-     * Auto-login (no password): caller asserts a userId; spe validates the
-     * user exists in pno and issues a session JWT. In a real deployment this
-     * would require credentials.
+     * Login via X-User header. No password — identity asserted by upstream (SSO/proxy).
+     * Project space is not part of login; clients send X-PLM-ProjectSpace on each request.
      */
     @PostMapping("/login")
-    public Mono<ResponseEntity<Map<String, Object>>> login(@RequestBody LoginRequest req) {
-        if (req == null || req.userId() == null || req.userId().isBlank()) {
-            return Mono.just(ResponseEntity.badRequest().body(Map.of("error", "userId required")));
+    public Mono<ResponseEntity<Map<String, Object>>> login(
+            @RequestHeader(name = "X-User", required = false) String userId) {
+        if (userId == null || userId.isBlank()) {
+            return Mono.just(ResponseEntity.badRequest().body(Map.of("error", "X-User header required")));
         }
-        return pnoClient.getUserContext(req.userId(), req.projectSpaceId())
+        return pnoClient.getUserContext(userId, null)
             .map(ctx -> {
-                JwtService.Session s = jwtService.mintSession(ctx.userId(), req.projectSpaceId());
+                JwtService.Session s = jwtService.mintSession(ctx.userId(), null);
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("token", s.token());
                 body.put("expiresAt", s.expiresAt().toString());
                 body.put("userId", ctx.userId());
                 body.put("username", ctx.username());
-                body.put("roleIds", ctx.roleIds());
                 body.put("isAdmin", ctx.isAdmin());
-                body.put("projectSpaceId", req.projectSpaceId());
                 return ResponseEntity.ok(body);
             })
             .switchIfEmpty(Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(Map.of("error", "Unknown user"))));
+    }
+
+    /**
+     * Elevates a forward JWT to a job-scoped operation token (typ=op).
+     *
+     * The caller must present:
+     *   - Authorization: Bearer <fwd-jwt>  — proves identity (verified by AuthenticationFilter)
+     *   - X-Service-Secret                 — restricts access to trusted services only
+     * Identity is already proven by the forward JWT; no pno re-validation needed.
+     */
+    @PostMapping("/operation-token")
+    public Mono<ResponseEntity<Map<String, Object>>> operationToken(
+            @RequestHeader("X-Service-Secret") String secret,
+            @RequestBody OperationTokenRequest req,
+            ServerWebExchange exchange) {
+        if (!serviceSecret.equals(secret)) {
+            return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "Invalid service secret")));
+        }
+        if (req.jobId() == null || req.jobId().isBlank()) {
+            return Mono.just(ResponseEntity.badRequest().body(Map.of("error", "jobId required")));
+        }
+        SpeUserContext ctx = exchange.getAttribute(AuthenticationFilter.CONTEXT_ATTR);
+        if (ctx == null) {
+            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of("error", "No authenticated context")));
+        }
+        String token = jwtService.mintOperation(ctx, req.jobId(), req.ttlSeconds());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("token", token);
+        body.put("jobId", req.jobId());
+        return Mono.just(ResponseEntity.ok(body));
     }
 
     /**

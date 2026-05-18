@@ -46,8 +46,7 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
     if (initialDescriptor) {
       return (resources || []).find(d =>
         d.serviceCode === initialDescriptor.serviceCode &&
-        d.itemCode    === initialDescriptor.itemCode &&
-        (d.itemKey || '') === (initialDescriptor.itemKey || '')
+        d.itemCode    === initialDescriptor.itemCode
       ) || null;
     }
     return types[0] || null;
@@ -273,13 +272,13 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
                 onChange={e => {
                   const id = e.target.value;
                   const next = types.find(d =>
-                    `${d.serviceCode}/${d.itemCode}/${d.itemKey || ''}` === id);
+                    `${d.serviceCode}/${d.itemCode}` === id);
                   if (next) setDescriptor(next);
                 }}
                 disabled={!!initialDescriptor}
               >
                 {types.map(d => {
-                  const id = `${d.serviceCode}/${d.itemCode}/${d.itemKey || ''}`;
+                  const id = `${d.serviceCode}/${d.itemCode}`;
                   return <option key={id} value={id}>{d.displayName}</option>;
                 })}
               </select>

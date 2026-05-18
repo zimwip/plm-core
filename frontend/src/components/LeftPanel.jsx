@@ -40,7 +40,7 @@ function LeftPanel({
 
   // basketItems not needed here — NavPanel reads it directly from store.
 
-  const txId = tx?.ID || tx?.id;
+  const txId = tx?.txId || tx?.ID || tx?.id;
   const txNodeList = txNodes || [];
 
   // Lookup table for transaction-panel type icons. Built from the cached
@@ -162,14 +162,14 @@ function LeftPanel({
                 <span style={{ fontSize: 10, color: 'var(--muted2)' }}>no objects checked out yet.</span>
               </div>
             ) : txNodeList.map((n, i) => {
-              const nid       = n.node_id        || n.NODE_ID;
-              const logicalId = n.logical_id     || n.LOGICAL_ID  || '';
-              const typeName  = n.node_type_name || n.NODE_TYPE_NAME || '';
-              const typeId    = n.node_type_id   || n.NODE_TYPE_ID   || '';
+              const nid       = n.itemId         || n.node_id        || n.NODE_ID;
+              const logicalId = n.logicalId      || n.logical_id     || n.LOGICAL_ID  || '';
+              const typeName  = n.nodeTypeName   || n.node_type_name || n.NODE_TYPE_NAME || '';
+              const typeId    = n.nodeTypeId     || n.node_type_id   || n.NODE_TYPE_ID   || '';
               const rev       = n.revision       || n.REVISION    || 'A';
               const iter      = n.iteration      ?? n.ITERATION   ?? 1;
-              const ct        = (n.change_type   || n.CHANGE_TYPE || 'CONTENT').toUpperCase();
-              const state     = n.lifecycle_state_id || n.LIFECYCLE_STATE_ID || '';
+              const ct        = (n.changeType    || n.change_type   || n.CHANGE_TYPE || 'CONTENT').toUpperCase();
+              const state     = n.lifecycleStateId || n.lifecycle_state_id || n.LIFECYCLE_STATE_ID || '';
               const badge     = CHANGE_BADGE[ct] || CHANGE_BADGE.CONTENT;
               const isActive  = nid === activeNodeId;
               const confirming = releaseConfirmId === nid;

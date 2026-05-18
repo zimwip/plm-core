@@ -10,7 +10,7 @@ export function tabToNavItemRef(tab) {
   if (!tab || tab.id === 'dashboard' || !tab.nodeId) return null;
   return {
     source: tab.serviceCode || '',
-    type:   tab.itemKey || tab.itemCode || '',  // itemKey for specificity (e.g. 'nt-part'), fallback to itemCode
+    type:   tab.itemCode || '',  // itemCode is now the type discriminator (e.g. 'nt-part')
     key:    tab.nodeId,
   };
 }
@@ -25,18 +25,14 @@ export function makeDescriptorKey(source, type) {
   return `${source}:${type}`;
 }
 
-/**
- * Unique key for a descriptor — uses itemKey when present (for services
- * like PSM where multiple descriptors share the same itemCode).
- */
+/** Unique key for a descriptor — serviceCode:itemCode. */
 export function descriptorKey(descriptor) {
-  return `${descriptor.serviceCode}:${descriptor.itemKey || descriptor.itemCode || ''}`;
+  return `${descriptor.serviceCode}:${descriptor.itemCode || ''}`;
 }
 
 /** True when a descriptor matches a NavItemRef. */
 export function descriptorMatchesRef(descriptor, ref) {
-  return descriptor.serviceCode === ref.source &&
-    (descriptor.itemCode === ref.type || descriptor.itemKey === ref.type);
+  return descriptor.serviceCode === ref.source && descriptor.itemCode === ref.type;
 }
 
 /**

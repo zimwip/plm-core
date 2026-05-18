@@ -1,168 +1,251 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { usePlmStore } from '../store/usePlmStore';
-import { lookupPluginForDescriptor } from '../services/sourcePlugins';
-import { CloseIcon, PinIcon, PinOffIcon } from './Icons';
+import { CloseIcon } from './Icons';
+import NavItem from './NavItem';
 
-const SEARCH_DELAY_MS = 300;
+const SEARCH_DELAY_MS = 350;
+const FACET_DIMS      = ['_type', '_projectSpaceId'];
+const DIM_LABELS      = { _type: 'Type', _projectSpaceId: 'Project' };
+// Future numeric/date dims go here; renders range inputs instead of checkboxes.
+const RANGE_DIMS      = [];
 
-function DefaultSearchRow({ descriptor, item, isPinned, onPin, onUnpin, onNavigate }) {
-  const id      = item.id || item.ID;
-  const label   = item.logical_id || item.LOGICAL_ID || item.name || item.originalName || id;
-  const subtype = descriptor.displayName;
+function fmt(n) { return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n); }
 
-  return (
-    <div
-      className="search-result-row"
-      onClick={() => onNavigate(id, label, descriptor)}
-      title={`${subtype}: ${label}`}
-    >
-      <div className="search-result-label">
-        <span className="search-result-type" style={{ color: descriptor.color || 'var(--muted)' }}>
-          {subtype}
-        </span>
-        <span className="search-result-name">{label}</span>
-      </div>
-      <button
-        className={`search-pin-btn${isPinned ? ' pinned' : ''}`}
-        title={isPinned ? 'Remove from basket' : 'Add to basket'}
-        onClick={e => { e.stopPropagation(); isPinned ? onUnpin() : onPin(); }}
-      >
-        {isPinned ? <PinOffIcon size={11} strokeWidth={2} /> : <PinIcon size={11} strokeWidth={2} />}
-      </button>
-    </div>
-  );
-}
+export default function SearchPanel({ query: initialQuery, onQueryChange, onClose, onNavigate }) {
+  const [query,    setQuery]    = useState(initialQuery || '');
+  const [result,   setResult]   = useState(null);
+  const [loading,  setLoading]  = useState(false);
+  // filters: { [dim]: string[] } — multi-select AND per dimension
+  const [filters,  setFilters]  = useState({});
+  const [info,     setInfo]     = useState(null);
+  const [width,    setWidth]    = useState(560);
+  const debounceRef             = useRef(null);
 
-export default function SearchPanel({
-  query: initialQuery,
-  onQueryChange,
-  onClose,
-  userId,
-  projectSpaceId,
-  onNavigate,
-}) {
-  const [query, setQuery]     = useState(initialQuery || '');
-  const [results, setResults] = useState({});
-  const [loading, setLoading] = useState(false);
-  const debounceRef           = useRef(null);
-  const panelRef              = useRef(null);
-  const [width, setWidth]     = useState(280);
-  const resizeRef             = useRef(null);
-
-  const storeItems      = usePlmStore(s => s.items);
-  const basketItems     = usePlmStore(s => s.basketItems);
-  const addToBasket     = usePlmStore(s => s.addToBasket);
+  const basketItems      = usePlmStore(s => s.basketItems);
+  const addToBasket      = usePlmStore(s => s.addToBasket);
   const removeFromBasket = usePlmStore(s => s.removeFromBasket);
-  const storeUserId     = usePlmStore(s => s.userId);
-  const storePsId       = usePlmStore(s => s.projectSpaceId);
+  const storeUserId      = usePlmStore(s => s.userId);
+  const storeItems       = usePlmStore(s => s.items);
 
-  const listableDescriptors = useMemo(() => storeItems.filter(d => d.list), [storeItems]);
+  const navCtx = useMemo(() => ({ onNavigate }), [onNavigate]);
 
-  const doSearch = useCallback(async (q) => {
-    const trimmed = q.trim().toLowerCase();
-    if (!trimmed) { setResults({}); return; }
+  // Load index info once on mount
+  useEffect(() => {
+    api.searchInfo().then(setInfo).catch(() => setInfo({ available: false }));
+  }, []);
+
+  const doSearch = useCallback(async (q, activeFilters) => {
+    if (!q?.trim()) { setResult(null); return; }
     setLoading(true);
     try {
-      const byDesc = {};
-      await Promise.all(listableDescriptors.map(async (d) => {
-        try {
-          const page = await api.fetchListableItems(userId, d, 0, 100);
-          const items = (page.items || []).filter(item => {
-            const lid  = (item.logical_id   || item.LOGICAL_ID   || item.name || item.originalName || '').toLowerCase();
-            const dnam = (item.display_name || item.DISPLAY_NAME || '').toLowerCase();
-            return lid.includes(trimmed) || dnam.includes(trimmed);
-          });
-          if (items.length > 0) byDesc[`${d.serviceCode}:${d.itemCode}:${d.itemKey || ''}`] = { descriptor: d, items };
-        } catch { /* skip failed sources */ }
-      }));
-      setResults(byDesc);
+      const filterTerms = Object.fromEntries(
+        Object.entries(activeFilters).filter(([, v]) => v?.length > 0)
+      );
+      const res = await api.searchNodes(q.trim(), filterTerms, FACET_DIMS, 100);
+      setResult(res);
+    } catch {
+      setResult(null);
     } finally {
       setLoading(false);
     }
-  }, [listableDescriptors, userId]);
+  }, []);
+
+  useEffect(() => { setQuery(initialQuery || ''); }, [initialQuery]);
 
   useEffect(() => {
-    setQuery(initialQuery || '');
-  }, [initialQuery]);
-
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSearch(query), SEARCH_DELAY_MS);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doSearch(query, filters), SEARCH_DELAY_MS);
     return () => clearTimeout(debounceRef.current);
-  }, [query, doSearch]);
+  }, [query, filters, doSearch]);
 
   function handleQueryChange(e) {
     setQuery(e.target.value);
-    if (onQueryChange) onQueryChange(e.target.value);
+    onQueryChange?.(e.target.value);
   }
+
+  function toggleFilter(dim, val) {
+    setFilters(prev => {
+      const current = prev[dim] || [];
+      const next = current.includes(val)
+        ? current.filter(v => v !== val)
+        : [...current, val];
+      if (next.length === 0) {
+        const { [dim]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [dim]: next };
+    });
+  }
+
+  function clearFilters() { setFilters({}); }
 
   function startResize(e) {
+    e.preventDefault();
     const startX = e.clientX, startW = width;
-    function onMove(ev) { setWidth(Math.max(220, Math.min(600, startW + (ev.clientX - startX)))); }
-    function onUp() { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+    const onMove = ev => setWidth(Math.max(420, Math.min(900, startW + ev.clientX - startX)));
+    const onUp   = ()  => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
     document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('mouseup',   onUp);
   }
 
-  const totalResults = Object.values(results).reduce((s, { items }) => s + items.length, 0);
+  const hits      = result?.hits      || [];
+  const facets    = result?.facets    || {};
+  const totalHits = result?.totalHits ?? 0;
+  const hasFilters = Object.values(filters).some(v => v?.length > 0);
+  const hasFacets  = Object.keys(facets).length > 0;
 
   return (
-    <div className="search-panel" ref={panelRef} style={{ width }}>
-      <div className="resize-handle search-panel-resize" onMouseDown={startResize} ref={resizeRef} style={{ left: 'auto', right: 0 }} />
+    <div className="search-panel" style={{ width }}>
+      <div className="resize-handle search-panel-resize" onMouseDown={startResize} />
 
+      {/* Header */}
       <div className="search-panel-header">
         <span className="search-panel-title">Search</span>
-        <button className="panel-icon-btn" onClick={onClose} title="Close search">
-          <CloseIcon size={13} strokeWidth={2} />
-        </button>
+        <div className="search-panel-header-right">
+          {info && (
+            <span className={`search-index-badge${info.available ? '' : ' unavail'}`}
+                  title={info.available ? `${info.nodeCount} nodes · ${info.edgeCount} edges indexed` : 'Search index unavailable'}>
+              {info.available ? `${fmt(info.nodeCount)} nodes · ${fmt(info.edgeCount)} edges` : 'index unavailable'}
+            </span>
+          )}
+          <button className="panel-icon-btn" onClick={onClose} title="Close search">
+            <CloseIcon size={13} strokeWidth={2} />
+          </button>
+        </div>
       </div>
 
+      {/* Query input */}
       <div className="search-panel-input-wrap">
         <input
           autoFocus
           className="search-panel-input"
           type="text"
-          placeholder="Search items…"
+          placeholder="Search nodes…"
           value={query}
           onChange={handleQueryChange}
         />
       </div>
 
-      <div className="search-panel-results">
-        {loading && <div className="panel-empty" style={{ fontSize: 11 }}>Searching…</div>}
+      {/* Body: facets left + results right */}
+      <div className="search-panel-body">
 
-        {!loading && query.trim() && totalResults === 0 && (
-          <div className="panel-empty" style={{ fontSize: 11 }}>No results for "{query}"</div>
-        )}
-
-        {!loading && Object.values(results).map(({ descriptor: d, items }) => {
-          const plugin = lookupPluginForDescriptor(d);
-          const SearchRow = plugin.SearchRow || DefaultSearchRow;
-          return (
-            <div key={`${d.serviceCode}:${d.itemCode}:${d.itemKey || ''}`} className="search-result-group">
-              <div className="search-result-group-label" style={{ color: d.color || 'var(--muted)' }}>
-                {d.sourceLabel || d.serviceCode} · {d.displayName}
-              </div>
-              {items.map(item => {
-                const id = item.id || item.ID;
-                const basketKey = `${d.serviceCode}:${d.itemKey || d.itemCode}`;
-                const isPinned = !!(basketItems[basketKey] && basketItems[basketKey].has(id));
+        {/* Left facets toolbar */}
+        <div className="search-facets">
+          {hasFacets ? (
+            <>
+              {Object.entries(facets).map(([dim, counts]) => {
+                const label    = DIM_LABELS[dim] || dim;
+                const selected = filters[dim] || [];
+                const isRange  = RANGE_DIMS.includes(dim);
                 return (
-                  <SearchRow
-                    key={id}
-                    descriptor={d}
-                    item={item}
-                    isPinned={isPinned}
-                    onPin={() => addToBasket(storeUserId || userId, d.serviceCode, d.itemKey || d.itemCode, id)}
-                    onUnpin={() => removeFromBasket(storeUserId || userId, d.serviceCode, d.itemKey || d.itemCode, id)}
-                    onNavigate={onNavigate}
-                  />
+                  <div key={dim} className="search-facet-group">
+                    <div className="search-facet-dim">
+                      {label}
+                      {selected.length > 0 && (
+                        <span className="search-facet-dim-count">{selected.length}</span>
+                      )}
+                    </div>
+                    {isRange ? (
+                      <div className="search-facet-range">
+                        <input
+                          type="number"
+                          className="search-facet-range-input"
+                          placeholder="Min"
+                          value={selected[0] ?? ''}
+                          onChange={e => setFilters(prev => ({
+                            ...prev,
+                            [dim]: [e.target.value, (prev[dim] || [])[1] ?? '']
+                          }))}
+                        />
+                        <span className="search-facet-range-sep">–</span>
+                        <input
+                          type="number"
+                          className="search-facet-range-input"
+                          placeholder="Max"
+                          value={selected[1] ?? ''}
+                          onChange={e => setFilters(prev => ({
+                            ...prev,
+                            [dim]: [(prev[dim] || [])[0] ?? '', e.target.value]
+                          }))}
+                        />
+                      </div>
+                    ) : (
+                      Object.entries(counts).slice(0, 10).map(([val, count]) => {
+                        const checked = selected.includes(val);
+                        return (
+                          <label
+                            key={val}
+                            className={`search-facet-item${checked ? ' active' : ''}`}
+                            title={`${checked ? 'Remove: ' : 'Add: '}${val}`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="search-facet-checkbox"
+                              checked={checked}
+                              onChange={() => toggleFilter(dim, val)}
+                            />
+                            <span className="search-facet-val">{val}</span>
+                            <span className="search-facet-count">{count}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
                 );
               })}
+              {hasFilters && (
+                <button className="search-facet-clear" onClick={clearFilters}>
+                  Clear filters
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="search-facets-empty">
+              {query.trim() && !loading ? 'No facets' : 'Facets appear after search'}
             </div>
-          );
-        })}
+          )}
+        </div>
+
+        {/* Right results */}
+        <div className="search-panel-results">
+          {loading && <div className="panel-empty">Searching…</div>}
+
+          {!loading && query.trim() && result !== null && totalHits === 0 && (
+            <div className="panel-empty">No results for "{query}"</div>
+          )}
+
+          {!loading && totalHits > 0 && (
+            <div className="search-results-count">
+              {totalHits} result{totalHits !== 1 ? 's' : ''}{hasFilters ? ' (filtered)' : ''}
+            </div>
+          )}
+
+          {!loading && hits.map(hit => {
+            let source = {};
+            try { source = JSON.parse(hit.sourceJson || '{}'); } catch {}
+            const label    = source.logicalId || hit.id;
+            const svc      = hit.serviceCode || 'psm';
+            const typeCode = hit.itemCode   || hit.type;
+            const bKey     = `${svc}:${typeCode}`;
+            const pinned   = !!(basketItems[bKey]?.has(hit.id));
+            const desc     = storeItems.find(d => d.serviceCode === svc && d.itemCode === typeCode);
+            const descriptor = desc || { serviceCode: svc, itemCode: typeCode, displayName: hit.type };
+            const item = { id: hit.id, _title: label, ...source };
+
+            return (
+              <NavItem
+                key={hit.id}
+                descriptor={descriptor}
+                item={item}
+                ctx={navCtx}
+                isPinned={pinned}
+                onPin={() => addToBasket(storeUserId, svc, typeCode, hit.id)}
+                onUnpin={() => removeFromBasket(storeUserId, svc, typeCode, hit.id)}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );

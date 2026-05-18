@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api, speApi } from '../services/api';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useWsEvent } from '../hooks/useWsEvent';
 import { getTheme, setTheme as applyTheme } from '../theme';
 
 import {
@@ -822,11 +822,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
     api.getSourcesAdmin(userId).then(d => setSources(Array.isArray(d) ? d : []));
   }, [userId]);
 
-  useWebSocket(
-    '/topic/metamodel',
-    (evt) => { if (evt.event === 'METAMODEL_CHANGED') loadTypes(); },
-    userId,
-  );
+  useWsEvent((evt) => { if (evt.event === 'METAMODEL_CHANGED') loadTypes(); });
 
   const typeNameMap = useMemo(() => {
     const m = {};
@@ -1807,11 +1803,7 @@ export function DomainsSection({ userId, canWrite, toast }) {
     loadDomains().finally(() => setLoading(false));
   }, [userId]);
 
-  useWebSocket(
-    '/topic/metamodel',
-    (evt) => { if (evt.event === 'METAMODEL_CHANGED') loadDomains(); },
-    userId,
-  );
+  useWsEvent((evt) => { if (evt.event === 'METAMODEL_CHANGED') loadDomains(); });
 
   async function expand(dom) {
     const id = dom.id;
@@ -2438,11 +2430,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
     api.getMetadataKeys(userId, 'LIFECYCLE_STATE').then(d => setKnownMetaKeys(Array.isArray(d) ? d : [])).catch(() => {});
   }, [userId]);
 
-  useWebSocket(
-    '/topic/metamodel',
-    (evt) => { if (evt.event === 'METAMODEL_CHANGED') loadLcs(); },
-    userId,
-  );
+  useWsEvent((evt) => { if (evt.event === 'METAMODEL_CHANGED') loadLcs(); });
 
   async function refreshLcData(id) {
     const [states, transitions] = await Promise.all([

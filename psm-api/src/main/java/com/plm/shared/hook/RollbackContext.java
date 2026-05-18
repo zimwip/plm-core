@@ -10,6 +10,7 @@ public record RollbackContext(
     String txId,
     String userId,
     List<RolledBackLink> links,
+    List<String> affectedNodeIds,
     List<String> deletedNodeIds
 ) {
     public record RolledBackLink(

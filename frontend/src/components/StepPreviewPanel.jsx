@@ -8,7 +8,7 @@ export default function StepPreviewPanel({ data, tab, ctx }) {
       nodes={nodes}
       loading={loading}
       onNavigateToNode={ctx?.onNavigate
-        ? (nid) => ctx.onNavigate(nid, undefined, { serviceCode: 'psm', itemCode: 'node' })
+        ? (nid) => ctx.onNavigate(nid, undefined, { serviceCode: 'psm' })
         : undefined}
     />
   );

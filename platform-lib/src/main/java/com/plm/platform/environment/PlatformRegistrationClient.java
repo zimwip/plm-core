@@ -189,7 +189,8 @@ public class PlatformRegistrationClient {
                 props.routePrefix(),
                 props.extraPaths(),
                 version,
-                props.spaceTag()
+                props.spaceTag(),
+                props.features()
             );
 
             ResponseEntity<Map<String, Object>> resp = rest.exchange(

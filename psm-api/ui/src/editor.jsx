@@ -52,7 +52,7 @@ export default {
   },
 
   matches(descriptor) {
-    return descriptor?.serviceCode === 'psm' && descriptor?.itemCode === 'node';
+    return descriptor?.serviceCode === 'psm';
   },
 
   Component: PsmEditorComponent,

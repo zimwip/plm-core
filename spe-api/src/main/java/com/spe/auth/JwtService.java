@@ -39,6 +39,7 @@ public class JwtService {
     private final long forwardTtl;
     private final long sessionTtl;
     private final long clockSkewSeconds;
+    private final long operationMaxTtl;
 
     private SecretKey key;
 
@@ -46,12 +47,14 @@ public class JwtService {
         @Value("${plm.service.secret}") String secret,
         @Value("${plm.jwt.ttl-seconds:60}") long forwardTtl,
         @Value("${plm.jwt.session-ttl-seconds:3600}") long sessionTtl,
-        @Value("${plm.jwt.clock-skew-seconds:5}") long clockSkewSeconds
+        @Value("${plm.jwt.clock-skew-seconds:5}") long clockSkewSeconds,
+        @Value("${plm.jwt.operation-max-ttl-seconds:3600}") long operationMaxTtl
     ) {
         this.secretRaw = secret;
         this.forwardTtl = forwardTtl;
         this.sessionTtl = sessionTtl;
         this.clockSkewSeconds = clockSkewSeconds;
+        this.operationMaxTtl = operationMaxTtl;
     }
 
     @PostConstruct
@@ -67,6 +70,7 @@ public class JwtService {
     }
 
     // ── Forward JWT (spe → downstream) ────────────────────────────
+    // Carries identity only; roles are resolved per-request from the local pno cache.
     public String mint(SpeUserContext ctx) {
         Instant now = Instant.now();
         return Jwts.builder()
@@ -74,13 +78,32 @@ public class JwtService {
             .subject(ctx.userId())
             .claim("typ", TYP_FORWARD)
             .claim("username", ctx.username())
-            .claim("roleIds", ctx.roleIds())
             .claim("isAdmin", ctx.isAdmin())
             .claim("ps", ctx.projectSpaceId())
-            .claim("svcCodes", ctx.allowedServiceCodes())
             .id(UUID.randomUUID().toString())
             .issuedAt(Date.from(now))
             .expiration(Date.from(now.plusSeconds(forwardTtl)))
+            .signWith(key, Jwts.SIG.HS256)
+            .compact();
+    }
+
+    // ── Operation JWT (spe → trusted services, job-scoped) ────────
+    // Carries the same identity claims as forward JWT + a jid claim binding
+    // the token to a specific job. Longer TTL for batch operations.
+    public String mintOperation(SpeUserContext ctx, String jobId, long ttlSeconds) {
+        Instant now = Instant.now();
+        long actualTtl = Math.min(ttlSeconds, operationMaxTtl);
+        return Jwts.builder()
+            .issuer("spe-api")
+            .subject(ctx.userId())
+            .claim("typ", "op")
+            .claim("username", ctx.username())
+            .claim("isAdmin", ctx.isAdmin())
+            .claim("ps", ctx.projectSpaceId())
+            .claim("jid", jobId)
+            .id(UUID.randomUUID().toString())
+            .issuedAt(Date.from(now))
+            .expiration(Date.from(now.plusSeconds(actualTtl)))
             .signWith(key, Jwts.SIG.HS256)
             .compact();
     }
@@ -110,6 +133,21 @@ public class JwtService {
         return parse(token)
             .filter(c -> TYP_SESSION.equals(c.get("typ", String.class)))
             .map(c -> new SessionClaims(c.getSubject(), c.get("ps", String.class)));
+    }
+
+    // Used by the operation-token elevation path: accepts typ=fwd as credential.
+    // Identity in the forward JWT is already proven — no pno re-validation needed.
+    public Optional<SpeUserContext> verifyForward(String token) {
+        return parse(token)
+            .filter(c -> TYP_FORWARD.equals(c.get("typ", String.class)))
+            .map(c -> new SpeUserContext(
+                c.getSubject(),
+                c.get("username", String.class),
+                List.of(),
+                Boolean.TRUE.equals(c.get("isAdmin", Boolean.class)),
+                c.get("ps", String.class),
+                List.of()
+            ));
     }
 
     @SuppressWarnings("unchecked")

@@ -58,8 +58,9 @@ public class JwtVerifier {
             String typ = c.get("typ", String.class);
             @SuppressWarnings("unchecked")
             List<String> allowedServiceCodes = (List<String>) c.getOrDefault("svcCodes", List.of());
+            String jobId = c.get("jid", String.class);
 
-            return Optional.of(new PlmPrincipal(userId, username, isAdmin, roleIds, projectSpace, typ, List.copyOf(allowedServiceCodes)));
+            return Optional.of(new PlmPrincipal(userId, username, isAdmin, roleIds, projectSpace, typ, List.copyOf(allowedServiceCodes), jobId));
         } catch (JwtException | IllegalArgumentException e) {
             log.debug("JWT rejected: {}", e.getMessage());
             return Optional.empty();

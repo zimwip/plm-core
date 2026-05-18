@@ -568,6 +568,40 @@ services:
     networks:
       - plm-net
 
+  search-api:
+    build: ./search-api
+    image: search-api:dist
+    environment:
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
+      PLM_PLATFORM_URL:                    http://platform-api:8084
+      SPE_SELF_BASE_URL:                   http://search-api:8088
+      PLM_NATS_ENABLED:                    "true"
+      NATS_URL:                            nats://nats:4222
+      SEARCH_INDEX_PATH:                   /var/lib/search-data
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_ENABLED:          "true"
+      LOGGING_LEVEL_ROOT:                  INFO
+      LOGGING_LEVEL_COM_PLM_SEARCH:        INFO
+    volumes:
+      - plm-search-data:/var/lib/search-data
+    depends_on:
+      vault:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      platform-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8088/api/search/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
 networks:
   plm-net:
     driver: bridge
@@ -580,4 +614,6 @@ volumes:
   plm-vault-init:
     driver: local
   plm-dst-data:
+    driver: local
+  plm-search-data:
     driver: local

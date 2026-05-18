@@ -2,6 +2,7 @@ package com.plm.permission.internal;
 
 import com.plm.platform.authz.AuthzContext;
 import com.plm.platform.authz.ScopeKeyResolver;
+import com.plm.shared.exception.PlmFunctionalException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -48,31 +49,26 @@ public class NodeScopeKeyResolver implements ScopeKeyResolver {
         // else is treated as either a nodeId or a linkId that we must translate.
         if (nodeType.startsWith("nt-")) return out;
 
-        String resolved = resolveFromNodeId(nodeType, ctx.userId());
+        String resolved = resolveFromNodeId(nodeType);
         if (resolved == null) {
-            resolved = resolveFromLinkId(nodeType, ctx.userId());
+            resolved = resolveFromLinkId(nodeType);
         }
         if (resolved != null) {
             out.put("nodeType", resolved);
         } else {
-            log.debug("NodeScopeKeyResolver: unable to resolve nodeType from '{}'", nodeType);
+            throw new PlmFunctionalException("Node or link not found: " + nodeType, 404);
         }
         return out;
     }
 
-    private String resolveFromNodeId(String nodeId, String userId) {
-        return dsl.select(DSL.field("n.node_type_id").as("node_type_id"))
-            .from("node n")
-            .join("node_version nv").on("nv.node_id = n.id")
-            .join("plm_transaction pt").on("pt.id = nv.tx_id")
-            .where("n.id = ?", nodeId)
-            .and("(pt.status = 'COMMITTED' OR pt.owner_id = ?)", userId)
-            .orderBy(DSL.field("nv.version_number").desc())
-            .limit(1)
+    private String resolveFromNodeId(String nodeId) {
+        return dsl.select(DSL.field("node_type_id"))
+            .from("node")
+            .where("id = ?", nodeId)
             .fetchOne(DSL.field("node_type_id"), String.class);
     }
 
-    private String resolveFromLinkId(String linkId, String userId) {
+    private String resolveFromLinkId(String linkId) {
         String sourceNodeId = dsl.select(DSL.field("nv.node_id").as("node_id"))
             .from("node_version_link nvl")
             .join("node_version nv").on("nv.id = nvl.source_node_version_id")
@@ -80,6 +76,6 @@ public class NodeScopeKeyResolver implements ScopeKeyResolver {
             .limit(1)
             .fetchOne(DSL.field("node_id"), String.class);
         if (sourceNodeId == null) return null;
-        return resolveFromNodeId(sourceNodeId, userId);
+        return resolveFromNodeId(sourceNodeId);
     }
 }

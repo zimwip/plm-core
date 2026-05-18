@@ -229,6 +229,7 @@ export default function NodeEditor({
   const {
     usePlmStore, useWebSocket,
     api, txApi, authoringApi, pollJobStatus,
+    jobs: shellJobs,
     getDraggedNode, clearDraggedNode,
     getLinkRowForSource,
     icons: { NODE_ICONS, SignIcon },
@@ -246,6 +247,7 @@ export default function NodeEditor({
   const [actionParams,     setActionParams]     = useState({});    // param values for dialog
   const [uploadProgress,   setUploadProgress]   = useState(null);  // null | 0-100
   const [activeJob,        setActiveJob]        = useState(null);  // { id, data } | null
+  const [showJobModal,     setShowJobModal]     = useState(false);
   const cadJobPollRef = useRef(null);
   const [diff,        setDiff]       = useState(null);   // { data, v1Num, v2Num } | null
   const [diffLoading, setDiffLoading]= useState(false);
@@ -378,7 +380,7 @@ export default function NodeEditor({
     onRegisterPreview?.({ nodes: stepNodes, loading: step3dLoading });
   }, [stepNodes, step3dLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const txId = tx?.ID || tx?.id || null;
+  const txId = tx?.txId || null;
 
   // Notify parent whenever the store-backed desc changes
   useEffect(() => {
@@ -722,13 +724,18 @@ export default function NodeEditor({
 
       if (result?.jobId && action.jobStatusPath) {
         const statusUrl = action.jobStatusPath.replace('{jobId}', result.jobId);
-        setActiveJob({ id: result.jobId, data: { job: { id: result.jobId, status: result.status || 'PENDING' }, results: [] } });
+        const jobId = result.jobId;
+        const jobLabel = action.label || action.name || 'Import';
+        setActiveJob({ id: jobId, data: { job: { id: jobId, status: result.status || 'PENDING' }, results: [] } });
+        setShowJobModal(true);
+        shellJobs.register(jobId, jobLabel, () => setShowJobModal(true));
         if (cadJobPollRef.current) clearInterval(cadJobPollRef.current);
         cadJobPollRef.current = setInterval(async () => {
           try {
             const data = await pollJobStatus('psm', statusUrl);
             setActiveJob(prev => prev ? { ...prev, data } : null);
             if (data.job?.status === 'DONE' || data.job?.status === 'FAILED') {
+              shellJobs.update(jobId, data.job.status === 'DONE' ? 'done' : 'failed');
               clearInterval(cadJobPollRef.current);
               cadJobPollRef.current = null;
               if (data.job?.status === 'DONE') { await refreshAll(); await load(); }
@@ -1146,11 +1153,24 @@ export default function NodeEditor({
       )}
 
 
-      {activeJob && ReactDOM.createPortal(
-        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '28px 32px', maxWidth: 560, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,.4)' }}>
+      {activeJob && showJobModal && ReactDOM.createPortal(
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowJobModal(false); }}
+        >
+          <div
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '28px 32px', maxWidth: 560, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,.4)' }}
+            onClick={e => e.stopPropagation()}
+          >
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>CAD Import</div>
-            <CadJobStatus jobData={activeJob.data} onClose={() => { if (cadJobPollRef.current) clearInterval(cadJobPollRef.current); setActiveJob(null); }} />
+            <CadJobStatus
+              jobData={activeJob.data}
+              onClose={() => {
+                const isDone = activeJob.data.job?.status === 'DONE' || activeJob.data.job?.status === 'FAILED';
+                if (isDone) { shellJobs.remove(activeJob.id); setActiveJob(null); }
+                setShowJobModal(false);
+              }}
+            />
           </div>
         </div>,
         document.body
@@ -1233,7 +1253,7 @@ export default function NodeEditor({
       {activeSubTab === 'attributes' && (() => {
         const renderAttrField = (attr) => {
           const currentVal = edits[attr.id] !== undefined ? edits[attr.id] : (attr.value || '');
-          const isEditable = attr.editable && !!txId && isOpenVersion;
+          const isEditable = attr.editable && !!updateNodeAction;
           const rawEnum = attr.allowedValues
             ? (() => { try { return JSON.parse(attr.allowedValues); } catch { return []; } })()
             : null;

@@ -28,6 +28,9 @@ public class AuthProperties {
     /** When true, requests on non-public paths without a JWT are rejected with 401. */
     private boolean enabled = true;
 
+    /** TTL for the per-(userId, projectSpaceId) role cache populated from pno-api. */
+    private long roleCacheTtlSeconds = 60;
+
     public List<String> getPublicPaths() { return publicPaths; }
     public void setPublicPaths(List<String> publicPaths) { this.publicPaths = publicPaths; }
 
@@ -42,4 +45,7 @@ public class AuthProperties {
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+    public long getRoleCacheTtlSeconds() { return roleCacheTtlSeconds; }
+    public void setRoleCacheTtlSeconds(long roleCacheTtlSeconds) { this.roleCacheTtlSeconds = roleCacheTtlSeconds; }
 }

@@ -78,6 +78,18 @@ public class AuthenticationFilter implements WebFilter {
             return unauthorized(exchange.getResponse(), "Missing Bearer session token");
         }
 
+        // Operation-token elevation: caller presents their forward JWT (typ=fwd) as credential.
+        // The forward JWT already proves identity — no pno re-validation needed.
+        // X-Service-Secret checked by AuthController to restrict access to trusted services only.
+        if (path.equals("/api/spe/auth/operation-token")) {
+            Optional<SpeUserContext> fwdCtx = jwtService.verifyForward(token);
+            if (fwdCtx.isEmpty()) {
+                return unauthorized(exchange.getResponse(), "Valid forward JWT required for operation token");
+            }
+            exchange.getAttributes().put(CONTEXT_ATTR, fwdCtx.get());
+            return chain.filter(exchange);
+        }
+
         Optional<JwtService.SessionClaims> session = jwtService.verifySession(token);
         if (session.isEmpty()) {
             return unauthorized(exchange.getResponse(), "Invalid or expired session token");
@@ -106,6 +118,7 @@ public class AuthenticationFilter implements WebFilter {
                 ServerHttpRequest mutated = exchange.getRequest().mutate()
                     .headers(h -> {
                         h.remove("X-PLM-User");
+                        h.remove("X-Job-Id"); // internal only — S2S services set this, not external clients
                         h.set(HttpHeaders.AUTHORIZATION, "Bearer " + fwd);
                     })
                     .build();

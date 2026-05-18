@@ -12,7 +12,7 @@ Déclarées dans `META-INF/spring/org.springframework.boot.autoconfigure.AutoCon
 
 | Auto-config | Trigger | Effet |
 |---|---|---|
-| `SpeRegistrationAutoConfiguration` | `spe.registration.service-code` défini (`enabled=true` par défaut) | Auto-enregistrement à spe-api + heartbeat + `LocalServiceRegistry` (cache des autres services) |
+| `PlatformRegistrationAutoConfiguration` | `platform.registration.service-code` défini (`enabled=true` par défaut) | Enregistrement à platform-api + heartbeat + `LocalServiceRegistry` (cache des autres services) |
 | `ServiceClientAutoConfiguration` | `LocalServiceRegistry` présent | Bean `ServiceClient` registry-aware avec Resilience4j retry/circuit-breaker pour appels S2S |
 | `PlmAuthAutoConfiguration` | `plm.auth.service-secret` défini | `PlmAuthFilter` monté ; vérifie JWT (utilisateur final) ou `X-Service-Secret` (S2S) ; appelle votre `PlmAuthContextBinder` pour peupler ThreadLocal local |
 | `PlatformAuthzAutoConfiguration` | `plm.permission.enabled=true` + beans `AuthzContextProvider` + `PermissionCatalogPort` | Enforcer Casbin + `@PlmPermission` aspect ; snapshot grants pulled de pno-api au boot, refreshed via NATS `global.AUTHORIZATION_CHANGED` |
@@ -27,23 +27,23 @@ Déclarées dans `META-INF/spring/org.springframework.boot.autoconfigure.AutoCon
 
 ## Convention de routage
 
-`serviceCode` = **seule source vérité** URL. `SpeContextPathPostProcessor` lit `spe.registration.service-code` au bootstrap + injecte `server.servlet.context-path=/api/<code>` dans env avant démarrage servlet container. `SpeRegistrationProperties` dérive `routePrefix=/api/<code>/**` + publie à spe-api.
+`serviceCode` = **seule source vérité** URL. `PlatformContextPathPostProcessor` lit **`platform.registration.service-code`** au bootstrap + injecte `server.servlet.context-path=/api/<code>` dans env avant démarrage servlet container.
 
 ```
 # application.properties
-spe.registration.service-code=psm    # seule ligne de routage
+platform.registration.service-code=psm    # seule ligne de routage — déclenche aussi enregistrement platform-api
 
 # Controller
-@RequestMapping("/nodes")            # URL finale : /api/psm/nodes
+@RequestMapping("/nodes")                 # URL finale : /api/psm/nodes
 ```
+
+> ⚠️ **`spe.registration.*` est obsolète** et ne déclenche plus l'injection du context-path. Utiliser uniquement `platform.registration.*`. Toute référence à `spe.registration.service-code` dans une nouvelle application.properties est un bug.
 
 **Garde-fou** au démarrage (`SpeRegistrationClient.assertControllerPathsNotHardcoded`) échoue boot si `@RequestMapping` commence par `/api/...`.
 
 **Endpoints `/internal/*`** : routes service-à-service. Context-path s'applique aussi → URL réelle = `/api/<code>/internal/...`. Clients dans platform-lib (`ConfigRegistrationClient`, `SettingsRegistrationClient`) incluent ce préfixe en dur — un seul endroit à modifier si code admin change.
 
-**Actuator** : suit context-path aussi. Healthcheck Docker + heartbeat spe-api ciblent donc `/api/<serviceCode>/actuator/health`.
-
-**Opt-out** : service peut déclarer explicit `spe.registration.route-prefix=...` pour court-circuiter convention — post-processor + garde-fou alors désactivés.
+**Actuator** : suit context-path aussi. Healthcheck Docker + heartbeat ciblent donc `/api/<serviceCode>/actuator/health`.
 
 ---
 
@@ -62,38 +62,60 @@ Référence vivante : module `dst/`.
 
 ### 3. `application.properties` — déclarer chaque sidecar à activer
 
+Référence canonique : `dst/src/main/resources/application.properties` et `cad-api/src/main/resources/application.properties`.
+
 ```properties
 spring.application.name=<svc>
 server.port=<port>
 
-# Identité (réutilisée par tous les sidecars de registration)
-spe.registration.service-code=<code>                   # ex: dst, psm, pno
-spe.registration.self-base-url=${SPE_SELF_BASE_URL:http://<svc>:<port>}
-spe.registration.spe-url=${SPE_API_URL:http://spe-api:8082}
-spe.registration.service-secret=${plm.service.secret}
-spe.registration.extra-paths=/v3/api-docs/**,/swagger-ui/**
+# ── Vault (résout plm.service.secret, plm.jwt.*, spring.datasource.password) ──
+spring.config.import=vault://
+spring.cloud.vault.uri=${VAULT_ADDR:http://vault:8200}
+spring.cloud.vault.authentication=TOKEN
+spring.cloud.vault.token=${VAULT_TOKEN:plm-demo-services}
+spring.cloud.vault.kv.enabled=true
+spring.cloud.vault.kv.backend=secret
+spring.cloud.vault.kv.application-name=plm
+spring.cloud.vault.kv.default-context=plm
+spring.cloud.vault.fail-fast=true
+spring.cloud.vault.retry.enabled=true
+spring.cloud.vault.retry.initial-interval=1500
+spring.cloud.vault.retry.max-interval=10000
+spring.cloud.vault.retry.multiplier=1.5
+spring.cloud.vault.retry.max-attempts=15
 
-# Auth filter (toujours actif)
+# ── Auth filter (toujours actif) ───────────────────────────────────────────
 plm.auth.service-secret=${plm.service.secret}
+plm.auth.clock-skew-seconds=${plm.jwt.clock-skew-seconds:5}
+plm.auth.public-paths=/actuator/**,/v3/api-docs/**,/swagger-ui/**
 
-# @PlmPermission + DATA scope registration (si le service a des permissions)
+# ── Platform registration (OBLIGATOIRE — déclenche context-path + enregistrement)
+# NE PAS utiliser spe.registration.* — obsolète, ne déclenche plus le context-path
+platform.registration.service-code=<code>              # /api/<code> context-path auto-set
+platform.registration.extra-paths=/v3/api-docs/**,/swagger-ui/**
+platform.registration.self-base-url=${SPE_SELF_BASE_URL:http://<svc>:<port>}
+platform.registration.platform-url=${PLM_PLATFORM_URL:http://platform-api:8084}
+platform.registration.service-secret=${plm.service.secret}
+platform.registration.space-tag=${SPE_SPACE_TAG:}
+
+# ── @PlmPermission + DATA scope registration (si le service a des permissions)
 plm.permission.enabled=true
 plm.permission.pno-url=${PNO_API_URL:http://pno-api:8081}
 
-# Settings page (si le service contribue des sections)
+# ── Settings page (si le service contribue des sections) ───────────────────
 plm.settings.enabled=true
 plm.settings.settings-url=${PLM_PLATFORM_URL:http://platform-api:8084}
 plm.settings.service-code=<code>
 plm.settings.self-base-url=${SPE_SELF_BASE_URL:http://localhost:<port>}
 plm.settings.service-secret=${plm.service.secret:}
 
-# Config snapshot psm-admin (UNIQUEMENT pour services métier qui consomment le métamodèle)
+# ── Config snapshot psm-admin (UNIQUEMENT si le service consomme le métamodèle PSM)
 # psm.config.admin-url=${PSM_CONFIG_ADMIN_URL:http://psm-admin:8083}
 # psm.config.service-code=${PSM_CONFIG_SERVICE_CODE:<code>-data}
 # psm.config.self-base-url=${PSM_CONFIG_SELF_BASE_URL:http://localhost:<port>}
 
-# NATS (active AuthzChangeSubscriber et autres listeners)
-plm.nats.enabled=true
+# ── NATS ────────────────────────────────────────────────────────────────────
+plm.nats.enabled=${PLM_NATS_ENABLED:false}
 plm.nats.url=${NATS_URL:nats://nats:4222}
 plm.nats.connection-name=<code>
 ```
@@ -113,7 +135,8 @@ Réf dst pour ces 4 classes : `dst/src/main/java/com/dst/security/{DstAuthContex
 ### 5. Convention routage (rappel)
 - Controllers : `@RequestMapping("/foo")` — JAMAIS `/api/<code>/foo`. Garde-fou échoue boot sinon.
 - Endpoints S2S sous `/internal/<x>` ; filtre laisse passer avec `X-Service-Secret`.
-- URL externe = `/api/<code>/foo` ; `SpeContextPathPostProcessor` injecte `server.servlet.context-path=/api/<code>` au démarrage.
+- URL externe = `/api/<code>/foo` ; `PlatformContextPathPostProcessor` injecte `server.servlet.context-path=/api/<code>` depuis **`platform.registration.service-code`** au démarrage.
+- **`spe.registration.*` ne déclenche PAS le context-path** — si utilisé seul, le service démarre avec context-path `/` et tous les appels `/api/<code>/...` retournent 404.
 
 ### 6. Permissions (si service introduit nouveau scope)
 - Bean `PermissionScopeContribution` (cf `DataScopeContribution`) : déclare scope, ses keys (vide = role-only) + value sources.
@@ -139,6 +162,7 @@ Ajouter `"<svc>|<port>|<schema>||<LOGPKG>"` dans `BACKEND_SVC_ROWS` pour que `./
 
 ## Patterns à NE PAS répliquer
 
+- **`spe.registration.service-code` seul** → ne déclenche pas context-path. Service démarre avec `/`, 403 à platform-api, toutes routes `/api/<code>/...` cassées. **Toujours utiliser `platform.registration.service-code`.**
 - `new RestTemplate()` ou `new WebClient()` direct → utiliser `ServiceClient` (registry-aware + Resilience4j + tracing). Sans `RestTemplateBuilder` / `WebClient.Builder`, Micrometer Tracing n'instrumente pas le client : aucun span, aucun header `traceparent` propagé.
 - Lookup direct en DB sur `pno_user`/`pno_role`/etc → utiliser endpoints HTTP de pno (cachés via Caffeine).
 - Filtre auth maison → `PlmAuthFilter` déjà branché par auto-config ; fournir seulement `PlmAuthContextBinder`.

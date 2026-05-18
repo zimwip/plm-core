@@ -118,7 +118,7 @@ export default function App() {
   const refreshTabData = useCallback((nodeId) => {
     const tab = tabs.find(t => t.nodeId === nodeId);
     if (!tab?.get?.path) return;
-    const currentTxId = tx?.ID || tx?.id || null;
+    const currentTxId = tx?.txId || null;
     setTabData(prev => ({ ...prev, [nodeId]: { ...(prev[nodeId] ?? {}), status: 'loading' } }));
     fetchItemDetail(tab.serviceCode, tab.get, nodeId, currentTxId ? { txId: currentTxId } : {})
       .then(data => setTabData(prev => ({ ...prev, [nodeId]: { status: 'ok', data } })))
@@ -153,7 +153,7 @@ export default function App() {
   // Re-fetch active tab when txId changes (checkout → show OPEN draft; commit → show committed).
   const prevTxIdRef = useRef(null);
   useEffect(() => {
-    const currentTxId = tx?.ID || tx?.id || null;
+    const currentTxId = tx?.txId || null;
     if (currentTxId === prevTxIdRef.current) return;
     prevTxIdRef.current = currentTxId;
     if (!activeTabId || activeTabId === 'dashboard') return;
@@ -240,15 +240,16 @@ export default function App() {
         if (evt.byUser && evt.byUser !== userId)
           toast(`${evt.byUser} committed a transaction`, 'info');
       } else if (evt.event === 'ITEM_DELETED') {
-        if (evt.nodeId) {
-          removeBasketItemIds([evt.nodeId]);
+        const deletedId = evt.nodeId || evt.itemId;
+        if (deletedId) {
+          removeBasketItemIds([deletedId]);
           // Close tab for this item if open (item is gone — refreshTabData would 404).
           setTabs(ts => {
-            const tab = ts.find(t => t.nodeId === evt.nodeId);
+            const tab = ts.find(t => t.nodeId === deletedId);
             if (!tab) return ts;
-            fetchedNodeIds.current.delete(evt.nodeId);
-            setTabData(prev => { const n = { ...prev }; delete n[evt.nodeId]; return n; });
-            const remaining = ts.filter(t => t.nodeId !== evt.nodeId);
+            fetchedNodeIds.current.delete(deletedId);
+            setTabData(prev => { const n = { ...prev }; delete n[deletedId]; return n; });
+            const remaining = ts.filter(t => t.nodeId !== deletedId);
             setActiveTabId(aid => aid === tab.id ? (remaining.at(-1)?.id ?? null) : aid);
             return remaining;
           });
@@ -275,7 +276,8 @@ export default function App() {
       } else if (evt.event === 'BASKET_CLEARED') {
         syncBasketClear();
       } else if (evt.event === 'ITEM_VERSION_CREATED' || evt.event === 'ITEM_UPDATED') {
-        if (evt.nodeId) refreshTabData(evt.nodeId);
+        const nid = evt.nodeId || evt.itemId;
+        if (nid) refreshTabData(nid);
         refreshNodes(); bumpBrowse();
       } else if (evt.event === 'METAMODEL_CHANGED') {
         refreshItems(); bumpBrowse();
@@ -289,6 +291,7 @@ export default function App() {
       }
     },
     userId,
+    projectSpaceId,
   );
 
   function handleToggleSettings() {
@@ -317,7 +320,7 @@ export default function App() {
     setAuthError(null);
     (async () => {
       try {
-        await authApi.login(userId, projectSpaceId);
+        await authApi.login(userId);
       } catch (err) {
         if (!cancelled) setAuthError(err.message || String(err));
         return;
@@ -325,7 +328,7 @@ export default function App() {
       if (cancelled) return;
 
       setAuthExpiredHandler(async () => {
-        try { return (await authApi.login(userId, projectSpaceId)).token; }
+        try { return (await authApi.login(userId)).token; }
         catch { return null; }
       });
 
@@ -389,7 +392,7 @@ export default function App() {
   }
 
   async function autoOpenTx() {
-    if (tx) return tx.ID || tx.id;
+    if (tx) return tx.txId;
     try {
       const res = await txApi.open(userId, 'Work session');
       await refreshTx();
@@ -400,7 +403,7 @@ export default function App() {
   async function handleRollback() {
     if (!tx) return;
     try {
-      await txApi.rollback(userId, tx.ID || tx.id);
+      await txApi.rollback(userId, tx.serviceCode, tx.txId);
       toast('Transaction rolled back', 'warn');
       clearTx();
       await refreshNodes();
@@ -411,7 +414,7 @@ export default function App() {
   async function handleReleaseNode(nodeId) {
     if (!tx) return;
     try {
-      await txApi.release(userId, tx.ID || tx.id, [nodeId]);
+      await txApi.release(userId, tx.serviceCode, tx.txId, [nodeId]);
       toast('Object released from transaction', 'info');
       await refreshAll();
     } catch (e) { toast(e, 'error'); }
@@ -583,6 +586,7 @@ export default function App() {
             activeNodeId={activeNodeId}
             userId={userId}
             users={users}
+            activeNodeDesc={activeNodeId && tabData[activeNodeId]?.status === 'ok' ? tabData[activeNodeId].data : null}
           />
         </div>
 
@@ -600,7 +604,8 @@ export default function App() {
         {showCommit && tx && (
           <CommitModal
             userId={userId}
-            txId={tx.ID || tx.id}
+            serviceCode={tx.serviceCode}
+            txId={tx.txId}
             txNodes={txNodes}
             stateColorMap={stateColorMap}
             onCommitted={handleCommitted}

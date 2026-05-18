@@ -72,6 +72,13 @@ public class GlobalExceptionHandler {
         return functional(404, e, req);
     }
 
+    @ExceptionHandler(com.plm.platform.authz.PolicyDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handlePolicyDenied(
+            com.plm.platform.authz.PolicyDeniedException e, HttpServletRequest req) {
+        log.warn("Permission denied on {} {}: {}", req.getMethod(), req.getRequestURI(), e.getMessage());
+        return functional(403, e, req);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleTechnical(
             Exception e, HttpServletRequest req) {

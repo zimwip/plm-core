@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { api, pollJobStatus, uploadWithProgress, getSessionToken, getProjectSpaceId } from '../services/api';
 import { usePlmStore } from '../store/usePlmStore';
+import { useShellStore } from '../shell/shellStore';
 import { descriptorKey, descriptorMatchesRef } from '../shell/navTypes';
 import { CloseIcon, LayersIcon } from './Icons';
 import NavSection from './NavSection';
@@ -32,7 +33,8 @@ export default function NavPanel({
   const [importParamValues, setImportParamValues] = useState({});
   const [importing,         setImporting]         = useState(false);
   const [uploadProgress,    setUploadProgress]    = useState(null);
-  const [activeJob,         setActiveJob]         = useState(null);
+  const [activeJob,      setActiveJob]      = useState(null);
+  const [showJobModal,   setShowJobModal]   = useState(false);
   const cadJobPollRef = useRef(null);
 
   useEffect(() => () => { if (cadJobPollRef.current) clearInterval(cadJobPollRef.current); }, []);
@@ -87,7 +89,7 @@ export default function NavPanel({
       const source   = colonIdx > -1 ? basketKey.slice(0, colonIdx) : basketKey;
       const typeCode = colonIdx > -1 ? basketKey.slice(colonIdx + 1) : '';
       const desc     = descriptors.find(d =>
-        d.serviceCode === source && (d.itemCode === typeCode || d.itemKey === typeCode),
+        d.serviceCode === source && d.itemCode === typeCode,
       );
       if (!desc) continue;
       const k = descriptorKey(desc);
@@ -128,13 +130,18 @@ export default function NavPanel({
       setUploadProgress(null);
       if (result?.jobId && action.jobStatusPath) {
         const statusUrl = action.jobStatusPath.replace('{jobId}', result.jobId);
-        setActiveJob({ id: result.jobId, data: { job: { id: result.jobId, status: result.status || 'PENDING' }, results: [] } });
+        const jobId = result.jobId;
+        setActiveJob({ id: jobId, data: { job: { id: jobId, status: result.status || 'PENDING' }, results: [] } });
+        setShowJobModal(true);
+        useShellStore.getState().registerBgJob(jobId, action.name || 'Import', () => setShowJobModal(true));
         if (cadJobPollRef.current) clearInterval(cadJobPollRef.current);
         cadJobPollRef.current = setInterval(async () => {
           try {
             const data = await pollJobStatus(descriptor.serviceCode, statusUrl);
             setActiveJob(prev => prev ? { ...prev, data } : null);
-            if (data.job?.status === 'DONE' || data.job?.status === 'FAILED') {
+            const jobStatus = data.job?.status;
+            if (jobStatus === 'DONE' || jobStatus === 'FAILED') {
+              useShellStore.getState().updateBgJob(jobId, jobStatus === 'DONE' ? 'done' : 'failed');
               clearInterval(cadJobPollRef.current);
               cadJobPollRef.current = null;
             }
@@ -237,16 +244,26 @@ export default function NavPanel({
       )}
 
       {/* ── Import job status modal ───────────────────────────── */}
-      {activeJob && (
+      {activeJob && showJobModal && (
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 901, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={e => { if (e.target === e.currentTarget) setActiveJob(null); }}
+          onClick={e => { if (e.target === e.currentTarget) setShowJobModal(false); }}
         >
           <div
             style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '20px 24px', width: 480, maxWidth: '90vw', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,.3)' }}
             onClick={e => e.stopPropagation()}
           >
-            <ImportJobStatus jobData={activeJob.data} onClose={() => setActiveJob(null)} />
+            <ImportJobStatus
+              jobData={activeJob.data}
+              onClose={() => {
+                const isDone = activeJob.data.job?.status === 'DONE' || activeJob.data.job?.status === 'FAILED';
+                if (isDone) {
+                  useShellStore.getState().removeBgJob(activeJob.id);
+                  setActiveJob(null);
+                }
+                setShowJobModal(false);
+              }}
+            />
           </div>
         </div>
       )}

@@ -33,7 +33,7 @@ public class EnvironmentRegistryController {
         }
         ServiceRegistration reg = registry.register(
             req.serviceCode(), req.baseUrl(), req.healthUrl(), req.routePrefix(),
-            req.extraPaths(), req.version(), req.spaceTag()
+            req.extraPaths(), req.version(), req.spaceTag(), req.features()
         );
         return ResponseEntity.ok(reg);
     }

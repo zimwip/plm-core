@@ -214,24 +214,11 @@ public class ServiceClient {
     public HttpHeaders buildAuthHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Service-Secret", props.serviceSecret());
-
-        // Delegated-user mode: async job forwards user identity via explicit headers
-        // instead of a short-lived JWT. PlmAuthFilter on the target service validates
-        // X-Service-Secret and reconstructs the security context from these headers.
-        ServiceClientTokenContext.DelegatedContext delegated = ServiceClientTokenContext.getDelegated();
-        if (delegated != null) {
-            headers.set("X-PLM-User-Id", delegated.userId());
-            headers.set("X-PLM-Is-Admin", String.valueOf(delegated.isAdmin()));
-            if (delegated.roleIds() != null && !delegated.roleIds().isEmpty()) {
-                headers.set("X-PLM-User-Roles", String.join(",", delegated.roleIds()));
-            }
-            if (delegated.projectSpaceId() != null && !delegated.projectSpaceId().isBlank()) {
-                headers.set("X-PLM-ProjectSpace", delegated.projectSpaceId());
-            }
-            return headers;
-        }
+        String jobId = OperationTokenContext.get();
+        if (jobId != null) headers.set("X-Job-Id", jobId);
 
         String auth = null;
+        String ps = null;
         try {
             ServletRequestAttributes attrs =
                 (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
@@ -239,7 +226,7 @@ public class ServiceClient {
                 HttpServletRequest req = attrs.getRequest();
                 auth = req.getHeader("Authorization");
                 if (auth != null) headers.set("Authorization", auth);
-                String ps = req.getHeader("X-PLM-ProjectSpace");
+                ps = req.getHeader("X-PLM-ProjectSpace");
                 if (ps != null) headers.set("X-PLM-ProjectSpace", ps);
                 // OTel trace propagation — Micrometer interceptor overrides with child-span
                 // traceparent when active; this is a fallback for unconfigured environments.
@@ -249,10 +236,15 @@ public class ServiceClient {
                 if (tracestate != null) headers.set("tracestate", tracestate);
             }
         } catch (Exception ignored) {}
-        // Fallback for async contexts where the request may have been recycled
+
+        // Async fallback: request context recycled; use values captured by PlmAuthFilter.
         if (auth == null) {
-            String override = ServiceClientTokenContext.get();
-            if (override != null) headers.set("Authorization", override);
+            String token = ServiceClientTokenContext.get();
+            if (token != null) headers.set("Authorization", "Bearer " + token);
+        }
+        if (ps == null) {
+            String asyncPs = ServiceClientTokenContext.getProjectSpace();
+            if (asyncPs != null) headers.set("X-PLM-ProjectSpace", asyncPs);
         }
         return headers;
     }

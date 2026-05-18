@@ -2,6 +2,7 @@ package com.plm.platform.api.environment;
 
 import com.plm.platform.environment.PlatformRegistrationProperties;
 import lombok.extern.slf4j.Slf4j;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.info.BuildProperties;
@@ -43,7 +44,8 @@ public class PlatformSelfRegistration {
             props.routePrefix(),
             props.extraPaths(),
             version,
-            props.spaceTag()
+            props.spaceTag(),
+            List.of()
         );
         log.info("platform-api self-registered as instance {} (version {}, baseUrl {})",
             reg.instanceId(), version, props.selfBaseUrl());

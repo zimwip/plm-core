@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../services/api';
-import { usePlmStore } from '../store/usePlmStore';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useWsEvent } from '../hooks/useWsEvent';
 
 // ── Tree builder ──────────────────────────────────────────────────────────────
 
@@ -123,6 +122,10 @@ export default function CommentPanel({
   users,
   triggerText,
   onClearTrigger,
+  versionId,
+  attributes,
+  revision,
+  iteration,
 }) {
   const [comments,  setComments]  = useState([]);
   const [text,      setText]      = useState('');
@@ -132,15 +135,12 @@ export default function CommentPanel({
   const [acIdx,     setAcIdx]     = useState(0);
   const textareaRef = useRef(null);
 
-  const desc      = usePlmStore(s => s.activeNodeDescs[nodeId]);
-  const versionId = desc?.currentVersionId;
-
   // Maps for rendering mentions
   const attrMap = useMemo(() => {
     const m = {};
-    (desc?.attributes || []).forEach(a => { m[a.id] = a.label; });
+    (attributes || []).forEach(a => { m[a.id] = a.label; });
     return m;
-  }, [desc?.attributes]);
+  }, [attributes]);
 
   const userMap = useMemo(() => {
     const m = {};
@@ -153,7 +153,7 @@ export default function CommentPanel({
     if (!acState) return [];
     const q = acState.query.toLowerCase();
     if (acState.type === '#') {
-      return (desc?.attributes || [])
+      return (attributes || [])
         .filter(a => a.id.toLowerCase().includes(q) || a.label.toLowerCase().includes(q))
         .slice(0, 8)
         .map(a => ({ id: a.id, label: a.label, prefix: '#' }));
@@ -163,7 +163,7 @@ export default function CommentPanel({
       .filter(u => u.id.toLowerCase().includes(q) || (u.displayName || u.username || '').toLowerCase().includes(q))
       .slice(0, 8)
       .map(u => ({ id: u.id, label: u.displayName || u.username, prefix: '@' }));
-  }, [acState, desc?.attributes, users]);
+  }, [acState, attributes, users]);
 
   const load = useCallback(async () => {
     if (!nodeId) return;
@@ -175,14 +175,10 @@ export default function CommentPanel({
 
   useEffect(() => { load(); }, [load]);
 
-  useWebSocket(
-    nodeId ? `/topic/nodes/${nodeId}` : null,
-    (evt) => {
-      if (evt.nodeId && evt.nodeId !== nodeId) return;
-      if (evt.event === 'COMMENT_ADDED') load();
-    },
-    userId,
-  );
+  useWsEvent((evt) => {
+    if (evt.nodeId && evt.nodeId !== nodeId) return;
+    if (evt.event === 'COMMENT_ADDED') load();
+  });
 
   // Consume triggerText from parent (right-click on attribute)
   useEffect(() => {
@@ -271,8 +267,8 @@ export default function CommentPanel({
     finally { setLoading(false); }
   }
 
-  const versionLabel = desc
-    ? `${desc.revision ?? ''}${desc.iteration != null ? '.' + desc.iteration : ''}`
+  const versionLabel = revision != null
+    ? `${revision ?? ''}${iteration != null ? '.' + iteration : ''}`
     : '';
 
   return (

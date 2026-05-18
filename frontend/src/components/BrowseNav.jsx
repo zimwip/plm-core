@@ -129,7 +129,7 @@ export default function BrowseNav({
   }), [userId, activeNodeId, stateColorMap, onNavigate]);
 
   const keyOf = useCallback(
-    (d) => `${d.serviceCode}:${d.itemCode}:${d.itemKey || ''}`,
+    (d) => `${d.serviceCode}:${d.itemCode}`,
     [],
   );
 
@@ -539,8 +539,8 @@ export default function BrowseNav({
                               isLoading={isItemLoading}
                               onToggleExpand={(e) => toggleItemChildren(itemPath, item, d, e)}
                               onToggleChildren={(e) => toggleItemChildren(itemPath, item, d, e)}
-                              onPin={() => addToBasket(storeUserId, d.serviceCode, d.itemKey || d.itemCode, id)}
-                              onUnpin={isLocked ? null : () => removeFromBasket(storeUserId, d.serviceCode, d.itemKey || d.itemCode, id)}
+                              onPin={() => addToBasket(storeUserId, d.serviceCode, d.itemCode, id)}
+                              onUnpin={isLocked ? null : () => removeFromBasket(storeUserId, d.serviceCode, d.itemCode, id)}
                             />
                             {isItemExp && renderChildren(
                               plugin, d, item, itemPath, 1, new Set([id]),

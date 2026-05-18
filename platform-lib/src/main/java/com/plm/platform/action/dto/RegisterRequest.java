@@ -15,5 +15,6 @@ public record RegisterRequest(
     String routePrefix,
     List<String> extraPaths,
     String version,
-    String spaceTag
+    String spaceTag,
+    List<String> features
 ) {}

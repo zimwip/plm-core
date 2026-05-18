@@ -15,7 +15,8 @@ public record PlmPrincipal(
     Set<String> roleIds,
     String projectSpaceId,
     String tokenType,
-    List<String> allowedServiceCodes
+    List<String> allowedServiceCodes,
+    String jobId  // non-null only for typ=op tokens; binds token to a specific job
 ) {
     public boolean canAccessService(String serviceCode) {
         return isAdmin || (allowedServiceCodes != null && allowedServiceCodes.contains(serviceCode));

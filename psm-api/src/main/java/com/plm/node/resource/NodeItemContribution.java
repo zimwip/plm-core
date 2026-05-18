@@ -43,7 +43,6 @@ public class NodeItemContribution implements ItemCatalogContribution {
 
     private static final String CREATE_NODE = "create_node";
     private static final String SOURCE_LABEL = "PLM";
-    private static final String ITEM_CODE = "node";
 
     private final ConfigCache   configCache;
     private final ActionService actionService;
@@ -89,8 +88,8 @@ public class NodeItemContribution implements ItemCatalogContribution {
 
             out.add(new ItemDescriptor(
                 "psm",
-                ITEM_CODE,
                 nt.id(),
+                null,
                 nt.name(),
                 nt.description(),
                 nt.icon(),

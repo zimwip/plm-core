@@ -25,7 +25,7 @@ export default function BottomConsole({
   activeNodeId,
 }) {
   const [collapsed, setCollapsed] = React.useState(false);
-  const txId = tx?.ID || tx?.id;
+  const txId = tx?.txId || tx?.ID || tx?.id;
 
   return (
     <div className={`bottom-console ${collapsed ? 'collapsed' : ''}`}>

@@ -118,11 +118,10 @@ export function setAuthExpiredHandler(fn) { _onAuthExpired = fn; }
 
 // ── Auth API (public — does not require a session token) ───────────
 export const authApi = {
-  login: async (userId, projectSpaceId) => {
+  login: async (userId) => {
     const res = await timedFetch('/api/spe/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, projectSpaceId }),
+      headers: { 'X-User': userId },
     }, 'POST');
     if (!res.ok) {
       const payload = await res.json().catch(() => ({ error: res.statusText }));
@@ -527,6 +526,30 @@ export const api = {
     const text = await res.text();
     const body = text ? JSON.parse(text) : null;
     return normalisePage(body, page, size);
+  },
+
+  // Search API — calls the dedicated search-api service
+  searchNodes: async (query, filterTerms = {}, facetOn = ['_type', '_projectSpaceId'], size = 100) => {
+    const url = `${serviceBase('search')}/search`;
+    const headers = { 'Content-Type': 'application/json' };
+    if (_sessionToken)    headers['Authorization']     = `Bearer ${_sessionToken}`;
+    if (_projectSpaceId)  headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+    const body = JSON.stringify({ query, filterTerms, facetOn, size });
+    const res  = await timedFetch(url, { method: 'POST', headers, body }, 'POST');
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({ error: res.statusText }));
+      throw new ApiError(res.status, detail.error || `HTTP ${res.status}`, detail);
+    }
+    return res.json();
+  },
+
+  searchInfo: async () => {
+    const url = `${serviceBase('search')}/search/info`;
+    const headers = {};
+    if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
+    const res = await timedFetch(url, { method: 'GET', headers }, 'GET');
+    if (!res.ok) return { available: false, nodeCount: 0, edgeCount: 0 };
+    return res.json();
   },
 
   // Sources — federated source metadata (id, name, versioned, ...)
@@ -1059,41 +1082,46 @@ export const platformActionsApi = {
       .then(data => data?.services?.[serviceCode] || { handlers: [], guards: [] }),
 };
 
-// ── Transactions ────────────────────────────────────────────────────
+// ── Transactions (federated via platform-api) ───────────────────────
 
 export const txApi = {
-  /** Ouvre une nouvelle transaction. Retourne { txId }. */
-  open: (userId, title) =>
-    request('POST', '/transactions', userId, { title }),
+  /** Ouvre une transaction dans le service cible. Retourne { txId }. */
+  open: (_userId, _title, serviceCode = 'psm') =>
+    platformRequest('POST', `/transactions/${serviceCode}`, null),
 
-  /** Statut de la transaction courante OPEN de l'utilisateur (résolu depuis X-PLM-User). */
-  current: (userId) =>
-    request('GET', '/transactions/current', userId),
+  /** Transaction OPEN courante de l'utilisateur (premier résultat agrégé). */
+  current: async (_userId) => {
+    const list = await platformRequest('GET', '/transactions?status=OPEN', null);
+    return Array.isArray(list) && list.length > 0 ? list[0] : null;
+  },
 
-  /** Commite avec un commentaire. nodeIds optionnel : si fourni, seuls ces noeuds sont commités. */
-  commit: (userId, txId, comment, nodeIds) =>
-    request('POST', `/actions/commit/${txId}`, userId,
-      { parameters: { comment, ...(nodeIds ? { nodeIds: nodeIds.join(',') } : {}) } }),
+  /** Commite. serviceCode + txId identifient la transaction. itemIds optionnel = commit partiel. */
+  commit: (_userId, serviceCode, txId, comment, nodeIds) =>
+    platformRequest('POST', `/transactions/${serviceCode}/${txId}/commit`, null,
+      { comment, ...(nodeIds?.length ? { itemIds: nodeIds } : {}) }),
 
-  /** Libère une liste de noeuds d'une transaction (rollback partiel). */
-  release: (userId, txId, nodeIds) =>
-    request('POST', `/transactions/${txId}/release`, userId, { nodeIds }),
+  /** Libère des items d'une transaction (rollback partiel). */
+  release: (_userId, serviceCode, txId, nodeIds) =>
+    platformRequest('DELETE', `/transactions/${serviceCode}/${txId}/items`, null,
+      { itemIds: nodeIds }),
 
   /** Annule et supprime la transaction. */
-  rollback: (userId, txId) =>
-    request('POST', `/actions/rollback/${txId}`, userId, { parameters: {} }),
+  rollback: (_userId, serviceCode, txId) =>
+    platformRequest('POST', `/transactions/${serviceCode}/${txId}/rollback`, null),
 
   /** Détail d'une transaction. */
-  get: (userId, txId) =>
-    request('GET', `/transactions/${txId}`, userId),
+  get: (_userId, serviceCode, txId) =>
+    platformRequest('GET', `/transactions/${serviceCode}/${txId}`, null),
 
-  /** Versions dans une transaction. */
-  versions: (userId, txId) =>
-    request('GET', `/transactions/${txId}/versions`, userId),
+  /** Items modifiés dans une transaction (TxDetail.items). */
+  nodes: async (_userId, serviceCode, txId) => {
+    const detail = await platformRequest('GET', `/transactions/${serviceCode}/${txId}`, null);
+    return detail?.items || [];
+  },
 
-  /** Noeuds modifiés dans une transaction (1 entrée par noeud, dernière version). */
-  nodes: (userId, txId) =>
-    request('GET', `/transactions/${txId}/nodes`, userId),
+  /** Versions dans une transaction — appel direct PSM (non fédéré). */
+  versions: (_userId, txId) =>
+    request('GET', `/transactions/${txId}/versions`, _userId),
 };
 
 /** Build headers with Bearer + X-PLM-Tx / X-PLM-ProjectSpace. userId kept for API compat. */

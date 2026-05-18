@@ -79,11 +79,11 @@ export default function NavShell({ descriptor, itemRef, initialItem, ctx, isOpen
     : false;
 
   const onPin = useCallback(() => {
-    addToBasket(storeUserId, descriptor.serviceCode, descriptor.itemKey || descriptor.itemCode, itemId);
+    addToBasket(storeUserId, descriptor.serviceCode, descriptor.itemCode, itemId);
   }, [addToBasket, storeUserId, descriptor, itemId]);
 
   const onUnpinFn = useCallback(() => {
-    removeFromBasket(storeUserId, descriptor.serviceCode, descriptor.itemKey || descriptor.itemCode, itemId);
+    removeFromBasket(storeUserId, descriptor.serviceCode, descriptor.itemCode, itemId);
   }, [removeFromBasket, storeUserId, descriptor, itemId]);
 
   const onUnpin = isLocked ? null : onUnpinFn;

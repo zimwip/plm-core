@@ -42,6 +42,7 @@ BACKEND_SVC_ROWS=(
     "spe-api|8082||true|SPE"
     "dst|8086|dst||DST"
     "cad-api|8087|cad||CAD"
+    "search-api|8088|||SEARCH"
 )
 
 SVC_NAMES=()

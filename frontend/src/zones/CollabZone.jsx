@@ -1,8 +1,8 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import CommentPanel from '../components/CommentPanel';
 import { useShellStore } from '../shell/shellStore';
 
-export default function CollabZone({ activeNodeId, userId, users }) {
+export default function CollabZone({ activeNodeId, userId, users, activeNodeDesc }) {
   const showCollab         = useShellStore(s => s.showCollab);
   const collabWidth        = useShellStore(s => s.collabWidth);
   const setCollabWidth     = useShellStore(s => s.setCollabWidth);
@@ -24,6 +24,16 @@ export default function CollabZone({ activeNodeId, userId, users }) {
     document.addEventListener('mouseup', onUp);
   }, [collabWidth, setCollabWidth]);
 
+  const versionId = activeNodeDesc?.metadata?.currentVersionId ?? null;
+  const revision  = activeNodeDesc?.metadata?.revision ?? null;
+  const iteration = activeNodeDesc?.metadata?.iteration ?? null;
+  const attributes = useMemo(() => {
+    const attrMeta = activeNodeDesc?.metadata?.attributeMeta || {};
+    return (activeNodeDesc?.fields || [])
+      .filter(f => attrMeta[f.name])
+      .map(f => ({ id: f.name, label: f.label }));
+  }, [activeNodeDesc]);
+
   if (!showCollab || !activeNodeId) return null;
 
   return (
@@ -39,6 +49,10 @@ export default function CollabZone({ activeNodeId, userId, users }) {
         users={users}
         triggerText={triggerText}
         onClearTrigger={clearTriggerText}
+        versionId={versionId}
+        attributes={attributes}
+        revision={revision}
+        iteration={iteration}
       />
       {collabTabs.map(tab => (
         <div key={tab.id} style={{ display: 'none' }} />

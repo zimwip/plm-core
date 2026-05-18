@@ -1,16 +1,15 @@
 package com.plm.platform.auth;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.AntPathMatcher;
 
+import com.plm.platform.client.OperationTokenContext;
 import com.plm.platform.client.ServiceClientTokenContext;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
@@ -21,18 +20,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
- * Shared servlet filter. For every inbound request:
+ * Shared servlet filter applied to every inbound request:
  * <ul>
- *   <li>Strips the servlet context-path (e.g. {@code /api/pno}) so patterns are
- *       written relative to the service's own namespace.</li>
  *   <li>Bypasses {@code publicPaths} entirely.</li>
- *   <li>Validates {@code X-Service-Secret} on {@code secretPaths} (service-to-service).</li>
- *   <li>Otherwise requires a {@code Bearer} JWT, verifies it, and runs every
- *       registered {@link PlmAuthContextBinder}.</li>
+ *   <li>Validates {@code X-Service-Secret} on {@code secretPaths} (S2S calls).</li>
+ *   <li>Otherwise requires a {@code Bearer} forward JWT minted by spe-api,
+ *       resolves roles from the local pno cache, then calls every registered
+ *       {@link PlmAuthContextBinder} to populate service-local ThreadLocals.</li>
  * </ul>
- *
- * Replaces the per-service JwtAuthFilter / PlmAdminAuthFilter / SettingsAuthFilter /
- * PnoAuthFilter copies that used to live in each app.
  */
 public class PlmAuthFilter implements Filter {
 
@@ -42,13 +37,14 @@ public class PlmAuthFilter implements Filter {
     private final AuthProperties props;
     private final JwtVerifier verifier;
     private final List<PlmAuthContextBinder> binders;
-    private final String selfServiceCode;
+    private final PnoRoleCache roleCache;
 
-    public PlmAuthFilter(AuthProperties props, JwtVerifier verifier, List<PlmAuthContextBinder> binders, String selfServiceCode) {
+    public PlmAuthFilter(AuthProperties props, JwtVerifier verifier,
+                         List<PlmAuthContextBinder> binders, PnoRoleCache roleCache) {
         this.props = props;
         this.verifier = verifier;
         this.binders = binders;
-        this.selfServiceCode = selfServiceCode;
+        this.roleCache = roleCache;
     }
 
     @Override
@@ -68,40 +64,28 @@ public class PlmAuthFilter implements Filter {
             return;
         }
 
-        // Service-delegated auth: a trusted internal service (validated via X-Service-Secret)
-        // forwards the original user's identity via explicit headers. Checked BEFORE secretPaths
-        // so that endpoints like /internal/import can receive user context when needed.
-        String delegatedSecret = req.getHeader("X-Service-Secret");
-        String delegatedUserId = req.getHeader("X-PLM-User-Id");
-        if (delegatedSecret != null && delegatedSecret.equals(props.getServiceSecret())
-                && delegatedUserId != null && !delegatedUserId.isBlank()) {
-            String rolesHeader = req.getHeader("X-PLM-User-Roles");
-            Set<String> roles = (rolesHeader != null && !rolesHeader.isBlank())
-                ? Arrays.stream(rolesHeader.split(",")).map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toSet())
-                : Set.of();
-            boolean isAdmin = "true".equalsIgnoreCase(req.getHeader("X-PLM-Is-Admin"));
-            String ps = req.getHeader("X-PLM-ProjectSpace");
-            PlmPrincipal delegated = new PlmPrincipal(delegatedUserId, delegatedUserId, isAdmin, roles, ps, "service-delegated", null);
-            try {
-                req.setAttribute("plm.principal", delegated);
-                for (PlmAuthContextBinder b : binders) b.bind(delegated, req);
-                ServiceClientTokenContext.setDelegated(new ServiceClientTokenContext.DelegatedContext(
-                    delegated.userId(), delegated.username(), delegated.roleIds(), delegated.isAdmin(), delegated.projectSpaceId()));
-                chain.doFilter(request, response);
-            } finally {
-                for (PlmAuthContextBinder b : binders) b.clear();
-                ServiceClientTokenContext.clear();
-            }
-            return;
-        }
-
         if (matchesAny(pathInCtx, props.getSecretPaths())) {
             String provided = req.getHeader("X-Service-Secret");
             if (provided == null || !provided.equals(props.getServiceSecret())) {
                 reject(resp, 403, "Invalid or missing service secret");
                 return;
             }
-            chain.doFilter(request, response);
+            // Capture JWT + job-id from caller so async threads can propagate them
+            // on subsequent S2S calls (e.g., long-running import jobs calling back to psm).
+            String authHeader = req.getHeader("Authorization");
+            if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                ServiceClientTokenContext.set(authHeader.substring("Bearer ".length()).trim());
+                String ps = req.getHeader("X-PLM-ProjectSpace");
+                if (ps != null) ServiceClientTokenContext.setProjectSpace(ps);
+            }
+            String jobId = req.getHeader("X-Job-Id");
+            if (jobId != null) OperationTokenContext.set(jobId);
+            try {
+                chain.doFilter(request, response);
+            } finally {
+                ServiceClientTokenContext.clear();
+                OperationTokenContext.clear();
+            }
             return;
         }
 
@@ -110,34 +94,50 @@ public class PlmAuthFilter implements Filter {
             reject(resp, 401, "Missing Bearer token");
             return;
         }
-        Optional<PlmPrincipal> principal = verifier.verify(auth.substring("Bearer ".length()).trim());
-        if (principal.isEmpty()) {
+        String token = auth.substring("Bearer ".length()).trim();
+        Optional<PlmPrincipal> base = verifier.verify(token);
+        if (base.isEmpty()) {
             reject(resp, 401, "Invalid or expired token");
             return;
         }
 
-        if (selfServiceCode != null && !selfServiceCode.isBlank()
-                && !principal.get().canAccessService(selfServiceCode)) {
-            reject(resp, 403, "Access to service '" + selfServiceCode + "' not granted");
+        PlmPrincipal p = base.get();
+
+        // Operation tokens (typ=op) must carry X-Job-Id matching the jid claim.
+        if ("op".equals(p.tokenType())) {
+            String jobIdHeader = req.getHeader("X-Job-Id");
+            if (jobIdHeader == null || !jobIdHeader.equals(p.jobId())) {
+                reject(resp, 403, "Operation token job-id mismatch");
+                return;
+            }
+        }
+
+        Set<String> roles;
+        try {
+            roles = roleCache != null
+                ? roleCache.getRoles(p.userId(), p.projectSpaceId())
+                : Set.of();
+        } catch (Exception e) {
+            log.error("Role resolution failed for user={}: {}", p.userId(), e.getMessage());
+            reject(resp, 503, "Role resolution temporarily unavailable");
             return;
         }
 
+        PlmPrincipal principal = new PlmPrincipal(
+            p.userId(), p.username(), p.isAdmin(), roles, p.projectSpaceId(), p.tokenType(), List.of(), p.jobId());
 
         try {
-            req.setAttribute("plm.principal", principal.get());
-            for (PlmAuthContextBinder b : binders) {
-                b.bind(principal.get(), req);
-            }
-            PlmPrincipal p = principal.get();
-            ServiceClientTokenContext.setDelegated(new ServiceClientTokenContext.DelegatedContext(
-                p.userId(), p.username(), p.roleIds(), p.isAdmin(), p.projectSpaceId()));
-            log.debug("Auth: {}", p);
+            req.setAttribute("plm.principal", principal);
+            for (PlmAuthContextBinder b : binders) b.bind(principal, req);
+            ServiceClientTokenContext.set(token);
+            ServiceClientTokenContext.setProjectSpace(principal.projectSpaceId());
+            if (principal.jobId() != null) OperationTokenContext.set(principal.jobId());
+            log.debug("Auth: {}", principal);
             chain.doFilter(request, response);
         } finally {
-            for (PlmAuthContextBinder b : binders) {
-                b.clear();
-            }
+            for (PlmAuthContextBinder b : binders) b.clear();
             ServiceClientTokenContext.clear();
+            OperationTokenContext.clear();
         }
     }
 

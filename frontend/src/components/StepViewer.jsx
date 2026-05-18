@@ -23,6 +23,7 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
   const hoveredUuidRef = useRef(null);
   const meshDataRef    = useRef({});  // uuid → meshes array (cache for multi-instance)
   const activePartsRef = useRef([]);  // current activeParts (for worker handler closure)
+  const onResizeRef    = useRef(null);
 
   useEffect(() => { onNavRef.current = onNavigateToNode; }, [onNavigateToNode]);
 
@@ -123,6 +124,8 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
       renderer.setSize(nw, nh);
       gizmo.update();
     }
+
+    onResizeRef.current = onResize;
 
     const themeObserver = new MutationObserver(() => {
       if (sceneRef.current) sceneRef.current.background = getSceneBg();
@@ -352,6 +355,7 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
 
   // ── Helpers ──────────────────────────────────────────────────
   function fitCamera() {
+    onResizeRef.current?.();
     const scene    = sceneRef.current;
     const camera   = cameraRef.current;
     const controls = controlsRef.current;

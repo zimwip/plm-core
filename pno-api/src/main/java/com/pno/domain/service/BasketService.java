@@ -63,4 +63,23 @@ public class BasketService {
             params.toArray()
         );
     }
+
+    /**
+     * Remove a physically deleted item from every user's basket.
+     * Returns the affected rows (userId, psId, source, typeCode) so callers can notify users.
+     */
+    public List<Map<String, Object>> removeByItemId(String itemId) {
+        List<Map<String, Object>> affected = dsl.fetch(
+            "SELECT user_id, ps_id, source, type_code FROM basket_item WHERE item_id = ?", itemId
+        ).stream().map(r -> Map.<String, Object>of(
+            "userId",   r.get("user_id",   String.class),
+            "psId",     r.get("ps_id",     String.class),
+            "source",   r.get("source",    String.class),
+            "typeCode", r.get("type_code", String.class)
+        )).collect(Collectors.toList());
+        if (!affected.isEmpty()) {
+            dsl.execute("DELETE FROM basket_item WHERE item_id = ?", itemId);
+        }
+        return affected;
+    }
 }

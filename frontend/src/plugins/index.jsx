@@ -61,7 +61,7 @@ export function registerBuiltinPlugins() {
   // PSM nodes — Preview + hasItemChildren registered at boot.
   // NavLabel / ChildRow / fetchChildren injected async by PluginLoader (psm-nav).
   registerSourcePlugin({
-    match: { serviceCode: 'psm', itemCode: 'node' },
+    match: { serviceCode: 'psm' },
     name: 'psm-shell',
     NavLabel: PsmFallbackNavLabel,
     Preview: StepPreviewPanel,

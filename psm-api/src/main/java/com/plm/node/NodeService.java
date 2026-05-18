@@ -198,7 +198,7 @@ public class NodeService {
             versionId
         );
 
-        eventPublisher.nodeCreated(nodeId, nodeTypeId, userId, projectSpaceId);
+        eventPublisher.nodeCreated(nodeId, nodeTypeId, userId, projectSpaceId, buildNodePayload(nodeId));
         log.info(
             "Node created: id={} type={} user={}",
             nodeId,
@@ -733,7 +733,7 @@ public class NodeService {
                       description
                   );
 
-        eventPublisher.itemUpdated(nodeId, userId);
+        eventPublisher.itemUpdated(nodeId, userId, buildNodePayload(nodeId));
         return versionId;
     }
 
@@ -1015,7 +1015,7 @@ public class NodeService {
             metadata.put("fingerprintChanged", null);
         }
 
-        return new DetailDescriptor(nodeId, new ItemTypeRef("psm", "node", nodeTypeId),
+        return new DetailDescriptor(nodeId, new ItemTypeRef("psm", nodeTypeId, nodeId),
             identity, displayName, null, null, fields, List.of(), metadata);
     }
 
@@ -1260,6 +1260,110 @@ public class NodeService {
                     " would create a cycle in the structure",
                 422
             );
+        }
+    }
+
+    // ================================================================
+    // SEARCH PAYLOAD — builds the node payload embedded in ITEM_* events
+    // ================================================================
+
+    Map<String, Object> buildNodePayload(String nodeId) {
+        try {
+            org.jooq.Record node = dsl.fetchOne(
+                "SELECT node_type_id, project_space_id, logical_id FROM node WHERE id = ?", nodeId);
+            if (node == null) return Map.of();
+
+            String nodeTypeId     = node.get("node_type_id",     String.class);
+            String projectSpaceId = node.get("project_space_id", String.class);
+            String logicalId      = node.get("logical_id",       String.class);
+
+            org.jooq.Record version = dsl.fetchOne("""
+                SELECT nv.id, nv.revision, nv.iteration
+                  FROM node_version nv
+                  JOIN plm_transaction pt ON pt.id = nv.tx_id
+                 WHERE nv.node_id = ?
+                   AND pt.status IN ('COMMITTED', 'OPEN')
+                 ORDER BY nv.version_number DESC
+                 LIMIT 1
+                """, nodeId);
+            if (version == null) return Map.of();
+
+            String versionId = version.get("id", String.class);
+            Map<String, String> attrValues = new LinkedHashMap<>();
+            dsl.select().from("node_version_attribute").where("node_version_id = ?", versionId)
+                .fetch().forEach(r -> attrValues.put(
+                    r.get("attribute_def_id", String.class),
+                    r.get("value", String.class)));
+
+            var resolvedNodeType = metaModelCache.get(nodeTypeId);
+            List<ResolvedAttribute> baseAttrs = resolvedNodeType != null
+                ? resolvedNodeType.attributes() : List.of();
+            Set<String> nodeTypeAttrNames = baseAttrs.stream()
+                .map(ResolvedAttribute::name).collect(Collectors.toSet());
+            List<ResolvedAttribute> attrs = new ArrayList<>(baseAttrs);
+            List<String> domainIds = dsl.select(DSL.field("domain_id"))
+                .from("node_version_domain").where("node_version_id = ?", versionId)
+                .fetch("domain_id", String.class);
+            for (String domId : domainIds) {
+                for (ResolvedAttribute da : metaModelCache.getDomainAttributes(domId)) {
+                    if (!nodeTypeAttrNames.contains(da.name())) attrs.add(da);
+                }
+            }
+
+            String revision  = version.get("revision",  String.class);
+            Integer iteration = version.get("iteration", Integer.class);
+
+            List<Map<String, Object>> fields = new ArrayList<>();
+            fields.add(Map.of("name", "logical_id", "valueType", "string",
+                "values", List.of(logicalId != null ? logicalId : "")));
+            fields.add(Map.of("name", "revision", "valueType", "string",
+                "values", List.of(revision != null ? revision : "")));
+            fields.add(Map.of("name", "iteration", "valueType", "number",
+                "values", List.of(iteration != null ? (double) iteration : 0.0)));
+
+            for (ResolvedAttribute attr : attrs) {
+                String raw = attrValues.get(attr.id());
+                if (raw == null || raw.isBlank()) continue;
+                String valueType  = normalizeAttrType(attr.dataType());
+                Object typed      = parseAttrValue(raw, valueType);
+                fields.add(Map.of("name", attr.name(), "valueType", valueType,
+                    "values", List.of(typed)));
+            }
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("type",     nodeTypeId);
+            payload.put("typeCode", nodeTypeId);
+            payload.put("projectSpaceId", projectSpaceId != null ? projectSpaceId : "");
+            payload.put("logicalId",      logicalId != null ? logicalId : "");
+            payload.put("revision",       revision != null ? revision : "");
+            payload.put("iteration",      iteration != null ? iteration : 0);
+            payload.put("fields",         fields);
+            return payload;
+        } catch (Exception e) {
+            log.warn("buildNodePayload failed: node={} err={}", nodeId, e.getMessage());
+            return Map.of();
+        }
+    }
+
+    private static String normalizeAttrType(String dataType) {
+        if (dataType == null) return "string";
+        return switch (dataType.toLowerCase()) {
+            case "number", "integer", "float", "double", "decimal" -> "number";
+            case "date", "datetime", "timestamp"                   -> "date";
+            case "boolean", "bool"                                 -> "boolean";
+            default                                                -> "string";
+        };
+    }
+
+    private static Object parseAttrValue(String raw, String valueType) {
+        try {
+            return switch (valueType) {
+                case "number"  -> Double.parseDouble(raw);
+                case "boolean" -> Boolean.parseBoolean(raw);
+                default        -> raw;
+            };
+        } catch (Exception e) {
+            return raw;
         }
     }
 }

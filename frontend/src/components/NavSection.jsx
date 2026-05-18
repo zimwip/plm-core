@@ -86,7 +86,7 @@ export default function NavSection({
             <NavShell
               key={id}
               descriptor={descriptor}
-              itemRef={{ source: descriptor.serviceCode, type: descriptor.itemKey || descriptor.itemCode || '', key: id }}
+              itemRef={{ source: descriptor.serviceCode, type: descriptor.itemCode || '', key: id }}
               initialItem={openItemDataMap[id] || undefined}
               ctx={ctx}
               isOpen={isOpen}

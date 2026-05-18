@@ -24,10 +24,12 @@ public record PlatformRegistrationProperties(
     String serviceSecret,
     Boolean enabled,
     String spaceTag,
-    Boolean subscribeOnly
+    Boolean subscribeOnly,
+    List<String> features
 ) {
     public PlatformRegistrationProperties {
         if (extraPaths == null) extraPaths = List.of();
+        if (features == null) features = List.of();
         if (platformUrl == null || platformUrl.isBlank()) platformUrl = "http://platform-api:8084";
         if (enabled == null) enabled = Boolean.TRUE;
         if (subscribeOnly == null) subscribeOnly = Boolean.FALSE;

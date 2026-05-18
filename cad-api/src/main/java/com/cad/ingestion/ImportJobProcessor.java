@@ -15,7 +15,10 @@ import com.cad.ingestion.model.ImportJobResult;
 import com.cad.ingestion.model.SplitPart;
 import com.plm.platform.algorithm.AlgorithmRegistry;
 import com.plm.platform.nats.PlmMessageBus;
+import com.plm.platform.client.OperationTokenClient;
+import com.plm.platform.client.OperationTokenContext;
 import com.plm.platform.client.ServiceClient;
+import com.plm.platform.client.ServiceClientTokenContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
@@ -44,6 +47,9 @@ public class ImportJobProcessor {
     @Autowired(required = false)
     private PlmMessageBus messageBus;
 
+    @Autowired(required = false)
+    private OperationTokenClient operationTokenClient;
+
     public ImportJobProcessor(
             ImportJobRepository repository,
             CadParserClient parserClient,
@@ -64,6 +70,7 @@ public class ImportJobProcessor {
     @Async
     public void process(UUID jobId, byte[] fileBytes, String filename, ImportJobContext ctx) {
         log.info("Starting import job {} file={} contextCode={}", jobId, filename, ctx.importContextCode());
+        elevateToOperationToken(ctx.jobId());
 
         repository.updateStatus(jobId, "RUNNING", LocalDateTime.now(), null);
 
@@ -358,6 +365,7 @@ public class ImportJobProcessor {
     public void processMulti(UUID jobId, byte[] originalZipBytes, String zipFilename,
                               List<ZipUtil.FileEntry> files, ImportJobContext ctx) {
         log.info("Starting ZIP import job {} files={} contextCode={}", jobId, files.size(), ctx.importContextCode());
+        elevateToOperationToken(ctx.jobId());
         repository.updateStatus(jobId, "RUNNING", LocalDateTime.now(), null);
 
         boolean ownTx = ctx.psmTxId() == null;
@@ -721,6 +729,19 @@ public class ImportJobProcessor {
     }
 
     @SuppressWarnings("unchecked")
+    /** Elevates the captured forward JWT to a job-scoped operation token (15 min). */
+    private void elevateToOperationToken(String jobId) {
+        if (operationTokenClient == null || jobId == null) return;
+        try {
+            String opToken = operationTokenClient.requestToken(jobId, 900);
+            ServiceClientTokenContext.set(opToken);
+            OperationTokenContext.set(jobId);
+            log.debug("Operation token obtained for job={}", jobId);
+        } catch (Exception e) {
+            log.warn("Could not obtain operation token for job={}: {} — falling back to captured fwd JWT", jobId, e.getMessage());
+        }
+    }
+
     private Map<String, Object> fetchImportContext(String contextCode) {
         if (contextCode == null || contextCode.isBlank() || "default".equals(contextCode)) return null;
         try {

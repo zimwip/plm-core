@@ -16,10 +16,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
- * Subscribes to {@code global.ITEM_CREATED} and auto-adds created items to
- * the actor's basket ({@code BASKET} KV group, key = source:typeCode,
- * value = itemId). Best-effort: errors are logged and swallowed so a
- * bad event never breaks the message bus.
+ * Subscribes to {@code global.ITEM_CREATED} (auto-add to basket) and
+ * {@code global.ITEM_DELETED} (auto-remove from all users' baskets).
+ * Best-effort: errors are logged and swallowed.
  */
 @Slf4j
 @Component
@@ -32,11 +31,12 @@ public class BasketEventSubscriber {
     private final ObjectMapper        objectMapper;
     private final BasketPublisher     basketPublisher;
 
-    private Dispatcher dispatcher;
+    private Dispatcher createdDispatcher;
+    private Dispatcher deletedDispatcher;
 
     @PostConstruct
     void subscribe() {
-        dispatcher = natsListenerFactory.subscribe("global.ITEM_CREATED", msg -> {
+        createdDispatcher = natsListenerFactory.subscribe("global.ITEM_CREATED", msg -> {
             try {
                 String json = new String(msg.getData(), StandardCharsets.UTF_8);
                 Map<String, Object> payload = objectMapper.readValue(json, new TypeReference<>() {});
@@ -63,12 +63,39 @@ public class BasketEventSubscriber {
             }
         });
         log.info("BasketEventSubscriber: subscribed to global.ITEM_CREATED");
+
+        deletedDispatcher = natsListenerFactory.subscribe("global.ITEM_DELETED", msg -> {
+            try {
+                String json = new String(msg.getData(), StandardCharsets.UTF_8);
+                Map<String, Object> payload = objectMapper.readValue(json, new TypeReference<>() {});
+
+                String itemId = (String) payload.get("itemId");
+                if (itemId == null) {
+                    log.warn("BasketEventSubscriber: incomplete ITEM_DELETED payload, skipping");
+                    return;
+                }
+
+                var affected = basketService.removeByItemId(itemId);
+                for (var row : affected) {
+                    String userId   = (String) row.get("userId");
+                    String psId     = (String) row.get("psId");
+                    String source   = (String) row.get("source");
+                    String typeCode = (String) row.get("typeCode");
+                    basketPublisher.itemRemoved(userId, psId, source + ":" + typeCode, itemId);
+                }
+                if (!affected.isEmpty()) {
+                    log.debug("Basket auto-remove: item={} removed from {} basket(s)", itemId, affected.size());
+                }
+            } catch (Exception e) {
+                log.error("BasketEventSubscriber: failed to process ITEM_DELETED event: {}", e.getMessage(), e);
+            }
+        });
+        log.info("BasketEventSubscriber: subscribed to global.ITEM_DELETED");
     }
 
     @PreDestroy
     void unsubscribe() {
-        if (dispatcher != null) {
-            natsListenerFactory.close(dispatcher);
-        }
+        if (createdDispatcher != null) natsListenerFactory.close(createdDispatcher);
+        if (deletedDispatcher != null) natsListenerFactory.close(deletedDispatcher);
     }
 }

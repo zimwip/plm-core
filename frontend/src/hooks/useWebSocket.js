@@ -13,7 +13,7 @@ function fmtEvent(evt) {
   }
   const parts = [evt.event];
   if (evt.byUser)  parts.push(`by ${evt.byUser}`);
-  if (evt.nodeId)  parts.push(`node=${evt.nodeId}`);
+  if (evt.nodeId || evt.itemId)  parts.push(`node=${evt.nodeId || evt.itemId}`);
   if (evt.userId)  parts.push(`user=${evt.userId}`);
   if (evt.entity)  parts.push(evt.entity);
   if (evt.status)  parts.push(evt.status);
@@ -24,9 +24,10 @@ function fmtEvent(evt) {
 /**
  * Subscribe to real-time PLM events via native WebSocket.
  *
- * The ws-gateway pushes all events scoped to the authenticated user
- * (global + project/user-targeted). Components filter by event type
- * in their onEvent callback.
+ * The WS connection is project-agnostic. After connecting, a subscribe
+ * message is sent to ws-gateway to establish the per-project NATS
+ * subscription. When projectSpaceId changes, a new subscribe message is
+ * sent without reconnecting.
  *
  * Auth: session token passed as ?token= on the /api/ws URL.
  * spe-api's AuthenticationFilter validates it and mints a forward JWT
@@ -36,14 +37,24 @@ function fmtEvent(evt) {
  *                                    (NATS subjects handle scoping server-side).
  * @param {function} onEvent        - Called with parsed JSON event object.
  * @param {string} userId           - Triggers reconnect when user changes.
+ * @param {string} projectSpaceId   - Current project space; sent via subscribe message
+ *                                    after connect and on each change.
  */
-export function useWebSocket(topics, onEvent, userId) {
+export function useWebSocket(topics, onEvent, userId, projectSpaceId) {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+
+  // Stable ref so the subscribe effect always sends the latest value.
+  const projectSpaceIdRef = useRef(projectSpaceId);
+  projectSpaceIdRef.current = projectSpaceId;
+
+  // Ref to the live WebSocket so the projectSpaceId effect can reach it.
+  const wsRef = useRef(null);
 
   const topicArr = Array.isArray(topics) ? topics : (topics ? [topics] : []);
   const topicKey = topicArr.join('\0');
 
+  // ── Connection lifecycle (reconnect on user change) ───────────────
   useEffect(() => {
     if (topicArr.length === 0) return;
 
@@ -51,6 +62,13 @@ export function useWebSocket(topics, onEvent, userId) {
     let reconnectTimer = null;
     let reconnectDelay = 1000;
     let disposed = false;
+
+    function sendSubscribe(socket) {
+      const ps = projectSpaceIdRef.current;
+      if (ps && socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'subscribe', projectSpaceId: ps }));
+      }
+    }
 
     function connect() {
       if (disposed) return;
@@ -65,10 +83,12 @@ export function useWebSocket(topics, onEvent, userId) {
         : `${proto}//${location.host}/api/ws/`;
 
       ws = new WebSocket(url);
+      wsRef.current = ws;
 
       ws.onopen = () => {
         reconnectDelay = 1000;
         wsLog('debug', '[WS] connected');
+        sendSubscribe(ws);
       };
 
       ws.onmessage = (e) => {
@@ -76,6 +96,7 @@ export function useWebSocket(topics, onEvent, userId) {
           const event = JSON.parse(e.data);
           wsLog('info', fmtEvent(event));
           onEventRef.current(event);
+          useShellStore.getState().fireWsEvent(event);
         } catch (err) {
           console.warn('WS parse error', err);
           wsLog('warn', `[WS] parse error: ${err.message}`);
@@ -83,6 +104,7 @@ export function useWebSocket(topics, onEvent, userId) {
       };
 
       ws.onclose = (e) => {
+        wsRef.current = null;
         if (disposed) return;
         wsLog('warn', `[WS] disconnected — reconnecting in ${reconnectDelay}ms`);
         reconnectTimer = setTimeout(() => {
@@ -101,6 +123,7 @@ export function useWebSocket(topics, onEvent, userId) {
 
     return () => {
       disposed = true;
+      wsRef.current = null;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (ws) {
         ws.onclose = null; // prevent reconnect on intentional close
@@ -108,4 +131,12 @@ export function useWebSocket(topics, onEvent, userId) {
       }
     };
   }, [topicKey, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Project space subscription (no reconnect on ps change) ───────
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN && projectSpaceId) {
+      ws.send(JSON.stringify({ type: 'subscribe', projectSpaceId }));
+    }
+  }, [projectSpaceId]);
 }

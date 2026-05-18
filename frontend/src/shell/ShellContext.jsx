@@ -110,5 +110,11 @@ export function createShellAPI({ navigate, openTab, closeTab }) {
       addTab:    (id, label, Component) => store().addCollabTab(id, label, Component),
       removeTab: (id)                   => store().removeCollabTab(id),
     },
+
+    jobs: {
+      register: (id, label, onOpen) => store().registerBgJob(id, label, onOpen),
+      update:   (id, status)        => store().updateBgJob(id, status),
+      remove:   (id)                => store().removeBgJob(id),
+    },
   };
 }

@@ -39,12 +39,12 @@ public class NodeItemVisibility implements ItemVisibilityResolver {
     public ItemDescriptor filter(ItemVisibilityContext context, ItemDescriptor descriptor) {
         if (descriptor == null) return null;
         if (context == null) return null;
-        if (!"psm".equals(descriptor.serviceCode()) || !"node".equals(descriptor.itemCode())) {
+        if (!"psm".equals(descriptor.serviceCode())) {
             return descriptor;
         }
         if (context.admin()) return descriptor;
 
-        String key = descriptor.itemKey();
+        String key = descriptor.itemCode();
         if (key == null) return descriptor;
 
         Set<String> nodeTypeIds = Set.of(key);

@@ -1,12 +1,12 @@
 package com.pno.infrastructure.event;
 
+import com.plm.platform.event.PlmEventEnvelope;
 import com.plm.platform.nats.PlmMessageBus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -27,25 +27,36 @@ public class BasketPublisher {
     }
 
     public void itemAdded(String userId, String psId, String key, String value) {
-        send(userId, psId, "BASKET_ITEM_ADDED", Map.of("key", key, "value", value));
+        send(userId, psId, "BASKET_ITEM_ADDED", PlmEventEnvelope.of("BASKET_ITEM_ADDED")
+            .field("id", UUID.randomUUID().toString())
+            .userId(userId)
+            .projectSpaceId(psId)
+            .field("key", key)
+            .field("value", value)
+            .build());
     }
 
     public void itemRemoved(String userId, String psId, String key, String value) {
-        send(userId, psId, "BASKET_ITEM_REMOVED", Map.of("key", key, "value", value));
+        send(userId, psId, "BASKET_ITEM_REMOVED", PlmEventEnvelope.of("BASKET_ITEM_REMOVED")
+            .field("id", UUID.randomUUID().toString())
+            .userId(userId)
+            .projectSpaceId(psId)
+            .field("key", key)
+            .field("value", value)
+            .build());
     }
 
     public void cleared(String userId, String psId) {
-        send(userId, psId, "BASKET_CLEARED", Map.of());
+        send(userId, psId, "BASKET_CLEARED", PlmEventEnvelope.of("BASKET_CLEARED")
+            .field("id", UUID.randomUUID().toString())
+            .userId(userId)
+            .projectSpaceId(psId)
+            .build());
     }
 
-    private void send(String userId, String psId, String eventType, Map<String, Object> extra) {
+    private void send(String userId, String psId, String eventType, Map<String, Object> payload) {
         if (messageBus == null || psId == null || psId.isBlank()) return;
         try {
-            var payload = new LinkedHashMap<String, Object>();
-            payload.put("id", UUID.randomUUID().toString());
-            payload.put("userId", userId);
-            payload.put("projectSpaceId", psId);
-            payload.putAll(extra);
             messageBus.sendToUser(psId, userId, eventType, payload);
         } catch (Exception e) {
             log.warn("Failed to publish basket event {} for user={}: {}", eventType, userId, e.getMessage());

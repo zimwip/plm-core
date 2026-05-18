@@ -591,7 +591,7 @@ public class PlmTransactionService {
         log.info("Transaction rolled back and deleted: id={} owner={} versions={} attrs={} deletedNodes={}",
             txId, userId, versionsDeleted, attrsDeleted, deletedNodeIds.size());
 
-        RollbackContext rollbackCtx = new RollbackContext(txId, userId, rolledBackLinks, deletedNodeIds);
+        RollbackContext rollbackCtx = new RollbackContext(txId, userId, rolledBackLinks, affectedNodeIds, deletedNodeIds);
         for (PostRollbackHook hook : postRollbackHooks.values()) {
             try {
                 hook.afterRollback(rollbackCtx);

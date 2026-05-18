@@ -12,8 +12,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
-import com.plm.shared.security.PlmSecurityContext;
-import com.plm.shared.security.PlmUserContext;
+import com.plm.platform.client.ServiceClientTokenContext;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.Map;
 
@@ -55,19 +56,12 @@ public class CadApiClient {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         headers.set("X-Service-Secret", serviceSecret);
-        // Forward user identity so cad-api can propagate it to psm-api from the async thread
-        // (cad-api's forward JWT would expire mid-import; delegated headers are TTL-free).
         if (projectSpaceId != null && !projectSpaceId.isBlank()) {
             headers.set("X-PLM-ProjectSpace", projectSpaceId);
         }
-        try {
-            PlmUserContext user = PlmSecurityContext.get();
-            headers.set("X-PLM-User-Id", user.getUserId());
-            headers.set("X-PLM-Is-Admin", String.valueOf(user.isAdmin()));
-            if (user.getRoleIds() != null && !user.getRoleIds().isEmpty()) {
-                headers.set("X-PLM-User-Roles", String.join(",", user.getRoleIds()));
-            }
-        } catch (Exception ignored) {}
+        // Forward JWT so cad-api can propagate it to async threads for S2S callbacks.
+        String jwt = resolveJwt();
+        if (jwt != null) headers.set("Authorization", jwt);
 
         Map<String, Object> result = rest.postForObject(
             cadApiUrl + "/api/cad/internal/import",
@@ -76,6 +70,19 @@ public class CadApiClient {
         );
         if (result == null) throw new IllegalStateException("cad-api /internal/import returned null");
         return result;
+    }
+
+    private static String resolveJwt() {
+        try {
+            ServletRequestAttributes attrs =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs != null) {
+                String auth = attrs.getRequest().getHeader("Authorization");
+                if (auth != null) return auth;
+            }
+        } catch (Exception ignored) {}
+        String token = ServiceClientTokenContext.get();
+        return token != null ? "Bearer " + token : null;
     }
 
     @SuppressWarnings("unchecked")

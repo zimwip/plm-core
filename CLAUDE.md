@@ -18,6 +18,7 @@
 | **psm-admin** | Métier — config | `psa` | [psm-admin/CLAUDE.md](psm-admin/CLAUDE.md) |
 | **psm-api** | Métier — données | `psm` | [psm-api/CLAUDE.md](psm-api/CLAUDE.md) |
 | **ws-gateway** | Canal push | `ws` | [ws-gateway/CLAUDE.md](ws-gateway/CLAUDE.md) |
+| **search-api** | Recherche graphe | `search` | [search-api/CLAUDE.md](search-api/CLAUDE.md) |
 | **platform-lib** | Lib partagée | — | [platform-lib/CLAUDE.md](platform-lib/CLAUDE.md) |
 | **frontend** | UI | — | [frontend/CLAUDE.md](frontend/CLAUDE.md) |
 
@@ -87,6 +88,7 @@ de la config du service (pas de config gateway statique).
 | Métier — config   | `psa`       | `/api/psa`      | psm-admin    | 8083 |
 | Métier — données  | `psm`       | `/api/psm`      | psm-api      | 8080 |
 | Push              | `ws`        | `/api/ws`       | ws-gateway   | 8085 |
+| Recherche graphe  | `search`    | `/api/search`   | search-api   | 8088 |
 
 ---
 
@@ -96,11 +98,12 @@ de la config du service (pas de config gateway statique).
 
 ```properties
 # application.properties
-spe.registration.service-code=psm    # seule ligne de routage
+platform.registration.service-code=psm    # seule ligne de routage
+# ⚠️ NE PAS utiliser spe.registration.service-code — ne déclenche plus le context-path
 ```
 
 ```java
-@RequestMapping("/nodes")            # URL finale : /api/psm/nodes
+@RequestMapping("/nodes")            // URL finale : /api/psm/nodes
 ```
 
 **Endpoints `/internal/*`** : routes service-à-service (auth via `X-Service-Secret`). Context-path s'applique aussi → URL réelle = `/api/<code>/internal/...`.

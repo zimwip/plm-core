@@ -58,6 +58,11 @@
             <artifactId>spring-boot-configuration-processor</artifactId>
             <optional>true</optional>
         </dependency>
+        <!-- Caffeine cache (role cache per userId:projectSpaceId) -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
         <!-- Resilience4j (core modules — services bring the spring-boot3 starter if needed) -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>

@@ -49,13 +49,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class LinkService {
 
-    private final DSLContext              dsl;
-    private final ConfigCache             configCache;
-    private final LockService             lockService;
-    private final VersionService          versionService;
-    private final FingerPrintService      fingerPrintService;
-    private final SourceResolverRegistry  sourceResolverRegistry;
-    private final SecurityContextPort     secCtx;
+    private final DSLContext                        dsl;
+    private final ConfigCache                       configCache;
+    private final LockService                       lockService;
+    private final VersionService                    versionService;
+    private final FingerPrintService                fingerPrintService;
+    private final SourceResolverRegistry            sourceResolverRegistry;
+    private final SecurityContextPort               secCtx;
+    private final com.plm.shared.event.PlmEventPublisher eventPublisher;
 
     // ================================================================
     // CREATE LINK
@@ -193,6 +194,11 @@ public class LinkService {
 
         log.info("Link created: {}→{}/{}/{} type={} logicalId={}",
             nodeId, sourceCode, type, targetKey, linkTypeId, linkLogicalId);
+        String dstNodeId = resolveDstNodeId(sourceCode, type, targetKey);
+        if (dstNodeId != null) {
+            String relType = configCache.getLinkType(linkTypeId).map(t -> t.name()).orElse(linkTypeId);
+            eventPublisher.linkCreated(nodeId, dstNodeId, relType, true);
+        }
         return linkId;
     }
 
@@ -226,6 +232,11 @@ public class LinkService {
             dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
         }
         log.info("Link {} deleted by {}", linkId, userId);
+        String dstNodeId = resolveDstNodeId(targetSourceCode, targetType, targetKey);
+        if (dstNodeId != null) {
+            String relType = configCache.getLinkType(linkTypeId).map(t -> t.name()).orElse(linkTypeId);
+            eventPublisher.linkDeleted(sourceNodeId, dstNodeId, relType);
+        }
     }
 
     // ================================================================
@@ -645,5 +656,14 @@ public class LinkService {
             current = configCache.getNodeType(current).map(NodeTypeConfig::parentNodeTypeId).orElse(null);
         }
         return false;
+    }
+
+    /** Resolves a SELF-source target key to a node ID; returns null for non-SELF sources. */
+    private String resolveDstNodeId(String targetSourceCode, String targetType, String targetKey) {
+        if (!"SELF".equals(targetSourceCode) || targetType == null || targetKey == null) return null;
+        org.jooq.Record r = dsl.fetchOne(
+            "SELECT id FROM node WHERE logical_id = ? AND node_type_id = ? LIMIT 1",
+            targetKey, targetType);
+        return r != null ? r.get("id", String.class) : null;
     }
 }

@@ -40,9 +40,9 @@ export const usePlmStore = create((set, get) => ({
       const rawItems = await api.getItems(userId);
       const arr = Array.isArray(rawItems) ? rawItems : [];
       const nodeTypes = arr
-        .filter(d => d.serviceCode === 'psm' && d.itemCode === 'node' && d.itemKey && d.list)
+        .filter(d => d.serviceCode === 'psm' && d.list)
         .map(d => ({
-          id:          d.itemKey,
+          id:          d.itemCode,
           name:        d.displayName,
           description: d.description,
           color:       d.color,
@@ -50,7 +50,7 @@ export const usePlmStore = create((set, get) => ({
         }));
       const resources = arr.filter(d => d.create);
       // Refresh the node list using the just-fetched descriptors — no second getItems call.
-      const psmDescs = arr.filter(d => d.serviceCode === 'psm' && d.itemCode === 'node' && d.list);
+      const psmDescs = arr.filter(d => d.serviceCode === 'psm' && d.list);
       const pages = await Promise.all(
         psmDescs.map(d => api.fetchListableItems(userId, d, 0, 50)
           .then(r => r.items || [])
@@ -119,7 +119,7 @@ export const usePlmStore = create((set, get) => ({
     const { userId, items } = get();
     if (!userId) return;
     try {
-      const psmDescs = items.filter(d => d.serviceCode === 'psm' && d.itemCode === 'node' && d.list);
+      const psmDescs = items.filter(d => d.serviceCode === 'psm' && d.list);
       const pages = await Promise.all(
         psmDescs.map(d => api.fetchListableItems(userId, d, 0, 50)
           .then(r => r.items || [])
@@ -147,10 +147,9 @@ export const usePlmStore = create((set, get) => ({
     try {
       const t = await txApi.current(userId);
       if (t) {
-        const txId = t.ID || t.id;
-        const tvn  = await txApi.nodes(userId, txId).catch(() => []);
-        const nodes = Array.isArray(tvn) ? tvn : [];
-        const locked = new Set(nodes.map(n => n.node_id || n.NODE_ID).filter(Boolean));
+        const items = await txApi.nodes(userId, t.serviceCode, t.txId).catch(() => []);
+        const nodes = Array.isArray(items) ? items : [];
+        const locked = new Set(nodes.map(n => n.itemId).filter(Boolean));
         set({ activeTx: t, txNodes: nodes, lockedByMe: locked });
       } else {
         set({ activeTx: null, txNodes: [], lockedByMe: new Set() });
