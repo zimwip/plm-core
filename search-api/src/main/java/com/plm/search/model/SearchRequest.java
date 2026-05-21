@@ -40,6 +40,9 @@ public record SearchRequest(
      */
     Map<String, List<String>> filterTerms,
 
+    /** Numeric range filters. Key = attribute name, value = [min, max]. */
+    Map<String, double[]> rangeFilters,
+
     /** Facet dimensions to compute. Empty list = no facets. */
     List<String> facetOn,
 
@@ -51,6 +54,7 @@ public record SearchRequest(
         if (facetOn == null) facetOn = List.of();
         if (filters == null) filters = Map.of();
         if (filterTerms == null) filterTerms = Map.of();
+        if (rangeFilters == null) rangeFilters = Map.of();
         if (context == null) context = ConfigContext.empty();
     }
 }

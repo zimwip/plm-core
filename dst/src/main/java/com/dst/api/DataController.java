@@ -11,7 +11,7 @@ import com.plm.platform.action.guard.GuardViolation;
 import com.plm.platform.authz.PlmPermission;
 import com.plm.platform.action.dto.ActionDescriptor;
 import com.plm.platform.action.dto.DetailDescriptor;
-import com.plm.platform.action.dto.DetailField;
+import com.plm.platform.action.dto.FieldValue;
 import com.plm.platform.item.dto.ItemTypeRef;
 
 import java.util.ArrayList;
@@ -89,18 +89,16 @@ public class DataController {
         DstUserContext ctx = DstSecurityContext.get();
         DataMetadata m = dataService.getMetadata(id, ctx.getUserId(), ctx.getProjectSpaceId());
 
-        List<DetailField> fields = List.of(
-            new DetailField("originalName", "Original name", m.originalName()),
-            new DetailField("contentType",  "Content type",  m.contentType()),
-            new DetailField("sizeBytes",    "Size (bytes)",  m.sizeBytes(), "number"),
-            new DetailField("sha256",       "SHA-256",       m.sha256(), "code"),
-            new DetailField("refCount",     "References",    m.refCount(), "number"),
-            new DetailField("createdBy",    "Created by",    m.createdBy()),
-            new DetailField("createdAt",    "Created at",
-                m.createdAt() != null ? m.createdAt().toString() : null, "datetime"),
-            new DetailField("lastAccessed", "Last accessed",
-                m.lastAccessed() != null ? m.lastAccessed().toString() : null, "datetime"),
-            new DetailField("location",     "Storage location", m.location(), "code")
+        List<FieldValue> values = List.of(
+            new FieldValue("originalName", m.originalName(), false, false),
+            new FieldValue("contentType",  m.contentType(),  false, false),
+            new FieldValue("sizeBytes",    m.sizeBytes(),     false, false),
+            new FieldValue("sha256",       m.sha256(),        false, false),
+            new FieldValue("refCount",     m.refCount(),      false, false),
+            new FieldValue("createdBy",    m.createdBy(),     false, false),
+            new FieldValue("createdAt",    m.createdAt() != null ? m.createdAt().toString() : null, false, false),
+            new FieldValue("lastAccessed", m.lastAccessed() != null ? m.lastAccessed().toString() : null, false, false),
+            new FieldValue("location",     m.location(),      false, false)
         );
 
         Map<String, String> guardIds = Map.of(
@@ -139,10 +137,7 @@ public class DataController {
         DetailDescriptor d = new DetailDescriptor(
             m.id(),
             new ItemTypeRef("dst", "data-object", null),
-            m.originalName() != null ? m.originalName() : m.id(),
-            humanSize(m.sizeBytes()) + (m.contentType() != null ? "  ·  " + m.contentType() : ""),
-            "FileText", "#6366f1",
-            fields, actions,
+            values, actions,
             Map.of("isImage", isImage, "downloadUrl", "/api/dst/data/" + id)
         );
         return ResponseEntity.ok(d);

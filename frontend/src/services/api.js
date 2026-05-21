@@ -529,12 +529,12 @@ export const api = {
   },
 
   // Search API — calls the dedicated search-api service
-  searchNodes: async (query, filterTerms = {}, facetOn = ['_type', '_projectSpaceId'], size = 100) => {
+  searchNodes: async (query, filterTerms = {}, rangeFilters = {}, facetOn = ['_type', '*'], size = 100) => {
     const url = `${serviceBase('search')}/search`;
     const headers = { 'Content-Type': 'application/json' };
     if (_sessionToken)    headers['Authorization']     = `Bearer ${_sessionToken}`;
     if (_projectSpaceId)  headers['X-PLM-ProjectSpace'] = _projectSpaceId;
-    const body = JSON.stringify({ query, filterTerms, facetOn, size });
+    const body = JSON.stringify({ query, filterTerms, rangeFilters, facetOn, size });
     const res  = await timedFetch(url, { method: 'POST', headers, body }, 'POST');
     if (!res.ok) {
       const detail = await res.json().catch(() => ({ error: res.statusText }));
@@ -549,6 +549,19 @@ export const api = {
     if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
     const res = await timedFetch(url, { method: 'GET', headers }, 'GET');
     if (!res.ok) return { available: false, nodeCount: 0, edgeCount: 0 };
+    return res.json();
+  },
+
+  reindexSearch: () =>
+    doFetch(serviceBase('psm'), 'POST', '/nodes/internal/search/reindex', {}),
+
+  searchChildren: async (nodeId) => {
+    const url = `${serviceBase('search')}/search/children/${encodeURIComponent(nodeId)}`;
+    const headers = {};
+    if (_sessionToken)    headers['Authorization']      = `Bearer ${_sessionToken}`;
+    if (_projectSpaceId)  headers['X-PLM-ProjectSpace'] = _projectSpaceId;
+    const res = await timedFetch(url, { method: 'GET', headers }, 'GET');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   },
 

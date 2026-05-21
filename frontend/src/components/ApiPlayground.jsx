@@ -12,7 +12,7 @@ const METHOD_STYLE = {
   get:    { bg: 'rgba(56,189,248,.13)',  text: '#38bdf8', border: 'rgba(56,189,248,.28)'  },
   post:   { bg: 'rgba(74,222,128,.13)',  text: '#4ade80', border: 'rgba(74,222,128,.28)'  },
   put:    { bg: 'rgba(251,191,36,.13)',  text: '#fbbf24', border: 'rgba(251,191,36,.28)'  },
-  delete: { bg: 'rgba(252,129,129,.13)', text: '#fc8181', border: 'rgba(252,129,129,.28)' },
+  delete: { bg: 'rgba(var(--danger-rgb),.13)', text: 'var(--danger)', border: 'rgba(var(--danger-rgb),.28)' },
   patch:  { bg: 'rgba(167,139,250,.13)', text: '#a78bfa', border: 'rgba(167,139,250,.28)' },
 };
 
@@ -230,9 +230,9 @@ function EndpointRow({ method, path, operation, userId, projectSpaceId, basePath
             <div className="pg-response">
               <div className="pg-response-hd">
                 <span className="pg-status" style={{
-                  background: response.ok ? 'rgba(77,212,160,.15)' : 'rgba(252,129,129,.15)',
+                  background: response.ok ? 'rgba(77,212,160,.15)' : 'rgba(var(--danger-rgb),.15)',
                   color:      response.ok ? 'var(--success)'        : 'var(--danger)',
-                  border:    `1px solid ${response.ok ? 'rgba(77,212,160,.3)' : 'rgba(252,129,129,.3)'}`,
+                  border:    `1px solid ${response.ok ? 'rgba(77,212,160,.3)' : 'rgba(var(--danger-rgb),.3)'}`,
                 }}>
                   {response.status || 'ERR'}
                 </span>

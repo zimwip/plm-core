@@ -253,8 +253,8 @@ export default function LifecycleDiagram({
     // Button colors
     let btnFill, btnStroke, btnText;
     if (blocked) {
-      btnFill   = '#1c0808';
-      btnStroke = '#7f1d1d';
+      btnFill   = 'var(--danger-bg)';
+      btnStroke = 'var(--danger-border)';
       btnText   = 'var(--danger)';
     } else if (enabled || previewMode) {
       if (hovered) {

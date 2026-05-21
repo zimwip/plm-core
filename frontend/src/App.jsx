@@ -10,6 +10,7 @@ import CommitModal     from './components/CommitModal';
 import CreateResourceModal from './components/CreateResourceModal';
 import ErrorDetailModal from './components/ErrorDetailModal';
 import { psmNodeDescriptor } from './plugins/psmDescriptor';
+import { clearItemTypeCache } from './services/itemTypeCache';
 import { tabToNavItemRef, detailToItem } from './shell/navTypes';
 import { registerBuiltinPlugins } from './plugins';
 import { ShellContext, createShellAPI } from './shell/ShellContext';
@@ -280,6 +281,7 @@ export default function App() {
         if (nid) refreshTabData(nid);
         refreshNodes(); bumpBrowse();
       } else if (evt.event === 'METAMODEL_CHANGED') {
+        clearItemTypeCache();
         refreshItems(); bumpBrowse();
         if (stateColorMapLoaded) refreshStateColorMap();
         if (evt.byUser && evt.byUser !== userId)

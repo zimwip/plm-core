@@ -6,6 +6,7 @@ import java.util.Map;
 public record SearchResult(
     List<Hit> hits,
     Map<String, Map<String, Integer>> facets,
+    Map<String, double[]> rangeFacets,
     int totalHits,
     int hopLevel
 ) {
@@ -21,6 +22,6 @@ public record SearchResult(
     ) {}
 
     public static SearchResult empty() {
-        return new SearchResult(List.of(), Map.of(), 0, 0);
+        return new SearchResult(List.of(), Map.of(), Map.of(), 0, 0);
     }
 }

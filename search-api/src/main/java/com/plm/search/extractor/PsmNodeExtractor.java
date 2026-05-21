@@ -61,6 +61,15 @@ public class PsmNodeExtractor implements ItemEventExtractor {
         src.put("revision",       payload.getOrDefault("revision",   ""));
         src.put("iteration",      payload.getOrDefault("iteration",  0));
 
+        // Flatten attribute values so the frontend can display them without extra fetches
+        for (Map<String, Object> fm : rawFields) {
+            String fname = (String) fm.get("name");
+            if (fname == null || fname.isBlank()) continue;
+            @SuppressWarnings("unchecked")
+            List<Object> vals = fm.get("values") instanceof List<?> vl ? (List<Object>) vl : List.of();
+            if (!vals.isEmpty()) src.put(fname, vals.size() == 1 ? vals.get(0) : vals);
+        }
+
         String sourceJson;
         try {
             sourceJson = objectMapper.writeValueAsString(src);

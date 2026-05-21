@@ -14,13 +14,6 @@ function splitArgs(s) {
   return parts;
 }
 
-function byType(data, typeName) {
-  const re = new RegExp(`#(\\d+)\\s*=\\s*${typeName}\\s*\\(([^;]*)\\)\\s*;`, 'g');
-  const out = {}; let m;
-  while ((m = re.exec(data)) !== null) out[m[1]] = m[2];
-  return out;
-}
-
 const ref = s => { const m = s?.trim().match(/^#(\d+)$/); return m ? m[1] : null; };
 
 // ── Graph builders ───────────────────────────────────────────────────────────
@@ -33,6 +26,19 @@ export function buildEntityMap(normalizedData) {
     if (m) map[m[1]] = t + ';';
   }
   return map;
+}
+
+// Single-pass entity type index. Returns {[typeName]: {[id]: args}}.
+// Covers simple entities (#n = TYPE(args);). Compound entities (#n = (T1(...) T2(...)))
+// are intentionally excluded — callers handle them with their own targeted regex.
+export function buildTypeIndex(data) {
+  const idx = Object.create(null);
+  const re = /#(\d+)\s*=\s*([A-Z_][A-Z0-9_]*)\s*\(([^;]*)\)\s*;/g;
+  let m;
+  while ((m = re.exec(data)) !== null) {
+    (idx[m[2]] ??= {})[m[1]] = m[3];
+  }
+  return idx;
 }
 
 export function buildRefGraph(entityMap) {
@@ -165,41 +171,42 @@ export function buildMatrix4x4(origin, dirX, dirZ) {
 
 // Pre-computes all NAUO positioning structures from the normalized data string
 // into a plain serialisable object (no Sets/closures) suitable for worker transfer.
-export function precomputeNauoData(data, nauoIdSet) {
+export function precomputeNauoData(nauoIdSet, typeIdx, data) {
+  const ti = typeIdx;
   const cartPoints = {};
-  for (const [id, args] of Object.entries(byType(data, 'CARTESIAN_POINT'))) {
+  for (const [id, args] of Object.entries(ti['CARTESIAN_POINT'] ?? {})) {
     const p = splitArgs(args);
     const nums = (p[1] ?? '').replace(/[()]/g, '').split(',').map(Number);
     if (nums.length >= 3 && !nums.some(isNaN)) cartPoints[id] = nums;
   }
   const directions = {};
-  for (const [id, args] of Object.entries(byType(data, 'DIRECTION'))) {
+  for (const [id, args] of Object.entries(ti['DIRECTION'] ?? {})) {
     const p = splitArgs(args);
     const nums = (p[1] ?? '').replace(/[()]/g, '').split(',').map(Number);
     if (nums.length >= 3 && !nums.some(isNaN)) directions[id] = nums;
   }
   const axis2p3d = {};
-  for (const [id, args] of Object.entries(byType(data, 'AXIS2_PLACEMENT_3D'))) {
+  for (const [id, args] of Object.entries(ti['AXIS2_PLACEMENT_3D'] ?? {})) {
     const p = splitArgs(args);
     axis2p3d[id] = { originId: ref(p[1]), dirZId: ref(p[2]), dirXId: ref(p[3]) };
   }
 
   const nauoToPds = {};
-  for (const [pdsId, args] of Object.entries(byType(data, 'PRODUCT_DEFINITION_SHAPE'))) {
+  for (const [pdsId, args] of Object.entries(ti['PRODUCT_DEFINITION_SHAPE'] ?? {})) {
     const p = splitArgs(args);
     const defRef = ref(p[2]);
     if (defRef && nauoIdSet.has(defRef)) nauoToPds[defRef] = pdsId;
   }
 
   const pdsToCdsr = {};
-  for (const [, args] of Object.entries(byType(data, 'CONTEXT_DEPENDENT_SHAPE_REPRESENTATION'))) {
+  for (const [, args] of Object.entries(ti['CONTEXT_DEPENDENT_SHAPE_REPRESENTATION'] ?? {})) {
     const p = splitArgs(args);
     const srrId = ref(p[0]), pdsId = ref(p[1]);
     if (srrId && pdsId) pdsToCdsr[pdsId] = srrId;
   }
 
   const srrMap = {};
-  for (const [id, args] of Object.entries(byType(data, 'SHAPE_REPRESENTATION_RELATIONSHIP'))) {
+  for (const [id, args] of Object.entries(ti['SHAPE_REPRESENTATION_RELATIONSHIP'] ?? {})) {
     const p = splitArgs(args);
     const sr1 = ref(p[2]), sr2 = ref(p[3]);
     if (sr1 && sr2) srrMap[id] = [sr1, sr2];
@@ -210,7 +217,7 @@ export function precomputeNauoData(data, nauoIdSet) {
     while ((m = re.exec(data)) !== null) compoundSrrToIdt[m[1]] = m[2]; }
 
   const idtToA2p3d = {};
-  for (const [id, args] of Object.entries(byType(data, 'ITEM_DEFINED_TRANSFORMATION'))) {
+  for (const [id, args] of Object.entries(ti['ITEM_DEFINED_TRANSFORMATION'] ?? {})) {
     const a2pId = ref(splitArgs(args)[2]);
     if (a2pId) idtToA2p3d[id] = a2pId;
   }
@@ -218,9 +225,9 @@ export function precomputeNauoData(data, nauoIdSet) {
   const itemToSr = {};
   const srItems = {};
   for (const [id, args] of Object.entries({
-    ...byType(data, 'SHAPE_REPRESENTATION'),
-    ...byType(data, 'ADVANCED_BREP_SHAPE_REPRESENTATION'),
-    ...byType(data, 'GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION'),
+    ...(ti['SHAPE_REPRESENTATION'] ?? {}),
+    ...(ti['ADVANCED_BREP_SHAPE_REPRESENTATION'] ?? {}),
+    ...(ti['GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION'] ?? {}),
   })) {
     const p = splitArgs(args);
     const refs = []; const re2 = /#(\d+)/g; let m;
@@ -230,7 +237,7 @@ export function precomputeNauoData(data, nauoIdSet) {
 
   const nauoPdsIds = new Set(Object.values(nauoToPds));
   const pdsToPsr = {};
-  for (const [, args] of Object.entries(byType(data, 'SHAPE_DEFINITION_REPRESENTATION'))) {
+  for (const [, args] of Object.entries(ti['SHAPE_DEFINITION_REPRESENTATION'] ?? {})) {
     const p = splitArgs(args);
     const pdsId = ref(p[0]), srId = ref(p[1]);
     if (pdsId && srId && nauoPdsIds.has(pdsId)) pdsToPsr[pdsId] = srId;
@@ -238,21 +245,21 @@ export function precomputeNauoData(data, nauoIdSet) {
 
   const _fmts = {};
   for (const [id, args] of Object.entries({
-    ...byType(data, 'PRODUCT_DEFINITION_FORMATION'),
-    ...byType(data, 'PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE'),
+    ...(ti['PRODUCT_DEFINITION_FORMATION'] ?? {}),
+    ...(ti['PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE'] ?? {}),
   })) {
     const pid = ref(splitArgs(args)[2]);
     if (pid) _fmts[id] = pid;
   }
   const _pdefs = {};
-  for (const [id, args] of Object.entries(byType(data, 'PRODUCT_DEFINITION'))) {
+  for (const [id, args] of Object.entries(ti['PRODUCT_DEFINITION'] ?? {})) {
     const fid = ref(splitArgs(args)[2]);
     if (fid && _fmts[fid]) _pdefs[id] = _fmts[fid];
   }
   const nauoInfo = {};
   for (const [nauoId, args] of Object.entries({
-    ...byType(data, 'NEXT_ASSEMBLY_USAGE_OCCURRENCE'),
-    ...byType(data, 'ASSEMBLY_COMPONENT_USAGE'),
+    ...(ti['NEXT_ASSEMBLY_USAGE_OCCURRENCE'] ?? {}),
+    ...(ti['ASSEMBLY_COMPONENT_USAGE'] ?? {}),
   })) {
     if (!nauoIdSet.has(nauoId)) continue;
     const p = splitArgs(args);
@@ -263,25 +270,25 @@ export function precomputeNauoData(data, nauoIdSet) {
   }
 
   const _productOfPds = {};
-  for (const [pdsId, args] of Object.entries(byType(data, 'PRODUCT_DEFINITION_SHAPE'))) {
+  for (const [pdsId, args] of Object.entries(ti['PRODUCT_DEFINITION_SHAPE'] ?? {})) {
     const defRef = ref(splitArgs(args)[2]);
     if (defRef && _pdefs[defRef]) _productOfPds[pdsId] = _pdefs[defRef];
   }
   const productToSr = {};
-  for (const [, args] of Object.entries(byType(data, 'SHAPE_DEFINITION_REPRESENTATION'))) {
+  for (const [, args] of Object.entries(ti['SHAPE_DEFINITION_REPRESENTATION'] ?? {})) {
     const p = splitArgs(args);
     const pdsId = ref(p[0]), srId = ref(p[1]);
     if (pdsId && srId && _productOfPds[pdsId]) productToSr[_productOfPds[pdsId]] = srId;
   }
 
   const reprMapToSr = {};
-  for (const [id, args] of Object.entries(byType(data, 'REPRESENTATION_MAP'))) {
+  for (const [id, args] of Object.entries(ti['REPRESENTATION_MAP'] ?? {})) {
     const srId = ref(splitArgs(args)[1]);
     if (srId) reprMapToSr[id] = srId;
   }
 
   const srToMappedItems = {};
-  for (const [miId, args] of Object.entries(byType(data, 'MAPPED_ITEM'))) {
+  for (const [miId, args] of Object.entries(ti['MAPPED_ITEM'] ?? {})) {
     const p = splitArgs(args);
     const reprMapId = ref(p[1]), targetId = ref(p[2]);
     if (!reprMapId || !targetId) continue;

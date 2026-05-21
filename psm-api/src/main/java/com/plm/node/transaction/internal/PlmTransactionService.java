@@ -443,6 +443,30 @@ public class PlmTransactionService {
 
         if (nodeIds == null || nodeIds.isEmpty()) return;
 
+        // Collect links before deletion so PostRollbackHooks can act on them
+        String inClause = nodeIds.stream().map(id -> "?").collect(Collectors.joining(", "));
+        List<Object> linkParams = new ArrayList<>();
+        linkParams.add(txId);
+        linkParams.addAll(nodeIds);
+        List<RollbackContext.RolledBackLink> rolledBackLinks = dsl.fetch("""
+            SELECT nvl.id, nvl.link_type_id, nvl.source_node_version_id,
+                   nvl.target_source_id, nvl.target_type, nvl.target_key, nv.node_id
+            FROM node_version_link nvl
+            JOIN node_version nv ON nv.id = nvl.source_node_version_id
+            WHERE nv.tx_id = ?
+            AND nv.node_id IN (""" + inClause + ")",
+            linkParams.toArray()).stream().map(r -> new RollbackContext.RolledBackLink(
+                r.get("id",                    String.class),
+                r.get("link_type_id",          String.class),
+                r.get("node_id",               String.class),
+                r.get("source_node_version_id",String.class),
+                r.get("target_source_id",      String.class),
+                r.get("target_type",           String.class),
+                r.get("target_key",            String.class)
+        )).collect(Collectors.toList());
+
+        List<String> deletedNodeIds = new ArrayList<>();
+
         for (String nodeId : nodeIds) {
             // 1. baseline_entry → node_link FK. Pre-source/type/key refactor a
             // baseline_entry also FK'd resolved_version_id → node_version; that
@@ -469,9 +493,17 @@ public class PlmTransactionService {
             );
             // 6. node_version
             dsl.execute("DELETE FROM node_version WHERE tx_id = ? AND node_id = ?", txId, nodeId);
+            // 6b. Detect and delete nodes orphaned by this release (created in this tx, no remaining versions)
+            boolean orphaned = dsl.fetchCount(
+                dsl.selectOne().from("node_version").where("node_id = ?", nodeId)
+            ) == 0;
+            if (orphaned) {
+                dsl.execute("DELETE FROM node WHERE id = ?", nodeId);
+                deletedNodeIds.add(nodeId);
+            }
             // 7. Unlock the node
             lockService.unlock(nodeId);
-            log.info("Node {} released from transaction {}", nodeId, txId);
+            log.info("Node {} released from transaction {} (orphaned={})", nodeId, txId, orphaned);
         }
 
         // If tx is now empty, clean it up
@@ -483,7 +515,23 @@ public class PlmTransactionService {
             log.info("Empty transaction {} deleted after node release", txId);
         }
 
-        eventPublisher.itemsReleased(nodeIds, userId);
+        // Emit ITEMS_RELEASED only for nodes that still exist (not orphaned/deleted)
+        List<String> survivingIds = nodeIds.stream()
+            .filter(id -> !deletedNodeIds.contains(id))
+            .toList();
+        if (!survivingIds.isEmpty()) {
+            eventPublisher.itemsReleased(survivingIds, userId);
+        }
+
+        // Run PostRollbackHooks — NodeDeletedRollbackHook emits ITEM_DELETED, DstDetachRollbackHook cleans DST
+        RollbackContext ctx = new RollbackContext(txId, userId, rolledBackLinks, nodeIds, deletedNodeIds);
+        for (PostRollbackHook hook : postRollbackHooks.values()) {
+            try { hook.afterRollback(ctx); }
+            catch (Exception e) {
+                log.warn("PostRollbackHook '{}' threw an exception (ignored): {}",
+                    hook.name(), e.getMessage(), e);
+            }
+        }
     }
 
     // ================================================================

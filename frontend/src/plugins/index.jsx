@@ -4,11 +4,13 @@
 
 import React from 'react';
 import { registerSourcePlugin, registerDefaultPlugin } from '../services/sourcePlugins';
+import { registerSearchItemPlugin, registerDefaultSearchItemPlugin } from '../shell/searchItemRegistry';
 import { defaultPlugin } from './defaultPlugin';
 import StepPreviewPanel from '../components/StepPreviewPanel';
 import GenericDetailEditor from '../components/GenericDetailEditor';
 import TextPreviewPanel from '../components/TextPreviewPanel';
-import { LockIcon, EditIcon } from '../components/Icons';
+import DefaultSearchItem from '../components/SearchItem';
+import { NODE_ICONS, LockIcon, EditIcon, PinIcon, PinOffIcon } from '../components/Icons';
 
 // Fallback NavLabel components — shown until remote nav plugins finish loading.
 // Content area only; shell chrome (chevron, icon, pin/unpin) is provided by NavItem.
@@ -51,6 +53,71 @@ function DstFallbackNavLabel({ item }) {
   );
 }
 
+function PinBtn({ isPinned, onPin, onUnpin }) {
+  return (
+    <button
+      className={`search-pin-btn${isPinned ? ' pinned' : ''}`}
+      title={isPinned ? 'Remove from basket' : 'Add to basket'}
+      onClick={e => { e.stopPropagation(); isPinned ? onUnpin?.() : onPin?.(); }}
+    >
+      {isPinned ? <PinOffIcon size={11} strokeWidth={2} /> : <PinIcon size={11} strokeWidth={2} />}
+    </button>
+  );
+}
+
+// Boot-time SearchItem fallbacks — same display as NavLabel fallbacks.
+// Replaced by service-plugin versions once remote plugins load.
+
+function PsmFallbackSearchItem({ hit, descriptor, isPinned, onPin, onUnpin, ctx }) {
+  let source = {};
+  try { source = JSON.parse(hit.sourceJson || '{}'); } catch {}
+  const { onNavigate } = ctx;
+  const rev       = source.revision || 'A';
+  const iter      = source.iteration ?? 1;
+  const logicalId = source.logicalId || '';
+  const name      = source.name || '';
+  const NtIcon    = descriptor?.icon ? NODE_ICONS[descriptor.icon] : null;
+  return (
+    <div className="node-item" onClick={() => onNavigate(hit.id, logicalId || hit.id, descriptor)}
+      title={[logicalId, name].filter(Boolean).join(' · ') || hit.id}>
+      {NtIcon
+        ? <NtIcon size={11} color={descriptor.color || 'var(--muted)'} strokeWidth={2} style={{ flexShrink: 0 }} />
+        : descriptor?.color
+          ? <span style={{ width: 6, height: 6, borderRadius: 1, background: descriptor.color, flexShrink: 0, display: 'inline-block' }} />
+          : null}
+      <span className="ni-logical" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {logicalId || <span className="ni-no-id">—</span>}
+        {name && <span className="ni-dname">{name}</span>}
+      </span>
+      <span className="ni-reviter">
+        {iter === 0 ? rev : `${rev}.${iter}`}
+      </span>
+      <PinBtn isPinned={isPinned} onPin={onPin} onUnpin={onUnpin} />
+    </div>
+  );
+}
+
+function DstFallbackSearchItem({ hit, descriptor, isPinned, onPin, onUnpin, ctx }) {
+  let source = {};
+  try { source = JSON.parse(hit.sourceJson || '{}'); } catch {}
+  const { onNavigate } = ctx;
+  const name   = source.originalName || hit.id;
+  const NtIcon = descriptor?.icon ? NODE_ICONS[descriptor.icon] : null;
+  return (
+    <div className="node-item" onClick={() => onNavigate(hit.id, name, descriptor)} title={name}>
+      {NtIcon
+        ? <NtIcon size={11} color={descriptor.color || 'var(--muted)'} strokeWidth={2} style={{ flexShrink: 0 }} />
+        : descriptor?.color
+          ? <span style={{ width: 6, height: 6, borderRadius: 1, background: descriptor.color, flexShrink: 0, display: 'inline-block' }} />
+          : null}
+      <span className="ni-logical" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {name}
+      </span>
+      <PinBtn isPinned={isPinned} onPin={onPin} onUnpin={onUnpin} />
+    </div>
+  );
+}
+
 let _registered = false;
 export function registerBuiltinPlugins() {
   if (_registered) return;
@@ -83,4 +150,8 @@ export function registerBuiltinPlugins() {
     previewLabel: 'Preview',
     hasItemChildren: () => false,
   });
+
+  registerDefaultSearchItemPlugin(DefaultSearchItem);
+  registerSearchItemPlugin('psm', null, PsmFallbackSearchItem);
+  registerSearchItemPlugin('dst', 'data-object', DstFallbackSearchItem);
 }

@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import com.plm.platform.action.dto.ActionDescriptor;
 import com.plm.platform.action.dto.DetailDescriptor;
-import com.plm.platform.action.dto.DetailField;
+import com.plm.platform.action.dto.FieldValue;
 import java.util.List;
 import java.util.Map;
 
@@ -90,16 +90,14 @@ public class NodeController {
             .anyMatch(a -> "update_node".equals(a.code())
                 && a.guardViolations().isEmpty());
 
-        List<DetailField> fields = globalCanWrite ? base.fields() : base.fields().stream()
+        List<FieldValue> values = globalCanWrite ? base.values() : base.values().stream()
             .map(f -> f.editable()
-                ? new DetailField(f.name(), f.label(), f.value(), f.widget(), false, f.hint())
+                ? new FieldValue(f.name(), f.value(), false, f.required())
                 : f)
             .toList();
 
         return ResponseEntity.ok(new DetailDescriptor(
-            base.id(), base.itemType(),
-            base.title(), base.subtitle(), base.icon(), base.color(),
-            fields, actions, base.metadata()));
+            base.id(), base.itemType(), values, actions, base.metadata()));
     }
 
     // ── Liens — lecture ───────────────────────────────────────────────
@@ -191,5 +189,12 @@ public class NodeController {
         String externalId = (String) body.get("externalId");
         nodeService.updateExternalId(nodeId, externalId);
         return ResponseEntity.ok(Map.of());
+    }
+
+    @PostMapping("/internal/search/reindex")
+    public ResponseEntity<Map<String, Object>> reindexSearch() {
+        String userId = secCtx.currentUser().getUserId();
+        int count = nodeService.reindexSearch(userId);
+        return ResponseEntity.ok(Map.of("queued", count));
     }
 }

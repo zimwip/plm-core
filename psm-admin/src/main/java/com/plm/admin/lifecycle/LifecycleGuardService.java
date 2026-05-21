@@ -15,7 +15,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -40,7 +43,7 @@ public class LifecycleGuardService {
 
     public List<Map<String, Object>> listGuards(String transitionId) {
         List<Record> rows = dsl.fetch(
-            "SELECT id, lifecycle_transition_id, algorithm_instance_id, effect, display_order " +
+            "SELECT lifecycle_transition_id, algorithm_instance_id, effect, display_order " +
             "FROM lifecycle_transition_guard WHERE lifecycle_transition_id = ? ORDER BY display_order",
             transitionId);
 
@@ -51,7 +54,6 @@ public class LifecycleGuardService {
             String instId = r.get("algorithm_instance_id", String.class);
             Map<String, Object> inst = instanceIndex.getOrDefault(instId, Map.of());
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id",                    r.get("id", String.class));
             m.put("lifecycleTransitionId", r.get("lifecycle_transition_id", String.class));
             m.put("algorithmInstanceId",   instId);
             m.put("effect",                r.get("effect", String.class));
@@ -67,28 +69,28 @@ public class LifecycleGuardService {
     }
 
     @Transactional
-    public String attachGuard(String transitionId, String instanceId, String effect, int displayOrder) {
-        String id = UUID.randomUUID().toString();
+    public void attachGuard(String transitionId, String instanceId, String effect, int displayOrder) {
         dsl.execute(
             "INSERT INTO lifecycle_transition_guard " +
-            "(id, lifecycle_transition_id, algorithm_instance_id, effect, display_order) VALUES (?,?,?,?,?)",
-            id, transitionId, instanceId, effect, displayOrder);
-        eventPublisher.publishEvent(new ConfigChangedEvent("CREATE", "LIFECYCLE_TRANSITION_GUARD", id));
-        return id;
+            "(lifecycle_transition_id, algorithm_instance_id, effect, display_order) VALUES (?,?,?,?)",
+            transitionId, instanceId, effect, displayOrder);
+        eventPublisher.publishEvent(new ConfigChangedEvent("CREATE", "LIFECYCLE_TRANSITION_GUARD", transitionId));
     }
 
     @Transactional
-    public void updateGuardEffect(String guardId, String effect) {
+    public void updateGuardEffect(String transitionId, String instanceId, String effect) {
         if (effect == null || (!effect.equals("HIDE") && !effect.equals("BLOCK")))
             throw new IllegalArgumentException("effect must be HIDE or BLOCK");
-        dsl.execute("UPDATE lifecycle_transition_guard SET effect = ? WHERE id = ?", effect, guardId);
-        eventPublisher.publishEvent(new ConfigChangedEvent("UPDATE", "LIFECYCLE_TRANSITION_GUARD", guardId));
+        dsl.execute("UPDATE lifecycle_transition_guard SET effect = ? WHERE lifecycle_transition_id = ? AND algorithm_instance_id = ?",
+            effect, transitionId, instanceId);
+        eventPublisher.publishEvent(new ConfigChangedEvent("UPDATE", "LIFECYCLE_TRANSITION_GUARD", transitionId));
     }
 
     @Transactional
-    public void detachGuard(String guardId) {
-        dsl.execute("DELETE FROM lifecycle_transition_guard WHERE id = ?", guardId);
-        eventPublisher.publishEvent(new ConfigChangedEvent("DELETE", "LIFECYCLE_TRANSITION_GUARD", guardId));
+    public void detachGuard(String transitionId, String instanceId) {
+        dsl.execute("DELETE FROM lifecycle_transition_guard WHERE lifecycle_transition_id = ? AND algorithm_instance_id = ?",
+            transitionId, instanceId);
+        eventPublisher.publishEvent(new ConfigChangedEvent("DELETE", "LIFECYCLE_TRANSITION_GUARD", transitionId));
     }
 
     private Map<String, Map<String, Object>> fetchInstanceIndex() {

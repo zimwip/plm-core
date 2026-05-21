@@ -109,7 +109,12 @@ export default function BrowseNav({
   const lockedByMe      = usePlmStore(s => s.lockedByMe);
   const storeUserId     = usePlmStore(s => s.userId);
   const storePsId       = usePlmStore(s => s.projectSpaceId);
-  const descriptors  = useMemo(() => storeItems.filter(d => d.list), [storeItems]);
+  const descriptors  = useMemo(() => {
+    const want = String(panelSection || 'MAIN').toUpperCase();
+    return storeItems.filter(d =>
+      d.list && String(d.panelSection || 'MAIN').toUpperCase() === want
+    );
+  }, [storeItems, panelSection]);
   const [pages, setPages] = useState({});
   const [loadingItems, setLoadingItems] = useState({});
   const [expandedDescriptors, setExpandedDescriptors] = useState(new Set());

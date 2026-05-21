@@ -34,11 +34,18 @@ public interface NodeStore {
     SearchResult searchGlobal(SearchRequest req) throws Exception;
 
     /**
-     * Compute facet counts for the given node IDs and dimensions.
+     * Compute term facet counts for the given node IDs and dimensions.
+     * Supports "*" as a special dim that auto-discovers enum-typed fields.
      * Returns: dim → (value → count)
      */
     Map<String, Map<String, Integer>> computeFacets(
         Set<String> ids, List<String> dims) throws Exception;
+
+    /**
+     * Compute [min, max] for all numeric fields found in the given node IDs.
+     * Returns: fieldName → [min, max]
+     */
+    Map<String, double[]> computeRangeFacets(Set<String> ids) throws Exception;
 
     int count() throws Exception;
 }

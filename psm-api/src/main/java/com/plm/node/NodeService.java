@@ -14,7 +14,11 @@ import static java.util.Map.entry;
 
 import java.util.Comparator;
 import com.plm.platform.action.dto.DetailDescriptor;
-import com.plm.platform.action.dto.DetailField;
+import com.plm.platform.action.dto.FieldMeta;
+import com.plm.platform.action.dto.FieldValue;
+import com.plm.platform.action.dto.ItemTypeDescriptor;
+import com.plm.platform.action.dto.LinkTypeDescriptor;
+import com.plm.platform.config.dto.LinkTypeAttributeConfig;
 import com.plm.platform.item.dto.ItemTypeRef;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.LifecycleConfig;
@@ -851,12 +855,10 @@ public class NodeService {
         String activeViewId   = viewService.resolveActiveView(nodeTypeId, currentStateId);
         LockService.LockInfo lockInfo = lockService.getLockInfo(nodeId);
 
-        NodeTypeConfig nodeTypeConfig = configCache.getNodeType(nodeTypeId)
+        // NodeTypeConfig needed only for node type validation; type-level data served via buildNodeTypeDescriptor()
+        configCache.getNodeType(nodeTypeId)
             .orElseThrow(() -> new IllegalStateException(
                 "NodeType not found in config cache: " + nodeTypeId));
-        String lifecycleId      = nodeTypeConfig.lifecycleId();
-        String logicalIdLabel   = nodeTypeConfig.logicalIdLabel();
-        String logicalIdPattern = nodeTypeConfig.logicalIdPattern();
 
         Record nodeRecord = dsl.select().from("node").where("id = ?", nodeId).fetchOne();
         String logicalId = nodeRecord.get("logical_id", String.class);
@@ -892,9 +894,9 @@ public class NodeService {
             }
         }
 
-        // Build fields (sorted by displayOrder) and attributeMeta in a single pass
-        List<DetailField>              fields    = new ArrayList<>();
-        Map<String, Map<String, Object>> attrMeta = new LinkedHashMap<>();
+        // Build per-instance values (sorted by displayOrder). Labels/widgets stay in ItemTypeDescriptor.
+        List<FieldValue> values = new ArrayList<>();
+        Map<String, Integer> displayOrderMap = new LinkedHashMap<>();
         for (ResolvedAttribute attr : effectiveAttrs) {
             String attrId = attr.id();
             MetaModelCachePort.StateRuleInfo rule = currentStateId != null
@@ -906,44 +908,31 @@ public class NodeService {
                 attr.displayOrder(), attr.displaySection());
             if (!ov.visible()) continue;
 
-            fields.add(new DetailField(
-                attrId,
-                attr.label(),
-                currentValues.getOrDefault(attrId, ""),
-                attr.widgetType() != null ? attr.widgetType() : "text",
-                ov.editable(),
-                attr.tooltip()
-            ));
-
             boolean required = (rule != null && rule.required()) || attr.required();
-            Map<String, Object> am = new LinkedHashMap<>();
-            am.put("required",        required);
-            am.put("displayOrder",    ov.displayOrder());
-            am.put("section",         ov.displaySection() != null ? ov.displaySection() : "");
-            am.put("namingRegex",     attr.namingRegex()     != null ? attr.namingRegex()     : "");
-            am.put("allowedValues",   attr.allowedValues()   != null ? attr.allowedValues()   : "");
-            am.put("sourceDomainId",  attr.sourceDomainId()  != null ? attr.sourceDomainId()  : "");
-            am.put("sourceDomainName",attr.sourceDomainName()!= null ? attr.sourceDomainName(): "");
-            attrMeta.put(attrId, am);
+            values.add(new FieldValue(
+                attrId,
+                currentValues.getOrDefault(attrId, ""),
+                ov.editable(),
+                required
+            ));
+            displayOrderMap.put(attrId, ov.displayOrder());
         }
-        fields.sort(Comparator.comparingInt(f ->
-            (int) ((Map<?, ?>) attrMeta.get(f.name())).get("displayOrder")));
+        values.sort(Comparator.comparingInt(fv -> displayOrderMap.getOrDefault(fv.name(), 0)));
 
-        // System nav fields — prepended so detailToItem() exposes them as flat item
+        // System nav values — prepended so detailToItem() exposes them as flat item
         // properties that NavRow components read (logical_id, revision, etc.).
-        // Kept out of attrMeta to avoid polluting the editor attribute list.
-        // All values are strings so the editor's (val || '').trim() pattern never throws.
-        List<DetailField> navFields = new ArrayList<>();
-        navFields.add(new DetailField("logical_id",         "Logical ID",   logicalId       != null ? logicalId                : ""));
-        navFields.add(new DetailField("revision",           "Revision",     revision        != null ? revision                 : ""));
-        navFields.add(new DetailField("iteration",          "Iteration",    String.valueOf(iteration)));
-        navFields.add(new DetailField("lifecycle_state_id", "State",        currentStateId  != null ? currentStateId           : ""));
-        navFields.add(new DetailField("tx_status",          "TX Status",    txStatus        != null ? txStatus                 : "COMMITTED"));
-        navFields.add(new DetailField("locked_by",          "Locked by",    lockInfo.lockedBy() != null ? lockInfo.lockedBy()  : ""));
-        navFields.add(new DetailField("node_type_id",       "Node type ID", nodeTypeId));
-        navFields.add(new DetailField("display_name",       "Display name", displayName     != null ? displayName              : ""));
-        navFields.addAll(fields);
-        fields = navFields;
+        // Kept out of the user-editable attribute list.
+        List<FieldValue> navValues = new ArrayList<>();
+        navValues.add(new FieldValue("logical_id",         logicalId       != null ? logicalId                : "", false, false));
+        navValues.add(new FieldValue("revision",           revision        != null ? revision                 : "", false, false));
+        navValues.add(new FieldValue("iteration",          String.valueOf(iteration),                               false, false));
+        navValues.add(new FieldValue("lifecycle_state_id", currentStateId  != null ? currentStateId           : "", false, false));
+        navValues.add(new FieldValue("tx_status",          txStatus        != null ? txStatus                 : "COMMITTED", false, false));
+        navValues.add(new FieldValue("locked_by",          lockInfo.lockedBy() != null ? lockInfo.lockedBy()  : "", false, false));
+        navValues.add(new FieldValue("node_type_id",       nodeTypeId,                                              false, false));
+        navValues.add(new FieldValue("display_name",       displayName     != null ? displayName              : "", false, false));
+        navValues.addAll(values);
+        values = navValues;
 
         // Lock info
         String lockTxId = lockInfo.locked()
@@ -980,9 +969,6 @@ public class NodeService {
         metadata.put("state",            currentStateId   != null ? currentStateId   : "");
         metadata.put("stateName",        currentStateName != null ? currentStateName : "");
         metadata.put("txStatus",         txStatus != null ? txStatus : "COMMITTED");
-        metadata.put("lifecycleId",      lifecycleId      != null ? lifecycleId      : "");
-        metadata.put("logicalIdLabel",   logicalIdLabel   != null ? logicalIdLabel   : "Identifier");
-        metadata.put("logicalIdPattern", logicalIdPattern != null ? logicalIdPattern : "");
         metadata.put("displayName",      displayName);
         metadata.put("currentVersionId", versionId);
         metadata.put("createdBy",  Objects.toString(nodeRecord.get("created_by", String.class), ""));
@@ -995,7 +981,6 @@ public class NodeService {
             "txId",     lockTxId != null ? lockTxId : ""));
         metadata.put("domains",       domainList);
         metadata.put("historicalView", historicalView);
-        metadata.put("attributeMeta",  attrMeta);
         if (historicalView) metadata.put("versionNumber", versionNumber);
 
         if ("OPEN".equals(txStatus)) {
@@ -1015,8 +1000,8 @@ public class NodeService {
             metadata.put("fingerprintChanged", null);
         }
 
-        return new DetailDescriptor(nodeId, new ItemTypeRef("psm", nodeTypeId, nodeId),
-            identity, displayName, null, null, fields, List.of(), metadata);
+        return new DetailDescriptor(nodeId, new ItemTypeRef("psm", "node", nodeTypeId),
+            values, List.of(), metadata);
     }
 
     /** Finds the user's existing OPEN transaction or opens a new one. Returns the txId. */
@@ -1024,6 +1009,88 @@ public class NodeService {
         String txId = txService.findOpenTransaction(userId);
         if (txId == null) txId = txService.openTransaction(userId);
         return txId;
+    }
+
+    /**
+     * Builds the static type descriptor for a node type.
+     * Served via GET /api/psm/item-type/{nodeTypeId}; cached by the frontend.
+     */
+    public ItemTypeDescriptor buildNodeTypeDescriptor(String nodeTypeId) {
+        NodeTypeConfig nodeTypeConfig = configCache.getNodeType(nodeTypeId)
+            .orElseThrow(() -> new IllegalStateException(
+                "NodeType not found in config cache: " + nodeTypeId));
+
+        var resolvedNodeType = metaModelCache.get(nodeTypeId);
+        List<ResolvedAttribute> attrs = resolvedNodeType != null
+            ? resolvedNodeType.attributes() : List.of();
+
+        List<FieldMeta> fieldMetas = new ArrayList<>();
+        Map<String, Object> fieldMetaEnrichments = new LinkedHashMap<>();
+        for (ResolvedAttribute attr : attrs) {
+            fieldMetas.add(new FieldMeta(
+                attr.id(),
+                attr.label(),
+                attr.dataType(),
+                attr.widgetType() != null ? attr.widgetType() : "text",
+                attr.tooltip(),
+                attr.displaySection(),
+                attr.displayOrder()
+            ));
+            Map<String, Object> enrichment = new LinkedHashMap<>();
+            enrichment.put("namingRegex",     attr.namingRegex()     != null ? attr.namingRegex()     : "");
+            enrichment.put("allowedValues",   attr.allowedValues()   != null ? attr.allowedValues()   : "");
+            enrichment.put("sourceDomainId",  attr.sourceDomainId()  != null ? attr.sourceDomainId()  : "");
+            enrichment.put("sourceDomainName",attr.sourceDomainName()!= null ? attr.sourceDomainName(): "");
+            fieldMetaEnrichments.put(attr.id(), enrichment);
+        }
+        fieldMetas.sort(Comparator.comparingInt(FieldMeta::displayOrder));
+
+        String asNameAttrId = resolvedNodeType != null
+            ? resolvedNodeType.attributes().stream()
+                .filter(ResolvedAttribute::asName).map(ResolvedAttribute::id)
+                .findFirst().orElse(null)
+            : null;
+
+        Map<String, Object> staticMetadata = new LinkedHashMap<>();
+        String logicalIdLabel   = nodeTypeConfig.logicalIdLabel();
+        String logicalIdPattern = nodeTypeConfig.logicalIdPattern();
+        String lifecycleId      = nodeTypeConfig.lifecycleId();
+        staticMetadata.put("logicalIdLabel",   logicalIdLabel   != null ? logicalIdLabel   : "Identifier");
+        staticMetadata.put("logicalIdPattern", logicalIdPattern != null ? logicalIdPattern : "");
+        staticMetadata.put("lifecycleId",      lifecycleId      != null ? lifecycleId      : "");
+        staticMetadata.put("fieldMeta",        fieldMetaEnrichments);
+
+        return new ItemTypeDescriptor(
+            new ItemTypeRef("psm", "node", nodeTypeId),
+            resolvedNodeType != null ? resolvedNodeType.name() : nodeTypeId,
+            resolvedNodeType != null ? resolvedNodeType.icon() : null,
+            resolvedNodeType != null ? resolvedNodeType.color() : null,
+            "logical_id",
+            asNameAttrId,
+            fieldMetas,
+            staticMetadata
+        );
+    }
+
+    public LinkTypeDescriptor buildLinkTypeDescriptor(String linkTypeId) {
+        LinkTypeConfig lt = configCache.getLinkType(linkTypeId)
+            .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.NOT_FOUND, "LinkType not found: " + linkTypeId));
+        List<FieldMeta> attrs = (lt.attributes() != null ? lt.attributes() : List.<LinkTypeAttributeConfig>of())
+            .stream()
+            .sorted(Comparator.comparingInt(LinkTypeAttributeConfig::displayOrder))
+            .map(a -> new FieldMeta(
+                a.name(), a.label(),
+                a.dataType(),
+                a.widgetType() != null ? a.widgetType() : "text",
+                a.tooltip(), a.displaySection(), a.displayOrder()))
+            .toList();
+        Map<String, Object> meta = new LinkedHashMap<>();
+        if (lt.linkLogicalIdLabel()   != null) meta.put("linkLogicalIdLabel",   lt.linkLogicalIdLabel());
+        if (lt.linkLogicalIdPattern() != null) meta.put("linkLogicalIdPattern", lt.linkLogicalIdPattern());
+        return new LinkTypeDescriptor(
+            lt.id(), lt.name(), lt.icon(), lt.color(), lt.linkPolicy(),
+            lt.minCardinality(), lt.maxCardinality(), attrs, meta);
     }
 
     /** Returns the current lifecycle_state_id for a node, considering an open tx if provided. */
@@ -1267,6 +1334,20 @@ public class NodeService {
     // SEARCH PAYLOAD — builds the node payload embedded in ITEM_* events
     // ================================================================
 
+    /**
+     * Re-publishes ITEM_UPDATED for every committed node so search-api can rebuild
+     * its index with the latest sourceJson shape (e.g. after adding new stored fields).
+     */
+    public int reindexSearch(String byUser) {
+        List<String> ids = dsl.fetch("SELECT id FROM node").getValues("id", String.class);
+        for (String nodeId : ids) {
+            Map<String, Object> payload = buildNodePayload(nodeId);
+            if (!payload.isEmpty()) eventPublisher.itemUpdated(nodeId, byUser, payload);
+        }
+        log.info("Search re-index enqueued: {} nodes by {}", ids.size(), byUser);
+        return ids.size();
+    }
+
     Map<String, Object> buildNodePayload(String nodeId) {
         try {
             org.jooq.Record node = dsl.fetchOne(
@@ -1316,7 +1397,7 @@ public class NodeService {
             List<Map<String, Object>> fields = new ArrayList<>();
             fields.add(Map.of("name", "logical_id", "valueType", "string",
                 "values", List.of(logicalId != null ? logicalId : "")));
-            fields.add(Map.of("name", "revision", "valueType", "string",
+            fields.add(Map.of("name", "revision", "valueType", "enum",
                 "values", List.of(revision != null ? revision : "")));
             fields.add(Map.of("name", "iteration", "valueType", "number",
                 "values", List.of(iteration != null ? (double) iteration : 0.0)));
@@ -1351,6 +1432,7 @@ public class NodeService {
             case "number", "integer", "float", "double", "decimal" -> "number";
             case "date", "datetime", "timestamp"                   -> "date";
             case "boolean", "bool"                                 -> "boolean";
+            case "enum", "list"                                    -> "enum";
             default                                                -> "string";
         };
     }

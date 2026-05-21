@@ -70,6 +70,14 @@ public class LuceneNodeStore implements NodeStore {
                         String s = raw.toString();
                         doc.add(new TextField(luceneName,            s, Field.Store.NO));
                         doc.add(new StringField(luceneName + ".kw",  s, Field.Store.YES));
+                        doc.add(new TextField("_all",                s, Field.Store.NO));
+                    }
+                    case "enum" -> {
+                        String s = raw.toString();
+                        doc.add(new TextField(luceneName,            s, Field.Store.NO));
+                        doc.add(new StringField(luceneName + ".kw",  s, Field.Store.YES));
+                        doc.add(new TextField("_all",                s, Field.Store.NO));
+                        doc.add(new StringField("_enum_fields", field.name(), Field.Store.YES));
                     }
                     case "number" -> {
                         double d = raw instanceof Number n ? n.doubleValue()
@@ -77,6 +85,7 @@ public class LuceneNodeStore implements NodeStore {
                         doc.add(new DoublePoint(luceneName, d));
                         doc.add(new DoubleDocValuesField(luceneName + ".sv", d));
                         doc.add(new StoredField(luceneName + ".stored", d));
+                        doc.add(new StringField("_range_fields", field.name(), Field.Store.YES));
                     }
                     case "date" -> {
                         long epoch = raw instanceof Number n ? n.longValue()
@@ -123,6 +132,8 @@ public class LuceneNodeStore implements NodeStore {
         return executeSearch(buildMainQuery(req), req, 0);
     }
 
+    private static final Set<String> FACET_EXCLUDE_DIMS = Set.of("logical_id");
+
     @Override
     public Map<String, Map<String, Integer>> computeFacets(
             Set<String> ids, List<String> dims) throws Exception {
@@ -131,16 +142,38 @@ public class LuceneNodeStore implements NodeStore {
         searcherManager.maybeRefresh();
         IndexSearcher searcher = searcherManager.acquire();
         try {
-            // Fetch stored docs for the given IDs (up to ids.size()+1 to be safe)
             Query scopeQuery = buildScopeQuery(ids);
             TopDocs topDocs  = searcher.search(scopeQuery, ids.size() + 1);
             var storedFields = searcher.storedFields();
 
-            Map<String, Map<String, Integer>> result = new LinkedHashMap<>();
+            // Load all docs once
+            List<Document> docs = new ArrayList<>();
+            for (ScoreDoc sd : topDocs.scoreDocs) {
+                docs.add(storedFields.document(sd.doc));
+            }
+
+            // Expand "*" to enum-typed field names (stored in _enum_fields marker)
+            List<String> effectiveDims = new ArrayList<>();
+            boolean hasWildcard = dims.contains("*");
             for (String dim : dims) {
+                if (!"*".equals(dim)) effectiveDims.add(dim);
+            }
+            if (hasWildcard) {
+                Set<String> enumDims = new LinkedHashSet<>();
+                for (Document d : docs) {
+                    for (String name : d.getValues("_enum_fields")) {
+                        if (!FACET_EXCLUDE_DIMS.contains(name) && !effectiveDims.contains(name)) {
+                            enumDims.add(name);
+                        }
+                    }
+                }
+                effectiveDims.addAll(enumDims);
+            }
+
+            Map<String, Map<String, Integer>> result = new LinkedHashMap<>();
+            for (String dim : effectiveDims) {
                 Map<String, Integer> counts = new LinkedHashMap<>();
-                for (ScoreDoc sd : topDocs.scoreDocs) {
-                    Document d = storedFields.document(sd.doc);
+                for (Document d : docs) {
                     if ("_type".equals(dim)) {
                         String v = d.get("_type");
                         if (v != null) counts.merge(v, 1, Integer::sum);
@@ -167,6 +200,43 @@ public class LuceneNodeStore implements NodeStore {
         }
     }
 
+    @Override
+    public Map<String, double[]> computeRangeFacets(Set<String> ids) throws Exception {
+        if (ids.isEmpty()) return Map.of();
+
+        searcherManager.maybeRefresh();
+        IndexSearcher searcher = searcherManager.acquire();
+        try {
+            Query scopeQuery = buildScopeQuery(ids);
+            TopDocs topDocs  = searcher.search(scopeQuery, ids.size() + 1);
+            var storedFields = searcher.storedFields();
+
+            Set<String> rangeDims = new LinkedHashSet<>();
+            List<Document> docs   = new ArrayList<>();
+            for (ScoreDoc sd : topDocs.scoreDocs) {
+                Document d = storedFields.document(sd.doc);
+                docs.add(d);
+                for (String name : d.getValues("_range_fields")) rangeDims.add(name);
+            }
+
+            Map<String, double[]> result = new LinkedHashMap<>();
+            for (String dim : rangeDims) {
+                double min = Double.MAX_VALUE, max = -Double.MAX_VALUE;
+                for (Document d : docs) {
+                    IndexableField f = d.getField("dyn." + dim + ".stored");
+                    if (f == null || f.numericValue() == null) continue;
+                    double v = f.numericValue().doubleValue();
+                    if (v < min) min = v;
+                    if (v > max) max = v;
+                }
+                if (min <= max) result.put(dim, new double[]{min, max});
+            }
+            return result;
+        } finally {
+            searcherManager.release(searcher);
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────
 
     private SearchResult executeSearch(Query query, SearchRequest req, int hop) throws Exception {
@@ -185,7 +255,7 @@ public class LuceneNodeStore implements NodeStore {
             }
             int total = topDocs.totalHits.value() > Integer.MAX_VALUE
                 ? Integer.MAX_VALUE : (int) topDocs.totalHits.value();
-            return new SearchResult(hits, Map.of(), total, hop);
+            return new SearchResult(hits, Map.of(), Map.of(), total, hop);
         } finally {
             searcherManager.release(searcher);
         }
@@ -209,16 +279,20 @@ public class LuceneNodeStore implements NodeStore {
         boolean              hasClauses = false;
 
         if (req.query() != null && !req.query().isBlank()) {
-            try {
-                QueryParser parser = new QueryParser("dyn.logical_id", analyzer);
+            String raw = req.query().trim();
+            // "*" and "*:*" mean match-all; skip text clause so other filters still apply
+            if (!"*".equals(raw) && !"*:*".equals(raw)) {
+                QueryParser parser = new QueryParser("_all", analyzer);
                 parser.setDefaultOperator(QueryParser.Operator.AND);
-                b.add(parser.parse(req.query()), BooleanClause.Occur.MUST);
-            } catch (Exception e) {
-                b.add(new WildcardQuery(
-                    new Term("dyn.logical_id.kw", "*" + req.query().toLowerCase() + "*")),
-                    BooleanClause.Occur.MUST);
+                Query textQuery;
+                try {
+                    textQuery = parser.parse(raw);
+                } catch (Exception e) {
+                    textQuery = parser.parse(QueryParser.escape(raw));
+                }
+                b.add(textQuery, BooleanClause.Occur.MUST);
+                hasClauses = true;
             }
-            hasClauses = true;
         }
         if (req.type() != null && !req.type().isBlank()) {
             b.add(new TermQuery(new Term("_type", req.type())), BooleanClause.Occur.FILTER);
@@ -238,10 +312,25 @@ public class LuceneNodeStore implements NodeStore {
         }
         if (req.filterTerms() != null) {
             for (Map.Entry<String, List<String>> e : req.filterTerms().entrySet()) {
-                String field = toFilterField(e.getKey());
-                for (String val : e.getValue()) {
-                    b.add(new TermQuery(new Term(field, val)), BooleanClause.Occur.FILTER);
+                String       field = toFilterField(e.getKey());
+                List<String> vals  = e.getValue();
+                if (vals.isEmpty()) continue;
+                if (vals.size() == 1) {
+                    b.add(new TermQuery(new Term(field, vals.get(0))), BooleanClause.Occur.FILTER);
+                } else {
+                    // OR within a dimension (e.g. type = A OR B), AND across dimensions
+                    List<BytesRef> refs = vals.stream().map(BytesRef::new).toList();
+                    b.add(new TermInSetQuery(field, refs), BooleanClause.Occur.FILTER);
                 }
+                hasClauses = true;
+            }
+        }
+        if (req.rangeFilters() != null) {
+            for (Map.Entry<String, double[]> e : req.rangeFilters().entrySet()) {
+                double[] bounds = e.getValue();
+                if (bounds == null || bounds.length < 2) continue;
+                b.add(DoublePoint.newRangeQuery("dyn." + e.getKey(), bounds[0], bounds[1]),
+                      BooleanClause.Occur.FILTER);
                 hasClauses = true;
             }
         }

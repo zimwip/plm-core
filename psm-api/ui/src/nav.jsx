@@ -172,6 +172,71 @@ function PsmLinkRowRemote({
   );
 }
 
+// ── Inline pin icons (no shell import allowed) ────────────────────────────────
+
+function PinIcon({ size = 11, color = 'currentColor', strokeWidth = 2 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+    </svg>
+  );
+}
+
+function PinOffIcon({ size = 11, color = 'currentColor', strokeWidth = 2 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 17v5" />
+      <path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" />
+      <path d="m2 2 20 20" />
+      <path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" />
+    </svg>
+  );
+}
+
+// ── SearchItem — full search hit renderer ─────────────────────────────────────
+
+function PsmSearchItem({ hit, descriptor, isPinned, onPin, onUnpin, ctx }) {
+  let source = {};
+  try { source = JSON.parse(hit.sourceJson || '{}'); } catch {}
+  const { onNavigate, icons } = ctx;
+  const rev       = source.revision || 'A';
+  const iter      = source.iteration ?? 1;
+  const logicalId = source.logicalId || '';
+  const name      = source.name || '';
+  const NtIcon    = icons && descriptor?.icon ? icons[descriptor.icon] : null;
+
+  return (
+    <div
+      className="node-item"
+      onClick={() => onNavigate(hit.id, logicalId || hit.id, descriptor)}
+      title={[logicalId, name].filter(Boolean).join(' · ') || hit.id}
+    >
+      {NtIcon
+        ? <NtIcon size={11} color={descriptor.color || 'var(--muted)'} strokeWidth={2} style={{ flexShrink: 0 }} />
+        : descriptor?.color
+          ? <span style={{ width: 6, height: 6, borderRadius: 1, background: descriptor.color, flexShrink: 0, display: 'inline-block' }} />
+          : null}
+      <span className="ni-logical" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {logicalId || <span className="ni-no-id">—</span>}
+        {name && <span className="ni-dname">{name}</span>}
+      </span>
+      <span className="ni-reviter">
+        {iter === 0 ? rev : `${rev}.${iter}`}
+      </span>
+      <button
+        className={`search-pin-btn${isPinned ? ' pinned' : ''}`}
+        title={isPinned ? 'Remove from basket' : 'Add to basket'}
+        onClick={e => { e.stopPropagation(); isPinned ? onUnpin?.() : onPin?.(); }}
+      >
+        {isPinned ? <PinOffIcon size={11} strokeWidth={2} /> : <PinIcon size={11} strokeWidth={2} />}
+      </button>
+    </div>
+  );
+}
+
 // ── Plugin export ─────────────────────────────────────────────────────────────
 
 export default {
@@ -181,6 +246,7 @@ export default {
   match: { serviceCode: 'psm' },
 
   NavLabel: PsmNavLabel,
+  SearchItem: PsmSearchItem,
   getRowProps: psmGetRowProps,
 
   ChildRow: PsmLinkRowRemote,

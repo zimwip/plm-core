@@ -1,9 +1,8 @@
 package com.plm.admin.metamodel;
 
 import com.plm.admin.config.ConfigChangedEvent;
+import com.plm.admin.lifecycle.LifecycleService;
 import com.plm.admin.metadata.MetadataService;
-import com.plm.admin.security.PlmAdminSecurityContext;
-import com.plm.admin.shared.MapKeyUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -22,13 +21,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * Admin CRUD for the PLM metamodel: node types, attributes,
- * attribute state rules, link types, and link type attributes.
- *
- * Every write operation publishes a {@link ConfigChangedEvent} so that
- * registered psm-data instances are notified of the change.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -47,27 +39,26 @@ public class MetaModelService {
     }
 
     @Transactional
-    public String createNodeType(String name, String description, String lifecycleId,
+    public String createNodeType(String code, String name, String description, String lifecycleId,
                                  String numberingScheme, String versionPolicy,
                                  String color, String icon, String parentNodeTypeId) {
+        LifecycleService.validateCode(code);
         String scheme = (numberingScheme != null && !numberingScheme.isBlank()) ? numberingScheme : "ALPHA_NUMERIC";
         String policy = (versionPolicy != null && !versionPolicy.isBlank()) ? versionPolicy : "ITERATE";
         if (parentNodeTypeId != null && !parentNodeTypeId.isBlank()) {
             assertNoCycle(null, parentNodeTypeId);
         }
-        String id = UUID.randomUUID().toString();
         dsl.execute(
             "INSERT INTO node_type (ID, NAME, DESCRIPTION, LIFECYCLE_ID, NUMBERING_SCHEME, VERSION_POLICY, COLOR, ICON, PARENT_NODE_TYPE_ID, CREATED_AT) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            id, name, description, lifecycleId, scheme, policy,
+            code, name, description, lifecycleId, scheme, policy,
             (color != null && !color.isBlank()) ? color : null,
             (icon  != null && !icon.isBlank())  ? icon  : null,
             (parentNodeTypeId != null && !parentNodeTypeId.isBlank()) ? parentNodeTypeId : null,
             LocalDateTime.now()
         );
-        // Parent-grant copy removed in Phase D4 — grants live in pno-api now.
-        log.info("NodeType created: {} scheme={}", name, scheme);
-        publishChange("CREATE", "NODE_TYPE", id);
-        return id;
+        log.info("NodeType created: {} ({})", name, code);
+        publishChange("CREATE", "NODE_TYPE", code);
+        return code;
     }
 
     @Transactional
@@ -152,7 +143,8 @@ public class MetaModelService {
 
     @Transactional
     public String createAttributeDefinition(String nodeTypeId, Map<String, Object> params) {
-        String id = UUID.randomUUID().toString();
+        String code = (String) params.get("code");
+        LifecycleService.validateCode(code);
         boolean asName = Boolean.TRUE.equals(params.get("asName"));
         if (asName) {
             int existing = dsl.fetchCount(dsl.selectOne().from("attribute_definition")
@@ -168,15 +160,15 @@ public class MetaModelService {
                ENUM_DEFINITION_ID, CREATED_AT)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            id, nodeTypeId, params.get("name"), params.get("label"),
+            code, nodeTypeId, params.get("name"), params.get("label"),
             params.getOrDefault("dataType", "STRING"), toIntFlag(params.get("required")),
             params.get("defaultValue"), params.get("namingRegex"), allowedValues,
             params.getOrDefault("widgetType", "TEXT"), toInt(params.get("displayOrder"), 0),
             params.get("displaySection"), params.get("tooltip"), asName ? 1 : 0,
             enumDefId, LocalDateTime.now()
         );
-        publishChange("CREATE", "ATTRIBUTE_DEFINITION", id);
-        return id;
+        publishChange("CREATE", "ATTRIBUTE_DEFINITION", code);
+        return code;
     }
 
     @Transactional
@@ -258,7 +250,6 @@ public class MetaModelService {
         Set<String> seenNames = new LinkedHashSet<>();
         List<Map<String, Object>> result = new ArrayList<>();
 
-        // Own links: outgoing only (source = this type)
         List<Record> ownLinks = dsl.select().from("link_type")
             .where("source_node_type_id = ?", nodeTypeId)
             .orderBy(DSL.field("name"))
@@ -271,7 +262,6 @@ public class MetaModelService {
             result.add(m);
         }
 
-        // Inherited outgoing links from ancestor types (name-wins deduplication)
         for (String ancestorId : chain) {
             if (ancestorId.equals(nodeTypeId)) continue;
             String ancestorName = dsl.select(DSL.field("name"))
@@ -310,12 +300,13 @@ public class MetaModelService {
     }
 
     @Transactional
-    public String createLinkType(String name, String description,
+    public String createLinkType(String code, String name, String description,
                                  String sourceNodeTypeId,
                                  String targetSourceId, String targetType,
                                  String linkPolicy, int minCardinality, Integer maxCardinality,
                                  String linkLogicalIdLabel, String linkLogicalIdPattern,
                                  String color, String icon) {
+        LifecycleService.validateCode(code);
         if (!linkPolicy.equals("VERSION_TO_MASTER") && !linkPolicy.equals("VERSION_TO_VERSION")) {
             throw new IllegalArgumentException("linkPolicy must be VERSION_TO_MASTER or VERSION_TO_VERSION");
         }
@@ -332,7 +323,6 @@ public class MetaModelService {
             throw new IllegalArgumentException("linkPolicy VERSION_TO_VERSION requires a versioned source; "
                 + src + " is not versioned");
         }
-        String id = UUID.randomUUID().toString();
         dsl.execute("""
             INSERT INTO link_type (ID, NAME, DESCRIPTION, SOURCE_NODE_TYPE_ID,
                TARGET_SOURCE_ID, TARGET_TYPE,
@@ -340,7 +330,7 @@ public class MetaModelService {
                LINK_LOGICAL_ID_LABEL, LINK_LOGICAL_ID_PATTERN, COLOR, ICON, CREATED_AT)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            id, name, description, sourceNodeTypeId, src, targetType,
+            code, name, description, sourceNodeTypeId, src, targetType,
             linkPolicy, minCardinality, maxCardinality,
             (linkLogicalIdLabel != null && !linkLogicalIdLabel.isBlank()) ? linkLogicalIdLabel : "Link ID",
             (linkLogicalIdPattern != null && !linkLogicalIdPattern.isBlank()) ? linkLogicalIdPattern : null,
@@ -348,8 +338,8 @@ public class MetaModelService {
             (icon != null && !icon.isBlank()) ? icon : null,
             LocalDateTime.now()
         );
-        publishChange("CREATE", "LINK_TYPE", id);
-        return id;
+        publishChange("CREATE", "LINK_TYPE", code);
+        return code;
     }
 
     @Transactional
@@ -424,28 +414,28 @@ public class MetaModelService {
 
     @Transactional
     public String createLinkTypeAttribute(String linkTypeId, Map<String, Object> params) {
-        String id = UUID.randomUUID().toString();
         String enumDefId = (String) params.get("enumDefinitionId");
         String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
+        String name = (String) params.get("name");
         dsl.execute("""
             INSERT INTO link_type_attribute
-              (ID, LINK_TYPE_ID, NAME, LABEL, DATA_TYPE, REQUIRED, DEFAULT_VALUE,
+              (LINK_TYPE_ID, NAME, LABEL, DATA_TYPE, REQUIRED, DEFAULT_VALUE,
                NAMING_REGEX, ALLOWED_VALUES, WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP,
                ENUM_DEFINITION_ID, CREATED_AT)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            id, linkTypeId, params.get("name"), params.get("label"),
+            linkTypeId, name, params.get("label"),
             params.getOrDefault("dataType", "STRING"), toIntFlag(params.get("required")),
             params.get("defaultValue"), params.get("namingRegex"), allowedValues,
             params.getOrDefault("widgetType", "TEXT"), toInt(params.get("displayOrder"), 0),
             params.get("displaySection"), params.get("tooltip"), enumDefId, LocalDateTime.now()
         );
-        publishChange("CREATE", "LINK_TYPE_ATTRIBUTE", id);
-        return id;
+        publishChange("CREATE", "LINK_TYPE_ATTRIBUTE", linkTypeId);
+        return name;
     }
 
     @Transactional
-    public void updateLinkTypeAttribute(String attrId, Map<String, Object> params) {
+    public void updateLinkTypeAttribute(String linkTypeId, String name, Map<String, Object> params) {
         String enumDefId = (String) params.get("enumDefinitionId");
         String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         dsl.execute("""
@@ -454,21 +444,21 @@ public class MetaModelService {
               NAMING_REGEX = ?, ALLOWED_VALUES = ?, WIDGET_TYPE = ?,
               DISPLAY_ORDER = ?, DISPLAY_SECTION = ?, TOOLTIP = ?,
               ENUM_DEFINITION_ID = ?
-            WHERE ID = ?
+            WHERE LINK_TYPE_ID = ? AND NAME = ?
             """,
             params.get("label"), params.getOrDefault("dataType", "STRING"),
             toIntFlag(params.get("required")), params.get("defaultValue"),
             params.get("namingRegex"), allowedValues, params.getOrDefault("widgetType", "TEXT"),
             toInt(params.get("displayOrder"), 0), params.get("displaySection"),
-            params.get("tooltip"), enumDefId, attrId
+            params.get("tooltip"), enumDefId, linkTypeId, name
         );
-        publishChange("UPDATE", "LINK_TYPE_ATTRIBUTE", attrId);
+        publishChange("UPDATE", "LINK_TYPE_ATTRIBUTE", linkTypeId);
     }
 
     @Transactional
-    public void deleteLinkTypeAttribute(String attrId) {
-        dsl.execute("DELETE FROM link_type_attribute WHERE id = ?", attrId);
-        publishChange("DELETE", "LINK_TYPE_ATTRIBUTE", attrId);
+    public void deleteLinkTypeAttribute(String linkTypeId, String name) {
+        dsl.execute("DELETE FROM link_type_attribute WHERE link_type_id = ? AND name = ?", linkTypeId, name);
+        publishChange("DELETE", "LINK_TYPE_ATTRIBUTE", linkTypeId);
     }
 
     // ================================================================
@@ -477,7 +467,6 @@ public class MetaModelService {
 
     public List<Map<String, Object>> getLinkTypeCascades(String linkTypeId) {
         return dsl.select(
-                DSL.field("ltc.id").as("id"),
                 DSL.field("ltc.link_type_id").as("link_type_id"),
                 DSL.field("ltc.parent_transition_id").as("parent_transition_id"),
                 DSL.field("pt.name").as("parent_transition_name"),
@@ -495,20 +484,19 @@ public class MetaModelService {
     }
 
     @Transactional
-    public String createLinkTypeCascade(String linkTypeId, String parentTransitionId,
-                                        String childFromStateId, String childTransitionId) {
-        String id = UUID.randomUUID().toString();
+    public void createLinkTypeCascade(String linkTypeId, String parentTransitionId,
+                                      String childFromStateId, String childTransitionId) {
         dsl.execute(
-            "INSERT INTO link_type_cascade (ID, LINK_TYPE_ID, PARENT_TRANSITION_ID, CHILD_FROM_STATE_ID, CHILD_TRANSITION_ID) VALUES (?,?,?,?,?)",
-            id, linkTypeId, parentTransitionId, childFromStateId, childTransitionId);
-        publishChange("CREATE", "LINK_TYPE_CASCADE", id);
-        return id;
+            "INSERT INTO link_type_cascade (LINK_TYPE_ID, PARENT_TRANSITION_ID, CHILD_FROM_STATE_ID, CHILD_TRANSITION_ID) VALUES (?,?,?,?)",
+            linkTypeId, parentTransitionId, childFromStateId, childTransitionId);
+        publishChange("CREATE", "LINK_TYPE_CASCADE", linkTypeId);
     }
 
     @Transactional
-    public void deleteLinkTypeCascade(String cascadeId) {
-        dsl.execute("DELETE FROM link_type_cascade WHERE id = ?", cascadeId);
-        publishChange("DELETE", "LINK_TYPE_CASCADE", cascadeId);
+    public void deleteLinkTypeCascade(String linkTypeId, String parentTransitionId, String childFromStateId) {
+        dsl.execute("DELETE FROM link_type_cascade WHERE link_type_id = ? AND parent_transition_id = ? AND child_from_state_id = ?",
+            linkTypeId, parentTransitionId, childFromStateId);
+        publishChange("DELETE", "LINK_TYPE_CASCADE", linkTypeId);
     }
 
     // ================================================================
@@ -528,11 +516,6 @@ public class MetaModelService {
             depth++;
         }
     }
-
-    // copyAuthorizationPolicies removed in Phase D4 — authorization_policy is owned by pno-api.
-    // On nodetype create, pno-api's AuthorizationCascadeListener is notified via NATS and may
-    // copy parent grants if desired. For now, newly-created child nodetypes start without grants
-    // and must be configured explicitly via /api/pno/nodetypes/{nt}/permissions/{code}.
 
     private String resolveAllowedValues(String enumDefId, String explicitAllowedValues) {
         if (enumDefId != null && !enumDefId.isBlank()) {

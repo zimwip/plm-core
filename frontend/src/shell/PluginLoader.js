@@ -1,5 +1,6 @@
 import { registerPlugin } from './pluginRegistry';
 import { registerSourcePlugin, updateSourcePlugin } from '../services/sourcePlugins';
+import { registerSearchItemPlugin } from './searchItemRegistry';
 import { api } from '../services/api';
 
 // Loads all remote plugins declared in the platform-api manifest.
@@ -28,6 +29,10 @@ export async function loadRemotePlugins(shellAPI) {
         fetchChildren:   plugin.fetchChildren    ?? null,
         LinkRow:         plugin.LinkRow          ?? null,
       });
+
+      if (plugin.SearchItem) {
+        registerSearchItemPlugin(plugin.match.serviceCode, plugin.match.itemCode ?? null, plugin.SearchItem);
+      }
 
       if (plugin.linkSources && plugin.LinkRow) {
         for (const sc of plugin.linkSources) {

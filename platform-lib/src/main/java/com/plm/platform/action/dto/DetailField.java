@@ -1,6 +1,8 @@
 package com.plm.platform.action.dto;
 
 /**
+ * @deprecated Use {@link FieldValue} (instance data) + {@link FieldMeta} (type schema) instead.
+ *
  * One field in a {@link DetailDescriptor}. The frontend renders fields in
  * the order they are declared, using {@link #widget} as a hint.
  *
@@ -25,6 +27,7 @@ package com.plm.platform.action.dto;
  *                 (the action pattern still drives the actual mutation)
  * @param hint     optional inline help text
  */
+@Deprecated
 public record DetailField(
     String name,
     String label,

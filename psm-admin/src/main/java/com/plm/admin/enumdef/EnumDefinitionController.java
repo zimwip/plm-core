@@ -27,8 +27,8 @@ public class EnumDefinitionController {
 
     @PostMapping
     public ResponseEntity<Map<String, Object>> create(@RequestBody Map<String, String> body) {
-        String id = enumService.createEnum(body.get("name"), body.get("description"));
-        return ResponseEntity.ok(Map.of("id", id));
+        String code = enumService.createEnum(body.get("code"), body.get("name"), body.get("description"));
+        return ResponseEntity.ok(Map.of("id", code));
     }
 
     @PutMapping("/{enumId}")
@@ -55,30 +55,30 @@ public class EnumDefinitionController {
     @PostMapping("/{enumId}/values")
     public ResponseEntity<Map<String, Object>> addValue(
             @PathVariable String enumId, @RequestBody Map<String, Object> body) {
-        String id = enumService.addValue(enumId,
+        String value = enumService.addValue(enumId,
             (String) body.get("value"), (String) body.get("label"),
             body.get("displayOrder") instanceof Number n ? n.intValue() : -1);
-        return ResponseEntity.ok(Map.of("id", id));
+        return ResponseEntity.ok(Map.of("value", value));
     }
 
-    @PutMapping("/{enumId}/values/{valueId}")
+    @PutMapping("/{enumId}/values/{value}")
     public ResponseEntity<Void> updateValue(
-            @PathVariable String enumId, @PathVariable String valueId,
+            @PathVariable String enumId, @PathVariable String value,
             @RequestBody Map<String, Object> body) {
-        enumService.updateValue(valueId, (String) body.get("value"), (String) body.get("label"),
+        enumService.updateValue(enumId, value, (String) body.get("label"),
             body.get("displayOrder") instanceof Number n ? n.intValue() : 0);
         return ResponseEntity.ok().build();
     }
 
-    @DeleteMapping("/{enumId}/values/{valueId}")
-    public ResponseEntity<Void> deleteValue(@PathVariable String enumId, @PathVariable String valueId) {
-        enumService.deleteValue(valueId);
+    @DeleteMapping("/{enumId}/values/{value}")
+    public ResponseEntity<Void> deleteValue(@PathVariable String enumId, @PathVariable String value) {
+        enumService.deleteValue(enumId, value);
         return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{enumId}/values/reorder")
-    public ResponseEntity<Void> reorderValues(@PathVariable String enumId, @RequestBody List<String> valueIds) {
-        enumService.reorderValues(enumId, valueIds);
+    public ResponseEntity<Void> reorderValues(@PathVariable String enumId, @RequestBody List<String> values) {
+        enumService.reorderValues(enumId, values);
         return ResponseEntity.ok().build();
     }
 }

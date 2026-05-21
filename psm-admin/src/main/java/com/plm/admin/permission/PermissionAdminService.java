@@ -8,13 +8,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
-/**
- * Admin CRUD for attribute views. Permission management moved to platform-api.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -40,8 +35,8 @@ public class PermissionAdminService {
                                  Integer displayOrder, String displaySection) {
         dsl.execute("DELETE FROM view_attribute_override WHERE view_id = ? AND attribute_def_id = ?", viewId, attrId);
         dsl.execute(
-            "INSERT INTO view_attribute_override (id, view_id, attribute_def_id, visible, editable, display_order, display_section) VALUES (?,?,?,?,?,?,?)",
-            UUID.randomUUID().toString(), viewId, attrId,
+            "INSERT INTO view_attribute_override (view_id, attribute_def_id, visible, editable, display_order, display_section) VALUES (?,?,?,?,?,?)",
+            viewId, attrId,
             visible != null ? (visible ? 1 : 0) : null,
             editable != null ? (editable ? 1 : 0) : null,
             displayOrder, displaySection);

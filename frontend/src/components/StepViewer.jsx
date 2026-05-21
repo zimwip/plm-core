@@ -361,6 +361,11 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
     const controls = controlsRef.current;
     if (!scene || !camera) return;
 
+    // Force matrixWorld update before bounding-box traversal — necessary for
+    // groups with matrixAutoUpdate=false (custom position matrices from BOM links)
+    // whose matrixWorld has not yet been computed by the RAF loop's renderer.render().
+    scene.updateMatrixWorld(true);
+
     const box = new THREE.Box3();
     scene.traverse(obj => { if (obj.isMesh && !obj.userData.isOutline && obj.visible) box.expandByObject(obj); });
     if (box.isEmpty()) return;

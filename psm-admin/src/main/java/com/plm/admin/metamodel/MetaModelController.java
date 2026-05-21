@@ -8,9 +8,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Admin CRUD API for node types, attributes, link types, and related metamodel entities.
- */
 @RestController
 @RequestMapping("/metamodel")
 @RequiredArgsConstructor
@@ -26,12 +23,12 @@ public class MetaModelController {
 
     @PostMapping("/nodetypes")
     public ResponseEntity<?> createNodeType(@RequestBody Map<String, String> body) {
-        String id = metaModelService.createNodeType(
-            body.get("name"), body.get("description"), body.get("lifecycleId"),
+        String code = metaModelService.createNodeType(
+            body.get("code"), body.get("name"), body.get("description"), body.get("lifecycleId"),
             body.get("numberingScheme"), body.get("versionPolicy"),
             body.get("color"), body.get("icon"), body.get("parentNodeTypeId")
         );
-        return ResponseEntity.ok(Map.of("id", id));
+        return ResponseEntity.ok(Map.of("id", code));
     }
 
     @PutMapping("/nodetypes/{nodeTypeId}/parent")
@@ -103,8 +100,8 @@ public class MetaModelController {
     @PostMapping("/nodetypes/{nodeTypeId}/attributes")
     public ResponseEntity<Map<String, String>> createAttribute(
         @PathVariable String nodeTypeId, @RequestBody Map<String, Object> body) {
-        String id = metaModelService.createAttributeDefinition(nodeTypeId, body);
-        return ResponseEntity.ok(Map.of("id", id));
+        String code = metaModelService.createAttributeDefinition(nodeTypeId, body);
+        return ResponseEntity.ok(Map.of("id", code));
     }
 
     @PutMapping("/nodetypes/{nodeTypeId}/attributes/{attrId}")
@@ -158,15 +155,13 @@ public class MetaModelController {
 
     @PostMapping("/linktypes")
     public ResponseEntity<Map<String, String>> createLinkType(@RequestBody Map<String, Object> body) {
-        // Backwards-compat: targetNodeTypeId still accepted as a shortcut for
-        // (targetSourceId='SELF', targetType=<nodeTypeId>) when callers haven't migrated.
         String targetSource = (String) body.getOrDefault("targetSourceId", "SELF");
         String targetType   = (String) body.get("targetType");
         if (targetType == null || targetType.isBlank()) {
             targetType = (String) body.get("targetNodeTypeId");
         }
-        String id = metaModelService.createLinkType(
-            (String) body.get("name"), (String) body.get("description"),
+        String code = metaModelService.createLinkType(
+            (String) body.get("code"), (String) body.get("name"), (String) body.get("description"),
             (String) body.get("sourceNodeTypeId"),
             targetSource, targetType,
             (String) body.getOrDefault("linkPolicy", "VERSION_TO_MASTER"),
@@ -175,7 +170,7 @@ public class MetaModelController {
             (String) body.get("linkLogicalIdLabel"), (String) body.get("linkLogicalIdPattern"),
             (String) body.get("color"), (String) body.get("icon")
         );
-        return ResponseEntity.ok(Map.of("id", id));
+        return ResponseEntity.ok(Map.of("id", code));
     }
 
     @PutMapping("/linktypes/{id}")
@@ -203,22 +198,22 @@ public class MetaModelController {
     @PostMapping("/linktypes/{id}/attributes")
     public ResponseEntity<Map<String, String>> createLinkTypeAttribute(
         @PathVariable String id, @RequestBody Map<String, Object> body) {
-        String attrId = metaModelService.createLinkTypeAttribute(id, body);
-        return ResponseEntity.ok(Map.of("id", attrId));
+        String name = metaModelService.createLinkTypeAttribute(id, body);
+        return ResponseEntity.ok(Map.of("name", name));
     }
 
-    @PutMapping("/linktypes/{id}/attributes/{attrId}")
+    @PutMapping("/linktypes/{id}/attributes/{name}")
     public ResponseEntity<?> updateLinkTypeAttribute(
-        @PathVariable String id, @PathVariable String attrId,
+        @PathVariable String id, @PathVariable String name,
         @RequestBody Map<String, Object> body) {
-        metaModelService.updateLinkTypeAttribute(attrId, body);
-        return ResponseEntity.ok(Map.of("id", attrId));
+        metaModelService.updateLinkTypeAttribute(id, name, body);
+        return ResponseEntity.ok(Map.of("name", name));
     }
 
-    @DeleteMapping("/linktypes/{id}/attributes/{attrId}")
+    @DeleteMapping("/linktypes/{id}/attributes/{name}")
     public ResponseEntity<?> deleteLinkTypeAttribute(
-        @PathVariable String id, @PathVariable String attrId) {
-        metaModelService.deleteLinkTypeAttribute(attrId);
+        @PathVariable String id, @PathVariable String name) {
+        metaModelService.deleteLinkTypeAttribute(id, name);
         return ResponseEntity.noContent().build();
     }
 
@@ -229,17 +224,19 @@ public class MetaModelController {
     }
 
     @PostMapping("/linktypes/{id}/cascades")
-    public ResponseEntity<Map<String, String>> createLinkTypeCascade(
+    public ResponseEntity<Void> createLinkTypeCascade(
         @PathVariable String id, @RequestBody Map<String, String> body) {
-        String cascadeId = metaModelService.createLinkTypeCascade(
+        metaModelService.createLinkTypeCascade(
             id, body.get("parentTransitionId"), body.get("childFromStateId"), body.get("childTransitionId"));
-        return ResponseEntity.ok(Map.of("id", cascadeId));
+        return ResponseEntity.noContent().build();
     }
 
-    @DeleteMapping("/linktypes/{id}/cascades/{cascadeId}")
+    @DeleteMapping("/linktypes/{id}/cascades/{parentTransId}/{childFromStateId}")
     public ResponseEntity<?> deleteLinkTypeCascade(
-        @PathVariable String id, @PathVariable String cascadeId) {
-        metaModelService.deleteLinkTypeCascade(cascadeId);
+        @PathVariable String id,
+        @PathVariable String parentTransId,
+        @PathVariable String childFromStateId) {
+        metaModelService.deleteLinkTypeCascade(id, parentTransId, childFromStateId);
         return ResponseEntity.noContent().build();
     }
 
@@ -249,5 +246,4 @@ public class MetaModelController {
         metaModelService.updateLinkTypeIdentity(id, body.get("linkLogicalIdLabel"), body.get("linkLogicalIdPattern"));
         return ResponseEntity.ok(Map.of("id", id));
     }
-
 }

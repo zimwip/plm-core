@@ -576,6 +576,7 @@ services:
       VAULT_TOKEN:                         plm-demo-services
       PLM_PLATFORM_URL:                    http://platform-api:8084
       SPE_SELF_BASE_URL:                   http://search-api:8088
+      PLM_SETTINGS_ENABLED:                "true"
       PLM_NATS_ENABLED:                    "true"
       NATS_URL:                            nats://nats:4222
       SEARCH_INDEX_PATH:                   /var/lib/search-data

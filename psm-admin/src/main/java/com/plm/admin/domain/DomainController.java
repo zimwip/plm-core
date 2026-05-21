@@ -7,10 +7,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Admin CRUD API for domains and domain attributes.
- * Domain assignment/unassignment to nodes stays in psm-data.
- */
 @RestController
 @RequestMapping("/domains")
 @RequiredArgsConstructor
@@ -30,9 +26,9 @@ public class DomainController {
 
     @PostMapping
     public ResponseEntity<Map<String, Object>> create(@RequestBody Map<String, String> body) {
-        String id = domainService.createDomain(body.get("name"), body.get("description"),
-            body.get("color"), body.get("icon"));
-        return ResponseEntity.ok(Map.of("id", id));
+        String code = domainService.createDomain(body.get("code"), body.get("name"),
+            body.get("description"), body.get("color"), body.get("icon"));
+        return ResponseEntity.ok(Map.of("id", code));
     }
 
     @PutMapping("/{domainId}")
@@ -56,8 +52,8 @@ public class DomainController {
     @PostMapping("/{domainId}/attributes")
     public ResponseEntity<Map<String, Object>> createAttribute(
             @PathVariable String domainId, @RequestBody Map<String, Object> body) {
-        String id = domainService.createDomainAttribute(domainId, body);
-        return ResponseEntity.ok(Map.of("id", id));
+        String code = domainService.createDomainAttribute(domainId, body);
+        return ResponseEntity.ok(Map.of("id", code));
     }
 
     @PutMapping("/{domainId}/attributes/{attrId}")

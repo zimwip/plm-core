@@ -177,7 +177,7 @@ public class ConfigSnapshotBuilder {
         Map<String, List<TransitionGuardConfig>> guardsByTrans = new LinkedHashMap<>();
         for (Record r : ltgRows) {
             TransitionGuardConfig g = new TransitionGuardConfig(
-                str(r, "id"), str(r, "lifecycle_transition_id"),
+                str(r, "lifecycle_transition_id") + "|" + str(r, "algorithm_instance_id"), str(r, "lifecycle_transition_id"),
                 str(r, "algorithm_instance_id"), str(r, "effect"),
                 intVal(r, "display_order")
             );
@@ -203,7 +203,7 @@ public class ConfigSnapshotBuilder {
                 List<SignatureRequirementConfig> sigs = new ArrayList<>();
                 for (Record sr : sigReqsByTrans.getOrDefault(transId, List.of())) {
                     sigs.add(new SignatureRequirementConfig(
-                        str(sr, "id"), transId, str(sr, "role_required"),
+                        transId + "|" + str(sr, "role_required"), transId, str(sr, "role_required"),
                         intVal(sr, "display_order")
                     ));
                 }
@@ -244,7 +244,7 @@ public class ConfigSnapshotBuilder {
             List<LinkTypeAttributeConfig> ltAttrs = new ArrayList<>();
             for (Record a : attrsByLt.getOrDefault(ltId, List.of())) {
                 ltAttrs.add(new LinkTypeAttributeConfig(
-                    str(a, "id"), ltId, str(a, "name"), str(a, "label"),
+                    ltId + "|" + str(a, "name"), ltId, str(a, "name"), str(a, "label"),
                     str(a, "data_type"), bool(a, "required"), str(a, "default_value"),
                     str(a, "naming_regex"), str(a, "allowed_values"), str(a, "widget_type"),
                     intVal(a, "display_order"), str(a, "display_section"),
@@ -255,7 +255,7 @@ public class ConfigSnapshotBuilder {
             List<LinkTypeCascadeConfig> ltCascades = new ArrayList<>();
             for (Record c : cascsByLt.getOrDefault(ltId, List.of())) {
                 ltCascades.add(new LinkTypeCascadeConfig(
-                    str(c, "id"), ltId, str(c, "parent_transition_id"),
+                    ltId + "|" + str(c, "parent_transition_id") + "|" + str(c, "child_from_state_id"), ltId, str(c, "parent_transition_id"),
                     str(c, "child_from_state_id"), str(c, "child_transition_id")
                 ));
             }
@@ -322,7 +322,7 @@ public class ConfigSnapshotBuilder {
             List<EnumValueConfig> enumValues = new ArrayList<>();
             for (Record v : valuesByEnum.getOrDefault(enumId, List.of())) {
                 enumValues.add(new EnumValueConfig(
-                    str(v, "id"), enumId, str(v, "value"),
+                    enumId + "|" + str(v, "value"), enumId, str(v, "value"),
                     str(v, "label"), intVal(v, "display_order")
                 ));
             }
@@ -346,7 +346,7 @@ public class ConfigSnapshotBuilder {
             List<ViewAttributeOverrideConfig> viewOverrides = new ArrayList<>();
             for (Record o : overridesByView.getOrDefault(viewId, List.of())) {
                 viewOverrides.add(new ViewAttributeOverrideConfig(
-                    str(o, "id"), viewId, str(o, "attribute_def_id"),
+                    viewId + "|" + str(o, "attribute_def_id"), viewId, str(o, "attribute_def_id"),
                     o.get("visible", Integer.class) != null
                         ? Integer.valueOf(1).equals(o.get("visible", Integer.class)) : null,
                     o.get("editable", Integer.class) != null
@@ -370,7 +370,7 @@ public class ConfigSnapshotBuilder {
         List<StateActionConfig> result = new ArrayList<>();
         for (Record r : dsl.select().from("lifecycle_state_action").fetch()) {
             result.add(new StateActionConfig(
-                str(r, "id"), str(r, "lifecycle_state_id"),
+                str(r, "lifecycle_state_id") + "|" + str(r, "algorithm_instance_id") + "|" + str(r, "trigger"), str(r, "lifecycle_state_id"),
                 str(r, "algorithm_instance_id"), str(r, "trigger"),
                 str(r, "execution_mode"), intVal(r, "display_order")
             ));

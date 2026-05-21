@@ -32,6 +32,75 @@ function DstNavLabel({ item }) {
   );
 }
 
+// ── Inline pin icons (no shell import allowed) ────────────────────────────────
+
+function PinIcon({ size = 11, color = 'currentColor', strokeWidth = 2 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+    </svg>
+  );
+}
+
+function PinOffIcon({ size = 11, color = 'currentColor', strokeWidth = 2 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 17v5" />
+      <path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" />
+      <path d="m2 2 20 20" />
+      <path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" />
+    </svg>
+  );
+}
+
+// ── SearchItem — full search hit renderer ─────────────────────────────────────
+
+function DstSearchItem({ hit, descriptor, isPinned, onPin, onUnpin, ctx }) {
+  let source = {};
+  try { source = JSON.parse(hit.sourceJson || '{}'); } catch {}
+  const { onNavigate, icons } = ctx;
+  const name   = source.originalName || hit.id;
+  const size   = prettySize(source.sizeBytes);
+  const ct     = source.contentType || '';
+  const NtIcon = icons && descriptor?.icon ? icons[descriptor.icon] : null;
+
+  return (
+    <div
+      className="node-item"
+      onClick={() => onNavigate(hit.id, name, descriptor)}
+      title={name}
+    >
+      {NtIcon
+        ? <NtIcon size={11} color={descriptor.color || 'var(--muted)'} strokeWidth={2} style={{ flexShrink: 0 }} />
+        : descriptor?.color
+          ? <span style={{ width: 6, height: 6, borderRadius: 1, background: descriptor.color, flexShrink: 0, display: 'inline-block' }} />
+          : null}
+      <span className="ni-logical" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {name}
+      </span>
+      {ct && (
+        <span style={{ fontSize: 10, color: 'var(--muted)', background: 'var(--surface)',
+          border: '1px solid var(--border)', padding: '1px 5px', borderRadius: 3, flexShrink: 0 }}>
+          {ct}
+        </span>
+      )}
+      <span className="ni-reviter" style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted2)', flexShrink: 0 }}>
+        {size}
+      </span>
+      <button
+        className={`search-pin-btn${isPinned ? ' pinned' : ''}`}
+        title={isPinned ? 'Remove from basket' : 'Add to basket'}
+        onClick={e => { e.stopPropagation(); isPinned ? onUnpin?.() : onPin?.(); }}
+      >
+        {isPinned ? <PinOffIcon size={11} strokeWidth={2} /> : <PinIcon size={11} strokeWidth={2} />}
+      </button>
+    </div>
+  );
+}
+
 // ── LinkRow — inline link rendering in PSM PBS ────────────────────────────────
 
 function DstLinkRow({ link, isEditing, editTargetKey, onEditTargetKey }) {
@@ -79,6 +148,7 @@ export default {
   hasItemChildren: () => false,
 
   NavLabel: DstNavLabel,
+  SearchItem: DstSearchItem,
   LinkRow: DstLinkRow,
 
   init(shellAPI) {

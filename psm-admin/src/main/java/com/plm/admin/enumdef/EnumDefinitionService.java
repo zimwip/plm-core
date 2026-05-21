@@ -1,6 +1,7 @@
 package com.plm.admin.enumdef;
 
 import com.plm.admin.config.ConfigChangedEvent;
+import com.plm.admin.lifecycle.LifecycleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -14,7 +15,6 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -38,12 +38,12 @@ public class EnumDefinitionService {
     }
 
     @Transactional
-    public String createEnum(String name, String description) {
-        String id = UUID.randomUUID().toString();
+    public String createEnum(String code, String name, String description) {
+        LifecycleService.validateCode(code);
         dsl.execute("INSERT INTO enum_definition (id, name, description, created_at) VALUES (?,?,?,?)",
-            id, name, description, LocalDateTime.now());
-        publishChange("CREATE", "ENUM_DEFINITION", id);
-        return id;
+            code, name, description, LocalDateTime.now());
+        publishChange("CREATE", "ENUM_DEFINITION", code);
+        return code;
     }
 
     @Transactional
@@ -69,7 +69,6 @@ public class EnumDefinitionService {
             .orderBy(DSL.field("display_order")).fetch()
             .map(r -> {
                 Map<String, Object> m = new LinkedHashMap<>();
-                m.put("id", r.get("id", String.class));
                 m.put("value", r.get("value", String.class));
                 m.put("label", r.get("label", String.class));
                 m.put("displayOrder", r.get("display_order", Integer.class));
@@ -85,31 +84,30 @@ public class EnumDefinitionService {
                 .fetchOne(0, Integer.class);
             displayOrder = max != null ? max + 1 : 0;
         }
-        String id = UUID.randomUUID().toString();
-        dsl.execute("INSERT INTO enum_value (id, enum_definition_id, value, label, display_order) VALUES (?,?,?,?,?)",
-            id, enumId, value, label, displayOrder);
+        dsl.execute("INSERT INTO enum_value (enum_definition_id, value, label, display_order) VALUES (?,?,?,?)",
+            enumId, value, label, displayOrder);
         publishChange("UPDATE", "ENUM_DEFINITION", enumId);
-        return id;
+        return value;
     }
 
     @Transactional
-    public void updateValue(String valueId, String value, String label, int displayOrder) {
-        dsl.execute("UPDATE enum_value SET value=?, label=?, display_order=? WHERE id=?",
-            value, label, displayOrder, valueId);
-        publishChange("UPDATE", "ENUM_VALUE", valueId);
+    public void updateValue(String enumId, String value, String label, int displayOrder) {
+        dsl.execute("UPDATE enum_value SET label=?, display_order=? WHERE enum_definition_id=? AND value=?",
+            label, displayOrder, enumId, value);
+        publishChange("UPDATE", "ENUM_DEFINITION", enumId);
     }
 
     @Transactional
-    public void deleteValue(String valueId) {
-        dsl.execute("DELETE FROM enum_value WHERE id = ?", valueId);
-        publishChange("DELETE", "ENUM_VALUE", valueId);
+    public void deleteValue(String enumId, String value) {
+        dsl.execute("DELETE FROM enum_value WHERE enum_definition_id=? AND value=?", enumId, value);
+        publishChange("UPDATE", "ENUM_DEFINITION", enumId);
     }
 
     @Transactional
-    public void reorderValues(String enumId, List<String> valueIds) {
-        for (int i = 0; i < valueIds.size(); i++) {
-            dsl.execute("UPDATE enum_value SET display_order=? WHERE id=? AND enum_definition_id=?",
-                i, valueIds.get(i), enumId);
+    public void reorderValues(String enumId, List<String> values) {
+        for (int i = 0; i < values.size(); i++) {
+            dsl.execute("UPDATE enum_value SET display_order=? WHERE enum_definition_id=? AND value=?",
+                i, enumId, values.get(i));
         }
         publishChange("UPDATE", "ENUM_DEFINITION", enumId);
     }

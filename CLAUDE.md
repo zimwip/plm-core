@@ -50,11 +50,10 @@ Pour créer un nouveau service : voir [platform-lib/CLAUDE.md](platform-lib/CLAU
 |-----------|-------|--------|
 | Backend | Spring Boot 3.2 + Java 21 | Standard entreprise |
 | Persistence | JOOQ (SQL typé, plain SQL) | Modèle relationnel complexe, pas adapté à JPA |
-| DB dev | H2 in-memory (mode PostgreSQL) | Zéro config, tests rapides |
-| DB prod | PostgreSQL 16, schémas par service | Robustesse, switch trivial |
+| DB | PostgreSQL 16, schémas par service | Robustesse, switch trivial |
 | Migrations | Flyway | Versioning schéma reproductible |
-| Frontend | React 18 + nginx | SPA simple |
-| Temps réel | WebSocket STOMP | Notifs lock/état seulement |
+| Frontend | React 18 + nginx | SPA simple with flux pattern |
+| Temps réel | WebSocket | Notifs lock/état seulement |
 | Packaging | Docker Compose | dev + prod en un seul fichier |
 | Modulith psm-api | Spring Modulith 1.4.x | Frontières domaine vérifiées au build |
 

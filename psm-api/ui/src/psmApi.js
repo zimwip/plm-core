@@ -10,6 +10,10 @@ export function initPsmApi(shellAPI) { _http = shellAPI.http; }
 const r = (method, path, body) => _http.serviceRequest('psm', method, path, body);
 
 export const psmApi = {
+  // ── Type descriptors (static, cached by caller) ─────────────────
+  getNodeTypeDescriptor: (nodeTypeId) => r('GET', `/item-type/${nodeTypeId}`),
+  getLinkTypeDescriptor: (linkTypeId) => r('GET', `/link-type/${linkTypeId}`),
+
   // ── Node read ────────────────────────────────────────────────────
   // txId: show OPEN draft; versionNumber: read historical version (read-only)
   getNodeDescription: (_userId, nodeId, txId, versionNumber) => {

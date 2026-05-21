@@ -308,11 +308,22 @@ public class LinkService {
 
             // Detach old target, attach new target
             String oldSourceCode = link.get("target_source_id", String.class);
+            String oldType       = link.get("target_type", String.class);
+            String oldKey        = link.get("target_key", String.class);
             sourceResolverRegistry.getResolverFor(oldSourceCode)
-                .detach(new SourceResolverContext(
-                    linkTypeId, link.get("target_type", String.class), link.get("target_key", String.class),
-                    sourceVersionId, sourceNodeId));
+                .detach(new SourceResolverContext(linkTypeId, oldType, oldKey, sourceVersionId, sourceNodeId));
             resolver.attach(new SourceResolverContext(linkTypeId, type, key, sourceVersionId, sourceNodeId));
+
+            // Emit search index events so edge index stays consistent
+            String relType = linkType.name() != null ? linkType.name() : linkTypeId;
+            String oldDstNodeId = resolveDstNodeId(oldSourceCode, oldType, oldKey);
+            if (oldDstNodeId != null) {
+                eventPublisher.linkDeleted(sourceNodeId, oldDstNodeId, relType);
+            }
+            String newDstNodeId = resolveDstNodeId(sourceCode, type, key);
+            if (newDstNodeId != null) {
+                eventPublisher.linkCreated(sourceNodeId, newDstNodeId, relType, true);
+            }
         }
 
         if (newLogicalId != null && !newLogicalId.isBlank()) {
@@ -419,24 +430,9 @@ public class LinkService {
             String linkId = r.get("link_id", String.class);
             m.put("linkId",            linkId);
             String ltId = r.get("link_type_id", String.class);
-            var lt = configCache.getLinkType(ltId);
             m.put("linkTypeId",        ltId);
-            m.put("linkTypeName",      lt.map(LinkTypeConfig::name).orElse(ltId));
-            m.put("linkPolicy",        lt.map(LinkTypeConfig::linkPolicy).orElse(""));
-            m.put("linkTypeColor",     lt.map(LinkTypeConfig::color).orElse(null));
-            m.put("linkTypeIcon",      lt.map(LinkTypeConfig::icon).orElse(null));
-            m.put("linkTypeAttributes", lt.map(lc -> lc.attributes() != null
-                ? lc.attributes().stream().map(a -> {
-                    Map<String, Object> am = new LinkedHashMap<>();
-                    am.put("id", a.id()); am.put("name", a.name()); am.put("label", a.label());
-                    am.put("dataType", a.dataType()); am.put("widgetType", a.widgetType());
-                    am.put("required", a.required());
-                    return am;
-                }).toList()
-                : List.of()).orElse(List.of()));
             m.put("linkAttributeValues", attrsByLink.getOrDefault(linkId, List.of()));
             m.put("linkLogicalId",     Objects.toString(r.get("link_logical_id",      String.class), ""));
-            m.put("linkLogicalIdLabel",lt.map(LinkTypeConfig::linkLogicalIdLabel).orElse("Link ID"));
             m.put("targetSourceCode",  r.get("target_source_id", String.class));
             m.put("targetType",        r.get("target_type", String.class));
             m.put("targetKey",         r.get("target_key", String.class));
@@ -471,19 +467,7 @@ public class LinkService {
             String extLinkId = r.get("link_id", String.class);
             m.put("linkId", extLinkId);
             String ltId = r.get("link_type_id", String.class);
-            var lt = configCache.getLinkType(ltId);
             m.put("linkTypeId",    ltId);
-            m.put("linkTypeName",  lt.map(LinkTypeConfig::name).orElse(ltId));
-            m.put("linkPolicy",    lt.map(LinkTypeConfig::linkPolicy).orElse(""));
-            m.put("linkTypeAttributes", lt.map(lc -> lc.attributes() != null
-                ? lc.attributes().stream().map(a -> {
-                    Map<String, Object> am = new LinkedHashMap<>();
-                    am.put("id", a.id()); am.put("name", a.name()); am.put("label", a.label());
-                    am.put("dataType", a.dataType()); am.put("widgetType", a.widgetType());
-                    am.put("required", a.required());
-                    return am;
-                }).toList()
-                : List.of()).orElse(List.of()));
             m.put("linkAttributeValues", attrsByLink.getOrDefault(extLinkId, List.of()));
             m.put("linkLogicalId", Objects.toString(r.get("link_logical_id", String.class), ""));
             String sourceCode = r.get("target_source_id", String.class);
@@ -583,22 +567,9 @@ public class LinkService {
             String linkId = r.get("link_id", String.class);
             m.put("linkId",             linkId);
             String ltId = r.get("link_type_id", String.class);
-            var lt = configCache.getLinkType(ltId);
             m.put("linkTypeId",         ltId);
-            m.put("linkTypeName",       lt.map(LinkTypeConfig::name).orElse(ltId));
-            m.put("linkPolicy",         lt.map(LinkTypeConfig::linkPolicy).orElse(""));
-            m.put("linkTypeAttributes", lt.map(lc -> lc.attributes() != null
-                ? lc.attributes().stream().map(a -> {
-                    Map<String, Object> am = new LinkedHashMap<>();
-                    am.put("id", a.id()); am.put("name", a.name()); am.put("label", a.label());
-                    am.put("dataType", a.dataType()); am.put("widgetType", a.widgetType());
-                    am.put("required", a.required());
-                    return am;
-                }).toList()
-                : List.of()).orElse(List.of()));
             m.put("linkAttributeValues", attrsByLink.getOrDefault(linkId, List.of()));
             m.put("linkLogicalId",      Objects.toString(r.get("link_logical_id",      String.class), ""));
-            m.put("linkLogicalIdLabel", lt.map(LinkTypeConfig::linkLogicalIdLabel).orElse("Link ID"));
             m.put("sourceNodeId",       r.get("source_node_id",      String.class));
             String sntId = r.get("source_node_type_id", String.class);
             m.put("sourceNodeType",     configCache.getNodeType(sntId)

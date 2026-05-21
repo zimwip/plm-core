@@ -1,6 +1,7 @@
 package com.plm.admin.domain;
 
 import com.plm.admin.config.ConfigChangedEvent;
+import com.plm.admin.lifecycle.LifecycleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -14,15 +15,10 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import static com.plm.admin.metamodel.MetaModelService.toInt;
 import static com.plm.admin.metamodel.MetaModelService.toIntFlag;
 
-/**
- * Admin CRUD for domains and domain attribute definitions.
- * Domain assignment to nodes stays in psm-data.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -32,12 +28,12 @@ public class DomainService {
     private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
-    public String createDomain(String name, String description, String color, String icon) {
-        String id = UUID.randomUUID().toString();
+    public String createDomain(String code, String name, String description, String color, String icon) {
+        LifecycleService.validateCode(code);
         dsl.execute("INSERT INTO domain (id, name, description, color, icon, created_at) VALUES (?,?,?,?,?,?)",
-            id, name, description, color, icon, LocalDateTime.now());
-        publishChange("CREATE", "DOMAIN", id);
-        return id;
+            code, name, description, color, icon, LocalDateTime.now());
+        publishChange("CREATE", "DOMAIN", code);
+        return code;
     }
 
     @Transactional
@@ -91,7 +87,8 @@ public class DomainService {
 
     @Transactional
     public String createDomainAttribute(String domainId, Map<String, Object> params) {
-        String id = UUID.randomUUID().toString();
+        String code = (String) params.get("code");
+        LifecycleService.validateCode(code);
         dsl.execute("""
             INSERT INTO attribute_definition
               (id, node_type_id, domain_id, name, label, data_type, required, default_value,
@@ -99,15 +96,15 @@ public class DomainService {
                enum_definition_id, created_at)
             VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
             """,
-            id, domainId, params.get("name"), params.get("label"),
+            code, domainId, params.get("name"), params.get("label"),
             params.getOrDefault("dataType", "STRING"), toIntFlag(params.get("required")),
             params.get("defaultValue"), params.get("namingRegex"),
             params.get("allowedValues"), params.getOrDefault("widgetType", "TEXT"),
             toInt(params.get("displayOrder"), 0), params.get("displaySection"),
             params.get("tooltip"), params.get("enumDefinitionId"), LocalDateTime.now()
         );
-        publishChange("CREATE", "DOMAIN_ATTRIBUTE", id);
-        return id;
+        publishChange("CREATE", "DOMAIN_ATTRIBUTE", code);
+        return code;
     }
 
     @Transactional

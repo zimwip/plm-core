@@ -359,10 +359,12 @@ extract_from_builder() {
 }
 
 write_jvm_dockerfile() {
-    local out=$1 port=$2
+    local out=$1 port=$2 extra_setup=${3:-}
+    local extra_line=""
+    [[ -n "$extra_setup" ]] && extra_line=$'\nRUN '"$extra_setup"
     cat > "$out" <<EOF
 FROM eclipse-temurin:21-jre-alpine
-RUN addgroup -S app && adduser -S app -G app
+RUN addgroup -S app && adduser -S app -G app${extra_line}
 USER app
 WORKDIR /app
 COPY app.jar .
@@ -405,6 +407,18 @@ ENTRYPOINT ["/docker-entrypoint.sh"]
 EOF
 }
 
+write_cad_parser_dockerfile() {
+    cat > "$1" << 'EOF'
+FROM node:20-slim
+WORKDIR /app
+COPY . .
+EXPOSE 8090
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD node --input-type=commonjs -e "require('http').get('http://localhost:8090/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+CMD ["node", "--max-old-space-size=4096", "app.js"]
+EOF
+}
+
 # Rewrite dev docker-compose.yml for dist: replace multi-stage build blocks
 # with simple build contexts pointing at dist subdirectories.
 rewrite_compose_for_dist() {
@@ -438,7 +452,7 @@ run_package() {
         rm -rf "$DIST"
     fi
 
-    mkdir -p "$DIST/frontend/html"
+    mkdir -p "$DIST/frontend/html" "$DIST/cad-parser"
     for svc in "${SVC_NAMES[@]}"; do mkdir -p "$DIST/$svc"; done
 
     mkdir -p "$DIST/vault"
@@ -476,55 +490,102 @@ run_package() {
             echo ""
         done
     else
+        # ── Phase 1: parallel builds ─────────────────────────────
+        log "Building all services in parallel…"
+        local log_dir="/tmp/plm-pkg-$$"
+        mkdir -p "$log_dir"
+        local -A _pids=()
+
         for svc in "${SVC_NAMES[@]}"; do
-            local build_args=""
+            local ba=""
             if grep -q '<id>dist</id>' "$svc/pom.xml" 2>/dev/null; then
-                build_args="--build-arg MAVEN_EXTRA_OPTS=-Pdist"
+                ba="--build-arg MAVEN_EXTRA_OPTS=-Pdist"
             fi
-            extract_from_builder "$svc" "." "plm-$svc-pkg-builder" \
-                "/build/target" "$DIST/$svc/_target" \
-                "$build_args" "$svc/Dockerfile"
+            # shellcheck disable=SC2086
+            docker build --target builder $ba --file "$svc/Dockerfile" -t "plm-$svc-pkg-builder" "." \
+                >"$log_dir/$svc.log" 2>&1 &
+            _pids[$svc]=$!
+        done
+
+        docker build -t "plm-cad-parser-pkg" cad-parser/ \
+            >"$log_dir/cad-parser.log" 2>&1 &
+        _pids[cad-parser]=$!
+
+        docker build --target builder --file frontend/Dockerfile -t "plm-fe-pkg-builder" frontend/ \
+            >"$log_dir/frontend.log" 2>&1 &
+        _pids[frontend]=$!
+
+        local build_failed=0
+        for target in "${!_pids[@]}"; do
+            if wait "${_pids[$target]}"; then
+                ok "[$target] build complete."
+            else
+                err "[$target] build FAILED — log:"
+                cat "$log_dir/$target.log" >&2
+                (( build_failed++ )) || true
+            fi
+        done
+        rm -rf "$log_dir"
+        [[ $build_failed -gt 0 ]] && exit 1
+        echo ""
+
+        # ── Phase 2: extract artifacts ───────────────────────────
+        for svc in "${SVC_NAMES[@]}"; do
+            log "[$svc] Extracting…"
+            local cid
+            cid=$(docker create "plm-$svc-pkg-builder")
+            docker cp "$cid:/build/target" "$DIST/$svc/_target"
+            docker rm "$cid" >/dev/null
+            docker rmi --force "plm-$svc-pkg-builder" >/dev/null 2>&1 || true
             local jar
             jar=$(ls "$DIST/$svc/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1 || true)
             if [[ -z "$jar" ]]; then
-                err "No JAR found in $svc/target — build may have failed"; exit 1
+                err "[$svc] No JAR found — build may have failed"; exit 1
             fi
             cp "$jar" "$DIST/$svc/app.jar"
             rm -rf "$DIST/$svc/_target"
             BUILT_SVCS+=("$svc")
-            echo ""
+            ok "[$svc] Done."
         done
+
+        # cad-parser: pre-bundle node_modules so deploy needs no npm install
+        log "[cad-parser] Extracting node_modules…"
+        local cid
+        cid=$(docker create "plm-cad-parser-pkg")
+        docker cp "$cid:/app/node_modules" "$DIST/cad-parser/"
+        docker rm "$cid" >/dev/null
+        docker rmi --force "plm-cad-parser-pkg" >/dev/null 2>&1 || true
+        for f in cad-parser/package.json cad-parser/app.js cad-parser/step-lib.js cad-parser/worker-split.js; do
+            [[ -f "$f" ]] && cp "$f" "$DIST/cad-parser/" || warn "[cad-parser] missing: $f"
+        done
+        ok "[cad-parser] Done."
+
+        # frontend: extract static assets
+        log "[frontend] Extracting build artifacts…"
+        cid=$(docker create "plm-fe-pkg-builder")
+        docker cp "$cid:/app/dist/." "$DIST/frontend/html"
+        docker rm "$cid" >/dev/null
+        docker rmi --force "plm-fe-pkg-builder" >/dev/null 2>&1 || true
+        cp frontend/nginx.conf           "$DIST/frontend/nginx.conf"
+        cp frontend/docker-entrypoint.sh "$DIST/frontend/docker-entrypoint.sh"
+        ok "[frontend] Done."
+        echo ""
     fi
 
     SVC_NAMES=("${BUILT_SVCS[@]}")
-
-    # ── Node.js sidecar: cad-parser ──────────────────────────────────────────
-    # Not a Spring Boot service — no JAR extraction needed.
-    # Copy source files; the Dockerfile does `npm install` at image-build time.
-    log "[cad-parser] Packaging Node.js service…"
-    mkdir -p "$DIST/cad-parser"
-    for f in cad-parser/package.json cad-parser/app.js cad-parser/step-lib.js cad-parser/worker-split.js; do
-        [[ -f "$f" ]] && cp "$f" "$DIST/cad-parser/" || warn "[cad-parser] missing: $f"
-    done
-    cp cad-parser/Dockerfile "$DIST/cad-parser/"
-    ok "[cad-parser] Done."
-    echo ""
-
-    extract_from_builder "frontend" "frontend" "plm-fe-pkg-builder" \
-        "/app/dist/." "$DIST/frontend/html"
-    cp frontend/nginx.conf           "$DIST/frontend/nginx.conf"
-    cp frontend/docker-entrypoint.sh "$DIST/frontend/docker-entrypoint.sh"
-    echo ""
 
     log "Writing runtime Dockerfiles…"
     for svc in "${SVC_NAMES[@]}"; do
         if $NATIVE_MODE; then
             write_native_dockerfile "$DIST/$svc/Dockerfile" "${SVC_PORT[$svc]}"
         else
-            write_jvm_dockerfile    "$DIST/$svc/Dockerfile" "${SVC_PORT[$svc]}"
+            local extra_setup=""
+            [[ "$svc" == "dst" ]] && extra_setup="mkdir -p /var/lib/dst-data && chown app:app /var/lib/dst-data"
+            write_jvm_dockerfile    "$DIST/$svc/Dockerfile" "${SVC_PORT[$svc]}" "$extra_setup"
         fi
     done
-    write_frontend_dockerfile "$DIST/frontend/Dockerfile"
+    write_frontend_dockerfile   "$DIST/frontend/Dockerfile"
+    write_cad_parser_dockerfile "$DIST/cad-parser/Dockerfile"
 
     log "Writing dist/docker-compose.yml…"
     rewrite_compose_for_dist "$DIST/docker-compose.yml"

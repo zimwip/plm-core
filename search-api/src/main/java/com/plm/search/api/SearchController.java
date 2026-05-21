@@ -2,6 +2,7 @@ package com.plm.search.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.plm.search.graph.GraphTraversalService;
+import com.plm.search.model.ConfigContext;
 import com.plm.search.model.SearchRequest;
 import com.plm.search.model.SearchResult;
 import com.plm.search.port.EdgeStore;
@@ -49,15 +50,20 @@ public class SearchController {
     }
 
     @PostMapping
-    public ResponseEntity<SearchResult> search(@RequestBody SearchRequest req) {
+    public ResponseEntity<SearchResult> search(
+            @RequestBody SearchRequest req,
+            @RequestHeader(value = "X-PLM-ProjectSpace", required = false) String psHeader) {
+        req = withProjectSpace(req, psHeader);
         try {
             SearchResult result = nodeStore.searchGlobal(req);
             if (req.facetOn() != null && !req.facetOn().isEmpty() && !result.hits().isEmpty()) {
                 Set<String> ids = result.hits().stream()
                     .map(SearchResult.Hit::id)
                     .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
-                Map<String, Map<String, Integer>> facets = nodeStore.computeFacets(ids, req.facetOn());
-                result = new SearchResult(result.hits(), facets, result.totalHits(), result.hopLevel());
+                Map<String, Map<String, Integer>> facets      = nodeStore.computeFacets(ids, req.facetOn());
+                Map<String, double[]>             rangeFacets = req.facetOn().contains("*")
+                    ? nodeStore.computeRangeFacets(ids) : Map.of();
+                result = new SearchResult(result.hits(), facets, rangeFacets, result.totalHits(), result.hopLevel());
             }
             return ResponseEntity.ok(result);
         } catch (Exception e) {
@@ -67,7 +73,10 @@ public class SearchController {
     }
 
     @PostMapping("/graph")
-    public ResponseEntity<SearchResult> graphSearch(@RequestBody SearchRequest req) {
+    public ResponseEntity<SearchResult> graphSearch(
+            @RequestBody SearchRequest req,
+            @RequestHeader(value = "X-PLM-ProjectSpace", required = false) String psHeader) {
+        req = withProjectSpace(req, psHeader);
         if (req.scopeRootId() == null || req.scopeRootId().isBlank()) {
             return ResponseEntity.badRequest().build();
         }
@@ -88,10 +97,11 @@ public class SearchController {
             }
 
             Map<String, Map<String, Integer>> facets = req.facetOn().isEmpty()
-                ? Map.of()
-                : nodeStore.computeFacets(allIds, req.facetOn());
+                ? Map.of() : nodeStore.computeFacets(allIds, req.facetOn());
+            Map<String, double[]> rangeFacets = req.facetOn().contains("*")
+                ? nodeStore.computeRangeFacets(allIds) : Map.of();
 
-            return ResponseEntity.ok(new SearchResult(allHits, facets, allHits.size(), 0));
+            return ResponseEntity.ok(new SearchResult(allHits, facets, rangeFacets, allHits.size(), 0));
         } catch (Exception e) {
             log.error("Graph search failed: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
@@ -99,7 +109,11 @@ public class SearchController {
     }
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public void stream(@RequestBody SearchRequest req, HttpServletResponse response) {
+    public void stream(
+            @RequestBody SearchRequest req,
+            @RequestHeader(value = "X-PLM-ProjectSpace", required = false) String psHeader,
+            HttpServletResponse response) {
+        req = withProjectSpace(req, psHeader);
         response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE);
         response.setCharacterEncoding("UTF-8");
         response.setHeader("X-Accel-Buffering", "no");
@@ -142,6 +156,33 @@ public class SearchController {
             log.error("SSE stream failed: {}", e.getMessage(), e);
             writeEvent(response, "error", "{\"message\":\"" + e.getMessage() + "\"}");
         }
+    }
+
+    @GetMapping("/children/{id}")
+    public ResponseEntity<List<SearchResult.Hit>> children(
+            @PathVariable String id,
+            @RequestHeader(value = "X-PLM-ProjectSpace", required = false) String psHeader) {
+        try {
+            Set<String> childIds = edgeStore.resolveHop(Set.of(id), ConfigContext.empty(), false);
+            if (childIds.isEmpty()) return ResponseEntity.ok(List.of());
+            String ps = (psHeader != null && !psHeader.isBlank()) ? psHeader : null;
+            SearchRequest fetchReq = new SearchRequest(
+                null, null, ps, null, null, false,
+                ConfigContext.empty(), Map.of(), Map.of(), Map.of(), List.of(), 200);
+            SearchResult result = nodeStore.searchInScope(childIds, fetchReq, 1);
+            return ResponseEntity.ok(result.hits());
+        } catch (Exception e) {
+            log.error("Children fetch failed for {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    private SearchRequest withProjectSpace(SearchRequest req, String psHeader) {
+        if (psHeader == null || psHeader.isBlank()) return req;
+        if (req.projectSpaceId() != null && !req.projectSpaceId().isBlank()) return req;
+        return new SearchRequest(req.query(), req.type(), psHeader, req.scopeRootId(),
+            req.maxHops(), req.structuralOnly(), req.context(),
+            req.filters(), req.filterTerms(), req.rangeFilters(), req.facetOn(), req.size());
     }
 
     private void writeEvent(HttpServletResponse response, String event, String data) {

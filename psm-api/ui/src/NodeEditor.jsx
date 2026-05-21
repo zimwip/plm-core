@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, useRef, useMemo, memo, Fragment } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
 import ReactDOM from 'react-dom';
 import SignaturePanel from './SignaturePanel';
 import { psmApi } from './psmApi';
+import { getLinkTypeDescriptor, clearLinkTypeCache } from './linkTypeCache';
+import { PositionMatrixEditor } from './PositionMatrixEditor';
 
 function getLinkKind(link) {
   return (link.linkAttributeValues || []).find(av => av.attributeId === 'kind')?.value || null;
@@ -301,6 +303,17 @@ export default function NodeEditor({
     if (itemData?.data) setDesc(itemData.data);
   }, [itemData]);
 
+  // Static type descriptor — fetched once per node type, invalidated on METAMODEL_CHANGED
+  const [typeDesc,       setTypeDesc]      = useState(null);
+  const [linkTypeDescs,  setLinkTypeDescs] = useState(new Map());
+  useEffect(() => {
+    const nodeTypeId = desc?.itemType?.itemKey ?? desc?.metadata?.nodeTypeId;
+    if (!nodeTypeId) return;
+    psmApi.getNodeTypeDescriptor(nodeTypeId)
+      .then(setTypeDesc)
+      .catch(() => setTypeDesc(null));
+  }, [desc?.itemType?.itemKey, desc?.metadata?.nodeTypeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const refreshNodeDesc = useCallback(() => {
     if (onRefreshItemData) onRefreshItemData(nodeId);
   }, [nodeId, onRefreshItemData]);
@@ -308,6 +321,13 @@ export default function NodeEditor({
   const patchNodeDescAttrs = useCallback((pendingEdits) => {
     setDesc(prev => {
       if (!prev) return prev;
+      // Support both new (values) and legacy (fields) shapes
+      if (prev.values) {
+        const updated = prev.values.map(f =>
+          pendingEdits[f.name] !== undefined ? { ...f, value: pendingEdits[f.name] } : f
+        );
+        return { ...prev, values: updated };
+      }
       const updatedFields = (prev.fields || []).map(f =>
         pendingEdits[f.name] !== undefined ? { ...f, value: pendingEdits[f.name] } : f
       );
@@ -347,9 +367,23 @@ export default function NodeEditor({
         psmApi.getChildLinks(userId, nodeId).catch(() => []),
         psmApi.getParentLinks(userId, nodeId).catch(() => []),
       ]);
-      setChildren(Array.isArray(c) ? c : []);
-      setParents(Array.isArray(p) ? p : []);
+      const childList  = Array.isArray(c) ? c : [];
+      const parentList = Array.isArray(p) ? p : [];
+      setChildren(childList);
+      setParents(parentList);
       setPbsLoaded(true);
+
+      const ltIds = [...new Set(
+        [...childList, ...parentList].map(l => l.linkTypeId).filter(Boolean)
+      )];
+      const entries = await Promise.all(
+        ltIds.map(id =>
+          getLinkTypeDescriptor(id, id => psmApi.getLinkTypeDescriptor(id))
+            .then(d => [id, d])
+            .catch(() => [id, null])
+        )
+      );
+      setLinkTypeDescs(new Map(entries));
     } catch (e) { toast(e, 'error'); }
   }, [nodeId, userId, pbsLoaded, toast]);
 
@@ -428,6 +462,9 @@ export default function NodeEditor({
     setHistLoading(false);
     setSigPanelOpen(null);
     setVersionSigCounts({});
+    setPbsLoaded(false);
+    setChildren([]);
+    setParents([]);
     stepNodesLoadedRef.current = false;
     setStepNodes([]);
     onRegisterPreview?.({ nodes: [], loading: true });
@@ -533,6 +570,17 @@ export default function NodeEditor({
       }
       if (evt.event === 'COMMENT_ADDED') {
         refreshCommentCounts();
+      }
+    },
+    userId,
+  );
+
+  useWebSocket(
+    '/topic/global',
+    (evt) => {
+      if (evt.event === 'METAMODEL_CHANGED') {
+        clearLinkTypeCache();
+        setPbsLoaded(false);
       }
     },
     userId,
@@ -819,19 +867,48 @@ export default function NodeEditor({
   const activeDesc = (viewVersionNum && historicalDesc) ? historicalDesc : desc;
 
   // Split attributes: node_type attrs (rendered grouped by section) vs domain attrs (rendered as tabs below).
-  // Merges DetailField (name/label/value/widget/editable/hint) with attributeMeta (section/required/displayOrder/etc.)
+  // Type-level schema (label/widget/hint/section/displayOrder/namingRegex/...) comes from typeDesc.
+  // Per-instance data (value/editable/required) comes from activeDesc.values (or .fields for backward compat).
   const attrPartition = useMemo(() => {
     const base = [];
     const byDomain = new Map();
-    const attrMeta = activeDesc?.metadata?.attributeMeta || {};
-    (activeDesc?.fields || []).forEach(f => {
-      if (!attrMeta[f.name]) return; // skip system nav fields (no attrMeta entry)
-      const meta = attrMeta[f.name] || {};
+
+    // Build field meta lookup from type descriptor if available, else fall back to attributeMeta bag
+    const typeFieldByName = {};
+    const typeEnrichByName = {};
+    if (typeDesc?.fields) {
+      for (const fm of typeDesc.fields) typeFieldByName[fm.name] = fm;
+      const fieldMeta = typeDesc.staticMetadata?.fieldMeta || {};
+      for (const [name, enrich] of Object.entries(fieldMeta)) typeEnrichByName[name] = enrich;
+    }
+    const legacyAttrMeta = activeDesc?.metadata?.attributeMeta || {};
+
+    const rawValues = activeDesc?.values ?? activeDesc?.fields ?? [];
+    rawValues.forEach(fv => {
+      const tm = typeFieldByName[fv.name];
+      const em = typeEnrichByName[fv.name] || {};
+      const legacy = legacyAttrMeta[fv.name];
+
+      // Skip system nav fields (no type descriptor entry and no legacy attributeMeta)
+      if (!tm && !legacy) return;
+
+      const section = tm?.group ?? legacy?.section ?? 'General';
       const a = {
-        ...f,
-        id: f.name,       // renderAttrField uses attr.id for edits map keys and React keys
-        tooltip: f.hint,  // renderAttrField uses attr.tooltip
-        ...meta,          // required, displayOrder, section, namingRegex, allowedValues, sourceDomainId, sourceDomainName
+        id:           fv.name,
+        name:         fv.name,
+        value:        fv.value,
+        editable:     fv.editable ?? false,
+        required:     fv.required ?? legacy?.required ?? false,
+        label:        tm?.label ?? fv.label ?? fv.name,
+        widget:       fv.widget ?? tm?.widget ?? 'text',
+        tooltip:      fv.hint ?? tm?.hint ?? null,
+        hint:         fv.hint ?? tm?.hint ?? null,
+        displayOrder: tm?.displayOrder ?? legacy?.displayOrder ?? 0,
+        section,
+        namingRegex:     em.namingRegex     ?? legacy?.namingRegex     ?? '',
+        allowedValues:   em.allowedValues   ?? legacy?.allowedValues   ?? '',
+        sourceDomainId:  em.sourceDomainId  ?? legacy?.sourceDomainId  ?? '',
+        sourceDomainName:em.sourceDomainName ?? legacy?.sourceDomainName ?? '',
       };
       if (a.sourceDomainId) {
         if (!byDomain.has(a.sourceDomainId)) {
@@ -849,7 +926,7 @@ export default function NodeEditor({
     const domains = Array.from(byDomain.values())
       .sort((a, b) => a.name.localeCompare(b.name));
     return { base, domains };
-  }, [activeDesc?.fields, activeDesc?.metadata?.attributeMeta]);
+  }, [activeDesc?.values, activeDesc?.fields, activeDesc?.metadata?.attributeMeta, typeDesc]);
 
   const bySection = useMemo(() => attrPartition.base.reduce((acc, a) => {
     const s = a.section || 'General';
@@ -909,7 +986,7 @@ export default function NodeEditor({
   const hasLinkActions    = canUpdateLink || canDeleteLink || !!checkoutAction;
 
   // Lifecycle ID for diagram — resolved from node type
-  const lifecycleId = activeDesc?.metadata?.lifecycleId || null;
+  const lifecycleId = typeDesc?.staticMetadata?.lifecycleId || activeDesc?.metadata?.lifecycleId || null;
 
   // Node type appearance
   const nt          = activeDesc?.metadata?.nodeTypeId ? (nodeTypes || []).find(t => (t.id || t.ID) === activeDesc.metadata.nodeTypeId) : null;
@@ -1396,7 +1473,7 @@ export default function NodeEditor({
               <div className="section-label">Identity</div>
               <div className="attr-grid">
                 <div className="field">
-                  <label className="field-label">{activeDesc.metadata?.logicalIdLabel || 'Identifier'}</label>
+                  <label className="field-label">{typeDesc?.staticMetadata?.logicalIdLabel || activeDesc.metadata?.logicalIdLabel || 'Identifier'}</label>
                   <input className="field-input" readOnly value={activeDesc.metadata?.logicalId || ''} />
                 </div>
                 <div className="field">
@@ -1723,17 +1800,20 @@ export default function NodeEditor({
               const groups = [];
               const groupMap = new Map();
               children.forEach(c => {
-                if (!groupMap.has(c.linkTypeName)) { groupMap.set(c.linkTypeName, []); groups.push(c.linkTypeName); }
-                groupMap.get(c.linkTypeName).push(c);
+                const key = c.linkTypeId || c.linkTypeName || '?';
+                if (!groupMap.has(key)) { groupMap.set(key, []); groups.push(key); }
+                groupMap.get(key).push(c);
               });
-              return groups.map(ltName => {
-                const items = groupMap.get(ltName);
+              return groups.map(ltKey => {
+                const items = groupMap.get(ltKey);
                 const first = items[0];
+                const ltd_group = linkTypeDescs.get(ltKey);
+                const ltName = ltd_group?.name ?? first.linkTypeName ?? ltKey;
                 const isSelfGroup = !first.targetSourceCode || first.targetSourceCode === 'SELF';
                 const sourceLabel = isSelfGroup ? 'Self' : (first.sourceName || first.targetSourceCode || 'External');
                 const colCount = hasLinkActions ? 7 : 6;
                 return (
-                  <Fragment key={ltName}>
+                  <Fragment key={ltKey}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 4 }}>
                       <span style={{ fontSize: 12, fontWeight: 600 }}>{ltName}</span>
                       <span style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface2, rgba(0,0,0,.06))', borderRadius: 3, padding: '1px 6px' }}>{sourceLabel}</span>
@@ -1756,7 +1836,10 @@ export default function NodeEditor({
                           const isDeleting = deletingLinkId === c.linkId;
                           const isSelf = !c.targetSourceCode || c.targetSourceCode === 'SELF';
                           const LinkRow = isSelf ? null : getLinkRowForSource(c.targetSourceCode);
-                          const ltAttrs = c.linkTypeAttributes || [];
+                          const ltd = linkTypeDescs.get(c.linkTypeId);
+                          const ltAttrs      = ltd?.attributes ?? c.linkTypeAttributes ?? [];
+                          const ltPolicy     = ltd?.linkPolicy ?? c.linkPolicy;
+                          const ltLogIdLabel = ltd?.staticMetadata?.linkLogicalIdLabel ?? c.linkLogicalIdLabel ?? 'Link ID';
                           return (
                             <Fragment key={c.linkId}>
                             <tr
@@ -1774,7 +1857,7 @@ export default function NodeEditor({
                                     autoFocus
                                   />
                                 ) : c.linkLogicalId
-                                  ? <span title={c.linkLogicalIdLabel}>{c.linkLogicalId}</span>
+                                  ? <span title={ltLogIdLabel}>{c.linkLogicalId}</span>
                                   : <span style={{ opacity: .35 }}>—</span>}
                               </td>
                               {isSelf ? (
@@ -1829,14 +1912,14 @@ export default function NodeEditor({
                                     )}
                                   </td>
                                   <td style={{ fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 12 }}>
-                                    {c.linkPolicy === 'VERSION_TO_MASTER'
+                                    {ltPolicy === 'VERSION_TO_MASTER'
                                       ? <span style={{ opacity: .35 }}>—</span>
                                       : `${c.targetRevision}.${c.targetIteration}`}
                                   </td>
                                   <td><StatePill stateId={c.targetState} stateName={c.targetStateName} stateColorMap={stateColorMap} /></td>
                                   <td>
-                                    <span className="hist-type-badge" data-type={c.linkPolicy} style={{ fontSize: 10 }}>
-                                      {c.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
+                                    <span className="hist-type-badge" data-type={ltPolicy} style={{ fontSize: 10 }}>
+                                      {ltPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
                                     </span>
                                   </td>
                                 </>
@@ -1902,8 +1985,8 @@ export default function NodeEditor({
                                   </td>
                                   <td /><td />
                                   <td>
-                                    <span className="hist-type-badge" data-type={c.linkPolicy} style={{ fontSize: 10 }}>
-                                      {c.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
+                                    <span className="hist-type-badge" data-type={ltPolicy} style={{ fontSize: 10 }}>
+                                      {ltPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
                                     </span>
                                   </td>
                                 </>
@@ -1972,26 +2055,6 @@ export default function NodeEditor({
                             {selectedLinkId === c.linkId && !isEditing && (() => {
                               const attrValues = {};
                               (c.linkAttributeValues || []).forEach(av => { attrValues[av.attributeId] = av.value; });
-                              const renderMatrix = val => {
-                                if (!val) return <span style={{ opacity: .35 }}>—</span>;
-                                const parts = val.split(',').map(s => parseFloat(s.trim()));
-                                if (parts.length !== 16 || parts.some(isNaN)) {
-                                  return <span style={{ fontFamily: 'var(--mono, monospace)', fontSize: 11 }}>{val}</span>;
-                                }
-                                return (
-                                  <div style={{ fontSize: 11, fontFamily: 'var(--mono, monospace)', lineHeight: 1.8, background: 'var(--surface2, rgba(0,0,0,.04))', borderRadius: 3, padding: '4px 8px', display: 'inline-block' }}>
-                                    {[0,1,2,3].map(row => (
-                                      <div key={row} style={{ display: 'flex', gap: 10 }}>
-                                        {[0,1,2,3].map(col => (
-                                          <span key={col} style={{ minWidth: 56, textAlign: 'right', display: 'inline-block' }}>
-                                            {parts[row * 4 + col].toFixed(4)}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    ))}
-                                  </div>
-                                );
-                              };
                               return (
                                 <tr className="link-detail-expand" onClick={e => e.stopPropagation()}>
                                   <td colSpan={colCount}>
@@ -2001,10 +2064,10 @@ export default function NodeEditor({
                                       ) : (
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                                           {ltAttrs.map(a => (
-                                            <div key={a.id} style={{ flex: a.dataType === 'POSITION' ? '1 1 100%' : '1 1 160px', minWidth: 120 }}>
+                                            <div key={a.name} style={{ flex: a.dataType === 'POSITION' ? '1 1 100%' : '1 1 160px', minWidth: 120 }}>
                                               <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{a.label || a.name}</div>
                                               {a.dataType === 'POSITION'
-                                                ? renderMatrix(attrValues[a.name])
+                                                ? <PositionMatrixEditor value={attrValues[a.name]} readOnly />
                                                 : <div style={{ fontSize: 12 }}>{attrValues[a.name] != null ? attrValues[a.name] : <span style={{ opacity: .35 }}>—</span>}</div>
                                               }
                                             </div>
@@ -2021,32 +2084,14 @@ export default function NodeEditor({
                                 <td colSpan={colCount} style={{ padding: '4px 8px 8px', background: 'var(--surface2, rgba(0,0,0,.04))' }}>
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
                                     {ltAttrs.map(a => (
-                                      <div key={a.id} className="field" style={{ margin: 0, flex: a.dataType === 'POSITION' ? '1 1 100%' : '1 1 160px', minWidth: 120 }}>
+                                      <div key={a.name} className="field" style={{ margin: 0, flex: a.dataType === 'POSITION' ? '1 1 100%' : '1 1 160px', minWidth: 120 }}>
                                         <label className="field-label" style={{ fontSize: 10 }}>{a.label || a.name}{a.required && <span className="field-req">*</span>}</label>
-                                        {a.dataType === 'POSITION' ? (() => {
-                                          const raw = editLinkAttrs[a.name] || '';
-                                          const parsed = raw.split(',').map(s => parseFloat(s.trim()));
-                                          const arr = parsed.length === 16 && parsed.every(n => !isNaN(n)) ? parsed : Array(16).fill(0);
-                                          return (
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, fontFamily: 'var(--mono, monospace)' }}>
-                                              {arr.map((v, i) => (
-                                                <input
-                                                  key={i}
-                                                  type="number"
-                                                  className="field-input"
-                                                  style={{ padding: '2px 4px', fontSize: 11, textAlign: 'right', width: '100%' }}
-                                                  value={v}
-                                                  step="any"
-                                                  onChange={e => {
-                                                    const next = [...arr];
-                                                    next[i] = parseFloat(e.target.value) || 0;
-                                                    setEditLinkAttrs(prev => ({ ...prev, [a.name]: next.join(',') }));
-                                                  }}
-                                                />
-                                              ))}
-                                            </div>
-                                          );
-                                        })() : (
+                                        {a.dataType === 'POSITION' ? (
+                                          <PositionMatrixEditor
+                                            value={editLinkAttrs[a.name] || ''}
+                                            onChange={v => setEditLinkAttrs(prev => ({ ...prev, [a.name]: v }))}
+                                          />
+                                        ) : (
                                           <input
                                             className="field-input"
                                             style={{ padding: '2px 6px', fontSize: 12 }}
@@ -2089,11 +2134,15 @@ export default function NodeEditor({
               const pGroups = [];
               const pGroupMap = new Map();
               parents.forEach(p => {
-                if (!pGroupMap.has(p.linkTypeName)) { pGroupMap.set(p.linkTypeName, []); pGroups.push(p.linkTypeName); }
-                pGroupMap.get(p.linkTypeName).push(p);
+                const key = p.linkTypeId || p.linkTypeName || '?';
+                if (!pGroupMap.has(key)) { pGroupMap.set(key, []); pGroups.push(key); }
+                pGroupMap.get(key).push(p);
               });
-              return pGroups.map(ltName => (
-                <Fragment key={ltName}>
+              return pGroups.map(ltKey => {
+                const pltd_group = linkTypeDescs.get(ltKey);
+                const ltName = pltd_group?.name ?? pGroupMap.get(ltKey)[0]?.linkTypeName ?? ltKey;
+                return (
+                <Fragment key={ltKey}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 4 }}>
                     <span style={{ fontSize: 12, fontWeight: 600 }}>{ltName}</span>
                     <span style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface2, rgba(0,0,0,.06))', borderRadius: 3, padding: '1px 6px' }}>Self</span>
@@ -2110,8 +2159,11 @@ export default function NodeEditor({
                       </tr>
                     </thead>
                     <tbody>
-                      {pGroupMap.get(ltName).map(p => {
+                      {pGroupMap.get(ltKey).map(p => {
                         const isParentSelected = selectedParentLinkId === p.linkId;
+                        const pltd = linkTypeDescs.get(p.linkTypeId);
+                        const pltPolicy     = pltd?.linkPolicy ?? p.linkPolicy;
+                        const pltLogIdLabel = pltd?.staticMetadata?.linkLogicalIdLabel ?? p.linkLogicalIdLabel ?? 'Link ID';
                         return (
                           <Fragment key={p.linkId}>
                           <tr
@@ -2121,7 +2173,7 @@ export default function NodeEditor({
                           >
                             <td style={{ fontFamily: 'var(--sans)', fontSize: 12 }}>
                               {p.linkLogicalId
-                                ? <span title={p.linkLogicalIdLabel}>{p.linkLogicalId}</span>
+                                ? <span title={pltLogIdLabel}>{p.linkLogicalId}</span>
                                 : <span style={{ opacity: .35 }}>—</span>}
                             </td>
                             <td style={{ color: 'var(--muted)', fontSize: 12 }}>{p.sourceNodeType}</td>
@@ -2129,41 +2181,21 @@ export default function NodeEditor({
                               {p.sourceLogicalId || <span style={{ opacity: .4 }}>{p.sourceNodeId?.slice(0, 8)}…</span>}
                             </td>
                             <td style={{ fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 12 }}>
-                              {p.linkPolicy === 'VERSION_TO_MASTER'
+                              {pltPolicy === 'VERSION_TO_MASTER'
                                 ? <span style={{ opacity: .35 }}>—</span>
                                 : `${p.sourceRevision}.${p.sourceIteration}`}
                             </td>
                             <td><StatePill stateId={p.sourceState} stateName={p.sourceStateName} stateColorMap={stateColorMap} /></td>
                             <td>
-                              <span className="hist-type-badge" data-type={p.linkPolicy} style={{ fontSize: 10 }}>
-                                {p.linkPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
+                              <span className="hist-type-badge" data-type={pltPolicy} style={{ fontSize: 10 }}>
+                                {pltPolicy === 'VERSION_TO_MASTER' ? 'V2M' : 'V2V'}
                               </span>
                             </td>
                           </tr>
                           {isParentSelected && (() => {
-                            const ltAttrs = p.linkTypeAttributes || [];
+                            const ltAttrs = pltd?.attributes ?? p.linkTypeAttributes ?? [];
                             const attrValues = {};
                             (p.linkAttributeValues || []).forEach(av => { attrValues[av.attributeId] = av.value; });
-                            const renderMatrix = val => {
-                              if (!val) return <span style={{ opacity: .35 }}>—</span>;
-                              const parts = val.split(',').map(s => parseFloat(s.trim()));
-                              if (parts.length !== 16 || parts.some(isNaN)) {
-                                return <span style={{ fontFamily: 'var(--mono, monospace)', fontSize: 11 }}>{val}</span>;
-                              }
-                              return (
-                                <div style={{ fontSize: 11, fontFamily: 'var(--mono, monospace)', lineHeight: 1.8, background: 'var(--surface2, rgba(0,0,0,.04))', borderRadius: 3, padding: '4px 8px', display: 'inline-block' }}>
-                                  {[0,1,2,3].map(row => (
-                                    <div key={row} style={{ display: 'flex', gap: 10 }}>
-                                      {[0,1,2,3].map(col => (
-                                        <span key={col} style={{ minWidth: 56, textAlign: 'right', display: 'inline-block' }}>
-                                          {parts[row * 4 + col].toFixed(4)}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  ))}
-                                </div>
-                              );
-                            };
                             return (
                               <tr className="link-detail-expand" onClick={e => e.stopPropagation()}>
                                 <td colSpan={6}>
@@ -2173,10 +2205,10 @@ export default function NodeEditor({
                                     ) : (
                                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                                         {ltAttrs.map(a => (
-                                          <div key={a.id} style={{ flex: a.dataType === 'POSITION' ? '1 1 100%' : '1 1 160px', minWidth: 120 }}>
+                                          <div key={a.name} style={{ flex: a.dataType === 'POSITION' ? '1 1 100%' : '1 1 160px', minWidth: 120 }}>
                                             <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{a.label || a.name}</div>
                                             {a.dataType === 'POSITION'
-                                              ? renderMatrix(attrValues[a.name])
+                                              ? <PositionMatrixEditor value={attrValues[a.name]} readOnly />
                                               : <div style={{ fontSize: 12 }}>{attrValues[a.name] != null ? attrValues[a.name] : <span style={{ opacity: .35 }}>—</span>}</div>
                                             }
                                           </div>
@@ -2194,7 +2226,8 @@ export default function NodeEditor({
                     </tbody>
                   </table>
                 </Fragment>
-              ));
+              );
+              });
             })()
           )}
         </div>
@@ -2209,7 +2242,7 @@ export default function NodeEditor({
               Lifecycle
             </div>
             <LifecycleDiagram
-              lifecycleId={activeDesc.metadata?.lifecycleId}
+              lifecycleId={typeDesc?.staticMetadata?.lifecycleId || activeDesc.metadata?.lifecycleId}
               currentStateId={activeDesc.metadata?.state}
               userId={userId}
               availableTransitionNames={new Set(

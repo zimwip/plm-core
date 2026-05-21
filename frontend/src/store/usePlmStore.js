@@ -49,14 +49,7 @@ export const usePlmStore = create((set, get) => ({
           icon:        d.icon,
         }));
       const resources = arr.filter(d => d.create);
-      // Refresh the node list using the just-fetched descriptors — no second getItems call.
-      const psmDescs = arr.filter(d => d.serviceCode === 'psm' && d.list);
-      const pages = await Promise.all(
-        psmDescs.map(d => api.fetchListableItems(userId, d, 0, 50)
-          .then(r => r.items || [])
-          .catch(() => []))
-      );
-      set({ items: arr, nodeTypes, resources, itemsStatus: 'loaded', nodes: pages.flat() });
+      set({ items: arr, nodeTypes, resources, itemsStatus: 'loaded' });
     } catch {
       set({ items: [], nodeTypes: [], resources: [], itemsStatus: 'idle' });
     }
@@ -111,8 +104,8 @@ export const usePlmStore = create((set, get) => ({
 
   // ── PSM node list ─────────────────────────────────────────────────
   // Used by the global Header search dropdown only.
-  // Lightweight refresh: reuses cached items, only re-fetches node pages.
-  // Call refreshItems() instead when the item catalog itself may have changed.
+  // Populated lazily on first Header search focus via refreshNodes().
+  // Refreshed on matching WS events. Never fetched at boot.
   nodes: [],
 
   refreshNodes: async () => {

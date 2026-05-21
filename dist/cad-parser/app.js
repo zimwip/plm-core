@@ -14,6 +14,7 @@ import {
   buildEntityMap,
   buildRefGraph,
   buildReverseRefGraph,
+  buildTypeIndex,
   findDefinitionalChain,
   collectForwardClosure,
   expandSRRClosure,
@@ -45,7 +46,7 @@ const splitJobs = new Map();
 const JOB_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 // Minimum product count before spawning workers (below this threshold sequential is faster)
-const PARALLEL_THRESHOLD = 8;
+const PARALLEL_THRESHOLD = 3;
 
 app.get('/health', (_req, res) => res.json({ status: 'UP' }));
 
@@ -85,12 +86,12 @@ app.post('/split', upload.single('file'), (req, res) => {
       await mkdir(jobDir, { recursive: true });
       const parts = await splitStep(content);
 
-      const partMeta = [];
-      for (let i = 0; i < parts.length; i++) {
-        const { stepContent, ...meta } = parts[i];
-        await writeFile(join(jobDir, `part-${i}.stp`), stepContent, 'utf8');
-        partMeta.push(meta);
-      }
+      const partMeta = await Promise.all(
+        parts.map(async ({ stepContent, ...meta }, i) => {
+          await writeFile(join(jobDir, `part-${i}.stp`), stepContent, 'utf8');
+          return meta;
+        })
+      );
 
       splitJobs.set(jobId, { status: 'DONE', parts: partMeta, dir: jobDir });
       console.log(`Split job ${jobId} done: ${partMeta.length} parts`);
@@ -279,8 +280,8 @@ function buildGlb(meshes) {
 // ---------------------------------------------------------------------------
 // NAUO matrix extractor — now delegates to step-lib for serialisable precompute
 // ---------------------------------------------------------------------------
-function makeNauoMatrixExtractor(data, nauoIdSet) {
-  return buildNauoExtractor(precomputeNauoData(data, nauoIdSet));
+function makeNauoMatrixExtractor(nauoIdSet, typeIdx, data) {
+  return buildNauoExtractor(precomputeNauoData(nauoIdSet, typeIdx, data));
 }
 
 // ---------------------------------------------------------------------------
@@ -297,14 +298,8 @@ function parseStep(content) {
     .replace(/\/\*[\s\S]*?\*\//g, ' ')   // /* comments */
     .replace(/\r?\n\s*/g, ' ');
 
-  // ── entity extractor ──────────────────────────────────────────────────────
-  function byType(typeName) {
-    const re = new RegExp(`#(\\d+)\\s*=\\s*${typeName}\\s*\\(([^;]*)\\)\\s*;`, 'g');
-    const out = {};
-    let m;
-    while ((m = re.exec(data)) !== null) out[m[1]] = m[2];
-    return out;
-  }
+  const typeIdx = buildTypeIndex(data);
+  const byType = typeName => typeIdx[typeName] ?? {};
 
   // Split top-level comma args respecting nested parentheses
   function split(s) {
@@ -365,7 +360,7 @@ function parseStep(content) {
 
   if (!Object.keys(products).length) throw new Error('No PRODUCT entities found — may not be an assembly STEP file');
 
-  const getMatrixForNauo = makeNauoMatrixExtractor(data, new Set(Object.keys(nauoEntities)));
+  const getMatrixForNauo = makeNauoMatrixExtractor(new Set(Object.keys(nauoEntities)), typeIdx, data);
 
   // Build flat node list
   const idMap = {};
@@ -464,12 +459,9 @@ function splitStep(content) {
   const reverseRefGraph = buildReverseRefGraph(entityMap);
 
   // ── BOM extraction ───────────────────────────────────────────────────────
-  function byType(typeName) {
-    const re = new RegExp(`#(\\d+)\\s*=\\s*${typeName}\\s*\\(([^;]*)\\)\\s*;`, 'g');
-    const out = {}; let m;
-    while ((m = re.exec(data)) !== null) out[m[1]] = m[2];
-    return out;
-  }
+  const typeIdx = buildTypeIndex(data);
+  const byType = typeName => typeIdx[typeName] ?? {};
+
   function splitArgs(s) {
     const parts = []; let depth = 0, cur = '';
     for (const ch of s) {
@@ -557,7 +549,7 @@ function splitStep(content) {
   }
 
   // ── NAUO matrix precompute (serialisable for worker transfer) ─────────────
-  const nauoData = precomputeNauoData(data, new Set(Object.keys(nauoEntities)));
+  const nauoData = precomputeNauoData(new Set(Object.keys(nauoEntities)), typeIdx, data);
 
   const productEntries = Object.entries(products);
 

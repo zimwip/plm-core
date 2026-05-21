@@ -395,7 +395,8 @@ function Header({
   projectSpaces, projectSpaceId, onProjectSpaceChange,
   onNavigate,
 }) {
-  const currentUser = useMemo(() => (users || []).find(u => u.id === userId), [users, userId]);
+  const currentUser    = useMemo(() => (users || []).find(u => u.id === userId), [users, userId]);
+  const storeItems     = usePlmStore(s => s.items);
 
   const [suggestions,      setSuggestions]      = useState([]);
   const [showSug,          setShowSug]          = useState(false);
@@ -404,35 +405,45 @@ function Header({
   const [showProfileModal, setShowProfileModal] = useState(false);
   const blurTimer     = useRef(null);
   const profileWrap   = useRef(null);
+  const searchSeqRef  = useRef(0);
 
-  // Recompute suggestions whenever query or nodes change
+  // Debounced autocomplete via search-api
   useEffect(() => {
-    const q = (searchQuery || '').trim().toLowerCase();
+    const q = (searchQuery || '').trim();
     if (q.length < 2) {
       setSuggestions([]);
       setShowSug(false);
       return;
     }
-    const matches = (nodes || [])
-      .filter(n => {
-        const lid  = (n.logical_id   || n.LOGICAL_ID   || '').toLowerCase();
-        const dnam = (n.display_name || n.DISPLAY_NAME || '').toLowerCase();
-        return (lid && lid.includes(q)) || (dnam && dnam.includes(q));
-      })
-      .slice(0, 8);
-    setSuggestions(matches);
-    setShowSug(matches.length > 0);
-    setHiIdx(-1);
-  }, [searchQuery, nodes]);
+    const seq = ++searchSeqRef.current;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.searchNodes(q, {}, [], 6);
+        if (searchSeqRef.current !== seq) return;
+        const hits = res.hits || [];
+        setSuggestions(hits);
+        setShowSug(hits.length > 0);
+        setHiIdx(-1);
+      } catch {
+        if (searchSeqRef.current === seq) { setSuggestions([]); setShowSug(false); }
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
-  const selectSuggestion = useCallback((node) => {
-    const id = node.id || node.ID;
+  const selectSuggestion = useCallback((hit) => {
     clearTimeout(blurTimer.current);
     onSearchChange('');
     setShowSug(false);
     setSuggestions([]);
-    if (onNavigate) onNavigate(id, undefined, psmNodeDescriptor);
-  }, [onSearchChange, onNavigate]);
+    if (onNavigate) {
+      const svc  = hit.serviceCode || 'psm';
+      const tc   = hit.itemCode   || hit.type || '';
+      const desc = storeItems.find(d => d.serviceCode === svc && d.itemCode === tc)
+                || (svc === 'psm' ? psmNodeDescriptor : { serviceCode: svc, itemCode: tc });
+      onNavigate(hit.id, undefined, desc);
+    }
+  }, [onSearchChange, onNavigate, storeItems]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter') {
@@ -459,7 +470,10 @@ function Header({
   }, [showSug, suggestions, hiIdx, selectSuggestion, searchQuery, onSearchSubmit]);
 
   const handleBlur  = useCallback(() => { blurTimer.current = setTimeout(() => setShowSug(false), 150); }, []);
-  const handleFocus = useCallback(() => { clearTimeout(blurTimer.current); if (suggestions.length > 0) setShowSug(true); }, [suggestions.length]);
+  const handleFocus = useCallback(() => {
+    clearTimeout(blurTimer.current);
+    if (suggestions.length > 0) setShowSug(true);
+  }, [suggestions.length]);
 
   return (
     <header className="header">
@@ -520,24 +534,23 @@ function Header({
 
           {showSug && suggestions.length > 0 && (
             <div className="search-suggestions">
-              {suggestions.map((n, i) => {
-                const id        = n.id    || n.ID;
-                const lid       = n.logical_id || n.LOGICAL_ID || '';
-                const type      = n.node_type_name || n.NODE_TYPE_NAME || '';
-                const typeId    = n.node_type_id   || n.NODE_TYPE_ID   || '';
-                const rev       = n.revision  || n.REVISION  || 'A';
-                const iter      = n.iteration ?? n.ITERATION ?? 1;
-                const state     = n.lifecycle_state_id || n.LIFECYCLE_STATE_ID || '';
-                const stateClr  = stateColorMap?.[state] || '#6b7280';
-                const nt        = (nodeTypes || []).find(t => (t.id || t.ID) === typeId);
-                const typeColor = nt?.color || nt?.COLOR || null;
-                const typeIcon  = nt?.icon  || nt?.ICON  || null;
+              {suggestions.map((hit, i) => {
+                const source    = (() => { try { return JSON.parse(hit.sourceJson || '{}'); } catch { return {}; } })();
+                const svc       = hit.serviceCode || 'psm';
+                const tc        = hit.itemCode || hit.type || '';
+                const desc      = storeItems.find(d => d.serviceCode === svc && d.itemCode === tc);
+                const typeColor = desc?.color || null;
+                const typeIcon  = desc?.icon  || null;
                 const NtIcon    = typeIcon ? NODE_ICONS[typeIcon] : null;
+                const label     = source.logicalId || source.logical_id || source.originalName || hit.id;
+                const name      = source.name || source.displayName || '';
+                const rev       = source.revision || '';
+                const iter      = source.iteration;
                 return (
                   <div
-                    key={id}
+                    key={hit.id}
                     className={`search-sug-item${i === hiIdx ? ' hi' : ''}`}
-                    onMouseDown={() => selectSuggestion(n)}
+                    onMouseDown={() => selectSuggestion(hit)}
                     onMouseEnter={() => setHiIdx(i)}
                   >
                     <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: 4, flexShrink: 0 }}>
@@ -548,12 +561,9 @@ function Header({
                           : null
                       }
                     </span>
-                    <span className="sug-dot" style={{ background: stateClr }} />
-                    <span className="sug-lid">{lid}</span>
-                    {(n.display_name || n.DISPLAY_NAME) && (
-                      <span className="sug-dname">{n.display_name || n.DISPLAY_NAME}</span>
-                    )}
-                    <span className="sug-meta">{type} · {iter === 0 ? rev : `${rev}.${iter}`}</span>
+                    <span className="sug-lid">{label}</span>
+                    {name && <span className="sug-dname">{name}</span>}
+                    {rev && <span className="sug-meta">{tc}{iter != null ? ` · ${rev}.${iter}` : ` · ${rev}`}</span>}
                   </div>
                 );
               })}

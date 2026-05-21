@@ -29,7 +29,8 @@ public class SettingsSectionsController {
         new GroupDef("PNO",         "PnO"),
         new GroupDef("PLATFORM",    "Platform"),
         new GroupDef("PSM",         "Product Structure Management"),
-        new GroupDef("APPLICATION", "Application")
+        new GroupDef("APPLICATION", "Application"),
+        new GroupDef("INDEX",       "Index")
     );
     private static final GroupDef HELP_GROUP = new GroupDef("HELP", "Help");
 

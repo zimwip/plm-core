@@ -16,6 +16,7 @@ import { registerSettingsPlugin, lookupSettingsPlugin } from '../services/settin
 import { findSettingsSectionComponent } from '../shell/pluginRegistry';
 import { ActionsCatalogSection } from './ActionsCatalogSection';
 import { AlgorithmSection }      from './AlgorithmSection';
+import SearchIndexSection        from './SearchIndexSection';
 
 
 /* ── Spring Modulith module badge ─────────────────────────────────── */
@@ -5464,3 +5465,4 @@ registerSettingsPlugin('service-registry',     ServiceRegistrySection);
 registerSettingsPlugin('platform-environment', PlatformEnvironmentSection);
 registerSettingsPlugin('actions-catalog',      ActionsCatalogSection);
 registerSettingsPlugin('platform-algorithms',  AlgorithmSection);
+registerSettingsPlugin('search-index',         SearchIndexSection);

@@ -268,7 +268,7 @@ export default function CreateResourceModal({ resources, onCreated, onClose, toa
               <select
                 id="rc-type"
                 className="field-input"
-                value={descriptor ? `${descriptor.serviceCode}/${descriptor.itemCode}/${descriptor.itemKey || ''}` : ''}
+                value={descriptor ? `${descriptor.serviceCode}/${descriptor.itemCode}` : ''}
                 onChange={e => {
                   const id = e.target.value;
                   const next = types.find(d =>

@@ -36,7 +36,7 @@ export function descriptorMatchesRef(descriptor, ref) {
 }
 
 /**
- * Build a flat item object from a DetailDescriptor's `fields` array.
+ * Build a flat item object from a DetailDescriptor's values (or fields for backward compat).
  * PSM NavRow reads item.logical_id, item.revision, etc. — this maps
  * field.name → value so those reads work on detail data.
  * Type identity (_serviceCode, _itemCode, _itemKey) is extracted from
@@ -50,7 +50,7 @@ export function detailToItem(detail) {
     item._itemCode    = detail.itemType.itemCode;
     item._itemKey     = detail.itemType.itemKey ?? null;
   }
-  for (const f of detail.fields || []) {
+  for (const f of (detail.values ?? detail.fields ?? [])) {
     item[f.name] = f.value;
   }
   return item;

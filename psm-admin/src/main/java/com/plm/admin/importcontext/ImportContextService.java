@@ -17,7 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -52,36 +54,28 @@ public class ImportContextService {
     }
 
     @PlmPermission("MANAGE_PSM")
-    public Map<String, Object> getById(String id) {
-        Record r = dsl.fetchOne("SELECT * FROM psa_import_context WHERE id = ?", id);
-        if (r == null) return null;
-        return toMap(r);
-    }
-
-    @PlmPermission("MANAGE_PSM")
     @Transactional
     public String create(String code, String label, String allowedRootNodeTypes,
                          String acceptedFormats, String importContextAlgorithmInstanceId,
                          String nodeValidationAlgorithmInstanceId) {
-        String id = UUID.randomUUID().toString();
         dsl.execute("""
             INSERT INTO psa_import_context
-              (id, code, label, allowed_root_node_types, accepted_formats,
+              (code, label, allowed_root_node_types, accepted_formats,
                import_context_algorithm_instance_id, node_validation_algorithm_instance_id,
                created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?)
             """,
-            id, code, label, blankToNull(allowedRootNodeTypes), blankToNull(acceptedFormats),
+            code, label, blankToNull(allowedRootNodeTypes), blankToNull(acceptedFormats),
             blankToNull(importContextAlgorithmInstanceId), blankToNull(nodeValidationAlgorithmInstanceId),
             LocalDateTime.now(), LocalDateTime.now()
         );
-        publishChange("CREATE", id);
-        return id;
+        publishChange("CREATE", code);
+        return code;
     }
 
     @PlmPermission("MANAGE_PSM")
     @Transactional
-    public void update(String id, String label, String allowedRootNodeTypes,
+    public void update(String code, String label, String allowedRootNodeTypes,
                        String acceptedFormats, String importContextAlgorithmInstanceId,
                        String nodeValidationAlgorithmInstanceId) {
         int updated = dsl.execute("""
@@ -90,22 +84,22 @@ public class ImportContextService {
               import_context_algorithm_instance_id=?,
               node_validation_algorithm_instance_id=?,
               updated_at=?
-            WHERE id=?
+            WHERE code=?
             """,
             label, blankToNull(allowedRootNodeTypes), blankToNull(acceptedFormats),
             blankToNull(importContextAlgorithmInstanceId), blankToNull(nodeValidationAlgorithmInstanceId),
-            LocalDateTime.now(), id
+            LocalDateTime.now(), code
         );
-        if (updated == 0) throw new IllegalArgumentException("ImportContext not found: " + id);
-        publishChange("UPDATE", id);
+        if (updated == 0) throw new IllegalArgumentException("ImportContext not found: " + code);
+        publishChange("UPDATE", code);
     }
 
     @PlmPermission("MANAGE_PSM")
     @Transactional
-    public void delete(String id) {
-        int deleted = dsl.execute("DELETE FROM psa_import_context WHERE id = ?", id);
-        if (deleted == 0) throw new IllegalArgumentException("ImportContext not found: " + id);
-        publishChange("DELETE", id);
+    public void delete(String code) {
+        int deleted = dsl.execute("DELETE FROM psa_import_context WHERE code = ?", code);
+        if (deleted == 0) throw new IllegalArgumentException("ImportContext not found: " + code);
+        publishChange("DELETE", code);
     }
 
     @PlmPermission("MANAGE_PSM")
@@ -140,7 +134,6 @@ public class ImportContextService {
 
     private Map<String, Object> toMap(Record r) {
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id",                                   r.get("id",                                    String.class));
         m.put("code",                                 r.get("code",                                  String.class));
         m.put("label",                                r.get("label",                                 String.class));
         m.put("allowedRootNodeTypes",                 r.get("allowed_root_node_types",               String.class));

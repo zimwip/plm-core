@@ -1,14 +1,15 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../services/api';
+import { getItemTypeDescriptor } from '../services/itemTypeCache';
 
 /**
  * Generic editor pane driven entirely by a server-supplied
  * {@code DetailDescriptor}. Source services declare their get endpoint
  * via {@code descriptor.get.path} (with {@code {id}} substituted);
- * the response carries title + subtitle + ordered fields + actions, and
- * this component renders all of it without source-specific code.
+ * the response carries per-instance values + actions, while field labels,
+ * widgets, and hints come from the cached {@code ItemTypeDescriptor}.
  *
- * <p>Custom plugins may still ship richer editors (PSM nodes use
+ * Custom plugins may still ship richer editors (PSM nodes use
  * {@code NodeEditor}); this is the default + showcase implementation
  * adopted by DST and any future user service.
  */
@@ -50,6 +51,7 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
   const svcBase = serviceCode ? `/api/${serviceCode}` : '';
 
   const [detail, setDetail] = useState(null);
+  const [typeDesc, setTypeDesc] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState(null);
@@ -78,6 +80,12 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
   }, [detailPathTpl, httpMethod, tab.nodeId, svcBase]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
+
+  // Fetch static type descriptor (cached, only changes on metamodel update)
+  useEffect(() => {
+    if (!detail?.itemType) return;
+    getItemTypeDescriptor(detail.itemType).then(setTypeDesc).catch(() => setTypeDesc(null));
+  }, [detail?.itemType?.serviceCode, detail?.itemType?.itemCode, detail?.itemType?.itemKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const url = detail?.metadata?.downloadUrl;
@@ -116,7 +124,6 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
       const path = svcBase + a.path.replace('{id}', encodeURIComponent(tab.nodeId));
       await api.gatewayJson(a.httpMethod, path, a.parameters?.length ? {} : undefined);
       if (toast) toast(`${a.label} done`, 'success');
-      // Refresh detail; navigation/dismissal is the caller's concern via WS.
       loadDetail();
     } catch (e) {
       if (toast) toast(e, 'error');
@@ -124,6 +131,47 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
       setBusyAction(null);
     }
   }
+
+  // Merge type-level metadata (label, widget, hint) with instance values.
+  // Falls back to field-level data for backward compat while backends migrate.
+  const fieldMetaByName = useMemo(() => {
+    const m = {};
+    for (const fm of typeDesc?.fields ?? []) m[fm.name] = fm;
+    return m;
+  }, [typeDesc]);
+
+  const mergedFields = useMemo(() => {
+    const rawFields = detail?.values ?? detail?.fields ?? [];
+    return rawFields.map(fv => ({
+      name:     fv.name,
+      value:    fv.value,
+      editable: fv.editable,
+      required: fv.required ?? false,
+      label:    fieldMetaByName[fv.name]?.label  ?? fv.label  ?? fv.name,
+      widget:   fieldMetaByName[fv.name]?.widget ?? fv.widget ?? 'text',
+      hint:     fieldMetaByName[fv.name]?.hint   ?? fv.hint   ?? null,
+    }));
+  }, [detail, fieldMetaByName]);
+
+  // Derive display header from type descriptor's titleField/subtitleField
+  const displayTitle = useMemo(() => {
+    if (typeDesc?.titleField) {
+      const f = mergedFields.find(f => f.name === typeDesc.titleField);
+      if (f?.value) return String(f.value);
+    }
+    // backward compat: old responses had title on the descriptor
+    return detail?.title ?? detail?.id;
+  }, [typeDesc, mergedFields, detail]);
+
+  const displaySubtitle = useMemo(() => {
+    if (typeDesc?.subtitleField) {
+      const f = mergedFields.find(f => f.name === typeDesc.subtitleField);
+      if (f?.value) return String(f.value);
+    }
+    return detail?.subtitle ?? null;
+  }, [typeDesc, mergedFields, detail]);
+
+  const displayColor = typeDesc?.color ?? detail?.color;
 
   if (loading) return <div className="settings-loading">Loading…</div>;
   if (error) {
@@ -140,19 +188,19 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
   return (
     <div style={{ padding: 24, overflow: 'auto', height: '100%', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-        {detail.color && (
-          <span style={{ width: 10, height: 10, borderRadius: 2, background: detail.color, flexShrink: 0 }} />
+        {displayColor && (
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: displayColor, flexShrink: 0 }} />
         )}
-        <h2 style={{ margin: 0, fontSize: 18 }}>{detail.title || detail.id}</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>{displayTitle}</h2>
         <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--mono)' }}>{detail.id}</span>
       </div>
-      {detail.subtitle && (
+      {displaySubtitle && (
         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 16 }}>
-          {detail.subtitle}
+          {displaySubtitle}
         </div>
       )}
 
-      {/* ── Action buttons ─────────────────────────────────────── */}
+      {/* ── Action buttons ─────────────────────────────────────────────────────── */}
       {detail.actions && detail.actions.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
           {detail.actions.map(a => (
@@ -169,10 +217,10 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
         </div>
       )}
 
-      {/* ── Fields ─────────────────────────────────────────────── */}
+      {/* ── Fields ─────────────────────────────────────────────────────────────── */}
       <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', marginBottom: 24 }}>
         <tbody>
-          {detail.fields.map(f => (
+          {mergedFields.map(f => (
             <tr key={f.name} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={{ padding: '6px 8px', color: 'var(--muted)', width: 180, verticalAlign: 'top' }}>
                 {f.label}
@@ -192,7 +240,7 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
           <div className="settings-sub-label" style={{ marginBottom: 8 }}>Preview</div>
           <img
             src={detail.metadata.downloadUrl}
-            alt={detail.title}
+            alt={displayTitle}
             style={{ maxWidth: '100%', maxHeight: 480, border: '1px solid var(--border)', borderRadius: 4 }}
           />
         </div>

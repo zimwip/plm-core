@@ -20,9 +20,9 @@ public class ImportContextController {
         return ResponseEntity.ok(importContextService.getAll());
     }
 
-    @GetMapping("/admin/import-contexts/{id}")
-    public ResponseEntity<Map<String, Object>> get(@PathVariable String id) {
-        Map<String, Object> ctx = importContextService.getById(id);
+    @GetMapping("/admin/import-contexts/{code}")
+    public ResponseEntity<Map<String, Object>> get(@PathVariable String code) {
+        Map<String, Object> ctx = importContextService.getByCode(code);
         return ctx != null ? ResponseEntity.ok(ctx) : ResponseEntity.notFound().build();
     }
 
@@ -38,7 +38,7 @@ public class ImportContextController {
 
     @PostMapping("/admin/import-contexts")
     public ResponseEntity<Map<String, Object>> create(@RequestBody Map<String, Object> body) {
-        String id = importContextService.create(
+        String code = importContextService.create(
             (String) body.get("code"),
             (String) body.get("label"),
             (String) body.get("allowedRootNodeTypes"),
@@ -46,13 +46,13 @@ public class ImportContextController {
             (String) body.get("importContextAlgorithmInstanceId"),
             (String) body.get("nodeValidationAlgorithmInstanceId")
         );
-        return ResponseEntity.ok(Map.of("id", id));
+        return ResponseEntity.ok(Map.of("code", code));
     }
 
-    @PutMapping("/admin/import-contexts/{id}")
-    public ResponseEntity<Void> update(@PathVariable String id, @RequestBody Map<String, Object> body) {
+    @PutMapping("/admin/import-contexts/{code}")
+    public ResponseEntity<Void> update(@PathVariable String code, @RequestBody Map<String, Object> body) {
         importContextService.update(
-            id,
+            code,
             (String) body.get("label"),
             (String) body.get("allowedRootNodeTypes"),
             (String) body.get("acceptedFormats"),
@@ -62,9 +62,9 @@ public class ImportContextController {
         return ResponseEntity.ok().build();
     }
 
-    @DeleteMapping("/admin/import-contexts/{id}")
-    public ResponseEntity<Void> delete(@PathVariable String id) {
-        importContextService.delete(id);
+    @DeleteMapping("/admin/import-contexts/{code}")
+    public ResponseEntity<Void> delete(@PathVariable String code) {
+        importContextService.delete(code);
         return ResponseEntity.ok().build();
     }
 
