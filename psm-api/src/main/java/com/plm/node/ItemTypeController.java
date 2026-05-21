@@ -24,4 +24,13 @@ public class ItemTypeController {
         }
         return ResponseEntity.ok(nodeService.buildNodeTypeDescriptor(nodeTypeId));
     }
+
+    @GetMapping("/domain/{domainId}")
+    public ResponseEntity<ItemTypeDescriptor> getDomain(@PathVariable String domainId)
+            throws InterruptedException {
+        if (!configCache.isPopulated()) {
+            configCache.awaitPopulated(10, TimeUnit.SECONDS);
+        }
+        return ResponseEntity.ok(nodeService.buildDomainDescriptor(domainId));
+    }
 }

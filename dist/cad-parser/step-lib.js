@@ -2,7 +2,7 @@
 
 // ── Module-private helpers ───────────────────────────────────────────────────
 
-function splitArgs(s) {
+export function splitArgs(s) {
   const parts = []; let depth = 0, cur = '';
   for (const ch of s) {
     if ('(['.includes(ch)) depth++;
@@ -41,33 +41,30 @@ export function buildTypeIndex(data) {
   return idx;
 }
 
-export function buildRefGraph(entityMap) {
-  const graph = {};
+// Single-pass builder — returns both forward and reverse reference graphs.
+export function buildRefGraphs(entityMap) {
+  const fwd = {}, rev = {};
   for (const [id, line] of Object.entries(entityMap)) {
-    graph[id] = new Set();
+    fwd[id] ??= new Set();
     const body = line.replace(/^#\d+\s*=\s*/, '');
     const refRe = /#(\d+)/g; let m;
-    while ((m = refRe.exec(body)) !== null) graph[id].add(m[1]);
+    while ((m = refRe.exec(body)) !== null) {
+      fwd[id].add(m[1]);
+      (rev[m[1]] ??= new Set()).add(id);
+    }
   }
-  return graph;
+  return { refGraph: fwd, reverseRefGraph: rev };
 }
 
-export function buildReverseRefGraph(entityMap) {
-  const rg = {};
-  for (const [id, line] of Object.entries(entityMap)) {
-    const body = line.replace(/^#\d+\s*=\s*/, '');
-    const refRe = /#(\d+)/g; let m;
-    while ((m = refRe.exec(body)) !== null) (rg[m[1]] ??= new Set()).add(id);
-  }
-  return rg;
-}
+export function buildRefGraph(entityMap) { return buildRefGraphs(entityMap).refGraph; }
+export function buildReverseRefGraph(entityMap) { return buildRefGraphs(entityMap).reverseRefGraph; }
 
 // ── Closure computation ──────────────────────────────────────────────────────
 
-export function findDefinitionalChain(productStepId, reverseRefGraph, refGraph, productStepIds, prodDefs) {
-  const myProdDefIds = new Set(
-    Object.entries(prodDefs).filter(([, pid]) => pid === productStepId).map(([id]) => id)
-  );
+// prodDefsByProductId: optional Map<productId, Set<prodDefId>> — avoids O(D) scan per product when provided.
+export function findDefinitionalChain(productStepId, reverseRefGraph, refGraph, productStepIds, prodDefs, prodDefsByProductId) {
+  const myProdDefIds = prodDefsByProductId?.get(productStepId)
+    ?? new Set(Object.entries(prodDefs).filter(([, pid]) => pid === productStepId).map(([id]) => id));
   const chain = new Set([productStepId]);
   const queue = [productStepId];
   let ptr = 0;
@@ -141,13 +138,15 @@ export function expandSRRClosure(closure, reverseFromSRR, refGraph, reverseRefGr
 }
 
 export function reconstructStepFile(headerSection, closureIds, entityMap) {
-  const sorted = Array.from(closureIds)
-    .filter(id => entityMap[id])
-    .sort((a, b) => parseInt(a) - parseInt(b));
-  const renumber = {};
-  sorted.forEach((oldId, i) => { renumber[oldId] = String(i + 1); });
-  const dataLines = sorted.map(oldId =>
-    entityMap[oldId].replace(/#(\d+)/g, (_, refId) => '#' + (renumber[refId] ?? refId))
+  const pairs = [];
+  for (const id of closureIds) {
+    if (entityMap[id]) pairs.push([parseInt(id, 10), id]);
+  }
+  pairs.sort((a, b) => a[0] - b[0]);
+  const renumber = new Map();
+  pairs.forEach(([, oldId], i) => renumber.set(oldId, String(i + 1)));
+  const dataLines = pairs.map(([, oldId]) =>
+    entityMap[oldId].replace(/#(\d+)/g, (_, refId) => '#' + (renumber.get(refId) ?? refId))
   );
   return ['ISO-10303-21;', headerSection, 'DATA;', ...dataLines, 'ENDSEC;', 'END-ISO-10303-21;'].join('\n');
 }

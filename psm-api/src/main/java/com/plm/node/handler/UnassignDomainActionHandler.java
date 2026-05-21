@@ -10,6 +10,7 @@ import com.plm.platform.action.ActionContext;
 import com.plm.platform.action.ActionRouteDescriptor;
 import com.plm.shared.action.ActionHandler;
 import com.plm.platform.action.ActionResult;
+import com.plm.shared.event.PlmEventPublisher;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -30,6 +31,7 @@ public class UnassignDomainActionHandler implements ActionHandler {
     private final FingerPrintService fingerPrintService;
     private final DSLContext dsl;
     private final ValidationService validationService;
+    private final PlmEventPublisher eventPublisher;
 
     @Override
     public String actionCode() { return "unassign_domain"; }
@@ -66,6 +68,7 @@ public class UnassignDomainActionHandler implements ActionHandler {
 
         List<ValidationService.Violation> violations =
             validationService.collectVersionViolations(ctx.nodeId(), versionId);
+        eventPublisher.itemUpdated(ctx.nodeId(), ctx.userId());
         return ActionResult.ok(Map.of("nodeId", ctx.nodeId(), "domainId", domainId, "violations", violations));
     }
 

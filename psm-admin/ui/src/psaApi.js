@@ -68,7 +68,7 @@ export const psaApi = {
   getLifecycleStates: (_userId, id) => r('GET', `/metamodel/lifecycles/${id}/states`),
   getLifecycleTransitions: (_userId, id) => r('GET', `/metamodel/lifecycles/${id}/transitions`),
   createLifecycle: (_userId, body) => r('POST', '/metamodel/lifecycles', body),
-  duplicateLifecycle: (_userId, sourceId, name) => r('POST', `/metamodel/lifecycles/${sourceId}/duplicate`, { name }),
+  duplicateLifecycle: (_userId, sourceId, code, name) => r('POST', `/metamodel/lifecycles/${sourceId}/duplicate`, { code, name }),
   deleteLifecycle: (_userId, lifecycleId) => r('DELETE', `/metamodel/lifecycles/${lifecycleId}`),
 
   // ── Lifecycle states ──────────────────────────────────────────────

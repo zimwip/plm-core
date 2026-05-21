@@ -37,6 +37,9 @@ public class SignatureService {
     @Transactional
     public String sign(String nodeId, String userId, String meaning, String comment) {
 
+        if (meaning == null || meaning.isBlank())
+            throw new IllegalArgumentException("meaning is required (APPROVED or REJECTED)");
+
         Record current = versionService.getCurrentVersion(nodeId);
         if (current == null) throw new IllegalStateException("Node has no version: " + nodeId);
 

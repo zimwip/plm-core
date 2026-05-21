@@ -12,6 +12,7 @@ import com.plm.platform.action.ActionContext;
 import com.plm.platform.action.ActionRouteDescriptor;
 import com.plm.shared.action.ActionHandler;
 import com.plm.platform.action.ActionResult;
+import com.plm.shared.event.PlmEventPublisher;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 
@@ -34,6 +35,7 @@ public class AssignDomainActionHandler implements ActionHandler {
     private final ConfigCache configCache;
     private final DSLContext dsl;
     private final ValidationService validationService;
+    private final PlmEventPublisher eventPublisher;
 
     @Override
     public String actionCode() { return "assign_domain"; }
@@ -71,6 +73,7 @@ public class AssignDomainActionHandler implements ActionHandler {
 
         List<ValidationService.Violation> violations =
             validationService.collectVersionViolations(ctx.nodeId(), versionId);
+        eventPublisher.itemUpdated(ctx.nodeId(), ctx.userId());
         return ActionResult.ok(Map.of("nodeId", ctx.nodeId(), "domainId", domainId, "violations", violations));
     }
 

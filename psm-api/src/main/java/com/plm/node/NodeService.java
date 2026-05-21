@@ -1102,6 +1102,37 @@ public class NodeService {
         );
     }
 
+    public ItemTypeDescriptor buildDomainDescriptor(String domainId) {
+        List<ResolvedAttribute> attrs = metaModelCache.getDomainAttributes(domainId);
+        MetaModelCachePort.DomainInfo domInfo = metaModelCache.getAllDomainInfos().get(domainId);
+        String domName = domInfo != null ? domInfo.name() : domainId;
+
+        List<FieldMeta> fieldMetas = new ArrayList<>();
+        Map<String, Object> fieldMetaEnrichments = new LinkedHashMap<>();
+        for (ResolvedAttribute attr : attrs) {
+            fieldMetas.add(new FieldMeta(
+                attr.id(), attr.label(), attr.dataType(),
+                attr.widgetType() != null ? attr.widgetType() : "text",
+                attr.tooltip(), attr.displaySection(), attr.displayOrder()
+            ));
+            Map<String, Object> enrichment = new LinkedHashMap<>();
+            enrichment.put("namingRegex",     attr.namingRegex()    != null ? attr.namingRegex()    : "");
+            enrichment.put("allowedValues",   attr.allowedValues()  != null ? attr.allowedValues()  : "");
+            enrichment.put("sourceDomainId",  domainId);
+            enrichment.put("sourceDomainName", domName);
+            fieldMetaEnrichments.put(attr.id(), enrichment);
+        }
+        fieldMetas.sort(Comparator.comparingInt(FieldMeta::displayOrder));
+        Map<String, Object> staticMetadata = new LinkedHashMap<>();
+        staticMetadata.put("fieldMeta", fieldMetaEnrichments);
+
+        return new ItemTypeDescriptor(
+            new ItemTypeRef("psm", "domain", domainId),
+            domName, null, null, null, null,
+            List.copyOf(fieldMetas), staticMetadata
+        );
+    }
+
     public LinkTypeDescriptor buildLinkTypeDescriptor(String linkTypeId) {
         LinkTypeConfig lt = configCache.getLinkType(linkTypeId)
             .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(

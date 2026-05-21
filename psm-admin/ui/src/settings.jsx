@@ -37,6 +37,8 @@ const STATE_PALETTE = [
 const ACCEPTED_FORMAT_OPTIONS = ['STEP', 'CATIA_V5'];
 
 // ── Tiny helpers ──────────────────────────────────────────────────────────────
+const toCode = s => (s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/, '');
+
 function stateColor(s) {
   return s?.color || s?.COLOR || STATE_DEFAULT_COLOR;
 }
@@ -329,7 +331,7 @@ function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false, u
   );
 }
 
-function StateFormFields({ form, setForm, knownMetaKeys = [] }) {
+function StateFormFields({ form, setForm, knownMetaKeys = [], onNameChange = null }) {
   const meta = form.metadata || {};
   const setMeta = (key, val) => setForm(f => ({
     ...f,
@@ -340,7 +342,7 @@ function StateFormFields({ form, setForm, knownMetaKeys = [] }) {
   return (
     <>
       <Field label="State Name *">
-        <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. In Review" />
+        <input className="field-input" autoFocus={!onNameChange} value={form.name || ''} onChange={e => onNameChange ? onNameChange(e.target.value) : setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. In Review" />
       </Field>
       <Field label="Display Order">
         <input className="field-input" type="number" min="0" value={form.displayOrder ?? ''} onChange={e => setForm(f => ({ ...f, displayOrder: e.target.value }))} placeholder="0" style={{ width: 100 }} />
@@ -386,11 +388,11 @@ function StateFormFields({ form, setForm, knownMetaKeys = [] }) {
   );
 }
 
-function TransitionFormFields({ form, setForm, states }) {
+function TransitionFormFields({ form, setForm, states, onNameChange = null }) {
   return (
     <>
       <Field label="Transition Name *">
-        <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. freeze" />
+        <input className="field-input" autoFocus={!onNameChange} value={form.name || ''} onChange={e => onNameChange ? onNameChange(e.target.value) : setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. freeze" />
       </Field>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field label="From State *">
@@ -841,7 +843,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
       const { type, ctx } = modal;
       if (type === 'create-nodetype') {
         await psaApi.createNodeType(userId, {
-          name: form.name?.trim(), description: form.description?.trim() || null,
+          code: form.code?.trim(), name: form.name?.trim(), description: form.description?.trim() || null,
           lifecycleId: form.lifecycleId || null,
           numberingScheme: form.numberingScheme || 'ALPHA_NUMERIC',
           versionPolicy: form.versionPolicy || 'ITERATE',
@@ -869,7 +871,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
         await loadTypes(); setExpanded(null);
       } else if (type === 'create-attr') {
         await psaApi.createAttribute(userId, ctx.nodeTypeId, {
-          name: form.name?.trim(), label: form.label?.trim(),
+          code: toCode(form.name?.trim()), name: form.name?.trim(), label: form.label?.trim(),
           dataType: form.dataType || 'STRING', widgetType: form.widgetType || 'TEXT',
           required: !!form.required, asName: !!form.asName,
           enumDefinitionId: form.dataType === 'ENUM' ? (form.enumDefinitionId || null) : null,
@@ -898,7 +900,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
         const tgtSrc = form.targetSourceId || 'SELF';
         const tgtType = tgtSrc === 'SELF' ? (form.targetNodeTypeId || null) : (form.targetType || null);
         await psaApi.createLinkType(userId, {
-          name: form.name?.trim(), sourceNodeTypeId: ctx.nodeTypeId,
+          code: form.code?.trim(), name: form.name?.trim(), sourceNodeTypeId: ctx.nodeTypeId,
           targetSourceId: tgtSrc, targetType: tgtType,
           linkPolicy: form.linkPolicy || 'VERSION_TO_MASTER',
           minCardinality: Number(form.minCardinality) || 0,
@@ -961,10 +963,10 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
   const saveDisabled = () => {
     if (!modal || saving) return true;
     const { type } = modal;
-    if (type === 'create-nodetype') return !form.name?.trim();
+    if (type === 'create-nodetype') return !form.code?.trim() || !form.name?.trim();
     if (type === 'create-attr')     return !form.name?.trim() || !form.label?.trim();
     if (type === 'edit-attr')       return !form.label?.trim();
-    if (type === 'create-link')     return !form.name?.trim() || !form.targetNodeTypeId;
+    if (type === 'create-link')     return !form.code?.trim() || !form.name?.trim() || !form.targetNodeTypeId;
     if (type === 'edit-link')       return !form.name?.trim();
     return false;
   };
@@ -991,8 +993,11 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
           saveLabel={['edit-identity','edit-attr','edit-link','edit-parent'].includes(modal.type) ? 'Update' : 'Create'}
         >
           {modal.type === 'create-nodetype' && <>
+            <Field label="Code *">
+              <input className="field-input" autoFocus value={form.code || ''} onChange={e => setForm(f => ({ ...f, code: e.target.value, codeEdited: true }))} placeholder="e.g. assembly" style={{ fontFamily: 'var(--mono)' }} />
+            </Field>
             <Field label="Name *">
-              <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Assembly" />
+              <input className="field-input" value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value, code: f.codeEdited ? f.code : toCode(e.target.value) }))} placeholder="e.g. Assembly" />
             </Field>
             <Field label="Description">
               <input className="field-input" value={form.description || ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional description" />
@@ -1066,8 +1071,11 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
           {modal.type === 'create-attr' && <AttrFields form={form} setForm={setForm} userId={userId} />}
           {modal.type === 'edit-attr'   && <AttrFields form={form} setForm={setForm} autoFocusName={false} userId={userId} />}
           {modal.type === 'create-link' && <>
+            <Field label="Code *">
+              <input className="field-input" autoFocus value={form.code || ''} onChange={e => setForm(f => ({ ...f, code: e.target.value, codeEdited: true }))} placeholder="e.g. composed-of" style={{ fontFamily: 'var(--mono)' }} />
+            </Field>
             <Field label="Link Name *">
-              <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. composed_of" />
+              <input className="field-input" value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value, code: f.codeEdited ? f.code : toCode(e.target.value) }))} placeholder="e.g. composed_of" />
             </Field>
             <Field label="Target Source">
               <select className="field-input" value={form.targetSourceId || 'SELF'} onChange={e => setForm(f => ({ ...f, targetSourceId: e.target.value, targetNodeTypeId: '', targetType: '' }))}>
@@ -1469,14 +1477,14 @@ export function DomainsSection({ userId, canWrite, toast }) {
     try {
       const { type, ctx } = modal;
       if (type === 'create-domain') {
-        await psaApi.createDomain(userId, { name: form.name?.trim(), description: form.description?.trim() || null, color: form.color || null, icon: form.icon || null });
+        await psaApi.createDomain(userId, { code: form.code?.trim(), name: form.name?.trim(), description: form.description?.trim() || null, color: form.color || null, icon: form.icon || null });
         await loadDomains();
       } else if (type === 'edit-domain') {
         await psaApi.updateDomain(userId, ctx.domainId, { name: form.name?.trim(), description: form.description?.trim() || null, color: form.color || null, icon: form.icon || null });
         await loadDomains();
       } else if (type === 'create-attr') {
         await psaApi.createDomainAttribute(userId, ctx.domainId, {
-          name: form.name?.trim(), label: form.label?.trim(),
+          code: toCode(form.name?.trim()), name: form.name?.trim(), label: form.label?.trim(),
           dataType: form.dataType || 'STRING', widgetType: form.widgetType || 'TEXT',
           required: !!form.required,
           enumDefinitionId: form.dataType === 'ENUM' ? (form.enumDefinitionId || null) : null,
@@ -1542,8 +1550,13 @@ export function DomainsSection({ userId, canWrite, toast }) {
           saveLabel={['edit-domain','edit-attr'].includes(modal.type) ? 'Update' : 'Create'}
         >
           {(modal.type === 'create-domain' || modal.type === 'edit-domain') && <>
+            {modal.type === 'create-domain' && (
+              <Field label="Code *">
+                <input className="field-input" autoFocus value={form.code || ''} onChange={e => setForm(f => ({ ...f, code: e.target.value, codeEdited: true }))} placeholder="e.g. electrical" style={{ fontFamily: 'var(--mono)' }} />
+              </Field>
+            )}
             <Field label="Name *">
-              <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Electrical" />
+              <input className="field-input" autoFocus={modal.type !== 'create-domain'} value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value, ...(modal.type === 'create-domain' && !f.codeEdited ? { code: toCode(e.target.value) } : {}) }))} placeholder="e.g. Electrical" />
             </Field>
             <Field label="Description">
               <input className="field-input" value={form.description || ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional description" />
@@ -1692,7 +1705,7 @@ export function EnumsSection({ userId, canWrite, toast }) {
     try {
       const { type, ctx } = modal;
       if (type === 'create-enum') {
-        await psaApi.createEnum(userId, { name: form.name?.trim(), description: form.description?.trim() || null });
+        await psaApi.createEnum(userId, { code: form.code?.trim(), name: form.name?.trim(), description: form.description?.trim() || null });
         await loadEnums();
       } else if (type === 'edit-enum') {
         await psaApi.updateEnum(userId, ctx.enumId, { name: form.name?.trim(), description: form.description?.trim() || null });
@@ -1766,11 +1779,16 @@ export function EnumsSection({ userId, canWrite, toast }) {
           width={420}
           onClose={() => { setModal(null); setForm({}); }}
           onSave={handleSave}
-          saving={saving || !form.name?.trim()}
+          saving={saving || !form.name?.trim() || (modal.type === 'create-enum' && !form.code?.trim())}
           saveLabel={modal.type === 'edit-enum' ? 'Update' : 'Create'}
         >
+          {modal.type === 'create-enum' && (
+            <Field label="Code *">
+              <input className="field-input" autoFocus value={form.code || ''} onChange={e => setForm(f => ({ ...f, code: e.target.value, codeEdited: true }))} placeholder="e.g. materials" style={{ fontFamily: 'var(--mono)' }} />
+            </Field>
+          )}
           <Field label="Name *">
-            <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Materials" />
+            <input className="field-input" autoFocus={modal.type !== 'create-enum'} value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value, ...(modal.type === 'create-enum' && !f.codeEdited ? { code: toCode(e.target.value) } : {}) }))} placeholder="e.g. Materials" />
           </Field>
           <Field label="Description">
             <input className="field-input" value={form.description || ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional description" />
@@ -1951,6 +1969,7 @@ function LifecyclesSection({ userId, canWrite, toast }) {
         if (v != null) cleanMeta[k] = v;
       }
       const stateBody = {
+        code:         form.code?.trim(),
         name:         form.name?.trim(),
         isInitial:    !!form.isInitial,
         metadata:     cleanMeta,
@@ -1958,6 +1977,7 @@ function LifecyclesSection({ userId, canWrite, toast }) {
         color:        form.color || null,
       };
       const transBody = {
+        code:            form.code?.trim(),
         name:            form.name?.trim(),
         fromStateId:     form.fromStateId,
         toStateId:       form.toStateId,
@@ -1966,10 +1986,10 @@ function LifecyclesSection({ userId, canWrite, toast }) {
       };
 
       if (type === 'create-lc') {
-        await psaApi.createLifecycle(userId, { name: form.name?.trim(), description: form.description?.trim() || null });
+        await psaApi.createLifecycle(userId, { code: form.code?.trim(), name: form.name?.trim(), description: form.description?.trim() || null });
         await loadLcs();
       } else if (type === 'duplicate-lc') {
-        await psaApi.duplicateLifecycle(userId, ctx.sourceId, form.name?.trim());
+        await psaApi.duplicateLifecycle(userId, ctx.sourceId, form.code?.trim(), form.name?.trim());
         await loadLcs();
       } else if (type === 'create-state') {
         await psaApi.addLifecycleState(userId, ctx.lifecycleId, stateBody);
@@ -2037,9 +2057,11 @@ function LifecyclesSection({ userId, canWrite, toast }) {
   const saveDisabled = () => {
     if (!modal || saving) return true;
     const { type } = modal;
-    if (type === 'create-lc' || type === 'duplicate-lc') return !form.name?.trim();
-    if (type === 'create-state' || type === 'edit-state') return !form.name?.trim();
-    if (type === 'create-transition' || type === 'edit-transition') return !form.name?.trim() || !form.fromStateId || !form.toStateId;
+    if (type === 'create-lc' || type === 'duplicate-lc') return !form.code?.trim() || !form.name?.trim();
+    if (type === 'create-state') return !form.code?.trim() || !form.name?.trim();
+    if (type === 'edit-state') return !form.name?.trim();
+    if (type === 'create-transition') return !form.code?.trim() || !form.name?.trim() || !form.fromStateId || !form.toStateId;
+    if (type === 'edit-transition') return !form.name?.trim() || !form.fromStateId || !form.toStateId;
     return false;
   };
 
@@ -2068,8 +2090,11 @@ function LifecyclesSection({ userId, canWrite, toast }) {
           width={modal.type?.includes('state') ? 520 : modal.type === 'edit-transition' ? 520 : 480}
         >
           {modal.type === 'create-lc' && <>
+            <Field label="Code *">
+              <input className="field-input" autoFocus value={form.code || ''} onChange={e => setForm(f => ({ ...f, code: e.target.value, codeEdited: true }))} placeholder="e.g. standard" style={{ fontFamily: 'var(--mono)' }} />
+            </Field>
             <Field label="Name *">
-              <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Standard" />
+              <input className="field-input" value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value, code: f.codeEdited ? f.code : toCode(e.target.value) }))} placeholder="e.g. Standard" />
             </Field>
             <Field label="Description">
               <input className="field-input" value={form.description || ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional description" />
@@ -2080,18 +2105,35 @@ function LifecyclesSection({ userId, canWrite, toast }) {
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
               Duplicating <strong style={{ color: 'var(--text)' }}>{modal.ctx.sourceName}</strong> — copies all states, transitions, guards, signature requirements, state actions, and metadata.
             </div>
+            <Field label="New Code *">
+              <input className="field-input" autoFocus value={form.code || ''} onChange={e => setForm(f => ({ ...f, code: e.target.value, codeEdited: true }))} placeholder="e.g. standard-v2" style={{ fontFamily: 'var(--mono)' }} />
+            </Field>
             <Field label="New Name *">
-              <input className="field-input" autoFocus value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Standard (v2)" />
+              <input className="field-input" value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value, code: f.codeEdited ? f.code : toCode(e.target.value) }))} placeholder="e.g. Standard (v2)" />
             </Field>
           </>}
 
-          {(modal.type === 'create-state' || modal.type === 'edit-state') && (
-            <StateFormFields form={form} setForm={setForm} knownMetaKeys={knownMetaKeys} />
-          )}
+          {(modal.type === 'create-state' || modal.type === 'edit-state') && <>
+            {modal.type === 'create-state' && (
+              <Field label="Code *">
+                <input className="field-input" autoFocus value={form.code || ''} onChange={e => setForm(f => ({ ...f, code: e.target.value, codeEdited: true }))} placeholder={`e.g. ${modal.ctx.lifecycleId || 'lc'}-in-work`} style={{ fontFamily: 'var(--mono)' }} />
+              </Field>
+            )}
+            <StateFormFields form={form} setForm={setForm} knownMetaKeys={knownMetaKeys}
+              onNameChange={modal.type === 'create-state' ? (name) => setForm(f => ({ ...f, name, code: f.codeEdited ? f.code : `${modal.ctx.lifecycleId}-${toCode(name)}` })) : null}
+            />
+          </>}
 
-          {(modal.type === 'create-transition' || modal.type === 'edit-transition') && (
-            <TransitionFormFields form={form} setForm={setForm} states={modal.ctx.states || []} />
-          )}
+          {(modal.type === 'create-transition' || modal.type === 'edit-transition') && <>
+            {modal.type === 'create-transition' && (
+              <Field label="Code *">
+                <input className="field-input" autoFocus value={form.code || ''} onChange={e => setForm(f => ({ ...f, code: e.target.value, codeEdited: true }))} placeholder={`e.g. ${modal.ctx.lifecycleId || 'lc'}-freeze`} style={{ fontFamily: 'var(--mono)' }} />
+              </Field>
+            )}
+            <TransitionFormFields form={form} setForm={setForm} states={modal.ctx.states || []}
+              onNameChange={modal.type === 'create-transition' ? (name) => setForm(f => ({ ...f, name, code: f.codeEdited ? f.code : `${modal.ctx.lifecycleId}-${toCode(name)}` })) : null}
+            />
+          </>}
 
           {modal.type === 'edit-transition' && canWrite && (() => {
             const lcId    = modal.ctx.lifecycleId;
@@ -2166,7 +2208,7 @@ function LifecyclesSection({ userId, canWrite, toast }) {
               {canWrite && (
                 <button className="panel-icon-btn" title="Duplicate lifecycle" style={{ marginLeft: 'auto' }} onClick={e => {
                   e.stopPropagation();
-                  openModal('duplicate-lc', { sourceId: id, sourceName: name }, { name: `${name} (copy)` });
+                  openModal('duplicate-lc', { sourceId: id, sourceName: name }, { name: `${name} (copy)`, code: toCode(`${name}-copy`) });
                 }}>
                   <CopyIcon size={12} strokeWidth={2} color="var(--accent)" />
                 </button>

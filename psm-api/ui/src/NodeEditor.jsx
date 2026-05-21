@@ -306,6 +306,7 @@ export default function NodeEditor({
 
   // Static type descriptor — fetched once per node type, invalidated on METAMODEL_CHANGED
   const [typeDesc,       setTypeDesc]      = useState(null);
+  const [domainDescs,    setDomainDescs]   = useState(new Map()); // domainId → descriptor
   const [linkTypeDescs,  setLinkTypeDescs] = useState(new Map());
   useEffect(() => {
     const nodeTypeId = desc?.itemType?.itemKey ?? desc?.metadata?.nodeTypeId;
@@ -314,6 +315,19 @@ export default function NodeEditor({
       .then(setTypeDesc)
       .catch(() => setTypeDesc(null));
   }, [desc?.itemType?.itemKey, desc?.metadata?.nodeTypeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Domain descriptors — fetched per assigned domain, cached in psmApi, invalidated on METAMODEL_CHANGED
+  const assignedDomains = desc?.metadata?.domains;
+  useEffect(() => {
+    if (!assignedDomains?.length) { setDomainDescs(new Map()); return; }
+    Promise.all(
+      assignedDomains.map(d =>
+        psmApi.getDomainDescriptor(d.id)
+          .then(desc => [d.id, desc])
+          .catch(() => [d.id, null])
+      )
+    ).then(entries => setDomainDescs(new Map(entries.filter(([, d]) => d))));
+  }, [assignedDomains]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshNodeDesc = useCallback(() => {
     if (onRefreshItemData) onRefreshItemData(nodeId);
@@ -597,7 +611,10 @@ export default function NodeEditor({
     (evt) => {
       if (evt.event === 'METAMODEL_CHANGED') {
         clearLinkTypeCache();
+        psmApi.clearDomainDescriptorCache();
         setPbsLoaded(false);
+        setTypeDesc(null);
+        setDomainDescs(new Map());
       }
     },
     userId,
@@ -884,13 +901,14 @@ export default function NodeEditor({
   const activeDesc = (viewVersionNum && historicalDesc) ? historicalDesc : desc;
 
   // Split attributes: node_type attrs (rendered grouped by section) vs domain attrs (rendered as tabs below).
-  // Type-level schema (label/widget/hint/section/displayOrder/namingRegex/...) comes from typeDesc.
-  // Per-instance data (value/editable/required) comes from activeDesc.values (or .fields for backward compat).
+  // Type-level schema (label/widget/hint/section/displayOrder/namingRegex/...) comes from typeDesc (node-type attrs)
+  // or domainDescs (domain attrs fetched per assigned domain). Per-instance data (value/editable/required)
+  // comes from activeDesc.values (or .fields for backward compat).
   const attrPartition = useMemo(() => {
     const base = [];
     const byDomain = new Map();
 
-    // Build field meta lookup from type descriptor if available, else fall back to attributeMeta bag
+    // Node-type field lookup from typeDesc
     const typeFieldByName = {};
     const typeEnrichByName = {};
     if (typeDesc?.fields) {
@@ -898,34 +916,48 @@ export default function NodeEditor({
       const fieldMeta = typeDesc.staticMetadata?.fieldMeta || {};
       for (const [name, enrich] of Object.entries(fieldMeta)) typeEnrichByName[name] = enrich;
     }
+
+    // Domain field lookup from fetched domain descriptors: attrId → { fm, enrich, domainId, domainName }
+    const domainFieldById = {};
+    for (const [domId, domDesc] of domainDescs) {
+      if (!domDesc?.fields) continue;
+      const domName = domDesc.displayName || domId;
+      const fieldMeta = domDesc.staticMetadata?.fieldMeta || {};
+      for (const fm of domDesc.fields) {
+        domainFieldById[fm.name] = { fm, enrich: fieldMeta[fm.name] || {}, domainId: domId, domainName: domName };
+      }
+    }
+
     const legacyAttrMeta = activeDesc?.metadata?.attributeMeta || {};
 
     const rawValues = activeDesc?.values ?? activeDesc?.fields ?? [];
     rawValues.forEach(fv => {
-      const tm = typeFieldByName[fv.name];
-      const em = typeEnrichByName[fv.name] || {};
+      const tm  = typeFieldByName[fv.name];
+      const em  = typeEnrichByName[fv.name] || {};
+      const dom = domainFieldById[fv.name];
       const legacy = legacyAttrMeta[fv.name];
 
-      // Skip system nav fields (no type descriptor entry and no legacy attributeMeta)
-      if (!tm && !legacy) return;
+      // Skip system nav fields (no type descriptor entry, no domain descriptor entry, no legacy)
+      if (!tm && !dom && !legacy) return;
 
-      const section = tm?.group ?? legacy?.section ?? 'General';
+      const sourceDomainId   = em.sourceDomainId   || dom?.enrich?.sourceDomainId   || legacy?.sourceDomainId   || '';
+      const sourceDomainName = em.sourceDomainName  || dom?.enrich?.sourceDomainName || dom?.domainName          || legacy?.sourceDomainName || '';
       const a = {
         id:           fv.name,
         name:         fv.name,
         value:        fv.value,
         editable:     fv.editable ?? false,
         required:     fv.required ?? legacy?.required ?? false,
-        label:        tm?.label ?? fv.label ?? fv.name,
-        widget:       fv.widget ?? tm?.widget ?? 'text',
-        tooltip:      fv.hint ?? tm?.hint ?? null,
-        hint:         fv.hint ?? tm?.hint ?? null,
-        displayOrder: tm?.displayOrder ?? legacy?.displayOrder ?? 0,
-        section,
-        namingRegex:     em.namingRegex     ?? legacy?.namingRegex     ?? '',
-        allowedValues:   em.allowedValues   ?? legacy?.allowedValues   ?? '',
-        sourceDomainId:  em.sourceDomainId  ?? legacy?.sourceDomainId  ?? '',
-        sourceDomainName:em.sourceDomainName ?? legacy?.sourceDomainName ?? '',
+        label:        tm?.label   ?? dom?.fm?.label   ?? legacy?.label ?? fv.name,
+        widget:       fv.widget   ?? tm?.widget        ?? dom?.fm?.widget ?? legacy?.widget ?? 'text',
+        tooltip:      fv.hint     ?? tm?.hint          ?? dom?.fm?.tooltip ?? legacy?.tooltip ?? null,
+        hint:         fv.hint     ?? tm?.hint          ?? dom?.fm?.tooltip ?? legacy?.hint ?? null,
+        displayOrder: tm?.displayOrder ?? dom?.fm?.displayOrder ?? legacy?.displayOrder ?? 0,
+        section:      tm?.group        ?? dom?.fm?.group        ?? legacy?.section ?? 'General',
+        namingRegex:     em.namingRegex    || dom?.enrich?.namingRegex    || legacy?.namingRegex    || '',
+        allowedValues:   em.allowedValues  || dom?.enrich?.allowedValues  || legacy?.allowedValues  || '',
+        sourceDomainId,
+        sourceDomainName,
       };
       if (a.sourceDomainId) {
         if (!byDomain.has(a.sourceDomainId)) {
@@ -943,7 +975,7 @@ export default function NodeEditor({
     const domains = Array.from(byDomain.values())
       .sort((a, b) => a.name.localeCompare(b.name));
     return { base, domains };
-  }, [activeDesc?.values, activeDesc?.fields, activeDesc?.metadata?.attributeMeta, typeDesc]);
+  }, [activeDesc?.values, activeDesc?.fields, activeDesc?.metadata?.attributeMeta, typeDesc, domainDescs]);
 
   const bySection = useMemo(() => attrPartition.base.reduce((acc, a) => {
     const s = a.section || 'General';
@@ -1020,7 +1052,7 @@ export default function NodeEditor({
 
   return (
     <div
-      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden', padding: '0 16px' }}
       onClick={() => attrCtxMenu && setAttrCtxMenu(null)}
     >
       {/* ── Attribute context menu ───────────────────── */}
