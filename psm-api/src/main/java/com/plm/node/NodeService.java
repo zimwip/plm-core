@@ -508,11 +508,21 @@ public class NodeService {
         for (var linkId : allLinkIds) {
             boolean inV1 = v1LinkMap.containsKey(linkId);
             boolean inV2 = v2LinkMap.containsKey(linkId);
-            String status =
-                inV1 && inV2 ? "UNCHANGED" : inV2 ? "ADDED" : "REMOVED";
+            String status;
+            if (inV1 && inV2) {
+                var a1 = v1LinkMap.get(linkId).getOrDefault("linkAttributeValues", Map.of());
+                var a2 = v2LinkMap.get(linkId).getOrDefault("linkAttributeValues", Map.of());
+                status = a1.equals(a2) ? "UNCHANGED" : "CHANGED";
+            } else {
+                status = inV2 ? "ADDED" : "REMOVED";
+            }
             var base = inV2 ? v2LinkMap.get(linkId) : v1LinkMap.get(linkId);
             var entry2 = new LinkedHashMap<>(base);
             entry2.put("status", status);
+            if (inV1 && inV2) {
+                entry2.put("v1LinkAttributes", v1LinkMap.get(linkId).get("linkAttributeValues"));
+                entry2.put("v2LinkAttributes", v2LinkMap.get(linkId).get("linkAttributeValues"));
+            }
             linkDiff.add(entry2);
         }
 
@@ -567,6 +577,24 @@ public class NodeService {
         int maxVersionNum
     ) {
         String currentUserId = secCtx.currentUser().getUserId();
+
+        Map<String, Map<String, String>> attrsByLink = new LinkedHashMap<>();
+        dsl.fetch("""
+            SELECT nvla.node_link_id, nvla.attribute_id, nvla.value
+            FROM node_version_link_attribute nvla
+            JOIN node_version_link nl ON nl.id = nvla.node_link_id
+            JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
+            JOIN plm_transaction pt_src ON pt_src.id = nv_src.tx_id
+            WHERE nv_src.node_id = ?
+              AND (pt_src.status = 'COMMITTED'
+                   OR (pt_src.status = 'OPEN' AND pt_src.owner_id = ?))
+              AND nv_src.version_number <= ?
+            """, nodeId, currentUserId, maxVersionNum).forEach(r -> {
+            String lid = r.get("node_link_id", String.class);
+            attrsByLink.computeIfAbsent(lid, k -> new LinkedHashMap<>())
+                .put(r.get("attribute_id", String.class), r.get("value", String.class));
+        });
+
         return dsl
             .fetch(
                 """
@@ -601,7 +629,8 @@ public class NodeService {
             .stream()
             .map(r -> {
                 var m = new LinkedHashMap<String, Object>();
-                m.put("linkId", r.get("link_id", String.class));
+                String linkId = r.get("link_id", String.class);
+                m.put("linkId", linkId);
                 String ltId = r.get("link_type_id", String.class);
                 var lt = configCache.getLinkType(ltId);
                 m.put("linkTypeName", lt.map(LinkTypeConfig::name).orElse(ltId));
@@ -633,6 +662,7 @@ public class NodeService {
                     "pinnedIteration",
                     r.get("pinned_iteration", Integer.class)
                 );
+                m.put("linkAttributeValues", attrsByLink.getOrDefault(linkId, Map.of()));
                 return (Map<String, Object>) m;
             })
             .toList();

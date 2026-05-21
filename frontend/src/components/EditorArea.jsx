@@ -60,14 +60,14 @@ export default function EditorArea({
   }, [activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activePreview = activeTabId
-    ? (previewByTab[activeTabId] ?? { data: null, closed: false, maximized: false, splitPos: 50 })
+    ? (previewByTab[activeTabId] ?? { data: null, closed: true, maximized: false, splitPos: 50 })
     : null;
 
   function setActivePreviewField(fields) {
     if (!activeTabId) return;
     setPreviewByTab(prev => ({
       ...prev,
-      [activeTabId]: { closed: false, maximized: false, splitPos: 50, ...prev[activeTabId], ...fields },
+      [activeTabId]: { closed: true, maximized: false, splitPos: 50, ...prev[activeTabId], ...fields },
     }));
   }
 
@@ -75,7 +75,7 @@ export default function EditorArea({
     if (!activeTabId) return;
     setPreviewByTab(prev => ({
       ...prev,
-      [activeTabId]: { closed: false, maximized: false, splitPos: 50, ...prev[activeTabId], data },
+      [activeTabId]: { closed: true, maximized: false, splitPos: 50, ...prev[activeTabId], data },
     }));
   }
 

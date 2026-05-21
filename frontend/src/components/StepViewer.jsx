@@ -7,7 +7,7 @@ import { stepWorker as _stepWorker } from '../workers/stepWorkerInstance';
 import { ChevronRightIcon, ChevronLeftIcon } from './Icons';
 
 // nodes: [{ nodeId, nodeLabel, stateColor, depth, instanceId, parts: [{ uuid, fileName, sizeBytes, instanceKey, matrix }] }]
-export default function StepViewer({ nodes = [], loading = false, onNavigateToNode }) {
+export default function StepViewer({ nodes = [], loading = false, onNavigateToNode, highlightedInstanceKeys = [], onPartSelected }) {
   const mountRef    = useRef(null);
   const sceneRef    = useRef(null);
   const rendererRef = useRef(null);
@@ -19,13 +19,16 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
   const loadingRef  = useRef(new Set());
   const partNodeMapRef  = useRef({}); // instanceKey → nodeId
   const partColorRef    = useRef({}); // instanceKey → stateColor
-  const onNavRef      = useRef(onNavigateToNode);
-  const hoveredUuidRef = useRef(null);
+  const onNavRef         = useRef(onNavigateToNode);
+  const hoveredUuidRef   = useRef(null);
+  const selectedKeysRef  = useRef(new Set());
+  const onPartSelectedRef = useRef(onPartSelected);
   const meshDataRef    = useRef({});  // uuid → meshes array (cache for multi-instance)
   const activePartsRef = useRef([]);  // current activeParts (for worker handler closure)
   const onResizeRef    = useRef(null);
 
   useEffect(() => { onNavRef.current = onNavigateToNode; }, [onNavigateToNode]);
+  useEffect(() => { onPartSelectedRef.current = onPartSelected; }, [onPartSelected]);
 
   const [partStates,      setPartStates]      = useState({});
   // { [uuid]: { phase: 'loading'|'ready'|'error', error, visible } }
@@ -161,13 +164,14 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
       const prev = hoveredUuidRef.current;
       if (prev === uuid) return;
       if (prev) {
+        const isSelected = selectedKeysRef.current.has(prev);
         const g = groupsRef.current[prev];
         if (g) g.traverse(obj => {
           if (!obj.isMesh) return;
           if (obj.userData.isOutline) {
-            obj.material.uniforms.color.value.set(partColorRef.current[prev] || '#6b7280');
+            obj.material.uniforms.color.value.set(isSelected ? '#3b82f6' : (partColorRef.current[prev] || '#6b7280'));
           } else {
-            obj.material.emissive.set(0x000000);
+            obj.material.emissive.set(isSelected ? 0x1a3a6e : 0x000000);
           }
         });
       }
@@ -190,11 +194,14 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
     function onMouseLeave()  { applyHover(null); }
 
     function onCanvasClick(e) {
-      if (!e.ctrlKey && !e.metaKey) return;
       const uuid = pickUuid(e);
-      if (!uuid) return;
-      const nodeId = partNodeMapRef.current[uuid];
-      if (nodeId && onNavRef.current) onNavRef.current(nodeId);
+      if (e.ctrlKey || e.metaKey) {
+        if (!uuid) return;
+        const nodeId = partNodeMapRef.current[uuid];
+        if (nodeId && onNavRef.current) onNavRef.current(nodeId);
+      } else {
+        onPartSelectedRef.current?.(uuid || null, uuid ? partNodeMapRef.current[uuid] : null);
+      }
     }
 
     renderer.domElement.addEventListener('mousemove',  onMouseMove);
@@ -409,6 +416,40 @@ export default function StepViewer({ nodes = [], loading = false, onNavigateToNo
       return next;
     });
   }
+
+  function applySelection(keys) {
+    for (const key of selectedKeysRef.current) {
+      if (hoveredUuidRef.current === key) continue;
+      const g = groupsRef.current[key];
+      if (!g) continue;
+      g.traverse(obj => {
+        if (!obj.isMesh) return;
+        if (obj.userData.isOutline) {
+          obj.material.uniforms.color.value.set(partColorRef.current[key] || '#6b7280');
+        } else {
+          obj.material.emissive.set(0x000000);
+        }
+      });
+    }
+    selectedKeysRef.current = new Set(keys);
+    for (const key of selectedKeysRef.current) {
+      if (hoveredUuidRef.current === key) continue;
+      const g = groupsRef.current[key];
+      if (!g) continue;
+      g.traverse(obj => {
+        if (!obj.isMesh) return;
+        if (obj.userData.isOutline) {
+          obj.material.uniforms.color.value.set('#3b82f6');
+        } else {
+          obj.material.emissive.set(0x1a3a6e);
+        }
+      });
+    }
+  }
+
+  useEffect(() => {
+    applySelection(highlightedInstanceKeys);
+  }, [highlightedInstanceKeys]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ───────────────────────────────────────────────────
   return (

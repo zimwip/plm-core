@@ -350,8 +350,13 @@ public class LinkService {
             }
         }
 
-        String fp = fingerPrintService.compute(sourceNodeId, sourceVersionId);
-        dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, sourceVersionId);
+        Record openVer = dsl.fetchOne(
+            "SELECT nv.id FROM node_version nv JOIN plm_transaction pt ON pt.id = nv.tx_id " +
+            "WHERE nv.node_id = ? AND pt.status = 'OPEN' ORDER BY nv.version_number DESC LIMIT 1",
+            sourceNodeId);
+        String fpVersionId = openVer != null ? openVer.get("id", String.class) : sourceVersionId;
+        String fp = fingerPrintService.compute(sourceNodeId, fpVersionId);
+        dsl.execute("UPDATE node_version SET fingerprint = ? WHERE id = ?", fp, fpVersionId);
 
         log.info("Link {} updated by {}", linkId, userId);
     }
@@ -411,19 +416,15 @@ public class LinkService {
               AND nl.target_source_id = 'SELF'
               AND (pt_src.status = 'COMMITTED'
                    OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
-              AND (pt.status = 'COMMITTED'
-                   OR (pt.status = 'OPEN' AND (pt.owner_id = ? OR ? = 'true')))
+              AND pt.status IN ('COMMITTED', 'OPEN')
               AND nv.version_number = (
                 SELECT MAX(nv2.version_number) FROM node_version nv2
                 JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id
                 WHERE nv2.node_id = n.id
-                  AND (pt2.status = 'COMMITTED'
-                       OR (pt2.status = 'OPEN' AND (pt2.owner_id = ? OR ? = 'true'))))
+                  AND pt2.status IN ('COMMITTED', 'OPEN'))
             ORDER BY n.logical_id
             """,
             nodeId,
-            currentUserId, isAdminStr,
-            currentUserId, isAdminStr,
             currentUserId, isAdminStr
         ).stream().map(r -> {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -548,19 +549,15 @@ public class LinkService {
               AND (nl.target_key = ? OR nl.target_key LIKE ?)
               AND (pt_src.status = 'COMMITTED'
                    OR (pt_src.status = 'OPEN' AND (pt_src.owner_id = ? OR ? = 'true')))
-              AND (pt.status = 'COMMITTED'
-                   OR (pt.status = 'OPEN' AND (pt.owner_id = ? OR ? = 'true')))
+              AND pt.status IN ('COMMITTED', 'OPEN')
               AND nv.version_number = (
                 SELECT MAX(nv2.version_number) FROM node_version nv2
                 JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id
                 WHERE nv2.node_id = n.id
-                  AND (pt2.status = 'COMMITTED'
-                       OR (pt2.status = 'OPEN' AND (pt2.owner_id = ? OR ? = 'true'))))
+                  AND pt2.status IN ('COMMITTED', 'OPEN'))
             ORDER BY n.logical_id
             """,
             targetLogicalId, targetLogicalId + "@%",
-            currentUserId, isAdminStr,
-            currentUserId, isAdminStr,
             currentUserId, isAdminStr
         ).stream().map(r -> {
             Map<String, Object> m = new LinkedHashMap<>();

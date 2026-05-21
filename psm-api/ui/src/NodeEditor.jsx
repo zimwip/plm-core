@@ -290,11 +290,12 @@ export default function NodeEditor({
   const [versionSigCounts, setVersionSigCounts] = useState({});
   const [violationsBannerCollapsed, setViolationsBannerCollapsed] = useState(true);
 
-  const saveTimer          = useRef(null);
-  const savedTimer         = useRef(null);
-  const dragCounter        = useRef(0);
-  const linkPanelRef       = useRef(null);
-  const stepNodesLoadedRef = useRef(false);
+  const saveTimer            = useRef(null);
+  const savedTimer           = useRef(null);
+  const dragCounter          = useRef(0);
+  const linkPanelRef         = useRef(null);
+  const stepNodesLoadedRef   = useRef(false);
+  const prevEditingLinkIdRef = useRef(null);
 
   // desc: local state synced from itemData (shell owns the fetch + cache).
   // Writable locally for optimistic attr patches on auto-save.
@@ -469,6 +470,22 @@ export default function NodeEditor({
     setStepNodes([]);
     onRegisterPreview?.({ nodes: [], loading: true });
   }, [nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Emit clear event when link editing ends (covers save, cancel, delete, node switch)
+  useEffect(() => {
+    if (prevEditingLinkIdRef.current && !editingLinkId) {
+      shellAPI?.emit({ type: 'psm:link:positionChange', linkId: prevEditingLinkIdRef.current, matrix: null });
+    }
+    prevEditingLinkIdRef.current = editingLinkId;
+  }, [editingLinkId, shellAPI]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync selectedLinkId from 3D part clicks
+  useEffect(() => {
+    if (!shellAPI?.on) return;
+    return shellAPI.on('psm:part:selected', ({ linkId }) => {
+      setSelectedLinkId(linkId ?? null);
+    });
+  }, [shellAPI]);
 
   /**
    * Full reload: re-fetch desc (via shell itemData), sigs, and history.
@@ -1845,7 +1862,11 @@ export default function NodeEditor({
                             <tr
                               className={selectedLinkId === c.linkId ? 'link-selected' : ''}
                               style={{ cursor: 'pointer' }}
-                              onClick={() => setSelectedLinkId(id => id === c.linkId ? null : c.linkId)}
+                              onClick={() => {
+                                const next = selectedLinkId === c.linkId ? null : c.linkId;
+                                setSelectedLinkId(next);
+                                shellAPI?.emit({ type: 'psm:link:selected', linkId: next });
+                              }}
                             >
                               <td style={{ fontFamily: 'var(--sans)', fontSize: 12 }}>
                                 {isEditing ? (
@@ -2089,7 +2110,13 @@ export default function NodeEditor({
                                         {a.dataType === 'POSITION' ? (
                                           <PositionMatrixEditor
                                             value={editLinkAttrs[a.name] || ''}
-                                            onChange={v => setEditLinkAttrs(prev => ({ ...prev, [a.name]: v }))}
+                                            onChange={v => {
+                                              setEditLinkAttrs(prev => ({ ...prev, [a.name]: v }));
+                                              const nums = v.split(',').map(Number);
+                                              if (nums.length === 16 && nums.every(n => !isNaN(n))) {
+                                                shellAPI?.emit({ type: 'psm:link:positionChange', linkId: editingLinkId, matrix: nums });
+                                              }
+                                            }}
                                           />
                                         ) : (
                                           <input
