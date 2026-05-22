@@ -9,6 +9,6 @@ class SearchIndexSettingSections {
 
     @Bean
     SettingSectionDto searchIndexSection() {
-        return new SettingSectionDto("search-index", "Search Index", "INDEX", 10, null, "database");
+        return new SettingSectionDto("search-index", "Search Index", "INDEX", 10, "MANAGE_PLATFORM", "database");
     }
 }

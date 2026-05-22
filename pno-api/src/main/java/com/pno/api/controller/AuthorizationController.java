@@ -5,7 +5,6 @@ import java.util.Map;
 import java.util.Set;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -51,7 +50,6 @@ public class AuthorizationController {
         return ResponseEntity.ok(authorizationService.listPermissions(scope, serviceCode));
     }
 
-    @Transactional
     @PostMapping("/permissions")
     public ResponseEntity<Map<String, String>> createPermission(@RequestBody Map<String, Object> body) {
         authorizationService.createPermission(
@@ -64,7 +62,6 @@ public class AuthorizationController {
         return ResponseEntity.ok(Map.of("permissionCode", (String) body.get("permissionCode")));
     }
 
-    @Transactional
     @PutMapping("/permissions/{permissionCode}")
     public ResponseEntity<Void> updatePermission(@PathVariable String permissionCode,
                                                   @RequestBody Map<String, Object> body) {

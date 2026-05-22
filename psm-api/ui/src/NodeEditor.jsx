@@ -505,6 +505,10 @@ export default function NodeEditor({
    * Full reload: re-fetch desc (via shell itemData), sigs, and history.
    * Call refreshTx/refreshAll before load() when tx context has just changed
    * so the shell's txId is current before refreshNodeDesc fires.
+   *
+   * Item description is owned by the shell: it flows in via itemData prop and
+   * is refreshed by the shell's WS handlers. load() only fetches supplementary
+   * data (history, comments, signatures) that the shell does not manage.
    */
   const load = useCallback(async () => {
     try {
@@ -538,9 +542,8 @@ export default function NodeEditor({
       }
       setVersionCommentCounts(counts);
       setEdits({});
-      await refreshNodeDesc(); // re-fetches desc via shell → updates itemData → syncs desc
     } catch (e) { toast(e, 'error'); }
-  }, [nodeId, userId, refreshNodeDesc, toast]);
+  }, [nodeId, userId, toast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -590,14 +593,14 @@ export default function NodeEditor({
       // With NATS global subjects, all events arrive. Filter by nodeId.
       if (evt.nodeId && evt.nodeId !== nodeId) return;
 
-      const ITEM_EVENTS = ['STATE_CHANGED', 'LOCK_ACQUIRED', 'LOCK_RELEASED', 'ITEM_UPDATED', 'SIGNED'];
-      if (ITEM_EVENTS.includes(evt.event)) {
+      // STATE_CHANGED and SIGNED are node-scoped events only the editor subscribes to.
+      // Shell covers LOCK_ACQUIRED, LOCK_RELEASED, ITEM_UPDATED via /topic/transactions.
+      if (evt.event === 'STATE_CHANGED' || evt.event === 'SIGNED') {
         refreshNodeDesc();
-        // Refresh node list for any event that changes the lock status so the
-        // left-panel lock/edit badge updates immediately (not just on LOCK_RELEASED).
-        if (['LOCK_RELEASED', 'LOCK_ACQUIRED', 'ITEM_UPDATED'].includes(evt.event)) {
-          refreshNodes();
-        }
+      }
+      // Left-panel lock badge: refresh node list on lock/unlock events.
+      if (evt.event === 'LOCK_RELEASED' || evt.event === 'LOCK_ACQUIRED' || evt.event === 'ITEM_UPDATED') {
+        refreshNodes();
       }
       if (evt.event === 'COMMENT_ADDED') {
         refreshCommentCounts();

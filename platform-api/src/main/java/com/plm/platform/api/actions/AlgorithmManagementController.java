@@ -1,7 +1,6 @@
 package com.plm.platform.api.actions;
 
 import lombok.RequiredArgsConstructor;
-import org.jooq.DSLContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,7 +14,6 @@ public class AlgorithmManagementController {
 
     private final AlgorithmManagementService algorithmService;
     private final ActionManagementService actionService;
-    private final DSLContext dsl;
 
     @GetMapping("/types")
     public ResponseEntity<List<Map<String, Object>>> listTypes(
@@ -31,9 +29,7 @@ public class AlgorithmManagementController {
 
     @GetMapping("/services")
     public ResponseEntity<List<String>> listServiceCodes() {
-        List<String> codes = dsl.fetch("SELECT DISTINCT service_code FROM algorithm_type ORDER BY service_code")
-            .getValues("service_code", String.class);
-        return ResponseEntity.ok(codes);
+        return ResponseEntity.ok(algorithmService.listServiceCodes());
     }
 
     @GetMapping("/by-type/{typeId}")

@@ -1,10 +1,10 @@
 package com.plm.cad;
 
-import com.plm.node.NodeService;
 import com.plm.platform.algorithm.AlgorithmRegistry;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.AlgorithmConfig;
 import com.plm.platform.config.dto.AlgorithmInstanceConfig;
+import com.plm.shared.node.NodeLookupPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -32,11 +32,11 @@ public class CadValidationController {
 
     private final AlgorithmRegistry algorithmRegistry;
     private final ConfigCache configCache;
-    private final NodeService nodeService;
+    private final NodeLookupPort nodeLookup;
 
     @GetMapping("/nodes/by-external-id")
     public ResponseEntity<Map<String, Object>> findByExternalId(@RequestParam String externalId) {
-        Optional<UUID> nodeId = nodeService.findByExternalId(externalId);
+        Optional<UUID> nodeId = nodeLookup.findByExternalId(externalId);
         return nodeId.map(id -> ResponseEntity.ok(Map.<String, Object>of("nodeId", id.toString())))
                      .orElseGet(() -> ResponseEntity.notFound().build());
     }

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ public class BasketService {
     }
 
     /** Returns true if a new row was inserted (false = already present). */
+    @Transactional
     public boolean add(String userId, String psId, String source, String typeCode, String itemId) {
         int rows = dsl.execute(
             "INSERT INTO basket_item (id, user_id, ps_id, source, type_code, item_id)" +
@@ -39,6 +41,7 @@ public class BasketService {
         return rows > 0;
     }
 
+    @Transactional
     public void remove(String userId, String psId, String source, String typeCode, String itemId) {
         dsl.execute(
             "DELETE FROM basket_item WHERE user_id = ? AND ps_id = ? AND source = ? AND type_code = ? AND item_id = ?",
@@ -46,11 +49,13 @@ public class BasketService {
         );
     }
 
+    @Transactional
     public void clear(String userId, String psId) {
         dsl.execute("DELETE FROM basket_item WHERE user_id = ? AND ps_id = ?", userId, psId);
     }
 
     /** Remove specific item IDs across all source/type entries (used after rollback). */
+    @Transactional
     public void removeItemIds(String userId, String psId, List<String> itemIds) {
         if (itemIds.isEmpty()) return;
         String placeholders = itemIds.stream().map(x -> "?").collect(Collectors.joining(", "));
@@ -68,6 +73,7 @@ public class BasketService {
      * Remove a physically deleted item from every user's basket.
      * Returns the affected rows (userId, psId, source, typeCode) so callers can notify users.
      */
+    @Transactional
     public List<Map<String, Object>> removeByItemId(String itemId) {
         List<Map<String, Object>> affected = dsl.fetch(
             "SELECT user_id, ps_id, source, type_code FROM basket_item WHERE item_id = ?", itemId

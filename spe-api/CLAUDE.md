@@ -31,16 +31,19 @@ Chaque `serviceCode` gère **pool instances**. Service peut avoir 1..N instances
 
 ### Endpoints
 
+spe-api n'expose qu'**un seul controller** : `AuthController` sous `/api/spe/auth`.
+
 ```
-POST   /api/spe/registry                                          — enregistre instance (réponse contient instanceId)
-DELETE /api/spe/registry/{serviceCode}/instances/{instanceId}     — désenregistre instance (@PreDestroy)
-DELETE /api/spe/registry/{serviceCode}                            — purge tout le pool (admin)
-GET    /api/spe/registry
-GET    /api/spe/registry/grouped
-GET    /api/spe/registry/{code}/instances
-GET    /api/spe/status                                            — public: instanceCount, healthyInstances, instances[]
-GET    /api/spe/auth/login                                        — login + JWT mint
+POST   /api/spe/auth/login            — login via header X-User, mint JWT session
+POST   /api/spe/auth/operation-token  — élève un fwd-JWT en token d'opération (typ=op)
+POST   /api/spe/auth/logout           — stateless (client drop le token)
+GET    /api/spe/auth/me               — contexte user courant
 ```
+
+Les endpoints registry/status (`/api/spe/registry`, `/api/spe/status`) ont migré vers
+**platform-api** (control plane central). spe-api consomme ce registry pour le routage
+(`RegistryRouteRefresher`, `PlatformBootstrapSeed`, `SvcLoadBalancerFilter`) mais n'expose plus
+d'endpoint HTTP registry.
 
 ### Healthcheck cible
 
@@ -61,6 +64,18 @@ Pour scaler psm-api : répliquer service (`psm-api-1`, `psm-api-2`) avec `SPE_SE
 ## Convention routage (rappel)
 
 `serviceCode` = **seule source vérité** URL. Préfixe `/api/<serviceCode>` appliqué auto par `platform-lib` côté service via Spring `server.servlet.context-path`. Gateway forward path verbatim (pas rewrite).
+
+### Exception spe-api : préfixe `/api/spe` codé en dur (volontaire)
+
+`AuthController` déclare `@RequestMapping("/api/spe/auth")` en dur — **dérogation assumée** à la
+convention "mapping relatif". Raison : spe-api est **réactif** (WebFlux), donc
+`server.servlet.context-path` (servlet) ne s'applique pas. L'équivalent réactif
+`spring.webflux.base-path` retirerait son préfixe **avant** que le `WebFilter`
+`AuthenticationFilter` (exécuté pré-routage) voie le path. Or `AuthenticationFilter` compare des
+paths **littéraux** (`/api/spe/auth/login`, `/api/spe/auth/logout`, `/api/spe/auth/operation-token`)
+pour décider des exemptions d'auth. Passer en `base-path` casserait ces comparaisons → login/logout
+perdraient leur exemption publique → **deadlock d'auth, plus personne ne peut se connecter**.
+Le préfixe reste donc en dur tant que `AuthenticationFilter` matche des paths externes complets.
 
 ---
 

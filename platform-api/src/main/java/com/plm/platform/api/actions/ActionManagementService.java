@@ -21,6 +21,11 @@ public class ActionManagementService {
     private final DSLContext dsl;
     private final ApplicationEventPublisher eventPublisher;
 
+    public List<String> listServiceCodes() {
+        return dsl.fetch("SELECT DISTINCT service_code FROM action ORDER BY service_code")
+            .getValues("service_code", String.class);
+    }
+
     public List<Map<String, Object>> listActions(String serviceCode) {
         String sql = "SELECT a.*, ai.name AS handler_instance_name, alg.code AS handler_code, alg.module_name AS handler_module_name " +
                      "FROM action a " +

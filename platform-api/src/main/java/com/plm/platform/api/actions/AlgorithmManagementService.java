@@ -20,6 +20,11 @@ public class AlgorithmManagementService {
     private final DSLContext dsl;
     private final ApplicationEventPublisher eventPublisher;
 
+    public List<String> listServiceCodes() {
+        return dsl.fetch("SELECT DISTINCT service_code FROM algorithm_type ORDER BY service_code")
+            .getValues("service_code", String.class);
+    }
+
     public List<Map<String, Object>> listAlgorithmTypes(String serviceCode) {
         if (serviceCode != null && !serviceCode.isBlank())
             return dsl.fetch("SELECT * FROM algorithm_type WHERE service_code = ? ORDER BY name", serviceCode).intoMaps();

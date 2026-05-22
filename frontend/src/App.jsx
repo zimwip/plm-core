@@ -96,6 +96,7 @@ export default function App() {
   const lockItem             = usePlmStore(s => s.lockItem);
   const unlockItem           = usePlmStore(s => s.unlockItem);
   const unlockAll            = usePlmStore(s => s.unlockAll);
+  const lockedByMe           = usePlmStore(s => s.lockedByMe);
 
   const [browseRefreshKey, setBrowseRefreshKey] = useState(0);
   const [searchPanelVisible, setSearchPanelVisible] = useState(false);
@@ -120,8 +121,11 @@ export default function App() {
     const tab = tabs.find(t => t.nodeId === nodeId);
     if (!tab?.get?.path) return;
     const currentTxId = tx?.txId || null;
+    // txId only needed when this specific node is checked out in the active tx (to see OPEN draft).
+    // Passing txId for nodes not in the tx is semantically wrong and causes redundant fetches.
+    const params = (currentTxId && lockedByMe.has(nodeId)) ? { txId: currentTxId } : {};
     setTabData(prev => ({ ...prev, [nodeId]: { ...(prev[nodeId] ?? {}), status: 'loading' } }));
-    fetchItemDetail(tab.serviceCode, tab.get, nodeId, currentTxId ? { txId: currentTxId } : {})
+    fetchItemDetail(tab.serviceCode, tab.get, nodeId, params)
       .then(data => setTabData(prev => ({ ...prev, [nodeId]: { status: 'ok', data } })))
       .catch(err  => {
         if (err?.status === 404) {
@@ -136,7 +140,7 @@ export default function App() {
           setTabData(prev => ({ ...prev, [nodeId]: { status: 'error', error: err.message } }));
         }
       });
-  }, [tabs, tx]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tabs, tx, lockedByMe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshAllTabData = useCallback(() => {
     tabs.filter(t => t.nodeId && t.get?.path).forEach(t => refreshTabData(t.nodeId));
@@ -233,8 +237,12 @@ export default function App() {
     async (evt) => {
       if (evt.event === 'LOCK_ACQUIRED') {
         if (evt.lockedBy === userId) lockItem(evt.nodeId);
+        // Refresh tab so editor sees the OPEN draft (lock state changed — editor no longer does this).
+        if (evt.nodeId) refreshTabData(evt.nodeId);
       } else if (evt.event === 'LOCK_RELEASED') {
         if (evt.releasedBy === userId) unlockItem(evt.nodeId);
+        // Refresh tab so editor returns to committed version after lock release.
+        if (evt.nodeId) refreshTabData(evt.nodeId);
       } else if (evt.event === 'TX_COMMITTED') {
         if (evt.byUser === userId) unlockAll();
         await refreshTx();
