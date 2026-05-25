@@ -65,7 +65,7 @@ public class AssignDomainActionHandler implements ActionHandler {
             throw new IllegalStateException("No OPEN version found for node " + ctx.nodeId());
         }
 
-        domainService.assignDomain(ctx.nodeId(), domainId, versionId);
+        int defaultsWritten = domainService.assignDomain(ctx.nodeId(), domainId, versionId);
 
         // Recompute fingerprint after domain assignment
         String fp = fingerPrintService.compute(ctx.nodeId(), versionId);
@@ -73,7 +73,13 @@ public class AssignDomainActionHandler implements ActionHandler {
 
         List<ValidationService.Violation> violations =
             validationService.collectVersionViolations(ctx.nodeId(), versionId);
-        eventPublisher.itemUpdated(ctx.nodeId(), ctx.userId());
+
+        // Domain assignment changes the node's attribute set (definition change).
+        eventPublisher.itemDefinitionUpdated(ctx.nodeId(), ctx.userId());
+        // Default values written for the domain's attributes are a data change.
+        if (defaultsWritten > 0) {
+            eventPublisher.itemUpdated(ctx.nodeId(), ctx.userId());
+        }
         return ActionResult.ok(Map.of("nodeId", ctx.nodeId(), "domainId", domainId, "violations", violations));
     }
 

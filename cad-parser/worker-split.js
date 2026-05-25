@@ -1,63 +1,64 @@
-// Worker thread for parallel STEP closure computation.
-// Receives serialised reference graphs + BOM structures; computes per-product
-// closures only. Main thread does the streaming pass 2 to write part files.
+// Part-file reconstruction for /split.
+//
+// Runs as a worker thread (one bucket of parts per worker) and is also imported
+// by app.js for the inline small-file path. The whole source file lives in a
+// SharedArrayBuffer; each part file is built by copying its entities' raw bytes
+// out of it. Entities keep their original #ids (valid ISO-10303-21), so this is
+// a pure byte copy — no decode, no renumber. Adjacent entities are coalesced
+// into contiguous runs, so a part is written in a handful of large writes.
 
 import { workerData, parentPort } from 'worker_threads';
-import {
-  findDefinitionalChain,
-  collectForwardClosure,
-  expandSRRClosure,
-  buildNauoExtractor,
-} from './step-lib.js';
+import { createWriteStream } from 'fs';
+import { join } from 'path';
 
-const {
-  refGraphArr,
-  reverseRefGraphArr,
-  reverseFromSRRArr,
-  prodDefsByProductIdArr,
-  productStepIdsArr,
-  allEntrySRIdsArr,
-  prodDefs,
-  srToProductId,
-  nauoData,
-  idMap,
-  occurrencesOf,
-  hasChildrenArr,
-  products,
-} = workerData;
+const FLUSH = 8 * 1024 * 1024; // batch entity slices into ~8 MB writes
 
-const refGraph = {};
-for (const [id, arr] of Object.entries(refGraphArr))        refGraph[id]        = new Set(arr);
-const reverseRefGraph = {};
-for (const [id, arr] of Object.entries(reverseRefGraphArr)) reverseRefGraph[id] = new Set(arr);
-const reverseFromSRR = {};
-for (const [id, arr] of Object.entries(reverseFromSRRArr))  reverseFromSRR[id]  = new Set(arr);
+// Reconstruct one part STEP file by copying its closure's raw bytes.
+// p: { partIndex, count, offArr, lenArr } — entity byte ranges (any order).
+async function writePart(fileBuf, jobDir, headerSection, p) {
+  // entity ranges in ascending file order
+  const order = Array.from({ length: p.count }, (_, i) => i)
+    .sort((a, b) => p.offArr[a] - p.offArr[b]);
 
-const productStepIds      = new Set(productStepIdsArr);
-const allEntrySRIds       = new Set(allEntrySRIdsArr);
-const hasChildrenSet      = new Set(hasChildrenArr);
-const prodDefsByProductId = new Map(prodDefsByProductIdArr.map(([k, arr]) => [k, new Set(arr)]));
+  // coalesce ranges that are exactly contiguous in the source file
+  const runs = [];
+  for (const i of order) {
+    const start = p.offArr[i], end = start + p.lenArr[i];
+    const last = runs.length ? runs[runs.length - 1] : null;
+    if (last && last.end === start) last.end = end;
+    else runs.push({ start, end });
+  }
 
-const getMatrixForNauo = buildNauoExtractor(nauoData);
-
-const results = products.map(({ stepId, prod }) => {
-  const chain   = findDefinitionalChain(stepId, reverseRefGraph, refGraph, productStepIds, prodDefs, prodDefsByProductId);
-  const closure = collectForwardClosure(chain, refGraph);
-  expandSRRClosure(closure, reverseFromSRR, refGraph, reverseRefGraph, allEntrySRIds, srToProductId, stepId);
-
-  return {
-    stepId,
-    closureArr: [...closure],
-    nodeId:  idMap[stepId],
-    name:    prod.name || prod.partNumber || `Part-${stepId}`,
-    cadType: hasChildrenSet.has(stepId) ? 'ASSEMBLY' : 'PART',
-    occurrences: (occurrencesOf[stepId] ?? [])
-      .map(occ => ({ parentId: idMap[occ.parentProductId] ?? null, positionMatrix: getMatrixForNauo(occ.nauoId) }))
-      .filter(o => o.parentId !== null),
-    attributes: Object.fromEntries(
-      [['partNumber', prod.partNumber], ['description', prod.description]].filter(([, v]) => v)
-    ),
+  const ws = createWriteStream(join(jobDir, `part-${p.partIndex}.stp`));
+  let pending = [], pendingSize = 0;
+  const flush = async () => {
+    if (!pendingSize) return;
+    const buf = pending.length === 1 ? pending[0] : Buffer.concat(pending, pendingSize);
+    pending = []; pendingSize = 0;
+    if (!ws.write(buf)) await new Promise(res => ws.once('drain', res));
   };
-});
+  const push = chunk => { pending.push(chunk); pendingSize += chunk.length; };
 
-parentPort.postMessage(results);
+  push(Buffer.from(`ISO-10303-21;\n${headerSection}\nDATA;\n`));
+  for (const r of runs) {
+    push(fileBuf.subarray(r.start, r.end));
+    if (pendingSize >= FLUSH) await flush();
+  }
+  push(Buffer.from('\nENDSEC;\nEND-ISO-10303-21;\n'));
+  await flush();
+  await new Promise((res, rej) => ws.end(err => err ? rej(err) : res()));
+}
+
+// Reconstruct a set of part STEP files. fileBuf is a Buffer over the full file.
+export async function writeParts(fileBuf, jobDir, headerSection, parts) {
+  for (const p of parts) await writePart(fileBuf, jobDir, headerSection, p);
+}
+
+// Worker entry point — reconstruct the parts assigned to this worker, copying
+// entity bytes from the shared source file.
+if (parentPort) {
+  const { sab, jobDir, headerSection, parts } = workerData;
+  writeParts(Buffer.from(sab), jobDir, headerSection, parts)
+    .then(() => parentPort.postMessage('done'))
+    .catch(err => parentPort.postMessage({ error: err.message }));
+}

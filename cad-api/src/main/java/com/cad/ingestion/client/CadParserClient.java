@@ -29,6 +29,9 @@ public class CadParserClient {
                             Map<String, String> attributes, List<CadOccurrence> occurrences) {}
     private record JobStatusResponse(String status, String error, List<PartMeta> parts) {}
 
+    /** Return value of {@link #split}: jobId kept alive so callers can fetch per-part GLBs in parallel. */
+    public record SplitResult(String jobId, List<SplitPart> parts) {}
+
     private final RestTemplate rest;
     private final String parserUrl;
 
@@ -76,9 +79,11 @@ public class CadParserClient {
 
     /**
      * Submits a split job to the parser (returns immediately), polls until done,
-     * then downloads each part file individually.
+     * then downloads each part STEP file individually.
+     * Returns both the jobId (kept alive on the parser for 15 min) and the parts,
+     * so the caller can fetch per-part GLBs in parallel via {@link #getPartGlb}.
      */
-    public List<SplitPart> split(byte[] fileBytes, String filename) {
+    public SplitResult split(byte[] fileBytes, String filename) {
         String format = detectFormat(filename);
         log.info("Submitting async split for {} ({} bytes, format={}) to {}", filename, fileBytes.length, format, parserUrl);
 
@@ -130,7 +135,29 @@ public class CadParserClient {
             ));
         }
         log.info("Downloaded {} parts for split job {}", result.size(), jobId);
-        return result;
+        return new SplitResult(jobId, result);
+    }
+
+    /**
+     * Fetches the pre-converted GLB for one part from an existing split job.
+     * The cad-parser converts on demand (from the split STEP file on disk) and uses
+     * its OCCT worker pool — call this concurrently for all parts to max throughput.
+     * Returns null (non-fatal) if the job has expired or conversion fails.
+     */
+    public byte[] getPartGlb(String jobId, int partIndex) {
+        log.debug("Requesting GLB for split job={} part={}", jobId, partIndex);
+        try {
+            ResponseEntity<byte[]> resp = rest.exchange(
+                parserUrl + "/split/" + jobId + "/part/" + partIndex + "/glb",
+                HttpMethod.GET, null, byte[].class
+            );
+            byte[] glb = resp.getBody();
+            log.debug("GLB for job={} part={}: {} bytes", jobId, partIndex, glb != null ? glb.length : 0);
+            return glb;
+        } catch (Exception e) {
+            log.warn("GLB fetch failed for job={} part={}: {}", jobId, partIndex, e.getMessage());
+            return null;
+        }
     }
 
     private JobStatusResponse pollUntilDone(String jobId) {

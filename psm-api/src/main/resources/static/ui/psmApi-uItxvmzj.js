@@ -1,11 +1,19 @@
 let d = null;
-function a(s) {
+function u(s) {
   d = s.http;
 }
-const t = (s, e, r) => d.serviceRequest("psm", s, e, r), u = {
+const t = (s, e, r) => d.serviceRequest("psm", s, e, r), a = /* @__PURE__ */ new Map(), c = {
   // ── Type descriptors (static, cached by caller) ─────────────────
   getNodeTypeDescriptor: (s) => t("GET", `/item-type/${s}`),
   getLinkTypeDescriptor: (s) => t("GET", `/link-type/${s}`),
+  getDomainDescriptor(s) {
+    if (a.has(s)) return a.get(s);
+    const e = t("GET", `/item-type/domain/${s}`);
+    return a.set(s, e), e;
+  },
+  clearDomainDescriptorCache() {
+    a.clear();
+  },
   // ── Node read ────────────────────────────────────────────────────
   // txId: show OPEN draft; versionNumber: read historical version (read-only)
   getNodeDescription: (s, e, r, n) => {
@@ -56,6 +64,6 @@ const t = (s, e, r) => d.serviceRequest("psm", s, e, r), u = {
   getDashboardWorkItems: (s) => t("GET", "/dashboard/workitems")
 };
 export {
-  a as i,
-  u as p
+  u as i,
+  c as p
 };

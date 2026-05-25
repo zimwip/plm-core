@@ -593,13 +593,15 @@ export default function NodeEditor({
       // With NATS global subjects, all events arrive. Filter by nodeId.
       if (evt.nodeId && evt.nodeId !== nodeId) return;
 
-      // STATE_CHANGED and SIGNED are node-scoped events only the editor subscribes to.
-      // Shell covers LOCK_ACQUIRED, LOCK_RELEASED, ITEM_UPDATED via /topic/transactions.
-      if (evt.event === 'STATE_CHANGED' || evt.event === 'SIGNED') {
+      // STATE_CHANGED, SIGNED and ITEM_DEFINITION_UPDATED change the rendered
+      // attribute fields — re-fetch the node description.
+      if (evt.event === 'STATE_CHANGED' || evt.event === 'SIGNED'
+          || evt.event === 'ITEM_DEFINITION_UPDATED') {
         refreshNodeDesc();
       }
       // Left-panel lock badge: refresh node list on lock/unlock events.
-      if (evt.event === 'LOCK_RELEASED' || evt.event === 'LOCK_ACQUIRED' || evt.event === 'ITEM_UPDATED') {
+      if (evt.event === 'LOCK_RELEASED' || evt.event === 'LOCK_ACQUIRED'
+          || evt.event === 'ITEM_UPDATED' || evt.event === 'ITEM_DEFINITION_UPDATED') {
         refreshNodes();
       }
       if (evt.event === 'COMMENT_ADDED') {

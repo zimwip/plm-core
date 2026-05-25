@@ -1,6 +1,5 @@
 FROM eclipse-temurin:21-jre-alpine
 RUN addgroup -S app && adduser -S app -G app
-RUN mkdir -p /var/lib/dst-data && chown app:app /var/lib/dst-data
 USER app
 WORKDIR /app
 COPY app.jar .

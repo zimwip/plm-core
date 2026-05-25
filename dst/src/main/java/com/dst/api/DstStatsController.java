@@ -19,7 +19,7 @@ public class DstStatsController {
 
     private final DSLContext dsl;
 
-    @Value("${dst.storage.root:/tmp/dst-data}")
+    @Value("${dst.s3.bucket:plm-dst}")
     private String storageRoot;
 
     @Value("${spring.servlet.multipart.max-file-size:40MB}")

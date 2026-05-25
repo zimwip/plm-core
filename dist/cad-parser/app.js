@@ -2,14 +2,11 @@ import express from 'express';
 import multer from 'multer';
 import { XMLParser } from 'fast-xml-parser';
 import { randomUUID } from 'crypto';
-import { mkdir, readFile, rm } from 'fs/promises';
-import { createReadStream, createWriteStream } from 'fs';
-import { tmpdir } from 'os';
-import { cpus } from 'os';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { mkdir, open, readFile, rm } from 'fs/promises';
+import { createReadStream } from 'fs';
+import { cpus, tmpdir } from 'os';
+import { join } from 'path';
 import { Worker } from 'worker_threads';
-import initOcct from 'occt-import-js';
 import {
   buildTypeIndex,
   splitArgs,
@@ -19,25 +16,23 @@ import {
   precomputeNauoData,
   buildNauoExtractor,
 } from './step-lib.js';
+import { scanStep, readEntitiesAt } from './step-scan.js';
+import { writeParts } from './worker-split.js';
+import { ConvertPool } from './convert-pool.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// OCCT runs in a pool of worker threads — each ReadStepFile is a synchronous
+// single-threaded WASM call, so the pool both keeps the event loop free and
+// converts independent parts in parallel. Size capped (each worker holds its
+// own OCCT/WASM instance — memory-heavy). Override with CONVERT_POOL_SIZE.
+const CONVERT_POOL_SIZE = Math.max(
+  1, Math.min(cpus().length, Number(process.env.CONVERT_POOL_SIZE) || 4),
+);
+const convertPool = new ConvertPool(CONVERT_POOL_SIZE);
 
-// OCCT initialised once at startup; /convert waits on this promise
-let _occt = null;
-const _occtReady = initOcct({
-  locateFile: (path) => join(__dirname, 'node_modules/occt-import-js/dist', path),
-}).then(inst => { _occt = inst; console.log('OCCT ready'); })
-  .catch(err => console.error('OCCT init failed:', err.message));
-
-async function getOcct() {
-  if (!_occt) await _occtReady;
-  return _occt;
-}
-
-// Entity types retained during streaming for BOM + matrix extraction.
+// Structural BOM / assembly types — kept as text during streaming.
 // Geometry / topology types are discarded on the fly, cutting peak memory ~85-95%
 // for typical assembly STEP files where geometry dominates file size.
-const KEEP_TYPES_PARSE = new Set([
+const KEEP_STRUCT = new Set([
   'PRODUCT',
   'PRODUCT_DEFINITION_FORMATION',
   'PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE',
@@ -54,6 +49,13 @@ const KEEP_TYPES_PARSE = new Set([
   'ITEM_DEFINED_TRANSFORMATION',
   'REPRESENTATION_MAP',
   'MAPPED_ITEM',
+]);
+
+// Geometry types needed only for assembly-transform matrices. NOT kept as text —
+// only their byte offsets are indexed; the few actually referenced by the
+// assembly transforms are fetched on demand (see resolveAssemblyGeometry).
+// A complex part holds millions of these; keeping them all was the bottleneck.
+const KEEP_GEOM = new Set([
   'CARTESIAN_POINT',
   'DIRECTION',
   'AXIS2_PLACEMENT_3D',
@@ -80,8 +82,8 @@ const uploadDisk = multer({
 const splitJobs = new Map();
 const JOB_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-// Minimum product count before spawning workers
-const PARALLEL_THRESHOLD = 3;
+// Above this entity count, /split reconstructs part files in parallel workers.
+const PARALLEL_PASS2_THRESHOLD = 200_000;
 
 const app = express();
 
@@ -164,30 +166,39 @@ app.get('/split/:jobId/part/:index', (req, res) => {
   createReadStream(partPath).pipe(res);
 });
 
-// POST /convert — STEP bytes → GLB binary (occt tessellate + minimal glTF serialiser)
-app.post('/convert', upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file provided' });
+// GET /split/:jobId/part/:index/glb — convert one split part to GLB.
+// Hit this concurrently for every part to convert an assembly in parallel:
+// the OCCT worker pool runs up to CONVERT_POOL_SIZE conversions at once.
+app.get('/split/:jobId/part/:index/glb', async (req, res) => {
+  const job = splitJobs.get(req.params.jobId);
+  if (!job)                  return res.status(404).json({ error: 'Job not found' });
+  if (job.status !== 'DONE') return res.status(409).json({ error: 'Job not ready' });
+
+  const index = parseInt(req.params.index, 10);
+  if (isNaN(index) || index < 0 || index >= job.parts.length) {
+    return res.status(404).json({ error: 'Part index out of range' });
+  }
   try {
-    const occt = await getOcct();
-    if (!occt) return res.status(503).json({ error: 'OCCT not ready' });
-
-    const result = occt.ReadStepFile(new Uint8Array(req.file.buffer), null);
-    if (!result?.success || !result.meshes?.length) {
-      return res.status(422).json({ error: 'No geometry found' });
-    }
-
-    const meshes = result.meshes.map(m => ({
-      positions: new Float32Array(m.attributes.position.array),
-      normals:   m.attributes?.normal ? new Float32Array(m.attributes.normal.array) : null,
-      indices:   m.index             ? new Uint32Array(m.index.array)               : null,
-      color:     m.color ?? null,
-    }));
-
-    const glb = buildGlb(meshes);
+    const stepBytes = await readFile(join(job.dir, `part-${index}.stp`));
+    const { glb, meshCount } = await convertPool.run(stepBytes);
     res.setHeader('Content-Type', 'model/gltf-binary');
     res.setHeader('Content-Length', glb.length);
     res.send(glb);
-    console.log(`/convert: ${meshes.length} mesh(es), ${(glb.length / 1024).toFixed(1)} KB`);
+    console.log(`/split part/${index}/glb: ${meshCount} mesh(es), ${(glb.length / 1024).toFixed(1)} KB`);
+  } catch (err) {
+    res.status(422).json({ error: err.message });
+  }
+});
+
+// POST /convert — STEP bytes → GLB binary (OCCT tessellation, in a worker)
+app.post('/convert', upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file provided' });
+  try {
+    const { glb, meshCount } = await convertPool.run(req.file.buffer);
+    res.setHeader('Content-Type', 'model/gltf-binary');
+    res.setHeader('Content-Length', glb.length);
+    res.send(glb);
+    console.log(`/convert: ${meshCount} mesh(es), ${(glb.length / 1024).toFixed(1)} KB`);
   } catch (err) {
     console.error('/convert error:', err.message);
     res.status(422).json({ error: err.message });
@@ -197,94 +208,80 @@ app.post('/convert', upload.single('file'), async (req, res) => {
 app.listen(8090, () => console.log('cad-parser listening on :8090'));
 
 // ---------------------------------------------------------------------------
-// Streaming STEP entity reader
+// Streaming STEP BOM parser (/parse)
 //
-// Pipes the file through a comment-aware ';'-split state machine.
-// Calls onHeader(string) once after the HEADER section, then onEntity(string)
-// for each raw entity segment in the DATA section (text before the ';').
-// Handles /* ... */ comments spanning chunk boundaries correctly.
+// Streams the file once via scanStep. Keeps text only for structural BOM types;
+// for geometry types it indexes byte offsets only. After BOM resolution, the
+// handful of geometry entities reached by assembly transforms are fetched on
+// demand. The bulk of a CAD file (millions of geometry points) is never parsed.
 // ---------------------------------------------------------------------------
-async function streamEntities(filePath, { onHeader, onEntity }) {
-  return new Promise((resolve, reject) => {
-    const rs = createReadStream(filePath, { encoding: 'utf8', highWaterMark: 64 * 1024 });
-    let buf = '';
-    let partial = '';
-    let inComment = false;
-    let inHeader = false;
-    let inData = false;
-    const headerLines = [];
+async function parseStepFromFile(filePath) {
+  const structMap = {};           // id → text (structural BOM types + compound SRR)
+  const geomOffsets = new Map();  // id → { offset, length } (KEEP_GEOM types)
 
-    function segment(seg) {
-      const t = seg.trim();
-      if (!t) return;
-      if (t === 'HEADER') { inHeader = true; return; }
-      if (t === 'DATA') {
-        if (onHeader) onHeader(headerLines.length
-          ? `HEADER;\n${headerLines.join('\n')}\nENDSEC;`
-          : 'HEADER;\nENDSEC;');
-        inHeader = false; inData = true; return;
-      }
-      if (t === 'ENDSEC') { inHeader = false; inData = false; return; }
-      if (inHeader) { headerLines.push(t + ';'); return; }
-      if (inData) onEntity(t);
-    }
-
-    function processChunk(chunk) {
-      buf += chunk;
-      for (;;) {
-        if (inComment) {
-          const end = buf.indexOf('*/');
-          if (end === -1) return;
-          buf = buf.slice(end + 2);
-          inComment = false;
-        }
-        const cp = buf.indexOf('/*');
-        const sp = buf.indexOf(';');
-        if (cp !== -1 && (sp === -1 || cp < sp)) {
-          partial += buf.slice(0, cp).replace(/\r?\n/g, ' ');
-          buf = buf.slice(cp + 2);
-          inComment = true;
-        } else if (sp !== -1) {
-          segment(partial + buf.slice(0, sp).replace(/\r?\n/g, ' '));
-          partial = '';
-          buf = buf.slice(sp + 1);
-        } else {
-          partial += buf.replace(/\r?\n/g, ' ');
-          buf = '';
-          return;
-        }
+  await scanStep(filePath, {
+    onEntity: ({ id, type, text, offset, length }) => {
+      if (!id) return;
+      if (KEEP_GEOM.has(type)) {
+        geomOffsets.set(id, { offset, length });
+      } else if (KEEP_STRUCT.has(type)) {
+        structMap[id] = text + ';';
+      } else if (type === '_COMPOUND_'
+                 && /^#\d+\s*=\s*\(.*REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION/.test(text)) {
+        structMap[id] = text + ';';
       }
     }
-
-    rs.on('data', processChunk);
-    rs.on('end', () => { if (partial.trim()) segment(partial.trim()); resolve(); });
-    rs.on('error', reject);
   });
+
+  const structData = Object.values(structMap).join('\n');
+  const typeIdx = buildTypeIndex(structData);
+  await resolveAssemblyGeometry(filePath, structMap, geomOffsets, typeIdx);
+  return parseBOM(typeIdx, structData);
 }
 
 // ---------------------------------------------------------------------------
-// Streaming STEP BOM parser (/parse)
+// Geometry-on-demand resolver
 //
-// Streams the file once, discarding geometry/topology entity text on the fly.
-// Only KEEP_TYPES_PARSE entities + compound SRR entities are kept in memory.
-// Builds a sparse entityMap, then runs standard BOM resolution on it.
+// The assembly-transform matrices need only AXIS2_PLACEMENT_3D / CARTESIAN_POINT
+// / DIRECTION entities reachable from the structural entities — a few hundred,
+// versus millions in the file. This walks #refs out of the structural text,
+// fetches the referenced geometry by byte offset (pread), follows geometry→
+// geometry refs to fixpoint, and merges the result into typeIdx.
 // ---------------------------------------------------------------------------
-async function parseStepFromFile(filePath) {
-  const entityMap = {};
-
-  await streamEntities(filePath, {
-    onEntity: seg => {
-      const tm = seg.match(/^#(\d+)\s*=\s*([A-Z_][A-Z0-9_]*)\s*\(/);
-      if (tm) {
-        if (KEEP_TYPES_PARSE.has(tm[2])) entityMap[tm[1]] = seg + ';';
-      } else if (/^#\d+\s*=\s*\(.*REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION/.test(seg)) {
-        entityMap[seg.match(/^#(\d+)/)[1]] = seg + ';';
+async function resolveAssemblyGeometry(filePath, structMap, geomOffsets, typeIdx) {
+  const needed = new Set();
+  let wave = [];
+  const collectRefs = texts => {
+    const re = /#(\d+)/g;
+    for (const text of texts) {
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const id = m[1];
+        if (geomOffsets.has(id) && !needed.has(id)) { needed.add(id); wave.push(id); }
       }
     }
-  });
+  };
+  collectRefs(Object.values(structMap));
 
-  const sparseData = Object.values(entityMap).join('\n');
-  return parseBOM(buildTypeIndex(sparseData), sparseData);
+  const fetched = [];
+  while (wave.length) {
+    const ranges = wave.map(id => geomOffsets.get(id)).sort((a, b) => a.offset - b.offset);
+    wave = [];
+    const waveTexts = [];
+    await readEntitiesAt(filePath, ranges, raw => {
+      const t = raw.toString('utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\r?\n/g, ' ').slice(0, -1).trim();
+      fetched.push(t + ';');
+      waveTexts.push(t);
+    });
+    collectRefs(waveTexts);
+  }
+
+  if (!fetched.length) return;
+  const geomIdx = buildTypeIndex(fetched.join('\n'));
+  for (const type of KEEP_GEOM) {
+    if (geomIdx[type]) typeIdx[type] = Object.assign(typeIdx[type] ?? {}, geomIdx[type]);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -411,39 +408,58 @@ function walkXml(el, parentId, out) {
   }
 }
 
+// Reads the whole file into a SharedArrayBuffer so /split workers can slice
+// entity bytes from it zero-copy (no per-worker file I/O, no graph clone).
+async function readFileToShared(filePath) {
+  const fh = await open(filePath, 'r');
+  try {
+    const { size } = await fh.stat();
+    const sab = new SharedArrayBuffer(size);
+    const view = Buffer.from(sab);
+    let pos = 0;
+    while (pos < size) {
+      const { bytesRead } = await fh.read(view, pos, size - pos, pos);
+      if (bytesRead === 0) break;
+      pos += bytesRead;
+    }
+    return sab;
+  } finally {
+    await fh.close();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Two-pass streaming STEP splitter (/split)
 //
-// Pass 1 — stream file once:
-//   Build full refGraph + reverseRefGraph for ALL entities (no geometry text stored).
-//   Store entity text only for KEEP_TYPES_PARSE + compound SRR entities.
-//   Compute BOM structures, closures (sequential or via workers), renumber maps.
+// Pass 1 — scanStep streams the file once:
+//   Build the STEP index — `entities`: id → { type, offset, length } for ALL
+//   entities — plus refGraph + reverseRefGraph. Store entity text only for
+//   structural BOM types; geometry types are indexed by offset only. Compute
+//   BOM structures and per-product closures.
 //
-// Pass 2 — stream file once:
-//   For each entity in any product closure: write renumbered text to that product's
-//   output file. Never holds all entity text in memory simultaneously.
+// Pass 2 — per-part reconstruction (worker-parallel for large files):
+//   Each part's closure becomes a compact byte-range table. Workers stream the
+//   file, read their parts' entities by offset, renumber, and write the part
+//   files. Tables transfer zero-copy; the entity graph is never cloned.
 // ---------------------------------------------------------------------------
 async function splitStepFromFile(filePath, jobDir) {
-  // ── Pass 1: build reference graphs + sparse BOM data ─────────────────────
+  // ── Pass 1: build the STEP index (entity offsets + reference graphs) ──────
   const refGraph = {};
   const reverseRefGraph = {};
-  const entityType = {};     // id → type (all entities)
-  const typeEntityMap = {};  // id → text (BOM/matrix types only)
+  const entities = new Map();    // id → { type, offset, length } (all entities)
+  const typeEntityMap = {};      // id → text (structural BOM types only)
+  const geomOffsets = new Map(); // id → { offset, length } (KEEP_GEOM types)
   let headerSection = 'HEADER;\nENDSEC;';
 
-  await streamEntities(filePath, {
+  await scanStep(filePath, {
     onHeader: h => { headerSection = h; },
-    onEntity: seg => {
-      const idMatch = seg.match(/^#(\d+)\s*=/);
-      if (!idMatch) return;
-      const id = idMatch[1];
-
-      const tm = seg.match(/^#\d+\s*=\s*([A-Z_][A-Z0-9_]*)\s*\(/);
-      const type = tm ? tm[1] : '_COMPOUND_';
-      entityType[id] = type;
+    onEntity: ({ id, type, text, offset, length }) => {
+      if (!id) return;
+      entities.set(id, { type, offset, length });
+      if (KEEP_GEOM.has(type)) geomOffsets.set(id, { offset, length });
 
       // Build reference graph for ALL entities (geometry included)
-      const body = seg.slice(seg.indexOf('=') + 1);
+      const body = text.slice(text.indexOf('=') + 1);
       refGraph[id] ??= new Set();
       const refRe = /#(\d+)/g; let m;
       while ((m = refRe.exec(body)) !== null) {
@@ -451,12 +467,14 @@ async function splitStepFromFile(filePath, jobDir) {
         (reverseRefGraph[m[1]] ??= new Set()).add(id);
       }
 
-      // Store entity text only for BOM/matrix types + compound representation relationships
-      if (KEEP_TYPES_PARSE.has(type)) {
-        typeEntityMap[id] = seg + ';';
-      } else if (type === '_COMPOUND_' && seg.includes('REPRESENTATION_RELATIONSHIP')) {
-        typeEntityMap[id] = seg + ';';
-        if (seg.includes('SHAPE_REPRESENTATION_RELATIONSHIP')) entityType[id] = 'SHAPE_REPRESENTATION_RELATIONSHIP';
+      // Store entity text only for structural types + compound representation relationships
+      if (KEEP_STRUCT.has(type)) {
+        typeEntityMap[id] = text + ';';
+      } else if (type === '_COMPOUND_' && text.includes('REPRESENTATION_RELATIONSHIP')) {
+        typeEntityMap[id] = text + ';';
+        if (text.includes('SHAPE_REPRESENTATION_RELATIONSHIP')) {
+          entities.get(id).type = 'SHAPE_REPRESENTATION_RELATIONSHIP';
+        }
       }
     }
   });
@@ -531,232 +549,91 @@ async function splitStepFromFile(filePath, jobDir) {
   }
   const allEntrySRIds = new Set(Object.keys(srToProductId));
 
-  // reverseFromSRR built from entityType map (no need to scan entity text)
+  // reverseFromSRR built from the entity index (no need to scan entity text)
   const reverseFromSRR = {};
-  for (const [id, t] of Object.entries(entityType)) {
-    if (t !== 'SHAPE_REPRESENTATION_RELATIONSHIP') continue;
+  for (const [id, e] of entities) {
+    if (e.type !== 'SHAPE_REPRESENTATION_RELATIONSHIP') continue;
     for (const refId of (refGraph[id] ?? [])) {
       (reverseFromSRR[refId] ??= new Set()).add(id);
     }
   }
 
+  // Fetch the geometry actually referenced by assembly transforms into typeIdx.
+  await resolveAssemblyGeometry(filePath, typeEntityMap, geomOffsets, typeIdx);
   const nauoData = precomputeNauoData(new Set(Object.keys(nauoEntities)), typeIdx, sparseData);
   const productEntries = Object.entries(products);
 
-  // ── Closure computation ───────────────────────────────────────────────────
-  // Workers compute closures only; main thread does pass 2 reconstruction.
-  let allParts; // [{ stepId, closureArr, nodeId, name, cadType, occurrences, attributes }]
-
-  function computeClosures(batch) {
-    const getMatrixForNauo = buildNauoExtractor(nauoData);
-    return batch.map(([stepId, prod]) => {
-      const chain   = findDefinitionalChain(stepId, reverseRefGraph, refGraph, productStepIds, prodDefs, prodDefsByProductId);
-      const closure = collectForwardClosure(chain, refGraph);
-      expandSRRClosure(closure, reverseFromSRR, refGraph, reverseRefGraph, allEntrySRIds, srToProductId, stepId);
-      return {
-        stepId,
-        closureArr: [...closure],
-        nodeId:   idMap[stepId],
-        name:     prod.name || prod.partNumber || `Part-${stepId}`,
-        cadType:  hasChildren.has(stepId) ? 'ASSEMBLY' : 'PART',
-        occurrences: (occurrencesOf[stepId] ?? [])
-          .map(occ => ({ parentId: idMap[occ.parentProductId] ?? null, positionMatrix: getMatrixForNauo(occ.nauoId) }))
-          .filter(o => o.parentId !== null),
-        attributes: Object.fromEntries(
-          [['partNumber', prod.partNumber], ['description', prod.description]].filter(([, v]) => v)
-        ),
-      };
-    });
-  }
-
-  if (productEntries.length < PARALLEL_THRESHOLD) {
-    allParts = computeClosures(productEntries);
-  } else {
-    const refGraphArr = {};
-    for (const [id, s] of Object.entries(refGraph))        refGraphArr[id]        = [...s];
-    const reverseRefGraphArr = {};
-    for (const [id, s] of Object.entries(reverseRefGraph)) reverseRefGraphArr[id] = [...s];
-    const reverseFromSRRArr = {};
-    for (const [id, s] of Object.entries(reverseFromSRR))  reverseFromSRRArr[id]  = [...s];
-    const prodDefsByProductIdArr = [...prodDefsByProductId.entries()].map(([k, s]) => [k, [...s]]);
-
-    const sharedData = {
-      refGraphArr, reverseRefGraphArr, reverseFromSRRArr,
-      prodDefsByProductIdArr,
-      productStepIdsArr: [...productStepIds],
-      allEntrySRIdsArr:  [...allEntrySRIds],
-      prodDefs, srToProductId, nauoData, idMap, occurrencesOf,
-      hasChildrenArr: [...hasChildren],
+  // ── Closure computation (per product, on the main thread) ─────────────────
+  const getMatrixForNauo = buildNauoExtractor(nauoData);
+  const allParts = productEntries.map(([stepId, prod]) => {
+    const chain   = findDefinitionalChain(stepId, reverseRefGraph, refGraph, productStepIds, prodDefs, prodDefsByProductId);
+    const closure = collectForwardClosure(chain, refGraph);
+    expandSRRClosure(closure, reverseFromSRR, refGraph, reverseRefGraph, allEntrySRIds, srToProductId, stepId);
+    return {
+      stepId,
+      closureArr: [...closure],
+      nodeId:   idMap[stepId],
+      name:     prod.name || prod.partNumber || `Part-${stepId}`,
+      cadType:  hasChildren.has(stepId) ? 'ASSEMBLY' : 'PART',
+      occurrences: (occurrencesOf[stepId] ?? [])
+        .map(occ => ({ parentId: idMap[occ.parentProductId] ?? null, positionMatrix: getMatrixForNauo(occ.nauoId) }))
+        .filter(o => o.parentId !== null),
+      attributes: Object.fromEntries(
+        [['partNumber', prod.partNumber], ['description', prod.description]].filter(([, v]) => v)
+      ),
     };
+  });
 
-    const numWorkers = Math.min(cpus().length, productEntries.length);
-    const chunkSize  = Math.ceil(productEntries.length / numWorkers);
-    const workerUrl  = new URL('./worker-split.js', import.meta.url);
-    const chunks = [];
-    for (let i = 0; i < productEntries.length; i += chunkSize) chunks.push(productEntries.slice(i, i + chunkSize));
+  // ── Pass 2: per-part reconstruction ───────────────────────────────────────
+  // Each part is an independent output file, built by copying its closure's raw
+  // entity bytes from the source. Each part's byte-range table (offset / length
+  // as Float64Arrays) is transferred to a worker zero-copy via transferList;
+  // the source file is shared through a SharedArrayBuffer. The entity graph is
+  // never structured-cloned. Small inputs are reconstructed inline.
+  const partJobs = allParts.map((part, partIndex) => {
+    const offs = [], lens = [];
+    for (const id of part.closureArr) {
+      const e = entities.get(id);
+      if (e) { offs.push(e.offset); lens.push(e.length); }
+    }
+    return {
+      partIndex,
+      count:  offs.length,
+      offArr: Float64Array.from(offs),
+      lenArr: Float64Array.from(lens),
+    };
+  });
 
-    console.log(`Split: ${productEntries.length} products → ${chunks.length} workers`);
-
-    const batches = await Promise.all(
-      chunks.map(chunk => new Promise((resolve, reject) => {
-        const worker = new Worker(workerUrl, {
-          workerData: { ...sharedData, products: chunk.map(([stepId, prod]) => ({ stepId, prod })) },
-        });
-        worker.once('message', resolve);
-        worker.once('error',   reject);
-        worker.once('exit', code => { if (code !== 0) reject(new Error(`Worker exited with code ${code}`)); });
-      }))
-    );
-    allParts = batches.flat();
+  if (entities.size < PARALLEL_PASS2_THRESHOLD || partJobs.length < 2) {
+    await writeParts(await readFile(filePath), jobDir, headerSection, partJobs);
+  } else {
+    // Load the source file into shared memory — workers copy entities zero-copy.
+    const sab = await readFileToShared(filePath);
+    // Distribute parts across workers, greedily by size for balanced load.
+    const numWorkers = Math.min(cpus().length, partJobs.length);
+    const buckets = Array.from({ length: numWorkers }, () => ({ load: 0, parts: [] }));
+    for (const job of [...partJobs].sort((a, b) => b.count - a.count)) {
+      const bucket = buckets.reduce((min, b) => (b.load < min.load ? b : min));
+      bucket.parts.push(job);
+      bucket.load += job.count;
+    }
+    const workerUrl = new URL('./worker-split.js', import.meta.url);
+    console.log(`Split: ${partJobs.length} parts → ${numWorkers} workers`);
+    await Promise.all(buckets.filter(b => b.parts.length).map(b => new Promise((resolve, reject) => {
+      const transfer = b.parts.flatMap(p => [p.offArr.buffer, p.lenArr.buffer]);
+      const worker = new Worker(workerUrl, {
+        workerData: { sab, jobDir, headerSection, parts: b.parts },
+        transferList: transfer,
+      });
+      worker.once('message', msg => (msg && msg.error ? reject(new Error(msg.error)) : resolve()));
+      worker.once('error', reject);
+      worker.once('exit', code => { if (code !== 0) reject(new Error(`Worker exited with code ${code}`)); });
+    })));
   }
-
-  // ── Build entity→part index and renumber maps ─────────────────────────────
-  const entityToPartIndices = new Map(); // entityId → Set<partIndex>
-  allParts.forEach((part, idx) => {
-    for (const entityId of part.closureArr) {
-      let s = entityToPartIndices.get(entityId);
-      if (!s) { s = new Set(); entityToPartIndices.set(entityId, s); }
-      s.add(idx);
-    }
-  });
-
-  const renumberMaps = allParts.map(part => {
-    const sorted = part.closureArr
-      .filter(id => entityType[id])
-      .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-    const rmap = new Map();
-    sorted.forEach((oldId, i) => rmap.set(oldId, String(i + 1)));
-    return rmap;
-  });
-
-  // ── Pass 2: streaming write ───────────────────────────────────────────────
-  const partStreams = allParts.map((_, i) => createWriteStream(join(jobDir, `part-${i}.stp`)));
-  for (const ws of partStreams) ws.write(`ISO-10303-21;\n${headerSection}\nDATA;\n`);
-
-  await streamEntities(filePath, {
-    onEntity: seg => {
-      const idMatch = seg.match(/^#(\d+)\s*=/);
-      if (!idMatch) return;
-      const partIndices = entityToPartIndices.get(idMatch[1]);
-      if (!partIndices) return;
-      for (const idx of partIndices) {
-        const rmap = renumberMaps[idx];
-        partStreams[idx].write(
-          seg.replace(/#(\d+)/g, (_, refId) => '#' + (rmap.get(refId) ?? refId)) + ';\n'
-        );
-      }
-    }
-  });
-
-  await Promise.all(partStreams.map(ws => new Promise((res, rej) => {
-    ws.write('ENDSEC;\nEND-ISO-10303-21;\n');
-    ws.end(err => err ? rej(err) : res());
-  })));
 
   // Strip internal-only fields before returning metadata
   return allParts.map(({ stepId: _s, closureArr: _c, ...meta }) => meta);
 }
 
-// ---------------------------------------------------------------------------
-// GLB serialiser (unchanged)
-// ---------------------------------------------------------------------------
-function buildGlb(meshes) {
-  function align4(n) { return (n + 3) & ~3; }
-
-  const bufParts   = [];
-  const bufferViews = [];
-  const accessors  = [];
-  const gltfMeshes = [];
-  const materials  = [];
-  let byteOffset   = 0;
-
-  function pushBytes(typedArray) {
-    const bytes = new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength);
-    bufParts.push(bytes);
-    byteOffset += bytes.byteLength;
-  }
-
-  function padTo4() {
-    const r = byteOffset % 4;
-    if (r === 0) return;
-    const pad = new Uint8Array(4 - r);
-    bufParts.push(pad);
-    byteOffset += pad.byteLength;
-  }
-
-  for (let mi = 0; mi < meshes.length; mi++) {
-    const { positions, normals, indices, color } = meshes[mi];
-    const vertCount = positions.length / 3;
-    const primAttrs = {};
-
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (let i = 0; i < positions.length; i += 3) {
-      if (positions[i]   < minX) minX = positions[i];   if (positions[i]   > maxX) maxX = positions[i];
-      if (positions[i+1] < minY) minY = positions[i+1]; if (positions[i+1] > maxY) maxY = positions[i+1];
-      if (positions[i+2] < minZ) minZ = positions[i+2]; if (positions[i+2] > maxZ) maxZ = positions[i+2];
-    }
-    const posView = bufferViews.length;
-    bufferViews.push({ buffer: 0, byteOffset, byteLength: positions.byteLength, target: 34962 });
-    pushBytes(positions);
-    primAttrs.POSITION = accessors.length;
-    accessors.push({ bufferView: posView, byteOffset: 0, componentType: 5126, count: vertCount, type: 'VEC3',
-                     min: [minX, minY, minZ], max: [maxX, maxY, maxZ] });
-
-    if (normals) {
-      const normView = bufferViews.length;
-      bufferViews.push({ buffer: 0, byteOffset, byteLength: normals.byteLength, target: 34962 });
-      pushBytes(normals);
-      primAttrs.NORMAL = accessors.length;
-      accessors.push({ bufferView: normView, byteOffset: 0, componentType: 5126, count: vertCount, type: 'VEC3' });
-    }
-
-    const primitive = { attributes: primAttrs, mode: 4 };
-    if (indices) {
-      padTo4();
-      const idxView = bufferViews.length;
-      bufferViews.push({ buffer: 0, byteOffset, byteLength: indices.byteLength, target: 34963 });
-      pushBytes(indices);
-      primitive.indices = accessors.length;
-      accessors.push({ bufferView: idxView, byteOffset: 0, componentType: 5125, count: indices.length, type: 'SCALAR' });
-    }
-
-    const r = color ? color[0] : 0.357, g = color ? color[1] : 0.608, b = color ? color[2] : 0.965;
-    primitive.material = materials.length;
-    materials.push({ pbrMetallicRoughness: { baseColorFactor: [r, g, b, 1.0], metallicFactor: 0.1, roughnessFactor: 0.8 }, doubleSided: true });
-    gltfMeshes.push({ primitives: [primitive] });
-  }
-
-  const totalBin = align4(byteOffset);
-  const binBuf   = Buffer.alloc(totalBin, 0);
-  let off = 0;
-  for (const part of bufParts) { binBuf.set(part, off); off += part.byteLength; }
-
-  const gltf = {
-    asset: { version: '2.0', generator: 'cad-parser/occt-import-js' },
-    scene: 0,
-    scenes: [{ nodes: gltfMeshes.map((_, i) => i) }],
-    nodes:  gltfMeshes.map((_, i) => ({ mesh: i })),
-    meshes: gltfMeshes, materials, accessors, bufferViews,
-    buffers: [{ byteLength: totalBin }],
-  };
-  const jsonBuf = Buffer.from(JSON.stringify(gltf), 'utf8');
-  const jsonPad = Buffer.alloc(align4(jsonBuf.length), 0x20);
-  jsonBuf.copy(jsonPad);
-
-  const totalLen = 12 + 8 + jsonPad.length + 8 + binBuf.length;
-  const header = Buffer.alloc(12);
-  header.writeUInt32LE(0x46546C67, 0); // "glTF"
-  header.writeUInt32LE(2, 4);
-  header.writeUInt32LE(totalLen, 8);
-
-  const jsonChunkHdr = Buffer.alloc(8);
-  jsonChunkHdr.writeUInt32LE(jsonPad.length, 0);
-  jsonChunkHdr.writeUInt32LE(0x4E4F534A, 4); // "JSON"
-
-  const binChunkHdr = Buffer.alloc(8);
-  binChunkHdr.writeUInt32LE(binBuf.length, 0);
-  binChunkHdr.writeUInt32LE(0x004E4942, 4); // "BIN\0"
-
-  return Buffer.concat([header, jsonChunkHdr, jsonPad, binChunkHdr, binBuf]);
-}
+// GLB serialisation + OCCT conversion now live in worker-convert.js (run via
+// the ConvertPool above).

@@ -119,6 +119,31 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
       window.open(svcBase + a.path.replace('{id}', encodeURIComponent(tab.nodeId)), '_blank', 'noreferrer');
       return;
     }
+    // Presigned download: fetch a short-lived URL, then trigger a browser
+    // download straight from object storage (Garage sends Content-Disposition
+    // attachment, so the anchor click saves the file instead of navigating).
+    if (a.metadata?.presignedDownload) {
+      setBusyAction(a.code);
+      try {
+        const path = svcBase + a.path.replace('{id}', encodeURIComponent(tab.nodeId));
+        const res = await api.gatewayJson('GET', path);
+        if (res?.url) {
+          const link = document.createElement('a');
+          link.href = res.url;
+          link.rel = 'noreferrer';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        } else if (toast) {
+          toast('No download URL returned', 'error');
+        }
+      } catch (e) {
+        if (toast) toast(e, 'error');
+      } finally {
+        setBusyAction(null);
+      }
+      return;
+    }
     setBusyAction(a.code);
     try {
       const path = svcBase + a.path.replace('{id}', encodeURIComponent(tab.nodeId));

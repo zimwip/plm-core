@@ -1,7 +1,7 @@
 package com.dst.action;
 
-import com.dst.domain.DataMetadata;
 import com.dst.domain.DataService;
+import com.dst.domain.PresignedUrl;
 import com.dst.security.DstSecurityContext;
 import com.dst.security.DstUserContext;
 import com.plm.platform.action.ActionContext;
@@ -10,17 +10,17 @@ import com.plm.platform.action.ActionResult;
 import com.plm.platform.action.ActionRouteDescriptor;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import org.springframework.core.io.InputStreamResource;
-import org.springframework.http.ContentDisposition;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * DOWNLOAD action — returns a time-limited presigned S3 URL so the browser
+ * fetches the file straight from object storage instead of streaming it
+ * through dst.
+ */
 @Component
 @RequiredArgsConstructor
 public class DownloadActionHandler implements ActionHandler {
@@ -34,32 +34,22 @@ public class DownloadActionHandler implements ActionHandler {
 
     @Override
     public Optional<ActionRouteDescriptor> route() {
-        return Optional.of(ActionRouteDescriptor.get("/data/{id}"));
+        return Optional.of(ActionRouteDescriptor.get("/data/{id}/download-url"));
     }
 
     @Override
     public ActionResult execute(ActionContext ctx, Map<String, String> params) {
-        throw new UnsupportedOperationException("Use GET /api/dst/data/{id}");
+        throw new UnsupportedOperationException("Use GET /api/dst/data/{id}/download-url");
     }
 
     @Override
     public ResponseEntity<?> executeHttp(ActionContext ctx, Map<String, String> params, HttpServletRequest req) {
         DstUserContext dstCtx = DstSecurityContext.get();
-        DataMetadata meta = dataService.download(ctx.nodeId(), dstCtx.getUserId(), dstCtx.getProjectSpaceId());
-
-        HttpHeaders headers = new HttpHeaders();
-        if (meta.originalName() != null && !meta.originalName().isBlank()) {
-            headers.setContentDisposition(ContentDisposition.attachment()
-                .filename(meta.originalName(), StandardCharsets.UTF_8).build());
-        }
-        headers.setContentLength(meta.sizeBytes());
-        headers.add("X-Data-Sha256", meta.sha256());
-
-        MediaType type = meta.contentType() != null
-            ? MediaType.parseMediaType(meta.contentType())
-            : MediaType.APPLICATION_OCTET_STREAM;
-
-        return ResponseEntity.ok().headers(headers).contentType(type)
-            .body(new InputStreamResource(dataService.openStream(meta.location())));
+        PresignedUrl presigned = dataService.presignedUrl(
+            ctx.nodeId(), dstCtx.getUserId(), dstCtx.getProjectSpaceId());
+        return ResponseEntity.ok(Map.of(
+            "url", presigned.url(),
+            "expiresInSeconds", presigned.expiresInSeconds(),
+            "size", presigned.size()));
     }
 }

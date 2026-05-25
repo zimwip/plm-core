@@ -7,10 +7,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.InputStream;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,12 +41,16 @@ public class DataService {
     private final BinaryStorage storage;
     private final DstEventPublisher eventPublisher;
 
+    @Value("${dst.s3.presign-ttl-seconds:900}")
+    private long presignTtlSeconds;
+
     @PlmPermission("WRITE_DATA")
     @Transactional
     public DataUploadResult upload(String userId, String projectSpaceId,
-                                   String originalName, String contentType, InputStream in) {
+                                   String originalName, String contentType,
+                                   long contentLength, InputStream in) {
         String id = UUID.randomUUID().toString();
-        BinaryStorage.StoreResult res = storage.store(id, in);
+        BinaryStorage.StoreResult res = storage.store(id, in, contentLength, contentType);
 
         Record existing = dsl.fetchOne(
             "SELECT * FROM data_object WHERE sha256 = ? AND project_space_id = ?",
@@ -123,18 +129,12 @@ public class DataService {
     }
 
     @PlmPermission("READ_DATA")
-    @Transactional
-    public DataMetadata download(String id, String userId, String projectSpaceId) {
+    public PresignedUrl presignedUrl(String id, String userId, String projectSpaceId) {
         DataMetadata m = loadOrThrow(id, projectSpaceId);
-        LocalDateTime now = LocalDateTime.now();
-        dsl.execute("UPDATE data_object SET last_accessed = ? WHERE id = ?", now, id);
-        log.info("DATA download id={} sha256={} size={} by={} ps={}", id, m.sha256(), m.sizeBytes(), userId, projectSpaceId);
-        return new DataMetadata(m.id(), m.sha256(), m.sizeBytes(), m.contentType(), m.originalName(),
-            m.location(), m.createdBy(), m.createdAt(), now, m.projectSpaceId(), m.refCount());
-    }
-
-    public InputStream openStream(String location) {
-        return storage.open(location);
+        log.info("DATA presign id={} sha256={} by={} ps={}", id, m.sha256(), userId, projectSpaceId);
+        String url = storage.presignedGetUrl(m.location(), m.originalName(),
+            Duration.ofSeconds(presignTtlSeconds));
+        return new PresignedUrl(url, presignTtlSeconds, m.sizeBytes());
     }
 
     @PlmPermission("MANAGE_DATA")

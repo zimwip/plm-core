@@ -122,6 +122,13 @@ export const usePlmStore = create((set, get) => ({
     } catch {}
   },
 
+  // Signals BrowseNav to reload only the descriptor matching the created item's typeCode.
+  // Avoids the full N-descriptor reload that bumpBrowse() would trigger.
+  lastCreatedItem: null,
+  notifyCreated: (typeCode) => set(s => ({
+    lastCreatedItem: { typeCode, stamp: (s.lastCreatedItem?.stamp ?? 0) + 1 },
+  })),
+
   // ── Transaction ───────────────────────────────────────────────────
   activeTx: null,
   txNodes: [],

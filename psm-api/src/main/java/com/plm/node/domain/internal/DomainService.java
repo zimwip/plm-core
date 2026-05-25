@@ -33,9 +33,11 @@ public class DomainService {
     /**
      * Assigns a domain to a node version. Validates no attribute name collision
      * with node_type attributes or other assigned domains.
+     *
+     * @return number of default attribute values written for the domain's attributes
      */
     @Transactional
-    public void assignDomain(String nodeId, String domainId, String versionId) {
+    public int assignDomain(String nodeId, String domainId, String versionId) {
         // Check domain exists in ConfigCache
         DomainConfig domain = configCache.getDomain(domainId)
             .orElseThrow(() -> new IllegalArgumentException("Domain not found: " + domainId));
@@ -81,27 +83,34 @@ public class DomainService {
             UUID.randomUUID().toString(), versionId, domainId);
 
         // Insert default attribute values for domain attrs not yet present
+        int defaultsWritten = 0;
         for (ResolvedAttribute attr : domainAttrs) {
             String defaultValue = attr.defaultValue();
             if (defaultValue != null && !defaultValue.isBlank()) {
                 dsl.execute(
                     "INSERT INTO node_version_attribute (id, node_version_id, attribute_def_id, value) VALUES (?, ?, ?, ?)",
                     UUID.randomUUID().toString(), versionId, attr.id(), defaultValue);
+                defaultsWritten++;
             }
         }
 
-        log.info("Domain {} assigned to node {} version {}", domainId, nodeId, versionId);
+        log.info("Domain {} assigned to node {} version {} ({} default value(s))",
+            domainId, nodeId, versionId, defaultsWritten);
+        return defaultsWritten;
     }
 
     /**
      * Unassigns a domain from a node version. Removes domain attribute values.
+     *
+     * @return number of domain attribute values removed
      */
     @Transactional
-    public void unassignDomain(String nodeId, String domainId, String versionId) {
+    public int unassignDomain(String nodeId, String domainId, String versionId) {
         // Remove attribute values for this domain's attrs using ConfigCache
         List<ResolvedAttribute> domainAttrs = metaModelCache.getDomainAttributes(domainId);
+        int valuesRemoved = 0;
         for (ResolvedAttribute attr : domainAttrs) {
-            dsl.execute(
+            valuesRemoved += dsl.execute(
                 "DELETE FROM node_version_attribute WHERE node_version_id = ? AND attribute_def_id = ?",
                 versionId, attr.id());
         }
@@ -110,7 +119,9 @@ public class DomainService {
             "DELETE FROM node_version_domain WHERE node_version_id = ? AND domain_id = ?",
             versionId, domainId);
         if (removed == 0) throw new IllegalStateException("Domain not assigned to this version");
-        log.info("Domain {} unassigned from node {} version {}", domainId, nodeId, versionId);
+        log.info("Domain {} unassigned from node {} version {} ({} value(s) removed)",
+            domainId, nodeId, versionId, valuesRemoved);
+        return valuesRemoved;
     }
 
     /**

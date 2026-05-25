@@ -24,13 +24,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PreDestroy;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Slf4j
 @Service
@@ -43,6 +49,17 @@ public class ImportJobProcessor {
     private final AlgorithmRegistry    algorithmRegistry;
     private final ServiceClient        serviceClient;
     private final DstStorageClient     dstClient;
+
+    // Parallel GLB conversion: thread count matches the cad-parser OCCT worker pool size.
+    // Override with CAD_PARSER_POOL_SIZE env var to match CONVERT_POOL_SIZE in cad-parser.
+    private final ExecutorService glbExecutor = Executors.newFixedThreadPool(
+        Integer.parseInt(System.getenv().getOrDefault("CAD_PARSER_POOL_SIZE", "4"))
+    );
+
+    @PreDestroy
+    public void shutdownGlbExecutor() {
+        glbExecutor.shutdown();
+    }
 
     @Autowired(required = false)
     private PlmMessageBus messageBus;
@@ -72,13 +89,12 @@ public class ImportJobProcessor {
         log.info("Starting import job {} file={} contextCode={}", jobId, filename, ctx.importContextCode());
         elevateToOperationToken(ctx.jobId());
 
-        repository.updateStatus(jobId, "RUNNING", LocalDateTime.now(), null);
-
         boolean ownTx = ctx.psmTxId() == null;
         String txId = null;
         int nodeCount = 0;
-        List<String> warnings = new ArrayList<>();
+        List<String> warnings = Collections.synchronizedList(new ArrayList<>());
         try {
+            repository.updateStatus(jobId, "RUNNING", LocalDateTime.now(), null);
             txId = ownTx ? psmClient.openTransaction() : ctx.psmTxId();
             if (ownTx) repository.savePsmTxId(jobId, UUID.fromString(txId));
 
@@ -97,15 +113,18 @@ public class ImportJobProcessor {
                 // ── SPLIT MODE ────────────────────────────────────────────────────────────
                 // Parser returns one minimal STEP file per product node; each node that is
                 // created or updated gets its own DST entry + lt-part-data link.
-                List<SplitPart> parts = parserClient.split(fileBytes, filename);
+                CadParserClient.SplitResult splitResult = parserClient.split(fileBytes, filename);
+                String splitJobId = splitResult.jobId();
+                List<SplitPart> parts = splitResult.parts();
                 nodeCount = parts.size();
-                log.info("Job {} split mode: {} parts from {}", jobId, parts.size(), filename);
+                log.info("Job {} split mode: {} parts from {} (splitJobId={})", jobId, parts.size(), filename, splitJobId);
 
                 String dstBaseUrl = serviceClient.resolveBaseUrl("dst");
 
-                record SplitDecision(SplitPart part, ImportDecision decision) {}
+                record SplitDecision(int partIndex, SplitPart part, ImportDecision decision) {}
                 List<SplitDecision> planned = new ArrayList<>(parts.size());
-                for (SplitPart part : parts) {
+                for (int pi = 0; pi < parts.size(); pi++) {
+                    SplitPart part = parts.get(pi);
                     PsmValidationClient.ValidationResult validation = validationClient.validateNode(
                         part.cadId(), part.name(), part.cadType(),
                         part.attributes(), ctx.importContextCode(), nodeValidationInstanceId);
@@ -127,12 +146,17 @@ public class ImportJobProcessor {
                             decision = ImportDecision.update(existing.toString(), decision.attributes());
                         }
                     }
-                    planned.add(new SplitDecision(part, decision));
+                    planned.add(new SplitDecision(pi, part, decision));
                 }
 
                 Map<String, UUID>   cadIdToNodeId    = new HashMap<>();
                 Map<String, String> cadIdToLogicalId = new HashMap<>();
 
+                // GlbTask: parts that need a GLB produced and stored (kind=simplified)
+                record GlbTask(int partIndex, String cadId, String name, UUID psmNodeId) {}
+                List<GlbTask> glbTasks = new ArrayList<>();
+
+                // Phase 1 — sequential: PSM node creation + STEP upload (ordering matters for tx)
                 for (SplitDecision sd : planned) {
                     CadNodeData nodeData = new CadNodeData(
                         sd.part().cadId(), sd.part().name(), sd.part().cadType(),
@@ -148,13 +172,13 @@ public class ImportJobProcessor {
                         if (sd.decision().logicalId() != null)
                             cadIdToLogicalId.put(sd.part().cadId(), sd.decision().logicalId());
 
-                        // Upload per-part file to DST → lt-part-data link (kind=design)
-                        // Then convert to GLB and upload a second link (kind=simplified)
                         boolean acted = "CREATED".equals(result.getAction()) || "UPDATED".equals(result.getAction());
                         if (acted && sd.part().fileBytes().length > 0) {
-                            uploadPartRepresentations(jobId, sd.part().cadId(), sd.part().name(),
+                            uploadStepRepresentation(jobId, sd.part().cadId(), sd.part().name(),
                                 sd.part().fileBytes(), result.getPsmNodeId(), ctx.projectSpaceId(),
                                 dstBaseUrl, txId, warnings);
+                            glbTasks.add(new GlbTask(sd.partIndex(), sd.part().cadId(),
+                                sd.part().name(), result.getPsmNodeId()));
                         }
                     }
                 }
@@ -202,6 +226,30 @@ public class ImportJobProcessor {
                             }
                         }
                     }
+                }
+
+                // Phase 2 — parallel GLB conversion (stateless, uses cad-parser worker pool)
+                if (!glbTasks.isEmpty()) {
+                    log.info("Job {}: converting {} GLBs in parallel (splitJobId={})", jobId, glbTasks.size(), splitJobId);
+                    final String finalDstBaseUrl = dstBaseUrl;
+                    final String finalTxId = txId;
+                    List<CompletableFuture<Void>> glbFutures = new ArrayList<>(glbTasks.size());
+                    for (GlbTask task : glbTasks) {
+                        glbFutures.add(CompletableFuture.supplyAsync(
+                            () -> parserClient.getPartGlb(splitJobId, task.partIndex()), glbExecutor
+                        ).thenAccept(glbBytes -> {
+                            if (glbBytes != null && glbBytes.length > 0) {
+                                uploadGlbRepresentation(jobId, task.cadId(), task.name(), glbBytes,
+                                    task.psmNodeId(), ctx.projectSpaceId(), finalDstBaseUrl, finalTxId, warnings);
+                            }
+                        }));
+                    }
+                    try {
+                        CompletableFuture.allOf(glbFutures.toArray(new CompletableFuture[0])).join();
+                    } catch (Exception e) {
+                        log.warn("Job {}: GLB parallel phase completed with errors: {}", jobId, e.getMessage());
+                    }
+                    log.info("Job {}: GLB parallel phase done", jobId);
                 }
 
             } else {
@@ -366,7 +414,6 @@ public class ImportJobProcessor {
                               List<ZipUtil.FileEntry> files, ImportJobContext ctx) {
         log.info("Starting ZIP import job {} files={} contextCode={}", jobId, files.size(), ctx.importContextCode());
         elevateToOperationToken(ctx.jobId());
-        repository.updateStatus(jobId, "RUNNING", LocalDateTime.now(), null);
 
         boolean ownTx = ctx.psmTxId() == null;
         String txId = null;
@@ -374,6 +421,7 @@ public class ImportJobProcessor {
         List<String> warnings = new ArrayList<>();
 
         try {
+            repository.updateStatus(jobId, "RUNNING", LocalDateTime.now(), null);
             txId = ownTx ? psmClient.openTransaction() : ctx.psmTxId();
             if (ownTx) repository.savePsmTxId(jobId, UUID.fromString(txId));
 
@@ -397,9 +445,9 @@ public class ImportJobProcessor {
                 List<SplitPart> allParts = new ArrayList<>();
                 for (ZipUtil.FileEntry entry : files) {
                     try {
-                        List<SplitPart> parts = parserClient.split(entry.bytes(), entry.filename());
-                        allParts.addAll(parts);
-                        log.info("Job {}: split {} → {} parts", jobId, entry.filename(), parts.size());
+                        CadParserClient.SplitResult sr = parserClient.split(entry.bytes(), entry.filename());
+                        allParts.addAll(sr.parts());
+                        log.info("Job {}: split {} → {} parts", jobId, entry.filename(), sr.parts().size());
                     } catch (Exception e) {
                         String msg = "Split failed for " + entry.filename() + ": " + e.getMessage();
                         log.warn("Job {}: {}", jobId, msg);
@@ -635,12 +683,10 @@ public class ImportJobProcessor {
         }
     }
 
-    private void uploadPartRepresentations(UUID jobId, String cadId, String name, byte[] stepBytes,
-                                            UUID psmNodeId, String projectSpaceId,
-                                            String dstBaseUrl, String txId, List<String> warnings) {
+    private void uploadStepRepresentation(UUID jobId, String cadId, String name, byte[] stepBytes,
+                                           UUID psmNodeId, String projectSpaceId,
+                                           String dstBaseUrl, String txId, List<String> warnings) {
         String safeFilename = name.replaceAll("[^a-zA-Z0-9._-]", "_");
-
-        // Upload STEP (kind=design)
         try {
             String stepFileId = dstClient.upload(stepBytes, safeFilename + ".step", null, dstBaseUrl);
             if (stepFileId != null) {
@@ -656,21 +702,36 @@ public class ImportJobProcessor {
         } catch (Exception e) {
             warnings.add("STEP lt-part-data link failed [cadId=" + cadId + "]: " + e.getMessage());
         }
+    }
 
-        // Convert STEP → GLB (kind=simplified) — non-fatal if parser unavailable
+    private void uploadGlbRepresentation(UUID jobId, String cadId, String name, byte[] glbBytes,
+                                          UUID psmNodeId, String projectSpaceId,
+                                          String dstBaseUrl, String txId, List<String> warnings) {
+        String safeFilename = name.replaceAll("[^a-zA-Z0-9._-]", "_");
         try {
-            byte[] glbBytes = parserClient.convertToGlb(stepBytes, safeFilename + ".step");
-            if (glbBytes != null && glbBytes.length > 0) {
-                String glbFileId = dstClient.upload(glbBytes, safeFilename + ".glb", "model/gltf-binary", dstBaseUrl);
-                if (glbFileId != null) {
-                    String linkId = psmClient.createLink(psmNodeId, glbFileId, "lt-part-data", txId, projectSpaceId);
-                    if (linkId != null)
-                        psmClient.updateLinkAttributes(linkId, psmNodeId,
-                            Map.of("kind", "simplified", "layer", "main"), txId, projectSpaceId);
-                    dstClient.unref(glbFileId, dstBaseUrl);
-                    log.debug("Job {}: {} → DST {} (kind=simplified, {} KB)", jobId, cadId, glbFileId, glbBytes.length / 1024);
-                }
+            String glbFileId = dstClient.upload(glbBytes, safeFilename + ".glb", "model/gltf-binary", dstBaseUrl);
+            if (glbFileId != null) {
+                String linkId = psmClient.createLink(psmNodeId, glbFileId, "lt-part-data", txId, projectSpaceId);
+                if (linkId != null)
+                    psmClient.updateLinkAttributes(linkId, psmNodeId,
+                        Map.of("kind", "simplified", "layer", "main"), txId, projectSpaceId);
+                dstClient.unref(glbFileId, dstBaseUrl);
+                log.debug("Job {}: {} → DST {} (kind=simplified, {} KB)", jobId, cadId, glbFileId, glbBytes.length / 1024);
             }
+        } catch (Exception e) {
+            log.warn("Job {}: GLB upload failed for {}: {}", jobId, cadId, e.getMessage());
+        }
+    }
+
+    // Used by processMulti (ZIP imports) — sequential STEP+GLB, no split jobId available.
+    private void uploadPartRepresentations(UUID jobId, String cadId, String name, byte[] stepBytes,
+                                            UUID psmNodeId, String projectSpaceId,
+                                            String dstBaseUrl, String txId, List<String> warnings) {
+        uploadStepRepresentation(jobId, cadId, name, stepBytes, psmNodeId, projectSpaceId, dstBaseUrl, txId, warnings);
+        try {
+            byte[] glbBytes = parserClient.convertToGlb(stepBytes, name.replaceAll("[^a-zA-Z0-9._-]", "_") + ".step");
+            if (glbBytes != null && glbBytes.length > 0)
+                uploadGlbRepresentation(jobId, cadId, name, glbBytes, psmNodeId, projectSpaceId, dstBaseUrl, txId, warnings);
         } catch (Exception e) {
             log.warn("Job {}: GLB conversion skipped for {}: {}", jobId, cadId, e.getMessage());
         }

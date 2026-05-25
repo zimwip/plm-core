@@ -3,6 +3,7 @@ package com.dst.api;
 import com.dst.domain.DataMetadata;
 import com.dst.domain.DataService;
 import com.dst.domain.DataUploadResult;
+import com.dst.domain.PresignedUrl;
 import com.dst.security.DstSecurityContext;
 import com.dst.security.DstUserContext;
 import com.plm.platform.action.guard.ActionGuardContext;
@@ -14,6 +15,7 @@ import com.plm.platform.action.dto.DetailDescriptor;
 import com.plm.platform.action.dto.FieldValue;
 import com.plm.platform.item.dto.ItemTypeRef;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -57,7 +59,8 @@ public class DataController {
         DstUserContext ctx = DstSecurityContext.get();
         String originalName = (name != null && !name.isBlank()) ? name : file.getOriginalFilename();
         DataUploadResult result = dataService.upload(
-            ctx.getUserId(), ctx.getProjectSpaceId(), originalName, file.getContentType(), file.getInputStream());
+            ctx.getUserId(), ctx.getProjectSpaceId(), originalName, file.getContentType(),
+            file.getSize(), file.getInputStream());
         return ResponseEntity.ok(result);
     }
 
@@ -81,6 +84,16 @@ public class DataController {
     public ResponseEntity<DataMetadata> metadata(@PathVariable String id) {
         DstUserContext ctx = DstSecurityContext.get();
         return ResponseEntity.ok(dataService.getMetadata(id, ctx.getUserId(), ctx.getProjectSpaceId()));
+    }
+
+    @GetMapping("/{id}")
+    @PlmPermission("READ_DATA")
+    public ResponseEntity<Void> download(@PathVariable String id) {
+        DstUserContext ctx = DstSecurityContext.get();
+        PresignedUrl presigned = dataService.presignedUrl(id, ctx.getUserId(), ctx.getProjectSpaceId());
+        return ResponseEntity.status(HttpStatus.FOUND)
+            .location(URI.create(presigned.url()))
+            .build();
     }
 
     @GetMapping("/{id}/detail")
@@ -122,9 +135,9 @@ public class DataController {
         List<ActionDescriptor> actions = new ArrayList<>();
         actions.add(new ActionDescriptor(
             "DOWNLOAD", "Download",
-            "Stream the binary back to the browser",
-            "Download", "GET", "/api/dst/data/" + id, "RAW", null, List.of(),
-            false, false, null, downloadViolations, Map.of("openInNewTab", true)
+            "Download the file directly from object storage via a presigned URL",
+            "Download", "GET", "/api/dst/data/" + id + "/download-url", "RAW", null, List.of(),
+            false, false, null, downloadViolations, Map.of("presignedDownload", true)
         ));
         actions.add(new ActionDescriptor(
             "DELETE", "Delete",

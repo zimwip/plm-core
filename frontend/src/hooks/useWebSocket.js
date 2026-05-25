@@ -21,122 +21,151 @@ function fmtEvent(evt) {
   return `[WS] ${parts.join(' · ')}`;
 }
 
+// ── Shared singleton connection ─────────────────────────────────────
+// One physical WebSocket per browser tab, regardless of how many
+// components call useWebSocket(). Each incoming frame is dispatched once
+// onto the shellStore WS event bus. Components subscribe logically.
+let socket = null;
+let refCount = 0;
+let currentUserId = null;
+let currentProjectSpaceId = null;
+let reconnectTimer = null;
+let reconnectDelay = 1000;
+let closeTimer = null;
+
+function sendSubscribe() {
+  if (currentProjectSpaceId && socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'subscribe', projectSpaceId: currentProjectSpaceId }));
+  }
+}
+
+function openSocket() {
+  const token = getSessionToken();
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  // Trailing slash matters: ws-gateway's context-path is /api/ws and the WebSocket
+  // handler is registered at "/". Without the slash the request hits the bare
+  // context-root and returns 404. See docker-compose logs from Apr-24 for the dig.
+  const url = token
+    ? `${proto}//${location.host}/api/ws/?token=${encodeURIComponent(token)}`
+    : `${proto}//${location.host}/api/ws/`;
+
+  socket = new WebSocket(url);
+
+  socket.onopen = () => {
+    reconnectDelay = 1000;
+    wsLog('debug', '[WS] connected');
+    sendSubscribe();
+  };
+
+  socket.onmessage = (e) => {
+    try {
+      const event = JSON.parse(e.data);
+      wsLog('info', fmtEvent(event));
+      useShellStore.getState().fireWsEvent(event);
+    } catch (err) {
+      console.warn('WS parse error', err);
+      wsLog('warn', `[WS] parse error: ${err.message}`);
+    }
+  };
+
+  socket.onclose = () => {
+    socket = null;
+    if (refCount === 0) return; // no live consumers — stay closed
+    wsLog('warn', `[WS] disconnected — reconnecting in ${reconnectDelay}ms`);
+    reconnectTimer = setTimeout(() => {
+      reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+      openSocket();
+    }, reconnectDelay);
+  };
+
+  socket.onerror = () => {
+    wsLog('warn', '[WS] connection error');
+    // onclose fires after onerror, triggering reconnect
+  };
+}
+
+function closeSocket() {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (socket) {
+    socket.onclose = null; // prevent reconnect on intentional close
+    socket.close();
+    socket = null;
+  }
+}
+
+function reconnect() {
+  closeSocket();
+  reconnectDelay = 1000;
+  if (refCount > 0) openSocket();
+}
+
+function acquire(userId) {
+  if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+  refCount += 1;
+  if (!socket) {
+    currentUserId = userId;
+    openSocket();
+  } else if (userId !== currentUserId) {
+    // Authenticated user changed — reconnect with the fresh session token.
+    currentUserId = userId;
+    reconnect();
+  }
+}
+
+function release() {
+  refCount = Math.max(0, refCount - 1);
+  if (refCount === 0) {
+    // Deferred close absorbs React 18 StrictMode unmount→remount and fast
+    // route changes: a remount's acquire() cancels this timer.
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
+      if (refCount === 0) closeSocket();
+    }, 250);
+  }
+}
+
+function setProjectSpace(ps) {
+  currentProjectSpaceId = ps;
+  sendSubscribe();
+}
+
 /**
- * Subscribe to real-time PLM events via native WebSocket.
+ * Subscribe to real-time PLM events via the shared WebSocket.
  *
- * The WS connection is project-agnostic. After connecting, a subscribe
- * message is sent to ws-gateway to establish the per-project NATS
- * subscription. When projectSpaceId changes, a new subscribe message is
- * sent without reconnecting.
+ * All call sites share a single physical connection (ref-counted). The hook
+ * itself only registers `onEvent` on the shellStore WS event bus and keeps the
+ * shared socket alive while mounted. Each NATS frame is delivered exactly once.
  *
  * Auth: session token passed as ?token= on the /api/ws URL.
- * spe-api's AuthenticationFilter validates it and mints a forward JWT
- * before proxying to ws-gateway.
  *
- * @param {string|string[]} topics  - Kept for API compatibility. Not used for routing
- *                                    (NATS subjects handle scoping server-side).
- * @param {function} onEvent        - Called with parsed JSON event object.
- * @param {string} userId           - Triggers reconnect when user changes.
- * @param {string} projectSpaceId   - Current project space; sent via subscribe message
- *                                    after connect and on each change.
+ * @param {string|string[]} topics  - Kept for API compatibility. Ignored —
+ *                                    NATS subjects handle scoping server-side.
+ * @param {function} onEvent        - Called with each parsed JSON event object.
+ * @param {string} userId           - Triggers reconnect when the user changes.
+ * @param {string} projectSpaceId   - Current project space; sent via subscribe
+ *                                    message after connect and on each change.
  */
 export function useWebSocket(topics, onEvent, userId, projectSpaceId) {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
-  // Stable ref so the subscribe effect always sends the latest value.
-  const projectSpaceIdRef = useRef(projectSpaceId);
-  projectSpaceIdRef.current = projectSpaceId;
-
-  // Ref to the live WebSocket so the projectSpaceId effect can reach it.
-  const wsRef = useRef(null);
-
-  const topicArr = Array.isArray(topics) ? topics : (topics ? [topics] : []);
-  const topicKey = topicArr.join('\0');
-
-  // ── Connection lifecycle (reconnect on user change) ───────────────
+  // ── Shared connection lifetime (reconnect on user change) ─────────
   useEffect(() => {
-    if (topicArr.length === 0) return;
+    acquire(userId);
+    return () => release();
+  }, [userId]);
 
-    let ws = null;
-    let reconnectTimer = null;
-    let reconnectDelay = 1000;
-    let disposed = false;
-
-    function sendSubscribe(socket) {
-      const ps = projectSpaceIdRef.current;
-      if (ps && socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'subscribe', projectSpaceId: ps }));
-      }
-    }
-
-    function connect() {
-      if (disposed) return;
-
-      const token = getSessionToken();
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      // Trailing slash matters: ws-gateway's context-path is /api/ws and the WebSocket
-      // handler is registered at "/". Without the slash the request hits the bare
-      // context-root and returns 404. See docker-compose logs from Apr-24 for the dig.
-      const url = token
-        ? `${proto}//${location.host}/api/ws/?token=${encodeURIComponent(token)}`
-        : `${proto}//${location.host}/api/ws/`;
-
-      ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        reconnectDelay = 1000;
-        wsLog('debug', '[WS] connected');
-        sendSubscribe(ws);
-      };
-
-      ws.onmessage = (e) => {
-        try {
-          const event = JSON.parse(e.data);
-          wsLog('info', fmtEvent(event));
-          onEventRef.current(event);
-          useShellStore.getState().fireWsEvent(event);
-        } catch (err) {
-          console.warn('WS parse error', err);
-          wsLog('warn', `[WS] parse error: ${err.message}`);
-        }
-      };
-
-      ws.onclose = (e) => {
-        wsRef.current = null;
-        if (disposed) return;
-        wsLog('warn', `[WS] disconnected — reconnecting in ${reconnectDelay}ms`);
-        reconnectTimer = setTimeout(() => {
-          reconnectDelay = Math.min(reconnectDelay * 2, 30000);
-          connect();
-        }, reconnectDelay);
-      };
-
-      ws.onerror = () => {
-        wsLog('warn', '[WS] connection error');
-        // onclose fires after onerror, triggering reconnect
-      };
-    }
-
-    connect();
-
-    return () => {
-      disposed = true;
-      wsRef.current = null;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (ws) {
-        ws.onclose = null; // prevent reconnect on intentional close
-        ws.close();
-      }
-    };
-  }, [topicKey, userId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Project space subscription (no reconnect on ps change) ───────
+  // ── Logical event subscription on the shared bus ──────────────────
   useEffect(() => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN && projectSpaceId) {
-      ws.send(JSON.stringify({ type: 'subscribe', projectSpaceId }));
-    }
+    const handler = (evt) => { if (onEventRef.current) onEventRef.current(evt); };
+    return useShellStore.getState().subscribeWsEvent(handler);
+  }, []);
+
+  // ── Project space subscription (no reconnect on ps change) ────────
+  // Only the shell passes projectSpaceId; other callers (plugins) omit it
+  // and must not clobber the shared value.
+  useEffect(() => {
+    if (projectSpaceId === undefined) return;
+    setProjectSpace(projectSpaceId);
   }, [projectSpaceId]);
 }

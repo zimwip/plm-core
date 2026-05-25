@@ -76,6 +76,8 @@ BASE_IMAGES=(
     "docker.io/library/node:20-alpine"
     "docker.io/library/node:20-slim"
     "docker.io/library/nginx:alpine"
+    "docker.io/library/alpine:3.20"
+    "docker.io/dxflrs/garage:v2.1.0"
 )
 
 pull_base_images() {
@@ -276,7 +278,7 @@ run_local() {
     log "node  : $(node --version)"
     log "mvnw  : per-service mvnw (downloads Maven 3.9.9 if needed)"
 
-    log "Starting all services locally (H2 in-memory, no Docker required)…"
+    log "Starting all services locally (H2 in-memory; Garage runs as a container)…"
     echo ""
 
     log "Installing platform-lib to local ~/.m2…"
@@ -300,6 +302,24 @@ run_local() {
             fi
         fi
     done
+    echo ""
+
+    # dst stores blobs in S3 (Garage). Local mode runs dst natively but still
+    # needs a live S3 endpoint, so bring up just the garage containers and
+    # point dst at the host-published S3 port.
+    log "Starting Garage (S3 object store) container…"
+    if [[ -f .env ]]; then set -a; . ./.env; set +a; fi
+    if ! docker compose up -d garage garage-bootstrap; then
+        err "Failed to start Garage — aborting local mode"
+        exit 1
+    fi
+    export DST_S3_ENDPOINT="http://localhost:3900"
+    export DST_S3_PUBLIC_ENDPOINT="http://localhost:5173"
+    export DST_S3_REGION="garage"
+    export DST_S3_BUCKET="${GARAGE_S3_BUCKET:-plm-dst}"
+    export DST_S3_ACCESS_KEY="${GARAGE_S3_ACCESS_KEY:-}"
+    export DST_S3_SECRET_KEY="${GARAGE_S3_SECRET_KEY:-}"
+    ok "Garage up — dst → http://localhost:3900"
     echo ""
 
     for svc in "${SVC_NAMES[@]}"; do
@@ -460,6 +480,11 @@ run_package() {
     cp vault/bootstrap.sh "$DIST/vault/bootstrap.sh"
     chmod +x "$DIST/vault/bootstrap.sh"
 
+    mkdir -p "$DIST/garage"
+    cp garage/garage.toml  "$DIST/garage/garage.toml"
+    cp garage/bootstrap.sh "$DIST/garage/bootstrap.sh"
+    chmod +x "$DIST/garage/bootstrap.sh"
+
     if $NATIVE_MODE; then
         log "=== PLM Core — package (native) ==="
         log "GraalVM static binaries — this takes ~5–10 min per service"
@@ -579,9 +604,7 @@ run_package() {
         if $NATIVE_MODE; then
             write_native_dockerfile "$DIST/$svc/Dockerfile" "${SVC_PORT[$svc]}"
         else
-            local extra_setup=""
-            [[ "$svc" == "dst" ]] && extra_setup="mkdir -p /var/lib/dst-data && chown app:app /var/lib/dst-data"
-            write_jvm_dockerfile    "$DIST/$svc/Dockerfile" "${SVC_PORT[$svc]}" "$extra_setup"
+            write_jvm_dockerfile    "$DIST/$svc/Dockerfile" "${SVC_PORT[$svc]}" ""
         fi
     done
     write_frontend_dockerfile   "$DIST/frontend/Dockerfile"
@@ -595,6 +618,13 @@ run_package() {
 PG_PASSWORD=changeme
 # Must be >= 32 bytes — generate with: openssl rand -base64 32
 PLM_SERVICE_SECRET=
+# Garage (S3 object store) — generate hex secrets with: openssl rand -hex 32
+GARAGE_RPC_SECRET=
+GARAGE_ADMIN_TOKEN=
+# Access key MUST start with "GK" — echo GK$(openssl rand -hex 12)
+GARAGE_S3_ACCESS_KEY=
+GARAGE_S3_SECRET_KEY=
+GARAGE_S3_BUCKET=plm-dst
 EOF
 
     echo ""
@@ -603,6 +633,11 @@ EOF
     cat > "$DIST/.env" <<EOF
 PG_PASSWORD=$(openssl rand -hex 16)
 PLM_SERVICE_SECRET=$(openssl rand -base64 32)
+GARAGE_RPC_SECRET=$(openssl rand -hex 32)
+GARAGE_ADMIN_TOKEN=$(openssl rand -hex 32)
+GARAGE_S3_ACCESS_KEY=GK$(openssl rand -hex 12)
+GARAGE_S3_SECRET_KEY=$(openssl rand -hex 32)
+GARAGE_S3_BUCKET=plm-dst
 EOF
 
     log "Building and starting dist/docker-compose.yml…"

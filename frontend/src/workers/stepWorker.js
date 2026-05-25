@@ -244,6 +244,29 @@ function parseGlb(buffer) {
   });
 }
 
+// ─── Chunked Range download ───────────────────────────────────────────────
+const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
+
+async function fetchChunked(url, size, onProgress) {
+  const chunks = [];
+  let loaded = 0;
+  const numChunks = Math.ceil(size / CHUNK_SIZE);
+  for (let i = 0; i < numChunks; i++) {
+    const start = i * CHUNK_SIZE;
+    const end   = Math.min(start + CHUNK_SIZE - 1, size - 1);
+    const res   = await fetch(url, { headers: { Range: `bytes=${start}-${end}` } });
+    if (res.status !== 206 && !res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+    const chunk = await res.arrayBuffer();
+    chunks.push(chunk);
+    loaded += chunk.byteLength;
+    onProgress(loaded, size);
+  }
+  const out = new Uint8Array(size);
+  let off = 0;
+  for (const c of chunks) { out.set(new Uint8Array(c), off); off += c.byteLength; }
+  return out.buffer;
+}
+
 // ─── Core fetch + parse ───────────────────────────────────────────────────
 async function _fetchAndParse(uuid, token, projectSpace, kind = 'design') {
   self.postMessage({ type: 'log', level: 'info', message: `[3D] Downloading ${uuid} (kind=${kind})` });
@@ -253,12 +276,17 @@ async function _fetchAndParse(uuid, token, projectSpace, kind = 'design') {
   const headers = {};
   if (token)        headers['Authorization']      = `Bearer ${token}`;
   if (projectSpace) headers['X-PLM-ProjectSpace'] = projectSpace;
-  const res = await fetch(`/api/dst/data/${uuid}`, { headers });
-  if (!res.ok) {
-    self.postMessage({ type: 'log', level: 'error', message: `[3D] Download failed for ${uuid}: HTTP ${res.status}` });
-    throw new Error(`Download failed: HTTP ${res.status}`);
+  // Resolve a presigned URL, then pull the bytes straight from object storage
+  // (same-origin via the nginx /plm-dst/ route — no auth header needed).
+  const urlRes = await fetch(`/api/dst/data/${uuid}/download-url`, { headers });
+  if (!urlRes.ok) {
+    self.postMessage({ type: 'log', level: 'error', message: `[3D] Download-url failed for ${uuid}: HTTP ${urlRes.status}` });
+    throw new Error(`Download failed: HTTP ${urlRes.status}`);
   }
-  const buf = await res.arrayBuffer();
+  const { url, size } = await urlRes.json();
+  const buf = await fetchChunked(url, size, (loaded, total) => {
+    self.postMessage({ type: 'progress', uuid, phase: 'downloading', loaded, total });
+  });
   const dlMs = Math.round(performance.now() - dlStart);
   _dlTimes.push(dlMs);
   if (_dlTimes.length > MAX_SAMPLES) _dlTimes.shift();
@@ -274,7 +302,11 @@ async function _fetchAndParse(uuid, token, projectSpace, kind = 'design') {
   } else {
     // STEP path — OCCT tessellation
     const occt   = await getOcct();
-    const result = occt.ReadStepFile(new Uint8Array(buf), null);
+    const result = occt.ReadStepFile(new Uint8Array(buf), {
+      linearDeflection: 0.05,
+      angularDeflection: 0.3,
+      linearDeflectionType: 'BRepRelative',
+    });
     if (!result?.success || !result.meshes?.length) {
       self.postMessage({ type: 'log', level: 'warn', message: `[3D] No geometry in ${uuid}` });
       throw new Error('No geometry found');
@@ -303,7 +335,9 @@ async function _fetchAndParse(uuid, token, projectSpace, kind = 'design') {
     _cache.set(uuid, { meshes: cachedMeshes, bytes, lastUsed: Date.now() });
     _cacheBytes += bytes;
   }
-  idbPut(uuid, cachedMeshes).catch(() => {});
+  idbPut(uuid, cachedMeshes).catch(e =>
+    self.postMessage({ type: 'log', level: 'warn', message: `[3D] IDB write failed: ${e.message}` })
+  );
 
   _netFetches++;
   self.postMessage({ type: 'ready', uuid, meshes }, transferList(meshes));
@@ -348,6 +382,9 @@ async function loadPart(uuid, token, projectSpace, kind = 'design') {
       _cache.set(uuid, { meshes: cachedMeshes, bytes, lastUsed: Date.now() });
       _cacheBytes += bytes;
     }
+    idbPut(uuid, cachedMeshes).catch(e =>
+      self.postMessage({ type: 'log', level: 'warn', message: `[3D] IDB refresh failed: ${e.message}` })
+    );
     self.postMessage({ type: 'ready', uuid, meshes: idbEntry.meshes }, transferList(idbEntry.meshes));
     pushStats();
     return;

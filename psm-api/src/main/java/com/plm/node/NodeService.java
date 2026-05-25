@@ -1420,7 +1420,7 @@ public class NodeService {
             String logicalId      = node.get("logical_id",       String.class);
 
             org.jooq.Record version = dsl.fetchOne("""
-                SELECT nv.id, nv.revision, nv.iteration
+                SELECT nv.id, nv.revision, nv.iteration, nv.lifecycle_state_id
                   FROM node_version nv
                   JOIN plm_transaction pt ON pt.id = nv.tx_id
                  WHERE nv.node_id = ?
@@ -1452,8 +1452,10 @@ public class NodeService {
                 }
             }
 
-            String revision  = version.get("revision",  String.class);
-            Integer iteration = version.get("iteration", Integer.class);
+            String revision   = version.get("revision",           String.class);
+            Integer iteration = version.get("iteration",          Integer.class);
+            String stateId    = version.get("lifecycle_state_id", String.class);
+            String stateName  = resolveStateName(stateId);
 
             List<Map<String, Object>> fields = new ArrayList<>();
             fields.add(Map.of("name", "logical_id", "valueType", "string",
@@ -1462,6 +1464,10 @@ public class NodeService {
                 "values", List.of(revision != null ? revision : "")));
             fields.add(Map.of("name", "iteration", "valueType", "number",
                 "values", List.of(iteration != null ? (double) iteration : 0.0)));
+            if (stateName != null && !stateName.isBlank()) {
+                fields.add(Map.of("name", "state", "valueType", "enum",
+                    "values", List.of(stateName)));
+            }
 
             for (ResolvedAttribute attr : attrs) {
                 String raw = attrValues.get(attr.id());

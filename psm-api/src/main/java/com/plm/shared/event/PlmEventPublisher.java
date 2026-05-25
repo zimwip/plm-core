@@ -133,6 +133,17 @@ public class PlmEventPublisher {
         itemUpdated(nodeId, byUser, Map.of());
     }
 
+    @PlmEvent(code = "ITEM_DEFINITION_UPDATED",
+              description = "Item attribute definition changed (domain assigned/unassigned — attribute set differs)")
+    public void itemDefinitionUpdated(String nodeId, String byUser) {
+        enqueue("global.ITEM_DEFINITION_UPDATED", PlmEventEnvelope.of("ITEM_DEFINITION_UPDATED")
+            .source("psm")
+            .itemId(nodeId)
+            .byUser(byUser)
+            .build());
+        log.debug("Event enqueued: ITEM_DEFINITION_UPDATED → node={}", nodeId);
+    }
+
     @PlmEvent(code = "SIGNED", description = "Node version signed by a user")
     public void signed(String nodeId, String signedBy, String meaning) {
         enqueue("global.SIGNED", PlmEventEnvelope.of("SIGNED")

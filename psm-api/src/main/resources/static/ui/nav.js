@@ -1,5 +1,5 @@
 import { jsxs as l, jsx as t, Fragment as x } from "react/jsx-runtime";
-import { i as S, p as _ } from "./psmApi-B75Wvp00.js";
+import { i as S, p as _ } from "./psmApi-uItxvmzj.js";
 function A({ size: e = 9, color: n = "currentColor", strokeWidth: o = 2.5 }) {
   return /* @__PURE__ */ t(
     "svg",

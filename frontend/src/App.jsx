@@ -79,6 +79,7 @@ export default function App() {
   const tx                   = usePlmStore(s => s.activeTx);
   const txNodes              = usePlmStore(s => s.txNodes);
   const refreshNodes         = usePlmStore(s => s.refreshNodes);
+  const notifyCreated        = usePlmStore(s => s.notifyCreated);
   const refreshTx            = usePlmStore(s => s.refreshTx);
   const refreshAll           = usePlmStore(s => s.refreshAll);
   const refreshItems         = usePlmStore(s => s.refreshItems);
@@ -275,7 +276,7 @@ export default function App() {
         if (evt.byUser === userId) (evt.nodeIds || []).forEach(unlockItem);
         refreshTx(); bumpBrowse();
       } else if (evt.event === 'ITEM_CREATED') {
-        refreshNodes(); refreshTx(); bumpBrowse();
+        refreshTx(); notifyCreated(evt.typeCode);
       } else if (evt.event === 'ITEM_CAPTURED') {
         refreshTx();
       } else if (evt.event === 'BASKET_ITEM_ADDED') {
@@ -284,7 +285,8 @@ export default function App() {
         syncBasketRemove(evt.key, evt.value);
       } else if (evt.event === 'BASKET_CLEARED') {
         syncBasketClear();
-      } else if (evt.event === 'ITEM_VERSION_CREATED' || evt.event === 'ITEM_UPDATED') {
+      } else if (evt.event === 'ITEM_VERSION_CREATED' || evt.event === 'ITEM_UPDATED'
+                 || evt.event === 'ITEM_DEFINITION_UPDATED') {
         const nid = evt.nodeId || evt.itemId;
         if (nid) refreshTabData(nid);
         refreshNodes(); bumpBrowse();
@@ -380,6 +382,8 @@ export default function App() {
     setActiveTabId('dashboard');
     setSelectedDesc(null);
     setSearchQuery('');
+    setTabData({});
+    fetchedNodeIds.current.clear();
   }
 
   function handleProjectSpaceChange(psId) {
@@ -629,7 +633,7 @@ export default function App() {
             resources={resources}
             initialDescriptor={createNodeDescriptor}
             onCreated={async (result, descriptor) => {
-              await refreshAll();
+              await refreshTx();
               if (descriptor?.serviceCode === 'psm' && result?.nodeId) navigate(result.nodeId, undefined, psmNodeDescriptor);
             }}
             onClose={() => { setShowCreateNode(false); setCreateNodeDescriptor(null); }}

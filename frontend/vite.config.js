@@ -63,6 +63,9 @@ export default defineConfig({
       '/api/pno': 'http://localhost:8081',
       '/api':     'http://localhost:8080',
       '/ws':      { target: 'http://localhost:8080', ws: true },
+      // Presigned S3 object URLs → Garage. changeOrigin stays false so the
+      // original Host is forwarded and the SigV4 signature still validates.
+      '/plm-dst': 'http://localhost:3900',
     }
   }
 })

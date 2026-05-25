@@ -129,6 +129,8 @@ export default function BrowseNav({
   const [activeJob, setActiveJob] = useState(null); // null | { id, data }
   const cadJobPollRef = useRef(null);
 
+  const lastCreatedItem = usePlmStore(s => s.lastCreatedItem);
+
   const ctx = useMemo(() => ({
     userId, activeNodeId, stateColorMap, onNavigate,
   }), [userId, activeNodeId, stateColorMap, onNavigate]);
@@ -147,6 +149,17 @@ export default function BrowseNav({
     descriptors.forEach(d => loadDescriptorPage(d, 0).catch(() => null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [descriptors, refreshKey]);
+
+  // ── Targeted reload on ITEM_CREATED — only the matching descriptor ──
+  useEffect(() => {
+    if (!lastCreatedItem?.typeCode) return;
+    const d = descriptors.find(d => d.itemCode === lastCreatedItem.typeCode);
+    if (d) {
+      setExpandedDescriptors(prev => new Set([...prev, keyOf(d)]));
+      loadDescriptorPage(d, 0).catch(() => null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastCreatedItem]);
 
   // ── Auto-expand the descriptor that owns the active node ─────────
   useEffect(() => {

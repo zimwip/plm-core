@@ -905,13 +905,9 @@ export const api = {
     pnoRequest('GET', `/users/${userId}/context${projectSpaceId ? `?projectSpaceId=${encodeURIComponent(projectSpaceId)}` : ''}`, null),
 
   // ── Dashboard ────────────────────────────────────────────────────
-  /** Open TX summary for current user. Returns null (204) if no open tx. */
-  getDashboardTransaction: (userId) =>
-    request('GET', '/dashboard/transaction', userId),
-
-  /** Last N modified nodes with available actions, sorted by action count. */
-  getDashboardWorkItems: (userId) =>
-    request('GET', '/dashboard/workitems', userId),
+  /** Federated dashboard sections from all registered services. */
+  getDashboardEntries: (userId) =>
+    platformRequest('GET', '/dashboard/entries', userId),
 
   // ── Permissions & Policies (Access Rights section) ──────────────────
 
