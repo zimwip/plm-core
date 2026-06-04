@@ -20,6 +20,9 @@
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/lifecycle/LifecycleService.java
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/metadata/MetadataController.java
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/metadata/MetadataService.java
+/home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/metamodel/AttributeValidatorAdminService.java
+/home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/metamodel/AttributeValidatorBootstrap.java
+/home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/metamodel/AttributeValidatorController.java
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/metamodel/MetaModelController.java
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/metamodel/MetaModelService.java
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/permission/PermissionAdminService.java
@@ -31,7 +34,6 @@
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/shared/GlobalExceptionHandler.java
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/shared/JacksonConfig.java
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/shared/MapKeyUtil.java
-/home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/shared/PlmFunctionalException.java
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/source/SourceController.java
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/source/SourceDto.java
 /home/tzimmer/work/plm-core/psm-admin/src/main/java/com/plm/admin/source/SourceService.java

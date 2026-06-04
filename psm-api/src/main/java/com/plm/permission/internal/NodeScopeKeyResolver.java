@@ -2,7 +2,7 @@ package com.plm.permission.internal;
 
 import com.plm.platform.authz.AuthzContext;
 import com.plm.platform.authz.ScopeKeyResolver;
-import com.plm.shared.exception.PlmFunctionalException;
+import com.plm.platform.exception.PlmFunctionalException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;

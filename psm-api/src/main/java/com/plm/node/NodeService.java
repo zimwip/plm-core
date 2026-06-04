@@ -93,6 +93,7 @@ public class NodeService {
     private final SecurityContextPort             secCtx;
     private final MetadataService                 metadataService;
     private final com.plm.shared.security.PnoProjectSpaceClient pnoProjectSpaceClient;
+    private final com.plm.node.metamodel.internal.validation.AttributeValidatorService attributeValidatorService;
 
     // ================================================================
     // CRÉATION — only logical_id (+ optional external_id) are accepted.
@@ -929,40 +930,32 @@ public class NodeService {
         Map<String, Integer> displayOrderMap = new LinkedHashMap<>();
         for (ResolvedAttribute attr : effectiveAttrs) {
             String attrId = attr.id();
-            MetaModelCachePort.StateRuleInfo rule = currentStateId != null
-                ? metaModelCache.getStateRuleInfo(nodeTypeId, attrId, currentStateId) : null;
-            boolean stateEditable = rule == null || rule.editable();
-            boolean stateVisible  = rule == null || rule.visible();
+            String attrValue = currentValues.getOrDefault(attrId, "");
+            // Node-context-aware hints: required / editable + any validator-contributed
+            // key/values, computed once and carried as the field's extras.
+            Map<String, Object> hints = attributeValidatorService.hints(
+                nodeTypeId, currentStateId, attrId, nodeId, attrValue, currentValues);
+            boolean stateEditable = !Boolean.FALSE.equals(hints.get("editable"));
+            boolean stateVisible  = !attributeValidatorService.isHidden(currentStateId, attrId);
             ViewService.AttributeOverride ov = viewService.applyViewOverride(
                 activeViewId, attrId, stateEditable, stateVisible,
                 attr.displayOrder(), attr.displaySection());
             if (!ov.visible()) continue;
 
-            boolean required = (rule != null && rule.required()) || attr.required();
-            values.add(new FieldValue(
-                attrId,
-                currentValues.getOrDefault(attrId, ""),
-                ov.editable(),
-                required
-            ));
+            // Effective editable (state ∩ view) and required live in extras alongside
+            // any validator-contributed key/values.
+            Map<String, Object> extras = new LinkedHashMap<>(hints);
+            extras.put("required", Boolean.TRUE.equals(hints.get("required")));
+            extras.put("editable", ov.editable());
+            values.add(new FieldValue(attrId, attrValue, extras));
             displayOrderMap.put(attrId, ov.displayOrder());
         }
         values.sort(Comparator.comparingInt(fv -> displayOrderMap.getOrDefault(fv.name(), 0)));
 
-        // System nav values — prepended so detailToItem() exposes them as flat item
-        // properties that NavRow components read (logical_id, revision, etc.).
-        // Kept out of the user-editable attribute list.
-        List<FieldValue> navValues = new ArrayList<>();
-        navValues.add(new FieldValue("logical_id",         logicalId       != null ? logicalId                : "", false, false));
-        navValues.add(new FieldValue("revision",           revision        != null ? revision                 : "", false, false));
-        navValues.add(new FieldValue("iteration",          String.valueOf(iteration),                               false, false));
-        navValues.add(new FieldValue("lifecycle_state_id", currentStateId  != null ? currentStateId           : "", false, false));
-        navValues.add(new FieldValue("tx_status",          txStatus        != null ? txStatus                 : "COMMITTED", false, false));
-        navValues.add(new FieldValue("locked_by",          lockInfo.lockedBy() != null ? lockInfo.lockedBy()  : "", false, false));
-        navValues.add(new FieldValue("node_type_id",       nodeTypeId,                                              false, false));
-        navValues.add(new FieldValue("display_name",       displayName     != null ? displayName              : "", false, false));
-        navValues.addAll(values);
-        values = navValues;
+        // System/identity fields (logical_id, revision, state, lock, …) are carried
+        // exclusively in `metadata` below — NOT duplicated into `values`. `values`
+        // stays the user-editable attribute list. The frontend maps the metadata
+        // envelope to flat nav props in detailToItem().
 
         // Lock info
         String lockTxId = lockInfo.locked()
@@ -1067,8 +1060,12 @@ public class NodeService {
                 attr.displayOrder()
             ));
             Map<String, Object> enrichment = new LinkedHashMap<>();
-            enrichment.put("namingRegex",     attr.namingRegex()     != null ? attr.namingRegex()     : "");
-            enrichment.put("allowedValues",   attr.allowedValues()   != null ? attr.allowedValues()   : "");
+            // Display data — always present so the frontend can render the enum
+            // select (and other widgets) regardless of any attached validation rule.
+            enrichment.put("allowedValues", attr.allowedValues() != null ? attr.allowedValues() : "");
+            // Validation hints (e.g. regex) from attached AttributeValidators — additive,
+            // may add a "regex" key or override "allowedValues".
+            enrichment.putAll(attributeValidatorService.hints(nodeTypeId, null, attr.id()));
             enrichment.put("sourceDomainId",  attr.sourceDomainId()  != null ? attr.sourceDomainId()  : "");
             enrichment.put("sourceDomainName",attr.sourceDomainName()!= null ? attr.sourceDomainName(): "");
             fieldMetaEnrichments.put(attr.id(), enrichment);
@@ -1116,8 +1113,10 @@ public class NodeService {
                 attr.tooltip(), attr.displaySection(), attr.displayOrder()
             ));
             Map<String, Object> enrichment = new LinkedHashMap<>();
-            enrichment.put("namingRegex",     attr.namingRegex()    != null ? attr.namingRegex()    : "");
             enrichment.put("allowedValues",   attr.allowedValues()  != null ? attr.allowedValues()  : "");
+            // Validation hints (required / regex) from attached validators. Domain attrs
+            // are not bound to a node type, so look them up via the wildcard bucket.
+            enrichment.putAll(attributeValidatorService.hints(null, null, attr.id()));
             enrichment.put("sourceDomainId",  domainId);
             enrichment.put("sourceDomainName", domName);
             fieldMetaEnrichments.put(attr.id(), enrichment);
@@ -1357,7 +1356,7 @@ public class NodeService {
     }
 
     public static class FrozenStateException
-        extends com.plm.shared.exception.PlmFunctionalException
+        extends com.plm.platform.exception.PlmFunctionalException
     {
 
         public FrozenStateException(String nodeId, String stateId) {
@@ -1373,7 +1372,7 @@ public class NodeService {
     }
 
     public static class CircularReferenceException
-        extends com.plm.shared.exception.PlmFunctionalException
+        extends com.plm.platform.exception.PlmFunctionalException
     {
 
         public CircularReferenceException(

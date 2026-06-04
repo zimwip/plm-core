@@ -14,6 +14,36 @@ import { getItemTypeDescriptor } from '../services/itemTypeCache';
  * adopted by DST and any future user service.
  */
 
+// Client-side validation from the generic validator hints carried by
+// staticMetadata.fieldMeta[attrId] — `regex` (string pattern) and
+// `allowedValues` (array or comma/JSON list). Returns null when there is no
+// hint or no value to check, true if valid, false if it violates a hint.
+function safeRegex(src) { try { return new RegExp(`^(?:${src})$`); } catch { return null; } }
+
+function toList(allowed) {
+  if (allowed == null) return null;
+  if (Array.isArray(allowed)) return allowed.map(String);
+  if (typeof allowed === 'string') {
+    const s = allowed.trim();
+    if (!s) return null;
+    if (s.startsWith('[')) { try { return JSON.parse(s).map(String); } catch { /* fall through */ } }
+    return s.split(',').map(x => x.trim()).filter(Boolean);
+  }
+  return null;
+}
+
+function validateValue(value, regex, allowedValues) {
+  if (value == null || value === '') return null;
+  const str = String(value);
+  if (regex) {
+    const re = safeRegex(regex);
+    if (re && !re.test(str)) return false;
+  }
+  const list = toList(allowedValues);
+  if (list && list.length && !list.includes(str)) return false;
+  return (regex || (list && list.length)) ? true : null;
+}
+
 function fmtValue(field) {
   const v = field.value;
   if (v == null || v === '') return <span style={{ color: 'var(--muted2)' }}>—</span>;
@@ -158,7 +188,6 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
   }
 
   // Merge type-level metadata (label, widget, hint) with instance values.
-  // Falls back to field-level data for backward compat while backends migrate.
   const fieldMetaByName = useMemo(() => {
     const m = {};
     for (const fm of typeDesc?.fields ?? []) m[fm.name] = fm;
@@ -166,16 +195,24 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
   }, [typeDesc]);
 
   const mergedFields = useMemo(() => {
-    const rawFields = detail?.values ?? detail?.fields ?? [];
-    return rawFields.map(fv => ({
-      name:     fv.name,
-      value:    fv.value,
-      editable: fv.editable,
-      required: fv.required ?? false,
-      label:    fieldMetaByName[fv.name]?.label  ?? fv.label  ?? fv.name,
-      widget:   fieldMetaByName[fv.name]?.widget ?? fv.widget ?? 'text',
-      hint:     fieldMetaByName[fv.name]?.hint   ?? fv.hint   ?? null,
-    }));
+    const rawFields = detail?.values ?? [];
+    return rawFields.map(fv => {
+      const fm = fieldMetaByName[fv.name] || {};
+      const extras = fv.extras || {};
+      return {
+        name:          fv.name,
+        value:         fv.value,
+        editable:      extras.editable ?? true,
+        required:      extras.required ?? false,
+        label:         fm.label  ?? fv.name,
+        widget:        fm.widget ?? 'text',
+        hint:          fm.hint   ?? null,
+        // Generic validator hints — only present when a validator is attached.
+        regex:         fm.regex ?? null,
+        allowedValues: fm.allowedValues ?? null,
+        validity:      validateValue(fv.value, fm.regex, fm.allowedValues),
+      };
+    });
   }, [detail, fieldMetaByName]);
 
   // Derive display header from type descriptor's titleField/subtitleField
@@ -184,8 +221,7 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
       const f = mergedFields.find(f => f.name === typeDesc.titleField);
       if (f?.value) return String(f.value);
     }
-    // backward compat: old responses had title on the descriptor
-    return detail?.title ?? detail?.id;
+    return detail?.id;
   }, [typeDesc, mergedFields, detail]);
 
   const displaySubtitle = useMemo(() => {
@@ -193,7 +229,7 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
       const f = mergedFields.find(f => f.name === typeDesc.subtitleField);
       if (f?.value) return String(f.value);
     }
-    return detail?.subtitle ?? null;
+    return null;
   }, [typeDesc, mergedFields, detail]);
 
   const displayColor = typeDesc?.color ?? detail?.color;
@@ -253,7 +289,17 @@ export default function GenericDetailEditor({ tab, ctx, descriptorOverride }) {
                   <div style={{ fontSize: 10, color: 'var(--muted2)' }}>{f.hint}</div>
                 )}
               </td>
-              <td style={{ padding: '6px 8px' }}>{fmtValue(f)}</td>
+              <td style={{ padding: '6px 8px' }}>
+                {fmtValue(f)}
+                {f.validity === false && (
+                  <span
+                    title={f.regex ? `Does not match pattern: ${f.regex}` : 'Not an allowed value'}
+                    style={{ marginLeft: 8, fontSize: 11, color: 'var(--danger, #f87171)' }}
+                  >
+                    ✗ invalid
+                  </span>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>

@@ -141,4 +141,30 @@ export const psaApi = {
   updateEnumValue: (_userId, enumId, valueId, body) => r('PUT', `/enums/${enumId}/values/${valueId}`, body),
   deleteEnumValue: (_userId, enumId, valueId) => r('DELETE', `/enums/${enumId}/values/${valueId}`),
   reorderEnumValues: (_userId, enumId, valueIds) => r('PUT', `/enums/${enumId}/values/reorder`, valueIds),
+
+  // ── Attribute validators (generic pluggable validation) ───────────
+  // Attachments + per-attribute regex live in entity_metadata, published to psm-api.
+  listAttributeValidators: (_userId, nodeTypeId, attrDefId) =>
+    r('GET', `/metamodel/attributes/${attrDefId}/validators?nodeTypeId=${encodeURIComponent(nodeTypeId)}`),
+  attachAttributeValidator: (_userId, attrDefId, body) =>
+    r('POST', `/metamodel/attributes/${attrDefId}/validators`, body),
+  detachAttributeValidator: (_userId, attrDefId, { nodeTypeId, stateId, instanceId }) => {
+    const q = new URLSearchParams();
+    if (nodeTypeId) q.set('nodeTypeId', nodeTypeId);
+    if (stateId)    q.set('stateId', stateId);
+    if (instanceId) q.set('instanceId', instanceId);
+    return r('DELETE', `/metamodel/attributes/${attrDefId}/validators?${q.toString()}`);
+  },
+  getAttributeRegex: (_userId, attrDefId, nodeTypeId) =>
+    r('GET', `/metamodel/attributes/${attrDefId}/regex${nodeTypeId ? `?nodeTypeId=${encodeURIComponent(nodeTypeId)}` : ''}`),
+  setAttributeRegex: (_userId, attrDefId, regex) =>
+    r('PUT', `/metamodel/attributes/${attrDefId}/regex`, { regex }),
+
+  // Generic per-attribute metadata (entity_metadata, target_type=ATTRIBUTE_DEFINITION).
+  listAttributeMetadata: (_userId, attrDefId) =>
+    r('GET', `/metamodel/attributes/${attrDefId}/metadata`),
+  setAttributeMetadata: (_userId, attrDefId, key, value) =>
+    r('PUT', `/metamodel/attributes/${attrDefId}/metadata/${encodeURIComponent(key)}`, { value }),
+  removeAttributeMetadata: (_userId, attrDefId, key) =>
+    r('DELETE', `/metamodel/attributes/${attrDefId}/metadata/${encodeURIComponent(key)}`),
 };

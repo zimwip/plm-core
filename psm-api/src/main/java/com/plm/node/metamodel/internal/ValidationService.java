@@ -47,6 +47,7 @@ public class ValidationService {
     private final DSLContext dsl;
     private final ConfigCache configCache;
     private final MetaModelCachePort metaModelCache;
+    private final com.plm.node.metamodel.internal.validation.AttributeValidatorService attributeValidatorService;
 
     // ====================================================================
     // HARD TIER — schema + value shape (always throws)
@@ -187,54 +188,45 @@ public class ValidationService {
             String label    = displayLabel(attr);
             String value    = values != null ? values.get(attrCode) : null;
 
-            MetaModelCachePort.StateRuleInfo targetRule = (targetStateId != null)
-                ? metaModelCache.getStateRuleInfo(nodeTypeId, attrCode, targetStateId)
-                : null;
+            // Attributes hidden in the target state are not validated (display concern).
+            if (attributeValidatorService.isHidden(targetStateId, attrCode)) continue;
 
-            if (targetRule != null && !targetRule.visible()) continue;
+            // Reject changes to attributes locked (not editable) in the current state.
+            if (currentStateId != null && changedKeys != null && changedKeys.contains(attrCode)
+                    && !attributeValidatorService.isEditable(nodeTypeId, currentStateId, attrCode)) {
+                out.add(new Violation(
+                    "NOT_EDITABLE", attrCode, label,
+                    "Attribute '" + label + "' is not editable in current state"));
+                continue;
+            }
 
-            if (currentStateId != null && changedKeys != null && changedKeys.contains(attrCode)) {
-                MetaModelCachePort.StateRuleInfo currentRule =
-                    metaModelCache.getStateRuleInfo(nodeTypeId, attrCode, currentStateId);
-                if (currentRule != null && !currentRule.editable()) {
+            // 'required' is enforced by the Required attribute validator below (run for
+            // all values including blank), not by a column/state flag anymore.
+            boolean blank = (value == null || value.isBlank());
+            if (!blank) {
+                String shapeError = checkValueShape(attr.dataType(), value);
+                if (shapeError != null) {
                     out.add(new Violation(
-                        "NOT_EDITABLE", attrCode, label,
-                        "Attribute '" + label + "' is not editable in current state"));
+                        "INVALID_VALUE_TYPE", attrCode, label,
+                        "Attribute '" + label + "' " + shapeError));
                     continue;
+                }
+                // ENUM membership is intrinsic to the type — always enforced,
+                // never an attachable validator.
+                if ("ENUM".equals(attr.dataType()) && attr.allowedValues() != null
+                        && !attr.allowedValues().contains("\"" + value + "\"")) {
+                    out.add(new Violation(
+                        "ENUM_NOT_ALLOWED", attrCode, label,
+                        "Attribute '" + label + "' value '" + value + "' is not allowed"));
                 }
             }
 
-            boolean requiredByState = targetRule != null && targetRule.required();
-            boolean requiredGlobal  = attr.required();
-            if ((requiredByState || requiredGlobal) && (value == null || value.isBlank())) {
-                out.add(new Violation(
-                    "REQUIRED", attrCode, label,
-                    "Attribute '" + label + "' is required"));
-                continue;
-            }
-
-            if (value == null || value.isBlank()) continue;
-
-            String shapeError = checkValueShape(attr.dataType(), value);
-            if (shapeError != null) {
-                out.add(new Violation(
-                    "INVALID_VALUE_TYPE", attrCode, label,
-                    "Attribute '" + label + "' " + shapeError));
-                continue;
-            }
-
-            String regex = attr.namingRegex();
-            if (regex != null && !value.matches(regex)) {
-                out.add(new Violation(
-                    "NAMING_REGEX", attrCode, label,
-                    "Attribute '" + label + "' does not match naming rule: " + regex));
-            }
-
-            if ("ENUM".equals(attr.dataType()) && attr.allowedValues() != null
-                    && !attr.allowedValues().contains("\"" + value + "\"")) {
-                out.add(new Violation(
-                    "ENUM_NOT_ALLOWED", attrCode, label,
-                    "Attribute '" + label + "' value '" + value + "' is not allowed"));
+            // Pluggable validators run for ALL values (blank included) so a
+            // Required validator can act on a blank value; value-shaped
+            // validators (regex) skip blank internally.
+            for (com.plm.platform.action.guard.GuardViolation gv :
+                    attributeValidatorService.validate(nodeTypeId, targetStateId, attrCode, value, values, null)) {
+                out.add(new Violation(gv.code(), attrCode, label, gv.message()));
             }
         }
 

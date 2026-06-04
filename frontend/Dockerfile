@@ -3,6 +3,10 @@ FROM docker.io/library/node:20-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --silent
+# Cache-bust below the (cached) npm ci: run.sh passes a fresh CACHEBUST each
+# build so podman/Buildah never reuses a stale source-copy / build layer
+# (the "had to reset to see my changes" symptom). Deps above stay cached.
+ARG CACHEBUST=0
 COPY vite.config.js .
 COPY index.html .
 COPY src ./src

@@ -1,22 +1,20 @@
 package com.plm.platform.action.guard;
 
+import com.plm.platform.exception.PlmFunctionalException;
+
 import java.util.List;
 
 /**
  * Thrown when one or more guard preconditions fail at execution time.
  * HTTP 422 — the request is syntactically valid but the action's preconditions are not met.
  */
-public class GuardViolationException extends RuntimeException {
+public class GuardViolationException extends PlmFunctionalException {
 
     private final List<String> violations;
 
     public GuardViolationException(List<String> violations) {
-        super("Guard violation: " + String.join("; ", violations));
+        super("Guard violation: " + String.join("; ", violations), 422);
         this.violations = List.copyOf(violations);
-    }
-
-    public int getHttpStatus() {
-        return 422;
     }
 
     public List<String> getViolations() {

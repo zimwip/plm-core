@@ -178,6 +178,15 @@ function onBackendUnreachable() {
   }, 3000);
 }
 
+// A 502/503 carrying a structured JSON error body is a functional upstream
+// error (e.g. transaction federation: "no available instance for service"),
+// NOT a connectivity failure. Only a 502/503 with no parseable JSON error
+// (nginx HTML / dropped upstream) means the backend is actually down.
+function isAppErrorBody(payload) {
+  return !!payload && typeof payload === 'object' &&
+    (payload.category === 'FUNCTIONAL' || 'error' in payload || 'message' in payload || 'violations' in payload);
+}
+
 // Generic gateway call. Used by descriptor-driven detail / action paths
 // that already carry the full {@code /api/<svc>/...} path. Same auth +
 // project-space + retry-on-401 semantics as {@link doFetch}, no base URL
@@ -211,16 +220,17 @@ async function gatewayJson(method, fullPath, body, isRetry = false) {
   }
 
   if (!res.ok) {
-    if (res.status === 502 || res.status === 503) onBackendUnreachable();
-    const payload = await res.json().catch(() => ({ error: res.statusText }));
-    const msg = payload.violations?.length
-      ? payload.violations.map(v => typeof v === 'string' ? v : v.message).join('; ')
-      : (payload.error || payload.message || `HTTP ${res.status}`);
+    const payload = await res.json().catch(() => null);
+    if ((res.status === 502 || res.status === 503) && !isAppErrorBody(payload)) onBackendUnreachable();
+    const body = payload || { error: res.statusText };
+    const msg = body.violations?.length
+      ? body.violations.map(v => typeof v === 'string' ? v : v.message).join('; ')
+      : (body.error || body.message || `HTTP ${res.status}`);
     const err = new Error(msg);
     err.status = res.status;
-    err.detail = payload;
+    err.detail = body;
     // Per-field violations are handled inline by the caller — skip global error modal
-    const hasFieldViolations = payload.violations?.some(v => v?.attrCode);
+    const hasFieldViolations = body.violations?.some(v => v?.attrCode);
     if (_onError && !hasFieldViolations) _onError(err);
     throw err;
   }
@@ -260,13 +270,14 @@ async function doFetch(baseUrl, method, path, body, { txId, psOverride } = {}, i
   }
 
   if (!res.ok) {
-    if (res.status === 502 || res.status === 503) onBackendUnreachable();
-    const payload = await res.json().catch(() => ({ error: res.statusText }));
-    const msg = payload.violations?.length
-      ? payload.violations.map(v => typeof v === 'string' ? v : v.message).join('; ')
-      : (payload.error || payload.message || `HTTP ${res.status}`);
-    const err = new ApiError(res.status, msg, payload);
-    const hasFieldViolations = payload.violations?.some(v => v?.attrCode);
+    const payload = await res.json().catch(() => null);
+    if ((res.status === 502 || res.status === 503) && !isAppErrorBody(payload)) onBackendUnreachable();
+    const body = payload || { error: res.statusText };
+    const msg = body.violations?.length
+      ? body.violations.map(v => typeof v === 'string' ? v : v.message).join('; ')
+      : (body.error || body.message || `HTTP ${res.status}`);
+    const err = new ApiError(res.status, msg, body);
+    const hasFieldViolations = body.violations?.some(v => v?.attrCode);
     if (_onError && !hasFieldViolations) _onError(err);
     throw err;
   }
@@ -1095,42 +1106,42 @@ export const platformActionsApi = {
 
 export const txApi = {
   /** Ouvre une transaction dans le service cible. Retourne { txId }. */
-  open: (_userId, _title, serviceCode = 'psm') =>
+  open: (_title, serviceCode = 'psm') =>
     platformRequest('POST', `/transactions/${serviceCode}`, null),
 
   /** Transaction OPEN courante de l'utilisateur (premier résultat agrégé). */
-  current: async (_userId) => {
+  current: async () => {
     const list = await platformRequest('GET', '/transactions?status=OPEN', null);
     return Array.isArray(list) && list.length > 0 ? list[0] : null;
   },
 
   /** Commite. serviceCode + txId identifient la transaction. itemIds optionnel = commit partiel. */
-  commit: (_userId, serviceCode, txId, comment, nodeIds) =>
+  commit: (serviceCode, txId, comment, nodeIds) =>
     platformRequest('POST', `/transactions/${serviceCode}/${txId}/commit`, null,
       { comment, ...(nodeIds?.length ? { itemIds: nodeIds } : {}) }),
 
   /** Libère des items d'une transaction (rollback partiel). */
-  release: (_userId, serviceCode, txId, nodeIds) =>
+  release: (serviceCode, txId, nodeIds) =>
     platformRequest('DELETE', `/transactions/${serviceCode}/${txId}/items`, null,
       { itemIds: nodeIds }),
 
   /** Annule et supprime la transaction. */
-  rollback: (_userId, serviceCode, txId) =>
+  rollback: (serviceCode, txId) =>
     platformRequest('POST', `/transactions/${serviceCode}/${txId}/rollback`, null),
 
   /** Détail d'une transaction. */
-  get: (_userId, serviceCode, txId) =>
+  get: (serviceCode, txId) =>
     platformRequest('GET', `/transactions/${serviceCode}/${txId}`, null),
 
   /** Items modifiés dans une transaction (TxDetail.items). */
-  nodes: async (_userId, serviceCode, txId) => {
+  nodes: async (serviceCode, txId) => {
     const detail = await platformRequest('GET', `/transactions/${serviceCode}/${txId}`, null);
     return detail?.items || [];
   },
 
   /** Versions dans une transaction — appel direct PSM (non fédéré). */
-  versions: (_userId, txId) =>
-    request('GET', `/transactions/${txId}/versions`, _userId),
+  versions: (txId) =>
+    request('GET', `/transactions/${txId}/versions`, null),
 };
 
 /** Build headers with Bearer + X-PLM-Tx / X-PLM-ProjectSpace. userId kept for API compat. */

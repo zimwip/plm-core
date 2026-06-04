@@ -234,7 +234,6 @@ export default function App() {
 
   // ── WebSocket ─────────────────────────────────────────────────────
   useWebSocket(
-    ['/topic/transactions', '/topic/global', '/topic/metamodel'],
     async (evt) => {
       if (evt.event === 'LOCK_ACQUIRED') {
         if (evt.lockedBy === userId) lockItem(evt.nodeId);
@@ -408,7 +407,7 @@ export default function App() {
   async function autoOpenTx() {
     if (tx) return tx.txId;
     try {
-      const res = await txApi.open(userId, 'Work session');
+      const res = await txApi.open('Work session');
       await refreshTx();
       return res.txId;
     } catch (e) { toast(e, 'error'); return null; }
@@ -417,7 +416,7 @@ export default function App() {
   async function handleRollback() {
     if (!tx) return;
     try {
-      await txApi.rollback(userId, tx.serviceCode, tx.txId);
+      await txApi.rollback(tx.serviceCode, tx.txId);
       toast('Transaction rolled back', 'warn');
       clearTx();
       await refreshNodes();
@@ -428,7 +427,7 @@ export default function App() {
   async function handleReleaseNode(nodeId) {
     if (!tx) return;
     try {
-      await txApi.release(userId, tx.serviceCode, tx.txId, [nodeId]);
+      await txApi.release(tx.serviceCode, tx.txId, [nodeId]);
       toast('Object released from transaction', 'info');
       await refreshAll();
     } catch (e) { toast(e, 'error'); }

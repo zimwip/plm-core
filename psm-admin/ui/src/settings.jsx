@@ -11,7 +11,7 @@ import { initPsaApi, psaApi } from './psaApi';
 
 // Module-level refs set in init()
 let _shellAPI        = null;
-let _useWebSocket    = () => {};
+let _useWsEvent      = () => {};
 let _LifecycleDiagram = null;
 let _NODE_ICONS      = {};
 let _NODE_ICON_NAMES = [];
@@ -234,7 +234,7 @@ function EnumPicker({ userId, enumDefinitionId, onChange }) {
   useEffect(() => {
     if (!enumDefinitionId) { setPreview(null); return; }
     psaApi.getEnumValues(userId, enumDefinitionId)
-      .then(d => setPreview(Array.isArray(d) ? d : []))
+      .then(d => setPreview(Array.isArray(d) ? d.filter(Boolean) : []))
       .catch(() => setPreview([]));
   }, [userId, enumDefinitionId]);
 
@@ -300,9 +300,6 @@ function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false, u
       <Field label="Default value">
         <input className="field-input" value={form.defaultValue || ''} onChange={e => setForm(f => ({ ...f, defaultValue: e.target.value }))} placeholder="Optional" />
       </Field>
-      <Field label="Validation regex">
-        <input className="field-input" value={form.namingRegex || ''} onChange={e => setForm(f => ({ ...f, namingRegex: e.target.value }))} placeholder="e.g. ^[A-Z]{3}-[0-9]+$" />
-      </Field>
       {dt !== 'ENUM' && (
         <Field label="Allowed values (comma-separated)">
           <input className="field-input" value={form.allowedValues || ''} onChange={e => setForm(f => ({ ...f, allowedValues: e.target.value }))} placeholder="e.g. Low,Medium,High" />
@@ -312,10 +309,6 @@ function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false, u
         <input className="field-input" value={form.tooltip || ''} onChange={e => setForm(f => ({ ...f, tooltip: e.target.value }))} placeholder="Hint shown next to the field" />
       </Field>
       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-          <input type="checkbox" checked={!!form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} />
-          Required field
-        </label>
         {!hideAsName && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
             <input type="checkbox" checked={!!form.asName} onChange={e => setForm(f => ({ ...f, asName: e.target.checked }))} />
@@ -326,6 +319,174 @@ function AttrFields({ form, setForm, autoFocusName = true, hideAsName = false, u
       {dt === 'ENUM' && userId && (
         <EnumPicker userId={userId} enumDefinitionId={form.enumDefinitionId || null}
           onChange={v => setForm(f => ({ ...f, enumDefinitionId: v }))} />
+      )}
+    </>
+  );
+}
+
+/* ── Attribute validation: per-attribute metadata + per-state validator instances ── */
+const ATTR_VALIDATOR_TYPE = 'algtype-attribute-validator';
+
+function AttrValidationSection({ userId, nodeTypeId, attrDefId, lifecycleId, canWrite, toast }) {
+  const [meta,        setMeta]        = useState({}); // key -> value
+  const [states,      setStates]      = useState([]);
+  const [instances,   setInstances]   = useState([]); // filtered to attribute-validator type
+  const [attachments, setAttachments] = useState({}); // metaKey -> effect (effect unused here)
+  const [loading,     setLoading]     = useState(true);
+  const [newKey,      setNewKey]      = useState('');
+  const [newVal,      setNewVal]      = useState('');
+  const [newState,    setNewState]    = useState('*');
+  const [newInst,     setNewInst]     = useState('');
+  const [busy,        setBusy]        = useState(false);
+
+  const reloadMeta = useCallback(() =>
+    psaApi.listAttributeMetadata(userId, attrDefId)
+      .then(m => setMeta(m && typeof m === 'object' ? m : {}))
+      .catch(() => setMeta({})),
+  [userId, attrDefId]);
+
+  const reloadValidators = useCallback(() =>
+    psaApi.listAttributeValidators(userId, nodeTypeId, attrDefId)
+      .then(m => setAttachments(m && typeof m === 'object' ? m : {}))
+      .catch(() => setAttachments({})),
+  [userId, nodeTypeId, attrDefId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      psaApi.listAttributeMetadata(userId, attrDefId).then(m => (m && typeof m === 'object') ? m : {}).catch(() => ({})),
+      psaApi.listAttributeValidators(userId, nodeTypeId, attrDefId).then(m => (m && typeof m === 'object') ? m : {}).catch(() => ({})),
+      platformReq('GET', '/algorithms/instances').then(d => Array.isArray(d) ? d : []).catch(() => []),
+      lifecycleId
+        ? psaApi.getLifecycleStates(userId, lifecycleId).then(d => Array.isArray(d) ? d : []).catch(() => [])
+        : Promise.resolve([]),
+    ]).then(([md, atts, insts, sts]) => {
+      if (cancelled) return;
+      setMeta(md);
+      setAttachments(atts);
+      // Keep ALL instances so attached names always resolve; the dropdown
+      // below filters to attribute-validation instances only.
+      setInstances(insts);
+      setStates(sts);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [userId, attrDefId, nodeTypeId, lifecycleId]);
+
+  const instName  = (id) => { const i = instances.find(x => (x.id || x.ID) === id); return i ? (i.name || i.NAME || id) : id; };
+  const stateName = (id) => {
+    if (id === '*' || id === '_' || id == null) return 'All states';
+    const s = states.find(x => (x.id || x.ID) === id);
+    return s ? (s.name || s.NAME || id) : id;
+  };
+  // metaKey is `<stateId|_>__<instanceId>`
+  const parseKey = (k) => {
+    const idx = k.indexOf('__');
+    return idx < 0 ? { stateId: '_', instanceId: k } : { stateId: k.slice(0, idx), instanceId: k.slice(idx + 2) };
+  };
+
+  async function saveMeta(key, value) {
+    setBusy(true);
+    try { await psaApi.setAttributeMetadata(userId, attrDefId, key, value ?? ''); await reloadMeta(); }
+    catch (e) { toast(e, 'error'); } finally { setBusy(false); }
+  }
+  async function addMeta() {
+    const k = newKey.trim();
+    if (!k) return;
+    await saveMeta(k, newVal);
+    setNewKey(''); setNewVal('');
+  }
+  async function removeMeta(key) {
+    setBusy(true);
+    try { await psaApi.removeAttributeMetadata(userId, attrDefId, key); await reloadMeta(); }
+    catch (e) { toast(e, 'error'); } finally { setBusy(false); }
+  }
+  async function attach() {
+    if (!newInst) return;
+    setBusy(true);
+    try {
+      await psaApi.attachAttributeValidator(userId, attrDefId, { nodeTypeId, stateId: newState === '*' ? null : newState, instanceId: newInst });
+      await reloadValidators(); setNewInst(''); toast('Validator attached', 'success');
+    } catch (e) { toast(e, 'error'); } finally { setBusy(false); }
+  }
+  async function detach(stateId, instanceId) {
+    try {
+      await psaApi.detachAttributeValidator(userId, attrDefId, { nodeTypeId, stateId: stateId === '*' ? null : stateId, instanceId });
+      await reloadValidators(); toast('Validator detached', 'success');
+    } catch (e) { toast(e, 'error'); }
+  }
+
+  if (loading) return <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 0' }}>Loading…</div>;
+
+  const metaKeys   = Object.keys(meta);
+  const attachKeys = Object.keys(attachments);
+  const subHd = { fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 6, marginBottom: 6 };
+
+  return (
+    <>
+      {/* ── Metadata (key / value) — e.g. validation.regex for the regex validator ── */}
+      <div style={subHd}>Metadata</div>
+      {metaKeys.length === 0 && <div className="settings-empty-row" style={{ fontSize: 11, marginBottom: 6 }}>No metadata</div>}
+      {metaKeys.map(k => (
+        <div key={k} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 11, minWidth: 130, color: 'var(--accent)', wordBreak: 'break-all' }}>{k}</span>
+          <input className="field-input" style={{ flex: 1, fontFamily: 'var(--mono)', fontSize: 11 }} defaultValue={meta[k]} disabled={!canWrite}
+            onBlur={e => { if (e.target.value !== meta[k]) saveMeta(k, e.target.value); }}
+            onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }} />
+          {canWrite && (
+            <button className="panel-icon-btn" title="Delete metadata" onClick={() => removeMeta(k)}>
+              <TrashIcon size={10} strokeWidth={2} color="var(--danger, #f87171)" />
+            </button>
+          )}
+        </div>
+      ))}
+      {canWrite && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
+          <input className="field-input" style={{ minWidth: 130, fontSize: 11, fontFamily: 'var(--mono)' }} value={newKey}
+            onChange={e => setNewKey(e.target.value)} placeholder="key (e.g. validation.regex)" />
+          <input className="field-input" style={{ flex: 1, fontSize: 11, fontFamily: 'var(--mono)' }} value={newVal}
+            onChange={e => setNewVal(e.target.value)} placeholder="value" onKeyDown={e => { if (e.key === 'Enter') addMeta(); }} />
+          <button className="btn btn-sm" style={{ fontSize: 10 }} disabled={busy || !newKey.trim()} onClick={addMeta}>Add</button>
+        </div>
+      )}
+
+      {/* ── Validators (attribute-validation algorithm instances) ── */}
+      <div style={subHd}>Validators</div>
+      {attachKeys.length === 0 && <div className="settings-empty-row" style={{ fontSize: 11, marginBottom: 8 }}>No validators attached</div>}
+      {attachKeys.map(k => {
+        const { stateId, instanceId } = parseKey(k);
+        return (
+          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', marginBottom: 2, borderRadius: 3, background: 'var(--subtle-bg)', border: '1px solid var(--border)', fontSize: 11 }}>
+            <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600 }}>{instName(instanceId)}</span>
+            <span style={{ fontSize: 10, color: 'var(--muted)' }}>@ {stateName(stateId)}</span>
+            <span style={{ flex: 1 }} />
+            {canWrite && (
+              <button className="panel-icon-btn" title="Detach validator" onClick={() => detach(stateId, instanceId)}>
+                <TrashIcon size={10} strokeWidth={2} color="var(--danger, #f87171)" />
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {canWrite && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select className="field-input" style={{ flex: 1, minWidth: 160, fontSize: 11 }} value={newInst} onChange={e => setNewInst(e.target.value)}>
+            <option value="">Select validator…</option>
+            {instances
+              .filter(i => (i.algorithmTypeId || i.ALGORITHM_TYPE_ID) === ATTR_VALIDATOR_TYPE)
+              .map(i => {
+                const iid = i.id || i.ID;
+                const an  = i.algorithmName || i.ALGORITHM_NAME;
+                return <option key={iid} value={iid}>{i.name || i.NAME || iid}{an ? ` (${an})` : ''}</option>;
+              })}
+          </select>
+          <select className="field-input" style={{ width: 130, fontSize: 11 }} value={newState} onChange={e => setNewState(e.target.value)}>
+            <option value="*">All states</option>
+            {states.map(s => { const sid = s.id || s.ID; return <option key={sid} value={sid}>{s.name || s.NAME || sid}</option>; })}
+          </select>
+          <button className="btn btn-sm" style={{ fontSize: 10 }} disabled={busy || !newInst} onClick={attach}>Attach</button>
+        </div>
       )}
     </>
   );
@@ -807,7 +968,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
     psaApi.getSources(userId).then(d => setSources(Array.isArray(d) ? d : []));
   }, [userId]);
 
-  _useWebSocket('/topic/metamodel', (evt) => { if (evt.event === 'METAMODEL_CHANGED') loadTypes(); }, userId);
+  _useWsEvent((evt) => { if (evt.event === 'METAMODEL_CHANGED') loadTypes(); });
 
   const typeNameMap = {};
   types.forEach(nt => { typeNameMap[nt.id || nt.ID] = nt.name || nt.NAME; });
@@ -1069,7 +1230,18 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
             <IconPicker value={form.icon || ''} onChange={v => setForm(f => ({ ...f, icon: v }))} />
           </>}
           {modal.type === 'create-attr' && <AttrFields form={form} setForm={setForm} userId={userId} />}
-          {modal.type === 'edit-attr'   && <AttrFields form={form} setForm={setForm} autoFocusName={false} userId={userId} />}
+          {modal.type === 'edit-attr'   && <>
+            <AttrFields form={form} setForm={setForm} autoFocusName={false} userId={userId} />
+            <ModalSection label="Validation" />
+            <AttrValidationSection
+              userId={userId}
+              nodeTypeId={modal.ctx.nodeTypeId}
+              attrDefId={modal.ctx.attrId}
+              lifecycleId={modal.ctx.lifecycleId}
+              canWrite={canWrite}
+              toast={toast}
+            />
+          </>}
           {modal.type === 'create-link' && <>
             <Field label="Code *">
               <input className="field-input" autoFocus value={form.code || ''} onChange={e => setForm(f => ({ ...f, code: e.target.value, codeEdited: true }))} placeholder="e.g. composed-of" style={{ fontFamily: 'var(--mono)' }} />
@@ -1315,7 +1487,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                   <div className="settings-empty-row">No attributes defined</div>
                 ) : (
                   <table className="settings-table">
-                    <thead><tr><th>Name</th><th>Label</th><th>Type</th><th>Req</th><th>As Name</th><th>Section</th><th></th></tr></thead>
+                    <thead><tr><th>Name</th><th>Label</th><th>Type</th><th>As Name</th><th>Section</th><th></th></tr></thead>
                     <tbody>
                       {[...ntAttrs].sort((a, b) => (a.display_order || a.DISPLAY_ORDER || 0) - (b.display_order || b.DISPLAY_ORDER || 0)).map(a => {
                         const aid = a.id || a.ID;
@@ -1328,7 +1500,7 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                         const aInherited = !!(a.inherited || a.INHERITED);
                         const aInheritedFrom = a.inherited_from || a.INHERITED_FROM || null;
                         return (
-                          <tr key={aid}>
+                          <tr key={aid} style={aInherited ? { opacity: 0.75 } : undefined}>
                             <td className="settings-td-mono">
                               <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                 {aname}
@@ -1337,13 +1509,12 @@ export function NodeTypesSection({ userId, canWrite, toast }) {
                             </td>
                             <td>{albl}</td>
                             <td><span className="settings-badge">{atype}</span></td>
-                            <td style={{ color: areq ? 'var(--success)' : 'var(--muted)' }}>{areq ? '✓' : '—'}</td>
                             <td style={{ color: aAsNm ? 'var(--accent)' : 'var(--muted)', fontWeight: aAsNm ? 600 : 400 }}>{aAsNm ? '★' : '—'}</td>
                             <td style={{ color: 'var(--muted)' }}>{asec}</td>
                             <td>
                               <div style={{ display: 'flex', gap: 4 }}>
                                 {canWrite && !aInherited && (
-                                  <button className="panel-icon-btn" title="Edit" onClick={() => openModal('edit-attr', { nodeTypeId: id, attrId: aid }, {
+                                  <button className="panel-icon-btn" title="Edit" onClick={() => openModal('edit-attr', { nodeTypeId: id, attrId: aid, lifecycleId: lcId }, {
                                     name: aname, label: albl,
                                     dataType: a.data_type || a.DATA_TYPE || 'STRING',
                                     widgetType: a.widget_type || a.WIDGET_TYPE || 'TEXT',
@@ -1455,7 +1626,7 @@ export function DomainsSection({ userId, canWrite, toast }) {
   }
 
   useEffect(() => { loadDomains().finally(() => setLoading(false)); }, [userId]);
-  _useWebSocket('/topic/metamodel', (evt) => { if (evt.event === 'METAMODEL_CHANGED') loadDomains(); }, userId);
+  _useWsEvent((evt) => { if (evt.event === 'METAMODEL_CHANGED') loadDomains(); });
 
   async function expand(dom) {
     const id = dom.id;
@@ -1690,7 +1861,7 @@ export function EnumsSection({ userId, canWrite, toast }) {
 
   function loadValues(enumId) {
     psaApi.getEnumValues(userId, enumId)
-      .then(d => setValues(s => ({ ...s, [enumId]: Array.isArray(d) ? d : [] })))
+      .then(d => setValues(s => ({ ...s, [enumId]: Array.isArray(d) ? d.filter(Boolean) : [] })))
       .catch(() => setValues(s => ({ ...s, [enumId]: [] })));
   }
 
@@ -1918,11 +2089,7 @@ function LifecyclesSection({ userId, canWrite, toast }) {
     psaApi.getMetadataKeys(userId, 'LIFECYCLE_STATE').then(d => setKnownMetaKeys(Array.isArray(d) ? d : [])).catch(() => {});
   }, [userId]);
 
-  _useWebSocket(
-    '/topic/metamodel',
-    (evt) => { if (evt.event === 'METAMODEL_CHANGED') loadLcs(); },
-    userId,
-  );
+  _useWsEvent((evt) => { if (evt.event === 'METAMODEL_CHANGED') loadLcs(); });
 
   async function refreshLcData(id) {
     const [states, transitions] = await Promise.all([
@@ -3013,7 +3180,7 @@ export default {
   zone: 'settings',
   init(shellAPI) {
     _shellAPI          = shellAPI;
-    _useWebSocket      = shellAPI.useWebSocket ?? (() => {});
+    _useWsEvent        = shellAPI.useWsEvent ?? (() => {});
     _LifecycleDiagram  = shellAPI.components?.LifecycleDiagram ?? null;
     _NODE_ICONS        = shellAPI.icons?.NODE_ICONS ?? {};
     _NODE_ICON_NAMES   = Object.keys(_NODE_ICONS);

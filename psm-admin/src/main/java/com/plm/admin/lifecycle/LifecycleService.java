@@ -24,6 +24,7 @@ public class LifecycleService {
     private final DSLContext dsl;
     private final ApplicationEventPublisher eventPublisher;
     private final MetadataService metadataService;
+    private final LifecycleGuardService lifecycleGuardService;
 
     public List<Record> getAllLifecycles() {
         return dsl.select().from("lifecycle").orderBy(DSL.field("name")).fetch();
@@ -188,7 +189,8 @@ public class LifecycleService {
     public void deleteLifecycle(String lifecycleId) {
         dsl.execute("DELETE FROM lifecycle_state_action WHERE lifecycle_state_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM entity_metadata WHERE target_type = 'LIFECYCLE_STATE' AND target_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
-        dsl.execute("DELETE FROM attribute_state_rule WHERE lifecycle_state_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
+        dsl.execute("DELETE FROM attribute_validation_rule WHERE lifecycle_state_id IN (SELECT id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
+        dsl.execute("DELETE FROM attribute_metadata WHERE meta_key IN (SELECT 'visibility.hidden.' || id FROM lifecycle_state WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM signature_requirement WHERE lifecycle_transition_id IN (SELECT id FROM lifecycle_transition WHERE lifecycle_id = ?)", lifecycleId);
         dsl.execute("DELETE FROM lifecycle_transition WHERE lifecycle_id = ?", lifecycleId);
         dsl.execute("DELETE FROM lifecycle_state WHERE lifecycle_id = ?", lifecycleId);
@@ -202,7 +204,8 @@ public class LifecycleService {
             .where("from_state_id = ?", stateId).or("to_state_id = ?", stateId));
         if (inTransitions > 0) throw new IllegalStateException("State is referenced by " + inTransitions + " transition(s)");
         dsl.execute("DELETE FROM lifecycle_state_action WHERE lifecycle_state_id = ?", stateId);
-        dsl.execute("DELETE FROM attribute_state_rule WHERE lifecycle_state_id = ?", stateId);
+        dsl.execute("DELETE FROM attribute_validation_rule WHERE lifecycle_state_id = ?", stateId);
+        dsl.execute("DELETE FROM attribute_metadata WHERE meta_key = ?", "visibility.hidden." + stateId);
         metadataService.removeAll("LIFECYCLE_STATE", stateId);
         dsl.execute("DELETE FROM lifecycle_state WHERE id = ?", stateId);
         publishChange("DELETE", "LIFECYCLE_STATE", stateId);
@@ -219,17 +222,34 @@ public class LifecycleService {
     // ── Lifecycle state actions ──
 
     public List<Map<String, Object>> listStateActions(String stateId) {
-        return MapKeyUtil.camelize(dsl.fetch(
+        List<Map<String, Object>> rows = MapKeyUtil.camelize(dsl.fetch(
             "SELECT * FROM lifecycle_state_action " +
             "WHERE lifecycle_state_id = ? ORDER BY display_order",
             stateId).intoMaps());
+
+        // Enrich with algorithm metadata (name/code/module) from platform-api catalog.
+        // The row only stores algorithmInstanceId; the display fields live in platform-api.
+        Map<String, Map<String, Object>> instanceIndex = lifecycleGuardService.fetchInstanceIndex();
+        for (Map<String, Object> row : rows) {
+            Object instId = row.get("algorithmInstanceId");
+            Map<String, Object> inst = instId instanceof String s
+                ? instanceIndex.getOrDefault(s, Map.of()) : Map.of();
+            row.put("instanceName",  inst.get("name"));
+            row.put("algorithmCode", inst.get("algorithmCode"));
+            row.put("algorithmName", inst.get("algorithmName"));
+            row.put("moduleName",    inst.get("moduleName"));
+            row.put("typeName",      inst.get("typeName"));
+        }
+        return rows;
     }
 
     @Transactional
     public void attachStateAction(String stateId, String instanceId, String trigger,
                                   String executionMode, int displayOrder) {
         dsl.execute(
-            "INSERT INTO lifecycle_state_action (lifecycle_state_id, algorithm_instance_id, trigger, execution_mode, display_order) VALUES (?,?,?,?,?)",
+            "INSERT INTO lifecycle_state_action (lifecycle_state_id, algorithm_instance_id, trigger, execution_mode, display_order) VALUES (?,?,?,?,?) " +
+            "ON CONFLICT (lifecycle_state_id, algorithm_instance_id, trigger) " +
+            "DO UPDATE SET execution_mode = EXCLUDED.execution_mode, display_order = EXCLUDED.display_order",
             stateId, instanceId,
             trigger == null ? "ON_ENTER" : trigger,
             executionMode == null ? "TRANSACTIONAL" : executionMode,

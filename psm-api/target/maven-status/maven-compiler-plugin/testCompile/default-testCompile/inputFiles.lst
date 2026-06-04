@@ -1,6 +1,7 @@
-/work/psm-api/src/test/java/com/plm/ModularArchitectureTest.java
-/work/psm-api/src/test/java/com/plm/PlmAttributeValidationTest.java
-/work/psm-api/src/test/java/com/plm/PlmExtendedTest.java
-/work/psm-api/src/test/java/com/plm/PlmIntegrationTest.java
-/work/psm-api/src/test/java/com/plm/PlmRoleAndViewTest.java
-/work/psm-api/src/test/java/com/plm/PlmTransactionTest.java
+/home/tzimmer/work/plm-core/psm-api/src/test/java/com/plm/ModularArchitectureTest.java
+/home/tzimmer/work/plm-core/psm-api/src/test/java/com/plm/PlmAttributeValidationTest.java
+/home/tzimmer/work/plm-core/psm-api/src/test/java/com/plm/PlmExtendedTest.java
+/home/tzimmer/work/plm-core/psm-api/src/test/java/com/plm/PlmIntegrationTest.java
+/home/tzimmer/work/plm-core/psm-api/src/test/java/com/plm/PlmRoleAndViewTest.java
+/home/tzimmer/work/plm-core/psm-api/src/test/java/com/plm/PlmTransactionTest.java
+/home/tzimmer/work/plm-core/psm-api/src/test/java/com/plm/node/resource/NodeItemVisibilityTest.java

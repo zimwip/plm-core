@@ -16,12 +16,14 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/cad/PsaImportContextClient.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/cad/package-info.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/dashboard/DashboardController.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/dashboard/InternalDashboardController.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/dashboard/internal/DashboardService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/dashboard/package-info.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/ItemTypeController.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/LinkTypeController.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/NodeActionContextProvider.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/NodeController.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/NodeLookupAdapter.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/NodeService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/baseline/BaselineController.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/baseline/internal/BaselineService.java
@@ -58,6 +60,12 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/ConfigCacheAdapter.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/ValidationService.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/guard/AllRequiredFilledGuard.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/validation/AttributeHintContext.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/validation/AttributeValidationContext.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/validation/AttributeValidator.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/validation/AttributeValidatorService.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/validation/RegexAttributeValidator.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/metamodel/internal/validation/RequiredAttributeValidator.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/package-info.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/resource/NodeItemContribution.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/node/resource/NodeItemVisibility.java
@@ -106,8 +114,6 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/event/PlmEventPublisher.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/exception/AccessDeniedException.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/exception/GlobalExceptionHandler.java
-/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/exception/GuardViolationException.java
-/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/exception/PlmFunctionalException.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/exception/PlmValidationException.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/exception/UnauthenticatedException.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/hook/AtCommitHook.java
@@ -128,6 +134,7 @@
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/model/numbering/NumberingResult.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/model/numbering/NumberingStrategyFactory.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/model/numbering/VersionNumberingStrategy.java
+/home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/node/NodeLookupPort.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/package-info.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/security/PlmProjectSpaceContext.java
 /home/tzimmer/work/plm-core/psm-api/src/main/java/com/plm/shared/security/PlmSecurityContext.java

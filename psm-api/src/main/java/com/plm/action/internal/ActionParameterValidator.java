@@ -95,7 +95,7 @@ public class ActionParameterValidator implements ActionParameterValidatorPort {
         return params;
     }
 
-    public static class ValidationException extends com.plm.shared.exception.PlmFunctionalException {
+    public static class ValidationException extends com.plm.platform.exception.PlmFunctionalException {
         private final List<String> violations;
         public ValidationException(List<String> violations) {
             super("Action parameter validation failed: " + violations, 422);

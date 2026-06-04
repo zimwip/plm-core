@@ -765,12 +765,18 @@ esac
 build_platform_lib_image || exit 1
 
 if $DO_BUILD; then
+    # Fresh value each build → invalidates the source-COPY + UI build layers in
+    # every Dockerfile that declares `ARG CACHEBUST` (frontend + *-ui-builder),
+    # so podman/Buildah can never serve a stale bundle. Dependency layers
+    # (npm ci / mvn) sit above the ARG and stay cached.
+    CACHEBUST="$(date +%s)"
+    BUILD_ARGS=(--build-arg "CACHEBUST=$CACHEBUST")
     if $BUILD_ALL; then
         log "Rebuilding all images…"
-        docker compose build
+        docker compose build "${BUILD_ARGS[@]}"
     elif [[ ${#TARGETS[@]} -gt 0 ]]; then
         log "Rebuilding: ${TARGETS[*]}"
-        docker compose build "${TARGETS[@]}"
+        docker compose build "${BUILD_ARGS[@]}" "${TARGETS[@]}"
     else
         # Auto-detect via git
         mapfile -t TARGETS < <(detect_changed_services)
@@ -778,7 +784,7 @@ if $DO_BUILD; then
             ok "No project changes detected — skipping build."
         else
             log "Rebuilding changed projects: ${TARGETS[*]}"
-            docker compose build "${TARGETS[@]}"
+            docker compose build "${BUILD_ARGS[@]}" "${TARGETS[@]}"
         fi
     fi
 fi

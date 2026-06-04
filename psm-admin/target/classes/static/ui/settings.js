@@ -1,19 +1,19 @@
-import { jsx as e, jsxs as i, Fragment as ne } from "react/jsx-runtime";
-import { forwardRef as et, createElement as je, useState as x, useEffect as Se, useCallback as He } from "react";
+import { jsx as e, jsxs as n, Fragment as re } from "react/jsx-runtime";
+import { forwardRef as at, createElement as Ke, useState as _, useEffect as Ae, useCallback as $e } from "react";
 /**
  * @license lucide-react v0.460.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const ot = (t) => t.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(), tt = (...t) => t.filter((n, r, c) => !!n && n.trim() !== "" && c.indexOf(n) === r).join(" ").trim();
+const st = (a) => a.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(), nt = (...a) => a.filter((t, l, y) => !!t && t.trim() !== "" && y.indexOf(t) === l).join(" ").trim();
 /**
  * @license lucide-react v0.460.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-var st = {
+var ct = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
   height: 24,
@@ -30,31 +30,31 @@ var st = {
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const ct = et(
+const ut = at(
   ({
-    color: t = "currentColor",
-    size: n = 24,
-    strokeWidth: r = 2,
-    absoluteStrokeWidth: c,
-    className: k = "",
-    children: P,
-    iconNode: u,
-    ...m
-  }, V) => je(
+    color: a = "currentColor",
+    size: t = 24,
+    strokeWidth: l = 2,
+    absoluteStrokeWidth: y,
+    className: T = "",
+    children: S,
+    iconNode: p,
+    ...C
+  }, P) => Ke(
     "svg",
     {
-      ref: V,
-      ...st,
-      width: n,
-      height: n,
-      stroke: t,
-      strokeWidth: c ? Number(r) * 24 / Number(n) : r,
-      className: tt("lucide", k),
-      ...m
+      ref: P,
+      ...ct,
+      width: t,
+      height: t,
+      stroke: a,
+      strokeWidth: y ? Number(l) * 24 / Number(t) : l,
+      className: nt("lucide", T),
+      ...C
     },
     [
-      ...u.map(([Y, O]) => je(Y, O)),
-      ...Array.isArray(P) ? P : [P]
+      ...p.map(([G, M]) => Ke(G, M)),
+      ...Array.isArray(S) ? S : [S]
     ]
   )
 );
@@ -64,16 +64,16 @@ const ct = et(
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Pe = (t, n) => {
-  const r = et(
-    ({ className: c, ...k }, P) => je(ct, {
-      ref: P,
-      iconNode: n,
-      className: tt(`lucide-${ot(t)}`, c),
-      ...k
+const Me = (a, t) => {
+  const l = at(
+    ({ className: y, ...T }, S) => Ke(ut, {
+      ref: S,
+      iconNode: t,
+      className: nt(`lucide-${st(a)}`, y),
+      ...T
     })
   );
-  return r.displayName = `${t}`, r;
+  return l.displayName = `${a}`, l;
 };
 /**
  * @license lucide-react v0.460.0 - ISC
@@ -81,7 +81,7 @@ const Pe = (t, n) => {
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Re = Pe("ChevronDown", [
+const Oe = Me("ChevronDown", [
   ["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]
 ]);
 /**
@@ -90,7 +90,7 @@ const Re = Pe("ChevronDown", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Oe = Pe("ChevronRight", [
+const ze = Me("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
 ]);
 /**
@@ -99,7 +99,7 @@ const Oe = Pe("ChevronRight", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const ut = Pe("Copy", [
+const pt = Me("Copy", [
   ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2", key: "17jyea" }],
   ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
 ]);
@@ -109,7 +109,7 @@ const ut = Pe("Copy", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const pe = Pe("Pen", [
+const ye = Me("Pen", [
   [
     "path",
     {
@@ -124,7 +124,7 @@ const pe = Pe("Pen", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const ge = Pe("Plus", [
+const be = Me("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ]);
@@ -134,119 +134,133 @@ const ge = Pe("Plus", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const ae = Pe("Trash2", [
+const ce = Me("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
   ["path", { d: "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2", key: "v07s0e" }],
   ["line", { x1: "10", x2: "10", y1: "11", y2: "17", key: "1uufr5" }],
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
-let nt = null;
-function pt(t) {
-  nt = t.http;
+let it = null;
+function mt(a) {
+  it = a.http;
 }
-const I = (t, n, r) => nt.serviceRequest("psa", t, n, r), f = {
+const E = (a, t, l) => it.serviceRequest("psa", a, t, l), f = {
   // ── Metadata keys ─────────────────────────────────────────────────
-  getMetadataKeys: (t, n) => I("GET", n ? `/metamodel/metadata/keys/${n}` : "/metamodel/metadata/keys"),
+  getMetadataKeys: (a, t) => E("GET", t ? `/metamodel/metadata/keys/${t}` : "/metamodel/metadata/keys"),
   // ── Node types ────────────────────────────────────────────────────
-  getNodeTypes: (t) => I("GET", "/metamodel/nodetypes"),
-  createNodeType: (t, n) => I("POST", "/metamodel/nodetypes", n),
-  deleteNodeType: (t, n) => I("DELETE", `/metamodel/nodetypes/${n}`),
-  updateNodeTypeIdentity: (t, n, r) => I("PUT", `/metamodel/nodetypes/${n}/identity`, r),
-  updateNodeTypeNumberingScheme: (t, n, r) => I("PUT", `/metamodel/nodetypes/${n}/numbering-scheme`, { numberingScheme: r }),
-  updateNodeTypeVersionPolicy: (t, n, r) => I("PUT", `/metamodel/nodetypes/${n}/version-policy`, { versionPolicy: r }),
-  updateNodeTypeCollapseHistory: (t, n, r) => I("PUT", `/metamodel/nodetypes/${n}/collapse-history`, { collapseHistory: r }),
-  updateNodeTypeLifecycle: (t, n, r) => I("PUT", `/metamodel/nodetypes/${n}/lifecycle`, { lifecycleId: r || null }),
-  updateNodeTypeAppearance: (t, n, r, c) => I("PUT", `/metamodel/nodetypes/${n}/appearance`, { color: r || null, icon: c || null }),
-  updateNodeTypeParent: (t, n, r) => I("PUT", `/metamodel/nodetypes/${n}/parent`, { parentNodeTypeId: r || null }),
+  getNodeTypes: (a) => E("GET", "/metamodel/nodetypes"),
+  createNodeType: (a, t) => E("POST", "/metamodel/nodetypes", t),
+  deleteNodeType: (a, t) => E("DELETE", `/metamodel/nodetypes/${t}`),
+  updateNodeTypeIdentity: (a, t, l) => E("PUT", `/metamodel/nodetypes/${t}/identity`, l),
+  updateNodeTypeNumberingScheme: (a, t, l) => E("PUT", `/metamodel/nodetypes/${t}/numbering-scheme`, { numberingScheme: l }),
+  updateNodeTypeVersionPolicy: (a, t, l) => E("PUT", `/metamodel/nodetypes/${t}/version-policy`, { versionPolicy: l }),
+  updateNodeTypeCollapseHistory: (a, t, l) => E("PUT", `/metamodel/nodetypes/${t}/collapse-history`, { collapseHistory: l }),
+  updateNodeTypeLifecycle: (a, t, l) => E("PUT", `/metamodel/nodetypes/${t}/lifecycle`, { lifecycleId: l || null }),
+  updateNodeTypeAppearance: (a, t, l, y) => E("PUT", `/metamodel/nodetypes/${t}/appearance`, { color: l || null, icon: y || null }),
+  updateNodeTypeParent: (a, t, l) => E("PUT", `/metamodel/nodetypes/${t}/parent`, { parentNodeTypeId: l || null }),
   // ── Node type attributes ──────────────────────────────────────────
-  getNodeTypeAttributes: (t, n) => I("GET", `/metamodel/nodetypes/${n}/attributes`),
-  createAttribute: (t, n, r) => I("POST", `/metamodel/nodetypes/${n}/attributes`, r),
-  updateAttribute: (t, n, r, c) => I("PUT", `/metamodel/nodetypes/${n}/attributes/${r}`, c),
-  deleteAttribute: (t, n, r) => I("DELETE", `/metamodel/nodetypes/${n}/attributes/${r}`),
+  getNodeTypeAttributes: (a, t) => E("GET", `/metamodel/nodetypes/${t}/attributes`),
+  createAttribute: (a, t, l) => E("POST", `/metamodel/nodetypes/${t}/attributes`, l),
+  updateAttribute: (a, t, l, y) => E("PUT", `/metamodel/nodetypes/${t}/attributes/${l}`, y),
+  deleteAttribute: (a, t, l) => E("DELETE", `/metamodel/nodetypes/${t}/attributes/${l}`),
   // ── Node type actions ─────────────────────────────────────────────
-  getAllActions: (t) => I("GET", "/metamodel/actions"),
-  getActionsForNodeType: (t, n) => I("GET", `/metamodel/nodetypes/${n}/actions`),
-  registerCustomAction: (t, n) => I("POST", "/metamodel/actions", n),
+  getAllActions: (a) => E("GET", "/metamodel/actions"),
+  getActionsForNodeType: (a, t) => E("GET", `/metamodel/nodetypes/${t}/actions`),
+  registerCustomAction: (a, t) => E("POST", "/metamodel/actions", t),
   // ── Link types ────────────────────────────────────────────────────
-  getLinkTypes: (t) => I("GET", "/metamodel/linktypes"),
-  getNodeTypeLinkTypes: (t, n) => I("GET", `/metamodel/nodetypes/${n}/linktypes`),
-  createLinkType: (t, n) => I("POST", "/metamodel/linktypes", n),
-  updateLinkType: (t, n, r) => I("PUT", `/metamodel/linktypes/${n}`, r),
-  deleteLinkType: (t, n) => I("DELETE", `/metamodel/linktypes/${n}`),
+  getLinkTypes: (a) => E("GET", "/metamodel/linktypes"),
+  getNodeTypeLinkTypes: (a, t) => E("GET", `/metamodel/nodetypes/${t}/linktypes`),
+  createLinkType: (a, t) => E("POST", "/metamodel/linktypes", t),
+  updateLinkType: (a, t, l) => E("PUT", `/metamodel/linktypes/${t}`, l),
+  deleteLinkType: (a, t) => E("DELETE", `/metamodel/linktypes/${t}`),
   // ── Link type attributes ──────────────────────────────────────────
-  getLinkTypeAttributes: (t, n) => I("GET", `/metamodel/linktypes/${n}/attributes`),
-  createLinkTypeAttribute: (t, n, r) => I("POST", `/metamodel/linktypes/${n}/attributes`, r),
-  updateLinkTypeAttribute: (t, n, r, c) => I("PUT", `/metamodel/linktypes/${n}/attributes/${r}`, c),
-  deleteLinkTypeAttribute: (t, n, r) => I("DELETE", `/metamodel/linktypes/${n}/attributes/${r}`),
+  getLinkTypeAttributes: (a, t) => E("GET", `/metamodel/linktypes/${t}/attributes`),
+  createLinkTypeAttribute: (a, t, l) => E("POST", `/metamodel/linktypes/${t}/attributes`, l),
+  updateLinkTypeAttribute: (a, t, l, y) => E("PUT", `/metamodel/linktypes/${t}/attributes/${l}`, y),
+  deleteLinkTypeAttribute: (a, t, l) => E("DELETE", `/metamodel/linktypes/${t}/attributes/${l}`),
   // ── Link type cascade rules ───────────────────────────────────────
-  getLinkTypeCascades: (t, n) => I("GET", `/metamodel/linktypes/${n}/cascades`),
-  createLinkTypeCascade: (t, n, r, c, k) => I("POST", `/metamodel/linktypes/${n}/cascades`, { parentTransitionId: r, childFromStateId: c, childTransitionId: k }),
-  deleteLinkTypeCascade: (t, n, r) => I("DELETE", `/metamodel/linktypes/${n}/cascades/${r}`),
+  getLinkTypeCascades: (a, t) => E("GET", `/metamodel/linktypes/${t}/cascades`),
+  createLinkTypeCascade: (a, t, l, y, T) => E("POST", `/metamodel/linktypes/${t}/cascades`, { parentTransitionId: l, childFromStateId: y, childTransitionId: T }),
+  deleteLinkTypeCascade: (a, t, l) => E("DELETE", `/metamodel/linktypes/${t}/cascades/${l}`),
   // ── Lifecycles ────────────────────────────────────────────────────
-  getLifecycles: (t) => I("GET", "/metamodel/lifecycles"),
-  getLifecycleStates: (t, n) => I("GET", `/metamodel/lifecycles/${n}/states`),
-  getLifecycleTransitions: (t, n) => I("GET", `/metamodel/lifecycles/${n}/transitions`),
-  createLifecycle: (t, n) => I("POST", "/metamodel/lifecycles", n),
-  duplicateLifecycle: (t, n, r) => I("POST", `/metamodel/lifecycles/${n}/duplicate`, { name: r }),
-  deleteLifecycle: (t, n) => I("DELETE", `/metamodel/lifecycles/${n}`),
+  getLifecycles: (a) => E("GET", "/metamodel/lifecycles"),
+  getLifecycleStates: (a, t) => E("GET", `/metamodel/lifecycles/${t}/states`),
+  getLifecycleTransitions: (a, t) => E("GET", `/metamodel/lifecycles/${t}/transitions`),
+  createLifecycle: (a, t) => E("POST", "/metamodel/lifecycles", t),
+  duplicateLifecycle: (a, t, l, y) => E("POST", `/metamodel/lifecycles/${t}/duplicate`, { code: l, name: y }),
+  deleteLifecycle: (a, t) => E("DELETE", `/metamodel/lifecycles/${t}`),
   // ── Lifecycle states ──────────────────────────────────────────────
-  addLifecycleState: (t, n, r) => I("POST", `/metamodel/lifecycles/${n}/states`, r),
-  updateLifecycleState: (t, n, r, c) => I("PUT", `/metamodel/lifecycles/${n}/states/${r}`, c),
-  deleteLifecycleState: (t, n, r) => I("DELETE", `/metamodel/lifecycles/${n}/states/${r}`),
+  addLifecycleState: (a, t, l) => E("POST", `/metamodel/lifecycles/${t}/states`, l),
+  updateLifecycleState: (a, t, l, y) => E("PUT", `/metamodel/lifecycles/${t}/states/${l}`, y),
+  deleteLifecycleState: (a, t, l) => E("DELETE", `/metamodel/lifecycles/${t}/states/${l}`),
   // ── Lifecycle state actions ───────────────────────────────────────
-  listLifecycleStateActions: (t, n, r) => I("GET", `/metamodel/lifecycles/${n}/states/${r}/actions`),
-  attachLifecycleStateAction: (t, n, r, c, k, P, u = 0) => I("POST", `/metamodel/lifecycles/${n}/states/${r}/actions`, { instanceId: c, trigger: k, executionMode: P, displayOrder: u }),
-  detachLifecycleStateAction: (t, n, r, c) => I("DELETE", `/metamodel/lifecycles/${n}/states/${r}/actions/${c}`),
+  listLifecycleStateActions: (a, t, l) => E("GET", `/metamodel/lifecycles/${t}/states/${l}/actions`),
+  attachLifecycleStateAction: (a, t, l, y, T, S, p = 0) => E("POST", `/metamodel/lifecycles/${t}/states/${l}/actions`, { instanceId: y, trigger: T, executionMode: S, displayOrder: p }),
+  detachLifecycleStateAction: (a, t, l, y) => E("DELETE", `/metamodel/lifecycles/${t}/states/${l}/actions/${y}`),
   // ── Lifecycle transitions ─────────────────────────────────────────
-  addLifecycleTransition: (t, n, r) => I("POST", `/metamodel/lifecycles/${n}/transitions`, r),
-  updateLifecycleTransition: (t, n, r, c) => I("PUT", `/metamodel/lifecycles/${n}/transitions/${r}`, c),
-  deleteLifecycleTransition: (t, n, r) => I("DELETE", `/metamodel/lifecycles/${n}/transitions/${r}`),
+  addLifecycleTransition: (a, t, l) => E("POST", `/metamodel/lifecycles/${t}/transitions`, l),
+  updateLifecycleTransition: (a, t, l, y) => E("PUT", `/metamodel/lifecycles/${t}/transitions/${l}`, y),
+  deleteLifecycleTransition: (a, t, l) => E("DELETE", `/metamodel/lifecycles/${t}/transitions/${l}`),
   // ── Transition signature requirements ────────────────────────────
-  addTransitionSignatureRequirement: (t, n, r, c = 0) => I("POST", `/metamodel/transitions/${n}/signature-requirements`, { roleId: r, displayOrder: c }),
-  removeTransitionSignatureRequirement: (t, n, r) => I("DELETE", `/metamodel/transitions/${n}/signature-requirements/${r}`),
+  addTransitionSignatureRequirement: (a, t, l, y = 0) => E("POST", `/metamodel/transitions/${t}/signature-requirements`, { roleId: l, displayOrder: y }),
+  removeTransitionSignatureRequirement: (a, t, l) => E("DELETE", `/metamodel/transitions/${t}/signature-requirements/${l}`),
   // ── Transition guards ─────────────────────────────────────────────
-  listTransitionGuards: (t, n) => I("GET", `/metamodel/lifecycles/transitions/${n}/guards`),
-  attachTransitionGuard: (t, n, r, c, k) => I("POST", `/metamodel/lifecycles/transitions/${n}/guards`, { instanceId: r, effect: c, displayOrder: k }),
-  updateTransitionGuard: (t, n, r) => I("PUT", `/metamodel/lifecycles/transitions/guards/${n}`, { effect: r }),
-  detachTransitionGuard: (t, n) => I("DELETE", `/metamodel/lifecycles/transitions/guards/${n}`),
+  listTransitionGuards: (a, t) => E("GET", `/metamodel/lifecycles/transitions/${t}/guards`),
+  attachTransitionGuard: (a, t, l, y, T) => E("POST", `/metamodel/lifecycles/transitions/${t}/guards`, { instanceId: l, effect: y, displayOrder: T }),
+  updateTransitionGuard: (a, t, l) => E("PUT", `/metamodel/lifecycles/transitions/guards/${t}`, { effect: l }),
+  detachTransitionGuard: (a, t) => E("DELETE", `/metamodel/lifecycles/transitions/guards/${t}`),
   // ── Sources ───────────────────────────────────────────────────────
-  getSources: (t) => I("GET", "/sources"),
-  getSourceResolvers: (t) => I("GET", "/sources/resolvers"),
-  createSource: (t, n) => I("POST", "/sources", n),
-  updateSource: (t, n, r) => I("PUT", `/sources/${n}`, r),
-  deleteSource: (t, n) => I("DELETE", `/sources/${n}`),
+  getSources: (a) => E("GET", "/sources"),
+  getSourceResolvers: (a) => E("GET", "/sources/resolvers"),
+  createSource: (a, t) => E("POST", "/sources", t),
+  updateSource: (a, t, l) => E("PUT", `/sources/${t}`, l),
+  deleteSource: (a, t) => E("DELETE", `/sources/${t}`),
   // ── Import contexts ───────────────────────────────────────────────
-  getImportContexts: () => I("GET", "/admin/import-contexts"),
-  createImportContext: (t) => I("POST", "/admin/import-contexts", t),
-  updateImportContext: (t, n) => I("PUT", `/admin/import-contexts/${t}`, n),
-  deleteImportContext: (t) => I("DELETE", `/admin/import-contexts/${t}`),
-  getImportAlgorithmInstances: () => I("GET", "/admin/import-contexts/algorithm-instances/import"),
-  getValidationAlgorithmInstances: () => I("GET", "/admin/import-contexts/algorithm-instances/validation"),
+  getImportContexts: () => E("GET", "/admin/import-contexts"),
+  createImportContext: (a) => E("POST", "/admin/import-contexts", a),
+  updateImportContext: (a, t) => E("PUT", `/admin/import-contexts/${a}`, t),
+  deleteImportContext: (a) => E("DELETE", `/admin/import-contexts/${a}`),
+  getImportAlgorithmInstances: () => E("GET", "/admin/import-contexts/algorithm-instances/import"),
+  getValidationAlgorithmInstances: () => E("GET", "/admin/import-contexts/algorithm-instances/validation"),
   // ── Domains ───────────────────────────────────────────────────────
-  getDomains: (t) => I("GET", "/domains"),
-  createDomain: (t, n) => I("POST", "/domains", n),
-  updateDomain: (t, n, r) => I("PUT", `/domains/${n}`, r),
-  deleteDomain: (t, n) => I("DELETE", `/domains/${n}`),
-  getDomainAttributes: (t, n) => I("GET", `/domains/${n}/attributes`),
-  createDomainAttribute: (t, n, r) => I("POST", `/domains/${n}/attributes`, r),
-  updateDomainAttribute: (t, n, r, c) => I("PUT", `/domains/${n}/attributes/${r}`, c),
-  deleteDomainAttribute: (t, n, r) => I("DELETE", `/domains/${n}/attributes/${r}`),
+  getDomains: (a) => E("GET", "/domains"),
+  createDomain: (a, t) => E("POST", "/domains", t),
+  updateDomain: (a, t, l) => E("PUT", `/domains/${t}`, l),
+  deleteDomain: (a, t) => E("DELETE", `/domains/${t}`),
+  getDomainAttributes: (a, t) => E("GET", `/domains/${t}/attributes`),
+  createDomainAttribute: (a, t, l) => E("POST", `/domains/${t}/attributes`, l),
+  updateDomainAttribute: (a, t, l, y) => E("PUT", `/domains/${t}/attributes/${l}`, y),
+  deleteDomainAttribute: (a, t, l) => E("DELETE", `/domains/${t}/attributes/${l}`),
   // ── Enums ─────────────────────────────────────────────────────────
-  getEnums: (t) => I("GET", "/enums"),
-  getEnumDetail: (t, n) => I("GET", `/enums/${n}`),
-  createEnum: (t, n) => I("POST", "/enums", n),
-  updateEnum: (t, n, r) => I("PUT", `/enums/${n}`, r),
-  deleteEnum: (t, n) => I("DELETE", `/enums/${n}`),
-  getEnumValues: (t, n) => I("GET", `/enums/${n}/values`),
-  addEnumValue: (t, n, r) => I("POST", `/enums/${n}/values`, r),
-  updateEnumValue: (t, n, r, c) => I("PUT", `/enums/${n}/values/${r}`, c),
-  deleteEnumValue: (t, n, r) => I("DELETE", `/enums/${n}/values/${r}`),
-  reorderEnumValues: (t, n, r) => I("PUT", `/enums/${n}/values/reorder`, r)
+  getEnums: (a) => E("GET", "/enums"),
+  getEnumDetail: (a, t) => E("GET", `/enums/${t}`),
+  createEnum: (a, t) => E("POST", "/enums", t),
+  updateEnum: (a, t, l) => E("PUT", `/enums/${t}`, l),
+  deleteEnum: (a, t) => E("DELETE", `/enums/${t}`),
+  getEnumValues: (a, t) => E("GET", `/enums/${t}/values`),
+  addEnumValue: (a, t, l) => E("POST", `/enums/${t}/values`, l),
+  updateEnumValue: (a, t, l, y) => E("PUT", `/enums/${t}/values/${l}`, y),
+  deleteEnumValue: (a, t, l) => E("DELETE", `/enums/${t}/values/${l}`),
+  reorderEnumValues: (a, t, l) => E("PUT", `/enums/${t}/values/reorder`, l),
+  // ── Attribute validators (generic pluggable validation) ───────────
+  // Attachments + per-attribute regex live in entity_metadata, published to psm-api.
+  listAttributeValidators: (a, t, l) => E("GET", `/metamodel/attributes/${l}/validators?nodeTypeId=${encodeURIComponent(t)}`),
+  attachAttributeValidator: (a, t, l) => E("POST", `/metamodel/attributes/${t}/validators`, l),
+  detachAttributeValidator: (a, t, { nodeTypeId: l, stateId: y, instanceId: T }) => {
+    const S = new URLSearchParams();
+    return l && S.set("nodeTypeId", l), y && S.set("stateId", y), T && S.set("instanceId", T), E("DELETE", `/metamodel/attributes/${t}/validators?${S.toString()}`);
+  },
+  getAttributeRegex: (a, t, l) => E("GET", `/metamodel/attributes/${t}/regex${l ? `?nodeTypeId=${encodeURIComponent(l)}` : ""}`),
+  setAttributeRegex: (a, t, l) => E("PUT", `/metamodel/attributes/${t}/regex`, { regex: l }),
+  // Generic per-attribute metadata (entity_metadata, target_type=ATTRIBUTE_DEFINITION).
+  listAttributeMetadata: (a, t) => E("GET", `/metamodel/attributes/${t}/metadata`),
+  setAttributeMetadata: (a, t, l, y) => E("PUT", `/metamodel/attributes/${t}/metadata/${encodeURIComponent(l)}`, { value: y }),
+  removeAttributeMetadata: (a, t, l) => E("DELETE", `/metamodel/attributes/${t}/metadata/${encodeURIComponent(l)}`)
 };
-let Ue = () => {
-}, at = null, Me = {}, it = [], lt = () => Promise.reject("not initialised"), rt = () => Promise.reject("not initialised");
-const Xe = ["VERSION_TO_MASTER", "VERSION_TO_VERSION"], Ke = ["ALPHA_NUMERIC"], Qe = ["NONE", "ITERATE", "RELEASE"], Ve = ["STRING", "NUMBER", "DATE", "BOOLEAN", "ENUM"], Ge = ["TEXT", "TEXTAREA", "DROPDOWN", "DATE_PICKER", "CHECKBOX"], mt = ["NONE", "REQUIRE_SIGNATURE"], ht = ["NONE", "ITERATE", "REVISE"], $e = "#6b7280", yt = [
+let qe = () => {
+}, lt = null, Ve = {}, rt = [], dt = () => Promise.reject("not initialised"), Qe = () => Promise.reject("not initialised");
+const Je = ["VERSION_TO_MASTER", "VERSION_TO_VERSION"], Ze = ["ALPHA_NUMERIC"], et = ["NONE", "ITERATE", "RELEASE"], Ge = ["STRING", "NUMBER", "DATE", "BOOLEAN", "ENUM"], Be = ["TEXT", "TEXTAREA", "DROPDOWN", "DATE_PICKER", "CHECKBOX"], ht = ["NONE", "REQUIRE_SIGNATURE"], yt = ["NONE", "ITERATE", "REVISE"], Fe = "#6b7280", gt = [
   "#5b9cf6",
   "#38bdf8",
   "#34d399",
@@ -259,24 +273,24 @@ const Xe = ["VERSION_TO_MASTER", "VERSION_TO_VERSION"], Ke = ["ALPHA_NUMERIC"], 
   "#56d18e",
   "#e8a947",
   "#6b7280"
-], gt = ["STEP", "CATIA_V5"];
-function We(t) {
-  return (t == null ? void 0 : t.color) || (t == null ? void 0 : t.COLOR) || $e;
+], ft = ["STEP", "CATIA_V5"], Se = (a) => (a || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/, "");
+function He(a) {
+  return (a == null ? void 0 : a.color) || (a == null ? void 0 : a.COLOR) || Fe;
 }
-function ft(t) {
-  if (!t) return { fg: "var(--muted2)", bg: "rgba(120,130,150,.14)" };
-  let n = 0;
-  for (let c = 0; c < t.length; c++) n = n * 31 + t.charCodeAt(c) & 16777215;
-  const r = n % 360;
-  return { fg: `hsl(${r},70%,72%)`, bg: `hsl(${r},55%,22%)` };
+function vt(a) {
+  if (!a) return { fg: "var(--muted2)", bg: "rgba(120,130,150,.14)" };
+  let t = 0;
+  for (let y = 0; y < a.length; y++) t = t * 31 + a.charCodeAt(y) & 16777215;
+  const l = t % 360;
+  return { fg: `hsl(${l},70%,72%)`, bg: `hsl(${l},55%,22%)` };
 }
-function Ze({ module: t }) {
-  if (!t) return null;
-  const n = ft(t);
+function tt({ module: a }) {
+  if (!a) return null;
+  const t = vt(a);
   return /* @__PURE__ */ e(
     "span",
     {
-      title: `Spring Modulith module: ${t}`,
+      title: `Spring Modulith module: ${a}`,
       style: {
         display: "inline-block",
         padding: "1px 7px",
@@ -286,52 +300,52 @@ function Ze({ module: t }) {
         letterSpacing: ".06em",
         fontFamily: "var(--mono)",
         textTransform: "uppercase",
-        background: n.bg,
-        color: n.fg,
-        border: `1px solid ${n.fg}33`,
+        background: t.bg,
+        color: t.fg,
+        border: `1px solid ${t.fg}33`,
         verticalAlign: "middle"
       },
-      children: t
+      children: a
     }
   );
 }
-function De({ title: t, onClose: n, onSave: r, saving: c, saveLabel: k = "Save", children: P, width: u = 480 }) {
+function Re({ title: a, onClose: t, onSave: l, saving: y, saveLabel: T = "Save", children: S, width: p = 480 }) {
   return /* @__PURE__ */ e(
     "div",
     {
       className: "diff-overlay",
       style: { zIndex: 600 },
-      onClick: (m) => {
-        m.target === m.currentTarget && n();
+      onClick: (C) => {
+        C.target === C.currentTarget && t();
       },
-      children: /* @__PURE__ */ i("div", { className: "diff-modal", style: { width: u, maxHeight: "85vh", display: "flex", flexDirection: "column" }, children: [
-        /* @__PURE__ */ i("div", { className: "diff-header", children: [
-          /* @__PURE__ */ e("span", { className: "diff-title", children: t }),
-          /* @__PURE__ */ e("button", { className: "diff-close", onClick: n, children: "×" })
+      children: /* @__PURE__ */ n("div", { className: "diff-modal", style: { width: p, maxHeight: "85vh", display: "flex", flexDirection: "column" }, children: [
+        /* @__PURE__ */ n("div", { className: "diff-header", children: [
+          /* @__PURE__ */ e("span", { className: "diff-title", children: a }),
+          /* @__PURE__ */ e("button", { className: "diff-close", onClick: t, children: "×" })
         ] }),
-        /* @__PURE__ */ e("div", { style: { flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }, children: P }),
-        /* @__PURE__ */ i("div", { style: { padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 8, flexShrink: 0 }, children: [
-          /* @__PURE__ */ e("button", { className: "btn", onClick: n, children: "Cancel" }),
-          /* @__PURE__ */ e("button", { className: "btn btn-primary", onClick: r, disabled: c, children: c ? "Saving…" : k })
+        /* @__PURE__ */ e("div", { style: { flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }, children: S }),
+        /* @__PURE__ */ n("div", { style: { padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 8, flexShrink: 0 }, children: [
+          /* @__PURE__ */ e("button", { className: "btn", onClick: t, children: "Cancel" }),
+          /* @__PURE__ */ e("button", { className: "btn btn-primary", onClick: l, disabled: y, children: y ? "Saving…" : T })
         ] })
       ] })
     }
   );
 }
-function b({ label: t, children: n }) {
-  return /* @__PURE__ */ i("div", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
-    /* @__PURE__ */ e("label", { style: { fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }, children: t }),
-    n
+function I({ label: a, children: t }) {
+  return /* @__PURE__ */ n("div", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+    /* @__PURE__ */ e("label", { style: { fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }, children: a }),
+    t
   ] });
 }
-function ze({ label: t, value: n, onChange: r }) {
-  return /* @__PURE__ */ e(b, { label: t, children: /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+function Pe({ label: a, value: t, onChange: l }) {
+  return /* @__PURE__ */ e(I, { label: a, children: /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
     /* @__PURE__ */ e("div", { style: {
       width: 28,
       height: 28,
       borderRadius: 4,
       flexShrink: 0,
-      background: n || "var(--bg3)",
+      background: t || "var(--bg3)",
       border: "1px solid var(--border)"
     } }),
     /* @__PURE__ */ e(
@@ -340,8 +354,8 @@ function ze({ label: t, value: n, onChange: r }) {
         type: "color",
         className: "field-input",
         style: { width: 48, height: 28, padding: 1, cursor: "pointer" },
-        value: n || "#6aacff",
-        onChange: (c) => r(c.target.value)
+        value: t || "#6aacff",
+        onChange: (y) => l(y.target.value)
       }
     ),
     /* @__PURE__ */ e(
@@ -350,23 +364,23 @@ function ze({ label: t, value: n, onChange: r }) {
         type: "text",
         className: "field-input",
         style: { flex: 1 },
-        value: n || "",
-        onChange: (c) => r(c.target.value),
+        value: t || "",
+        onChange: (y) => l(y.target.value),
         placeholder: "#rrggbb",
         maxLength: 7
       }
     ),
-    n && /* @__PURE__ */ e("button", { className: "btn btn-sm", style: { padding: "2px 8px", fontSize: 10 }, onClick: () => r(""), children: "Clear" })
+    t && /* @__PURE__ */ e("button", { className: "btn btn-sm", style: { padding: "2px 8px", fontSize: 10 }, onClick: () => l(""), children: "Clear" })
   ] }) });
 }
-function dt({ value: t, onChange: n }) {
-  return /* @__PURE__ */ i(b, { label: "Icon", children: [
-    /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "repeat(10, 1fr)", gap: 4, padding: "8px 0" }, children: [
+function ot({ value: a, onChange: t }) {
+  return /* @__PURE__ */ n(I, { label: "Icon", children: [
+    /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "repeat(10, 1fr)", gap: 4, padding: "8px 0" }, children: [
       /* @__PURE__ */ e(
         "button",
         {
           title: "No icon",
-          onClick: () => n(""),
+          onClick: () => t(""),
           style: {
             display: "flex",
             alignItems: "center",
@@ -375,21 +389,21 @@ function dt({ value: t, onChange: n }) {
             height: 32,
             borderRadius: 4,
             cursor: "pointer",
-            border: t ? "1px solid var(--border)" : "2px solid var(--accent)",
-            background: t ? "transparent" : "var(--accent-dim)",
+            border: a ? "1px solid var(--border)" : "2px solid var(--accent)",
+            background: a ? "transparent" : "var(--accent-dim)",
             fontSize: 10,
             color: "var(--muted)"
           },
           children: "—"
         }
       ),
-      it.map((r) => {
-        const c = Me[r], k = t === r;
+      rt.map((l) => {
+        const y = Ve[l], T = a === l;
         return /* @__PURE__ */ e(
           "button",
           {
-            title: r,
-            onClick: () => n(r),
+            title: l,
+            onClick: () => t(l),
             style: {
               display: "flex",
               alignItems: "center",
@@ -398,407 +412,562 @@ function dt({ value: t, onChange: n }) {
               height: 32,
               borderRadius: 4,
               cursor: "pointer",
-              border: k ? "2px solid var(--accent)" : "1px solid var(--border)",
-              background: k ? "var(--accent-dim)" : "transparent"
+              border: T ? "2px solid var(--accent)" : "1px solid var(--border)",
+              background: T ? "var(--accent-dim)" : "transparent"
             },
-            children: /* @__PURE__ */ e(c, { size: 14, strokeWidth: 1.8, color: k ? "var(--accent)" : "var(--muted)" })
+            children: /* @__PURE__ */ e(y, { size: 14, strokeWidth: 1.8, color: T ? "var(--accent)" : "var(--muted)" })
           },
-          r
+          l
         );
       })
     ] }),
-    t && /* @__PURE__ */ e("div", { style: { fontSize: 11, color: "var(--muted)", marginTop: -4 }, children: t })
+    a && /* @__PURE__ */ e("div", { style: { fontSize: 11, color: "var(--muted)", marginTop: -4 }, children: a })
   ] });
 }
-function Je({ label: t, action: n }) {
-  return /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 4 }, children: [
-    /* @__PURE__ */ e("span", { style: { fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)" }, children: t }),
-    n
+function Ye({ label: a, action: t }) {
+  return /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 4 }, children: [
+    /* @__PURE__ */ e("span", { style: { fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)" }, children: a }),
+    t
   ] });
 }
-function vt({ value: t, onChange: n }) {
-  return /* @__PURE__ */ i("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
-    /* @__PURE__ */ e("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }, children: yt.map((r) => /* @__PURE__ */ e(
+function bt({ value: a, onChange: t }) {
+  return /* @__PURE__ */ n("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
+    /* @__PURE__ */ e("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }, children: gt.map((l) => /* @__PURE__ */ e(
       "button",
       {
-        onClick: () => n(r),
+        onClick: () => t(l),
         style: {
           width: "100%",
           aspectRatio: "1",
           borderRadius: 4,
-          background: r,
+          background: l,
           border: "none",
           cursor: "pointer",
-          outline: t === r ? "2px solid var(--text)" : "2px solid transparent",
+          outline: a === l ? "2px solid var(--text)" : "2px solid transparent",
           outlineOffset: 2
         },
-        title: r
+        title: l
       },
-      r
+      l
     )) }),
-    /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+    /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
       /* @__PURE__ */ e("label", { style: { fontSize: 11, color: "var(--muted)", whiteSpace: "nowrap" }, children: "Custom" }),
       /* @__PURE__ */ e(
         "input",
         {
           type: "color",
-          value: t || $e,
-          onChange: (r) => n(r.target.value),
+          value: a || Fe,
+          onChange: (l) => t(l.target.value),
           style: { width: 36, height: 28, padding: 2, border: "1px solid var(--border2)", borderRadius: 4, background: "var(--surface)", cursor: "pointer" }
         }
       ),
-      /* @__PURE__ */ e("span", { style: { fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }, children: t || $e })
+      /* @__PURE__ */ e("span", { style: { fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }, children: a || Fe })
     ] })
   ] });
 }
-function qe({ userId: t, enumDefinitionId: n, onChange: r }) {
-  const [c, k] = x(null), [P, u] = x(null);
-  return Se(() => {
-    f.getEnums(t).then((m) => k(Array.isArray(m) ? m : [])).catch(() => k([]));
-  }, [t]), Se(() => {
-    if (!n) {
-      u(null);
+function Ue({ userId: a, enumDefinitionId: t, onChange: l }) {
+  const [y, T] = _(null), [S, p] = _(null);
+  return Ae(() => {
+    f.getEnums(a).then((C) => T(Array.isArray(C) ? C : [])).catch(() => T([]));
+  }, [a]), Ae(() => {
+    if (!t) {
+      p(null);
       return;
     }
-    f.getEnumValues(t, n).then((m) => u(Array.isArray(m) ? m : [])).catch(() => u([]));
-  }, [t, n]), c === null ? /* @__PURE__ */ e(b, { label: "Enumeration", children: /* @__PURE__ */ e("span", { style: { fontSize: 12, color: "var(--muted)" }, children: "Loading…" }) }) : /* @__PURE__ */ i(ne, { children: [
-    /* @__PURE__ */ e(b, { label: "Enumeration *", children: /* @__PURE__ */ i("select", { className: "field-input", value: n || "", onChange: (m) => r(m.target.value || null), children: [
+    f.getEnumValues(a, t).then((C) => p(Array.isArray(C) ? C.filter(Boolean) : [])).catch(() => p([]));
+  }, [a, t]), y === null ? /* @__PURE__ */ e(I, { label: "Enumeration", children: /* @__PURE__ */ e("span", { style: { fontSize: 12, color: "var(--muted)" }, children: "Loading…" }) }) : /* @__PURE__ */ n(re, { children: [
+    /* @__PURE__ */ e(I, { label: "Enumeration *", children: /* @__PURE__ */ n("select", { className: "field-input", value: t || "", onChange: (C) => l(C.target.value || null), children: [
       /* @__PURE__ */ e("option", { value: "", children: "Select an enumeration…" }),
-      c.map((m) => /* @__PURE__ */ i("option", { value: m.id, children: [
-        m.name,
+      y.map((C) => /* @__PURE__ */ n("option", { value: C.id, children: [
+        C.name,
         " (",
-        m.valueCount,
+        C.valueCount,
         " value",
-        m.valueCount !== 1 ? "s" : "",
+        C.valueCount !== 1 ? "s" : "",
         ")"
-      ] }, m.id))
+      ] }, C.id))
     ] }) }),
-    P && P.length > 0 && /* @__PURE__ */ e("div", { style: { display: "flex", flexWrap: "wrap", gap: 4 }, children: P.map((m) => /* @__PURE__ */ e("span", { style: {
+    S && S.length > 0 && /* @__PURE__ */ e("div", { style: { display: "flex", flexWrap: "wrap", gap: 4 }, children: S.map((C) => /* @__PURE__ */ e("span", { style: {
       display: "inline-block",
       background: "var(--accent-dim, #e0e7ff)",
       color: "var(--fg)",
       padding: "2px 8px",
       borderRadius: 4,
       fontSize: 11
-    }, children: m.label || m.value }, m.id)) })
+    }, children: C.label || C.value }, C.id)) })
   ] });
 }
-function Ye({ form: t, setForm: n, autoFocusName: r = !0, hideAsName: c = !1, userId: k }) {
-  const P = t.dataType || "STRING";
-  return /* @__PURE__ */ i(ne, { children: [
-    /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
-      /* @__PURE__ */ e(b, { label: "Name (internal key) *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: r, value: t.name || "", onChange: (u) => n((m) => ({ ...m, name: u.target.value })), placeholder: "e.g. reviewNote" }) }),
-      /* @__PURE__ */ e(b, { label: "Label (display) *", children: /* @__PURE__ */ e("input", { className: "field-input", value: t.label || "", onChange: (u) => n((m) => ({ ...m, label: u.target.value })), placeholder: "e.g. Review Note" }) })
+function Xe({ form: a, setForm: t, autoFocusName: l = !0, hideAsName: y = !1, userId: T }) {
+  const S = a.dataType || "STRING";
+  return /* @__PURE__ */ n(re, { children: [
+    /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
+      /* @__PURE__ */ e(I, { label: "Name (internal key) *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: l, value: a.name || "", onChange: (p) => t((C) => ({ ...C, name: p.target.value })), placeholder: "e.g. reviewNote" }) }),
+      /* @__PURE__ */ e(I, { label: "Label (display) *", children: /* @__PURE__ */ e("input", { className: "field-input", value: a.label || "", onChange: (p) => t((C) => ({ ...C, label: p.target.value })), placeholder: "e.g. Review Note" }) })
     ] }),
-    /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
-      /* @__PURE__ */ e(b, { label: "Data Type", children: /* @__PURE__ */ e("select", { className: "field-input", value: P, onChange: (u) => n((m) => ({ ...m, dataType: u.target.value })), children: Ve.map((u) => /* @__PURE__ */ e("option", { value: u, children: u }, u)) }) }),
-      /* @__PURE__ */ e(b, { label: "Widget", children: /* @__PURE__ */ e("select", { className: "field-input", value: t.widgetType || "TEXT", onChange: (u) => n((m) => ({ ...m, widgetType: u.target.value })), children: Ge.map((u) => /* @__PURE__ */ e("option", { value: u, children: u }, u)) }) })
+    /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
+      /* @__PURE__ */ e(I, { label: "Data Type", children: /* @__PURE__ */ e("select", { className: "field-input", value: S, onChange: (p) => t((C) => ({ ...C, dataType: p.target.value })), children: Ge.map((p) => /* @__PURE__ */ e("option", { value: p, children: p }, p)) }) }),
+      /* @__PURE__ */ e(I, { label: "Widget", children: /* @__PURE__ */ e("select", { className: "field-input", value: a.widgetType || "TEXT", onChange: (p) => t((C) => ({ ...C, widgetType: p.target.value })), children: Be.map((p) => /* @__PURE__ */ e("option", { value: p, children: p }, p)) }) })
     ] }),
-    /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 80px", gap: 12 }, children: [
-      /* @__PURE__ */ e(b, { label: "Section", children: /* @__PURE__ */ e("input", { className: "field-input", value: t.displaySection || "", onChange: (u) => n((m) => ({ ...m, displaySection: u.target.value })), placeholder: "e.g. Details" }) }),
-      /* @__PURE__ */ e(b, { label: "Order", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: t.displayOrder ?? "", onChange: (u) => n((m) => ({ ...m, displayOrder: u.target.value })), placeholder: "0" }) })
+    /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 80px", gap: 12 }, children: [
+      /* @__PURE__ */ e(I, { label: "Section", children: /* @__PURE__ */ e("input", { className: "field-input", value: a.displaySection || "", onChange: (p) => t((C) => ({ ...C, displaySection: p.target.value })), placeholder: "e.g. Details" }) }),
+      /* @__PURE__ */ e(I, { label: "Order", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: a.displayOrder ?? "", onChange: (p) => t((C) => ({ ...C, displayOrder: p.target.value })), placeholder: "0" }) })
     ] }),
-    /* @__PURE__ */ e(b, { label: "Default value", children: /* @__PURE__ */ e("input", { className: "field-input", value: t.defaultValue || "", onChange: (u) => n((m) => ({ ...m, defaultValue: u.target.value })), placeholder: "Optional" }) }),
-    /* @__PURE__ */ e(b, { label: "Validation regex", children: /* @__PURE__ */ e("input", { className: "field-input", value: t.namingRegex || "", onChange: (u) => n((m) => ({ ...m, namingRegex: u.target.value })), placeholder: "e.g. ^[A-Z]{3}-[0-9]+$" }) }),
-    P !== "ENUM" && /* @__PURE__ */ e(b, { label: "Allowed values (comma-separated)", children: /* @__PURE__ */ e("input", { className: "field-input", value: t.allowedValues || "", onChange: (u) => n((m) => ({ ...m, allowedValues: u.target.value })), placeholder: "e.g. Low,Medium,High" }) }),
-    /* @__PURE__ */ e(b, { label: "Tooltip", children: /* @__PURE__ */ e("input", { className: "field-input", value: t.tooltip || "", onChange: (u) => n((m) => ({ ...m, tooltip: u.target.value })), placeholder: "Hint shown next to the field" }) }),
-    /* @__PURE__ */ i("div", { style: { display: "flex", gap: 20, flexWrap: "wrap" }, children: [
-      /* @__PURE__ */ i("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 }, children: [
-        /* @__PURE__ */ e("input", { type: "checkbox", checked: !!t.required, onChange: (u) => n((m) => ({ ...m, required: u.target.checked })) }),
-        "Required field"
-      ] }),
-      !c && /* @__PURE__ */ i("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 }, children: [
-        /* @__PURE__ */ e("input", { type: "checkbox", checked: !!t.asName, onChange: (u) => n((m) => ({ ...m, asName: u.target.checked })) }),
-        "Use as display name ",
-        /* @__PURE__ */ e("span", { style: { color: "var(--accent)", marginLeft: 2 }, children: "★" })
-      ] })
-    ] }),
-    P === "ENUM" && k && /* @__PURE__ */ e(
-      qe,
+    /* @__PURE__ */ e(I, { label: "Default value", children: /* @__PURE__ */ e("input", { className: "field-input", value: a.defaultValue || "", onChange: (p) => t((C) => ({ ...C, defaultValue: p.target.value })), placeholder: "Optional" }) }),
+    S !== "ENUM" && /* @__PURE__ */ e(I, { label: "Allowed values (comma-separated)", children: /* @__PURE__ */ e("input", { className: "field-input", value: a.allowedValues || "", onChange: (p) => t((C) => ({ ...C, allowedValues: p.target.value })), placeholder: "e.g. Low,Medium,High" }) }),
+    /* @__PURE__ */ e(I, { label: "Tooltip", children: /* @__PURE__ */ e("input", { className: "field-input", value: a.tooltip || "", onChange: (p) => t((C) => ({ ...C, tooltip: p.target.value })), placeholder: "Hint shown next to the field" }) }),
+    /* @__PURE__ */ e("div", { style: { display: "flex", gap: 20, flexWrap: "wrap" }, children: !y && /* @__PURE__ */ n("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 }, children: [
+      /* @__PURE__ */ e("input", { type: "checkbox", checked: !!a.asName, onChange: (p) => t((C) => ({ ...C, asName: p.target.checked })) }),
+      "Use as display name ",
+      /* @__PURE__ */ e("span", { style: { color: "var(--accent)", marginLeft: 2 }, children: "★" })
+    ] }) }),
+    S === "ENUM" && T && /* @__PURE__ */ e(
+      Ue,
       {
-        userId: k,
-        enumDefinitionId: t.enumDefinitionId || null,
-        onChange: (u) => n((m) => ({ ...m, enumDefinitionId: u }))
+        userId: T,
+        enumDefinitionId: a.enumDefinitionId || null,
+        onChange: (p) => t((C) => ({ ...C, enumDefinitionId: p }))
       }
     )
   ] });
 }
-function bt({ form: t, setForm: n, knownMetaKeys: r = [] }) {
-  const c = t.metadata || {}, k = (m, V) => n((Y) => ({
-    ...Y,
-    metadata: { ...Y.metadata || {}, [m]: V ? "true" : void 0 }
-  })), P = new Set(r), u = Object.keys(c).filter((m) => !P.has(m));
-  return /* @__PURE__ */ i(ne, { children: [
-    /* @__PURE__ */ e(b, { label: "State Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: t.name || "", onChange: (m) => n((V) => ({ ...V, name: m.target.value })), placeholder: "e.g. In Review" }) }),
-    /* @__PURE__ */ e(b, { label: "Display Order", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: t.displayOrder ?? "", onChange: (m) => n((V) => ({ ...V, displayOrder: m.target.value })), placeholder: "0", style: { width: 100 } }) }),
-    /* @__PURE__ */ e(b, { label: "Flags", children: /* @__PURE__ */ e("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: /* @__PURE__ */ i("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }, children: [
-      /* @__PURE__ */ e("input", { type: "checkbox", checked: !!t.isInitial, onChange: (m) => n((V) => ({ ...V, isInitial: m.target.checked })) }),
-      /* @__PURE__ */ e("span", { className: "lc-state-flag", style: { opacity: t.isInitial ? 1 : 0.4 }, children: "INIT" }),
-      /* @__PURE__ */ e("span", { style: { color: "var(--muted)", fontSize: 11 }, children: "Initial state — entry point of the lifecycle" })
-    ] }) }) }),
-    /* @__PURE__ */ e(b, { label: "Metadata", children: /* @__PURE__ */ i("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
-      r.map((m) => /* @__PURE__ */ i("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }, children: [
-        /* @__PURE__ */ e("input", { type: "checkbox", checked: c[m] === "true", onChange: (V) => k(m, V.target.checked) }),
-        /* @__PURE__ */ e("span", { className: "lc-state-flag", style: { opacity: c[m] === "true" ? 1 : 0.4 }, children: m.toUpperCase() })
-      ] }, m)),
-      r.length === 0 && /* @__PURE__ */ e("span", { style: { color: "var(--muted)", fontSize: 11 }, children: "No metadata keys registered in backend" }),
-      u.map((m) => /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 11 }, children: [
-        /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--accent)" }, children: m }),
-        /* @__PURE__ */ e("span", { style: { color: "var(--muted)" }, children: "=" }),
-        /* @__PURE__ */ e("span", { style: { color: "var(--text)" }, children: c[m] }),
-        /* @__PURE__ */ e("button", { className: "panel-icon-btn", onClick: () => {
-          const V = { ...t.metadata || {} };
-          delete V[m], n((Y) => ({ ...Y, metadata: V }));
-        }, title: "Remove", children: /* @__PURE__ */ e(ae, { size: 10, strokeWidth: 2, color: "var(--danger)" }) })
-      ] }, m))
-    ] }) }),
-    /* @__PURE__ */ e(b, { label: "Color", children: /* @__PURE__ */ e(vt, { value: t.color || $e, onChange: (m) => n((V) => ({ ...V, color: m })) }) })
-  ] });
-}
-function Nt({ form: t, setForm: n, states: r }) {
-  return /* @__PURE__ */ i(ne, { children: [
-    /* @__PURE__ */ e(b, { label: "Transition Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: t.name || "", onChange: (c) => n((k) => ({ ...k, name: c.target.value })), placeholder: "e.g. freeze" }) }),
-    /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
-      /* @__PURE__ */ e(b, { label: "From State *", children: /* @__PURE__ */ i("select", { className: "field-input", value: t.fromStateId || "", onChange: (c) => n((k) => ({ ...k, fromStateId: c.target.value })), children: [
-        /* @__PURE__ */ e("option", { value: "", children: "Select…" }),
-        r.map((c) => {
-          const k = c.id || c.ID;
-          return /* @__PURE__ */ e("option", { value: k, children: c.name || c.NAME || k }, k);
-        })
-      ] }) }),
-      /* @__PURE__ */ e(b, { label: "To State *", children: /* @__PURE__ */ i("select", { className: "field-input", value: t.toStateId || "", onChange: (c) => n((k) => ({ ...k, toStateId: c.target.value })), children: [
-        /* @__PURE__ */ e("option", { value: "", children: "Select…" }),
-        r.map((c) => {
-          const k = c.id || c.ID;
-          return /* @__PURE__ */ e("option", { value: k, children: c.name || c.NAME || k }, k);
-        })
-      ] }) })
+const Nt = "algtype-attribute-validator";
+function Tt({ userId: a, nodeTypeId: t, attrDefId: l, lifecycleId: y, canWrite: T, toast: S }) {
+  const [p, C] = _({}), [P, G] = _([]), [M, v] = _([]), [W, c] = _({}), [x, H] = _(!0), [ae, L] = _(""), [te, s] = _(""), [R, d] = _("*"), [g, N] = _(""), [u, A] = _(!1), h = $e(
+    () => f.listAttributeMetadata(a, l).then((b) => C(b && typeof b == "object" ? b : {})).catch(() => C({})),
+    [a, l]
+  ), V = $e(
+    () => f.listAttributeValidators(a, t, l).then((b) => c(b && typeof b == "object" ? b : {})).catch(() => c({})),
+    [a, t, l]
+  );
+  Ae(() => {
+    let b = !1;
+    return H(!0), Promise.all([
+      f.listAttributeMetadata(a, l).then((z) => z && typeof z == "object" ? z : {}).catch(() => ({})),
+      f.listAttributeValidators(a, t, l).then((z) => z && typeof z == "object" ? z : {}).catch(() => ({})),
+      Qe("GET", "/algorithms/instances").then((z) => Array.isArray(z) ? z : []).catch(() => []),
+      y ? f.getLifecycleStates(a, y).then((z) => Array.isArray(z) ? z : []).catch(() => []) : Promise.resolve([])
+    ]).then(([z, Q, Ee, ge]) => {
+      b || (C(z), c(Q), v(Ee), G(ge), H(!1));
+    }), () => {
+      b = !0;
+    };
+  }, [a, l, t, y]);
+  const J = (b) => {
+    const z = M.find((Q) => (Q.id || Q.ID) === b);
+    return z && (z.name || z.NAME) || b;
+  }, se = (b) => {
+    if (b === "*" || b === "_" || b == null) return "All states";
+    const z = P.find((Q) => (Q.id || Q.ID) === b);
+    return z && (z.name || z.NAME) || b;
+  }, m = (b) => {
+    const z = b.indexOf("__");
+    return z < 0 ? { stateId: "_", instanceId: b } : { stateId: b.slice(0, z), instanceId: b.slice(z + 2) };
+  };
+  async function F(b, z) {
+    A(!0);
+    try {
+      await f.setAttributeMetadata(a, l, b, z ?? ""), await h();
+    } catch (Q) {
+      S(Q, "error");
+    } finally {
+      A(!1);
+    }
+  }
+  async function Z() {
+    const b = ae.trim();
+    b && (await F(b, te), L(""), s(""));
+  }
+  async function i(b) {
+    A(!0);
+    try {
+      await f.removeAttributeMetadata(a, l, b), await h();
+    } catch (z) {
+      S(z, "error");
+    } finally {
+      A(!1);
+    }
+  }
+  async function r() {
+    if (g) {
+      A(!0);
+      try {
+        await f.attachAttributeValidator(a, l, { nodeTypeId: t, stateId: R === "*" ? null : R, instanceId: g }), await V(), N(""), S("Validator attached", "success");
+      } catch (b) {
+        S(b, "error");
+      } finally {
+        A(!1);
+      }
+    }
+  }
+  async function O(b, z) {
+    try {
+      await f.detachAttributeValidator(a, l, { nodeTypeId: t, stateId: b === "*" ? null : b, instanceId: z }), await V(), S("Validator detached", "success");
+    } catch (Q) {
+      S(Q, "error");
+    }
+  }
+  if (x) return /* @__PURE__ */ e("div", { style: { fontSize: 12, color: "var(--muted)", padding: "4px 0" }, children: "Loading…" });
+  const B = Object.keys(p), K = Object.keys(W), ne = { fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", marginTop: 6, marginBottom: 6 };
+  return /* @__PURE__ */ n(re, { children: [
+    /* @__PURE__ */ e("div", { style: ne, children: "Metadata" }),
+    B.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { fontSize: 11, marginBottom: 6 }, children: "No metadata" }),
+    B.map((b) => /* @__PURE__ */ n("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }, children: [
+      /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", fontSize: 11, minWidth: 130, color: "var(--accent)", wordBreak: "break-all" }, children: b }),
+      /* @__PURE__ */ e(
+        "input",
+        {
+          className: "field-input",
+          style: { flex: 1, fontFamily: "var(--mono)", fontSize: 11 },
+          defaultValue: p[b],
+          disabled: !T,
+          onBlur: (z) => {
+            z.target.value !== p[b] && F(b, z.target.value);
+          },
+          onKeyDown: (z) => {
+            z.key === "Enter" && z.target.blur();
+          }
+        }
+      ),
+      T && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete metadata", onClick: () => i(b), children: /* @__PURE__ */ e(ce, { size: 10, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+    ] }, b)),
+    T && /* @__PURE__ */ n("div", { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 2 }, children: [
+      /* @__PURE__ */ e(
+        "input",
+        {
+          className: "field-input",
+          style: { minWidth: 130, fontSize: 11, fontFamily: "var(--mono)" },
+          value: ae,
+          onChange: (b) => L(b.target.value),
+          placeholder: "key (e.g. validation.regex)"
+        }
+      ),
+      /* @__PURE__ */ e(
+        "input",
+        {
+          className: "field-input",
+          style: { flex: 1, fontSize: 11, fontFamily: "var(--mono)" },
+          value: te,
+          onChange: (b) => s(b.target.value),
+          placeholder: "value",
+          onKeyDown: (b) => {
+            b.key === "Enter" && Z();
+          }
+        }
+      ),
+      /* @__PURE__ */ e("button", { className: "btn btn-sm", style: { fontSize: 10 }, disabled: u || !ae.trim(), onClick: Z, children: "Add" })
     ] }),
-    /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
-      /* @__PURE__ */ e(b, { label: "Action Type", children: /* @__PURE__ */ e("select", { className: "field-input", value: t.actionType || "NONE", onChange: (c) => n((k) => ({ ...k, actionType: c.target.value })), children: mt.map((c) => /* @__PURE__ */ e("option", { value: c, children: c }, c)) }) }),
-      /* @__PURE__ */ e(b, { label: "Version Strategy", children: /* @__PURE__ */ e("select", { className: "field-input", value: t.versionStrategy || "NONE", onChange: (c) => n((k) => ({ ...k, versionStrategy: c.target.value })), children: ht.map((c) => /* @__PURE__ */ e("option", { value: c, children: c }, c)) }) })
+    /* @__PURE__ */ e("div", { style: ne, children: "Validators" }),
+    K.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { fontSize: 11, marginBottom: 8 }, children: "No validators attached" }),
+    K.map((b) => {
+      const { stateId: z, instanceId: Q } = m(b);
+      return /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", marginBottom: 2, borderRadius: 3, background: "var(--subtle-bg)", border: "1px solid var(--border)", fontSize: 11 }, children: [
+        /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--accent)", fontWeight: 600 }, children: J(Q) }),
+        /* @__PURE__ */ n("span", { style: { fontSize: 10, color: "var(--muted)" }, children: [
+          "@ ",
+          se(z)
+        ] }),
+        /* @__PURE__ */ e("span", { style: { flex: 1 } }),
+        T && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Detach validator", onClick: () => O(z, Q), children: /* @__PURE__ */ e(ce, { size: 10, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+      ] }, b);
+    }),
+    T && /* @__PURE__ */ n("div", { style: { display: "flex", gap: 6, marginTop: 4, alignItems: "center", flexWrap: "wrap" }, children: [
+      /* @__PURE__ */ n("select", { className: "field-input", style: { flex: 1, minWidth: 160, fontSize: 11 }, value: g, onChange: (b) => N(b.target.value), children: [
+        /* @__PURE__ */ e("option", { value: "", children: "Select validator…" }),
+        M.filter((b) => (b.algorithmTypeId || b.ALGORITHM_TYPE_ID) === Nt).map((b) => {
+          const z = b.id || b.ID, Q = b.algorithmName || b.ALGORITHM_NAME;
+          return /* @__PURE__ */ n("option", { value: z, children: [
+            b.name || b.NAME || z,
+            Q ? ` (${Q})` : ""
+          ] }, z);
+        })
+      ] }),
+      /* @__PURE__ */ n("select", { className: "field-input", style: { width: 130, fontSize: 11 }, value: R, onChange: (b) => d(b.target.value), children: [
+        /* @__PURE__ */ e("option", { value: "*", children: "All states" }),
+        P.map((b) => {
+          const z = b.id || b.ID;
+          return /* @__PURE__ */ e("option", { value: z, children: b.name || b.NAME || z }, z);
+        })
+      ] }),
+      /* @__PURE__ */ e("button", { className: "btn btn-sm", style: { fontSize: 10 }, disabled: u || !g, onClick: r, children: "Attach" })
     ] })
   ] });
 }
-function Tt({ userId: t, linkTypeId: n, canWrite: r, toast: c }) {
-  var o, D;
-  const [k, P] = x(null), [u, m] = x(null), [V, Y] = x(null), [O, T] = x({}), [B, h] = x(!1), S = He(
-    () => f.getLinkTypeAttributes(t, n).then((l) => P(Array.isArray(l) ? l : [])).catch(() => P([])),
-    [t, n]
+function It({ form: a, setForm: t, knownMetaKeys: l = [], onNameChange: y = null }) {
+  const T = a.metadata || {}, S = (P, G) => t((M) => ({
+    ...M,
+    metadata: { ...M.metadata || {}, [P]: G ? "true" : void 0 }
+  })), p = new Set(l), C = Object.keys(T).filter((P) => !p.has(P));
+  return /* @__PURE__ */ n(re, { children: [
+    /* @__PURE__ */ e(I, { label: "State Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !y, value: a.name || "", onChange: (P) => y ? y(P.target.value) : t((G) => ({ ...G, name: P.target.value })), placeholder: "e.g. In Review" }) }),
+    /* @__PURE__ */ e(I, { label: "Display Order", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: a.displayOrder ?? "", onChange: (P) => t((G) => ({ ...G, displayOrder: P.target.value })), placeholder: "0", style: { width: 100 } }) }),
+    /* @__PURE__ */ e(I, { label: "Flags", children: /* @__PURE__ */ e("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: /* @__PURE__ */ n("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }, children: [
+      /* @__PURE__ */ e("input", { type: "checkbox", checked: !!a.isInitial, onChange: (P) => t((G) => ({ ...G, isInitial: P.target.checked })) }),
+      /* @__PURE__ */ e("span", { className: "lc-state-flag", style: { opacity: a.isInitial ? 1 : 0.4 }, children: "INIT" }),
+      /* @__PURE__ */ e("span", { style: { color: "var(--muted)", fontSize: 11 }, children: "Initial state — entry point of the lifecycle" })
+    ] }) }) }),
+    /* @__PURE__ */ e(I, { label: "Metadata", children: /* @__PURE__ */ n("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
+      l.map((P) => /* @__PURE__ */ n("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }, children: [
+        /* @__PURE__ */ e("input", { type: "checkbox", checked: T[P] === "true", onChange: (G) => S(P, G.target.checked) }),
+        /* @__PURE__ */ e("span", { className: "lc-state-flag", style: { opacity: T[P] === "true" ? 1 : 0.4 }, children: P.toUpperCase() })
+      ] }, P)),
+      l.length === 0 && /* @__PURE__ */ e("span", { style: { color: "var(--muted)", fontSize: 11 }, children: "No metadata keys registered in backend" }),
+      C.map((P) => /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 11 }, children: [
+        /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--accent)" }, children: P }),
+        /* @__PURE__ */ e("span", { style: { color: "var(--muted)" }, children: "=" }),
+        /* @__PURE__ */ e("span", { style: { color: "var(--text)" }, children: T[P] }),
+        /* @__PURE__ */ e("button", { className: "panel-icon-btn", onClick: () => {
+          const G = { ...a.metadata || {} };
+          delete G[P], t((M) => ({ ...M, metadata: G }));
+        }, title: "Remove", children: /* @__PURE__ */ e(ce, { size: 10, strokeWidth: 2, color: "var(--danger)" }) })
+      ] }, P))
+    ] }) }),
+    /* @__PURE__ */ e(I, { label: "Color", children: /* @__PURE__ */ e(bt, { value: a.color || Fe, onChange: (P) => t((G) => ({ ...G, color: P })) }) })
+  ] });
+}
+function Et({ form: a, setForm: t, states: l, onNameChange: y = null }) {
+  return /* @__PURE__ */ n(re, { children: [
+    /* @__PURE__ */ e(I, { label: "Transition Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !y, value: a.name || "", onChange: (T) => y ? y(T.target.value) : t((S) => ({ ...S, name: T.target.value })), placeholder: "e.g. freeze" }) }),
+    /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
+      /* @__PURE__ */ e(I, { label: "From State *", children: /* @__PURE__ */ n("select", { className: "field-input", value: a.fromStateId || "", onChange: (T) => t((S) => ({ ...S, fromStateId: T.target.value })), children: [
+        /* @__PURE__ */ e("option", { value: "", children: "Select…" }),
+        l.map((T) => {
+          const S = T.id || T.ID;
+          return /* @__PURE__ */ e("option", { value: S, children: T.name || T.NAME || S }, S);
+        })
+      ] }) }),
+      /* @__PURE__ */ e(I, { label: "To State *", children: /* @__PURE__ */ n("select", { className: "field-input", value: a.toStateId || "", onChange: (T) => t((S) => ({ ...S, toStateId: T.target.value })), children: [
+        /* @__PURE__ */ e("option", { value: "", children: "Select…" }),
+        l.map((T) => {
+          const S = T.id || T.ID;
+          return /* @__PURE__ */ e("option", { value: S, children: T.name || T.NAME || S }, S);
+        })
+      ] }) })
+    ] }),
+    /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
+      /* @__PURE__ */ e(I, { label: "Action Type", children: /* @__PURE__ */ e("select", { className: "field-input", value: a.actionType || "NONE", onChange: (T) => t((S) => ({ ...S, actionType: T.target.value })), children: ht.map((T) => /* @__PURE__ */ e("option", { value: T, children: T }, T)) }) }),
+      /* @__PURE__ */ e(I, { label: "Version Strategy", children: /* @__PURE__ */ e("select", { className: "field-input", value: a.versionStrategy || "NONE", onChange: (T) => t((S) => ({ ...S, versionStrategy: T.target.value })), children: yt.map((T) => /* @__PURE__ */ e("option", { value: T, children: T }, T)) }) })
+    ] })
+  ] });
+}
+function Ct({ userId: a, linkTypeId: t, canWrite: l, toast: y }) {
+  var s, R;
+  const [T, S] = _(null), [p, C] = _(null), [P, G] = _(null), [M, v] = _({}), [W, c] = _(!1), x = $e(
+    () => f.getLinkTypeAttributes(a, t).then((d) => S(Array.isArray(d) ? d : [])).catch(() => S([])),
+    [a, t]
   );
-  Se(() => {
-    S();
-  }, [S]);
-  function X(l) {
-    T({
-      label: l.label || l.LABEL || "",
-      dataType: l.data_type || l.DATA_TYPE || "STRING",
-      widgetType: l.widget_type || l.WIDGET_TYPE || "TEXT",
-      required: !!(l.required || l.REQUIRED),
-      enumDefinitionId: l.enum_definition_id || l.ENUM_DEFINITION_ID || null,
-      displaySection: l.display_section || l.DISPLAY_SECTION || "",
-      displayOrder: l.display_order ?? l.DISPLAY_ORDER ?? "",
-      defaultValue: l.default_value || l.DEFAULT_VALUE || "",
-      namingRegex: l.naming_regex || l.NAMING_REGEX || "",
-      allowedValues: l.allowed_values || l.ALLOWED_VALUES || "",
-      tooltip: l.tooltip || l.TOOLTIP || ""
-    }), Y({ attr: l });
+  Ae(() => {
+    x();
+  }, [x]);
+  function H(d) {
+    v({
+      label: d.label || d.LABEL || "",
+      dataType: d.data_type || d.DATA_TYPE || "STRING",
+      widgetType: d.widget_type || d.WIDGET_TYPE || "TEXT",
+      required: !!(d.required || d.REQUIRED),
+      enumDefinitionId: d.enum_definition_id || d.ENUM_DEFINITION_ID || null,
+      displaySection: d.display_section || d.DISPLAY_SECTION || "",
+      displayOrder: d.display_order ?? d.DISPLAY_ORDER ?? "",
+      defaultValue: d.default_value || d.DEFAULT_VALUE || "",
+      namingRegex: d.naming_regex || d.NAMING_REGEX || "",
+      allowedValues: d.allowed_values || d.ALLOWED_VALUES || "",
+      tooltip: d.tooltip || d.TOOLTIP || ""
+    }), G({ attr: d });
   }
-  async function J() {
-    var l, g, v, p;
-    h(!0);
+  async function ae() {
+    var d, g, N, u;
+    c(!0);
     try {
-      await f.updateLinkTypeAttribute(t, n, V.attr.id || V.attr.ID, {
-        label: O.label,
-        dataType: O.dataType,
-        widgetType: O.widgetType,
-        required: !!O.required,
-        enumDefinitionId: O.dataType === "ENUM" && O.enumDefinitionId || null,
-        displaySection: O.displaySection || null,
-        displayOrder: O.displayOrder !== "" ? Number(O.displayOrder) : 0,
-        defaultValue: ((l = O.defaultValue) == null ? void 0 : l.trim()) || null,
-        namingRegex: ((g = O.namingRegex) == null ? void 0 : g.trim()) || null,
-        allowedValues: O.dataType !== "ENUM" && ((v = O.allowedValues) == null ? void 0 : v.trim()) || null,
-        tooltip: ((p = O.tooltip) == null ? void 0 : p.trim()) || null
-      }), await S(), Y(null);
-    } catch (C) {
-      c(C, "error");
+      await f.updateLinkTypeAttribute(a, t, P.attr.id || P.attr.ID, {
+        label: M.label,
+        dataType: M.dataType,
+        widgetType: M.widgetType,
+        required: !!M.required,
+        enumDefinitionId: M.dataType === "ENUM" && M.enumDefinitionId || null,
+        displaySection: M.displaySection || null,
+        displayOrder: M.displayOrder !== "" ? Number(M.displayOrder) : 0,
+        defaultValue: ((d = M.defaultValue) == null ? void 0 : d.trim()) || null,
+        namingRegex: ((g = M.namingRegex) == null ? void 0 : g.trim()) || null,
+        allowedValues: M.dataType !== "ENUM" && ((N = M.allowedValues) == null ? void 0 : N.trim()) || null,
+        tooltip: ((u = M.tooltip) == null ? void 0 : u.trim()) || null
+      }), await x(), G(null);
+    } catch (A) {
+      y(A, "error");
     } finally {
-      h(!1);
+      c(!1);
     }
   }
-  async function w() {
-    var l, g, v, p, C, y;
-    if (!(!((l = u == null ? void 0 : u.name) != null && l.trim()) || !((g = u == null ? void 0 : u.label) != null && g.trim()))) {
-      h(!0);
+  async function L() {
+    var d, g, N, u, A, h;
+    if (!(!((d = p == null ? void 0 : p.name) != null && d.trim()) || !((g = p == null ? void 0 : p.label) != null && g.trim()))) {
+      c(!0);
       try {
-        await f.createLinkTypeAttribute(t, n, {
-          name: u.name.trim(),
-          label: u.label.trim(),
-          dataType: u.dataType || "STRING",
-          widgetType: u.widgetType || "TEXT",
-          required: !!u.required,
-          enumDefinitionId: u.dataType === "ENUM" && u.enumDefinitionId || null,
-          displaySection: u.displaySection || null,
-          displayOrder: u.displayOrder !== "" ? Number(u.displayOrder) : 0,
-          defaultValue: ((v = u.defaultValue) == null ? void 0 : v.trim()) || null,
-          namingRegex: ((p = u.namingRegex) == null ? void 0 : p.trim()) || null,
-          allowedValues: u.dataType !== "ENUM" && ((C = u.allowedValues) == null ? void 0 : C.trim()) || null,
-          tooltip: ((y = u.tooltip) == null ? void 0 : y.trim()) || null
-        }), await S(), m(null);
-      } catch (M) {
-        c(M, "error");
+        await f.createLinkTypeAttribute(a, t, {
+          name: p.name.trim(),
+          label: p.label.trim(),
+          dataType: p.dataType || "STRING",
+          widgetType: p.widgetType || "TEXT",
+          required: !!p.required,
+          enumDefinitionId: p.dataType === "ENUM" && p.enumDefinitionId || null,
+          displaySection: p.displaySection || null,
+          displayOrder: p.displayOrder !== "" ? Number(p.displayOrder) : 0,
+          defaultValue: ((N = p.defaultValue) == null ? void 0 : N.trim()) || null,
+          namingRegex: ((u = p.namingRegex) == null ? void 0 : u.trim()) || null,
+          allowedValues: p.dataType !== "ENUM" && ((A = p.allowedValues) == null ? void 0 : A.trim()) || null,
+          tooltip: ((h = p.tooltip) == null ? void 0 : h.trim()) || null
+        }), await x(), C(null);
+      } catch (V) {
+        y(V, "error");
       } finally {
-        h(!1);
+        c(!1);
       }
     }
   }
-  async function Z(l) {
-    const g = l.label || l.LABEL || l.name || l.NAME;
+  async function te(d) {
+    const g = d.label || d.LABEL || d.name || d.NAME;
     if (window.confirm(`Delete attribute "${g}"?`))
       try {
-        await f.deleteLinkTypeAttribute(t, n, l.id || l.ID), await S();
-      } catch (v) {
-        c(v, "error");
+        await f.deleteLinkTypeAttribute(a, t, d.id || d.ID), await x();
+      } catch (N) {
+        y(N, "error");
       }
   }
-  return k === null ? /* @__PURE__ */ e("div", { style: { fontSize: 12, color: "var(--muted)", padding: "4px 0" }, children: "Loading…" }) : /* @__PURE__ */ i(ne, { children: [
-    V && /* @__PURE__ */ i(De, { title: "Edit Attribute", onClose: () => Y(null), onSave: J, saving: B, saveLabel: "Update", children: [
-      /* @__PURE__ */ e(b, { label: "Label (display) *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: O.label || "", onChange: (l) => T((g) => ({ ...g, label: l.target.value })) }) }),
-      /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
-        /* @__PURE__ */ e(b, { label: "Data Type", children: /* @__PURE__ */ e("select", { className: "field-input", value: O.dataType || "STRING", onChange: (l) => T((g) => ({ ...g, dataType: l.target.value })), children: Ve.map((l) => /* @__PURE__ */ e("option", { value: l, children: l }, l)) }) }),
-        /* @__PURE__ */ e(b, { label: "Widget", children: /* @__PURE__ */ e("select", { className: "field-input", value: O.widgetType || "TEXT", onChange: (l) => T((g) => ({ ...g, widgetType: l.target.value })), children: Ge.map((l) => /* @__PURE__ */ e("option", { value: l, children: l }, l)) }) })
+  return T === null ? /* @__PURE__ */ e("div", { style: { fontSize: 12, color: "var(--muted)", padding: "4px 0" }, children: "Loading…" }) : /* @__PURE__ */ n(re, { children: [
+    P && /* @__PURE__ */ n(Re, { title: "Edit Attribute", onClose: () => G(null), onSave: ae, saving: W, saveLabel: "Update", children: [
+      /* @__PURE__ */ e(I, { label: "Label (display) *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: M.label || "", onChange: (d) => v((g) => ({ ...g, label: d.target.value })) }) }),
+      /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
+        /* @__PURE__ */ e(I, { label: "Data Type", children: /* @__PURE__ */ e("select", { className: "field-input", value: M.dataType || "STRING", onChange: (d) => v((g) => ({ ...g, dataType: d.target.value })), children: Ge.map((d) => /* @__PURE__ */ e("option", { value: d, children: d }, d)) }) }),
+        /* @__PURE__ */ e(I, { label: "Widget", children: /* @__PURE__ */ e("select", { className: "field-input", value: M.widgetType || "TEXT", onChange: (d) => v((g) => ({ ...g, widgetType: d.target.value })), children: Be.map((d) => /* @__PURE__ */ e("option", { value: d, children: d }, d)) }) })
       ] }),
-      O.dataType === "ENUM" && /* @__PURE__ */ e(
-        qe,
+      M.dataType === "ENUM" && /* @__PURE__ */ e(
+        Ue,
         {
-          userId: t,
-          enumDefinitionId: O.enumDefinitionId || null,
-          onChange: (l) => T((g) => ({ ...g, enumDefinitionId: l }))
+          userId: a,
+          enumDefinitionId: M.enumDefinitionId || null,
+          onChange: (d) => v((g) => ({ ...g, enumDefinitionId: d }))
         }
       ),
-      /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 80px", gap: 12 }, children: [
-        /* @__PURE__ */ e(b, { label: "Section", children: /* @__PURE__ */ e("input", { className: "field-input", value: O.displaySection || "", onChange: (l) => T((g) => ({ ...g, displaySection: l.target.value })) }) }),
-        /* @__PURE__ */ e(b, { label: "Order", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: O.displayOrder ?? "", onChange: (l) => T((g) => ({ ...g, displayOrder: l.target.value })) }) })
+      /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 80px", gap: 12 }, children: [
+        /* @__PURE__ */ e(I, { label: "Section", children: /* @__PURE__ */ e("input", { className: "field-input", value: M.displaySection || "", onChange: (d) => v((g) => ({ ...g, displaySection: d.target.value })) }) }),
+        /* @__PURE__ */ e(I, { label: "Order", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: M.displayOrder ?? "", onChange: (d) => v((g) => ({ ...g, displayOrder: d.target.value })) }) })
       ] }),
-      /* @__PURE__ */ e(b, { label: "Default value", children: /* @__PURE__ */ e("input", { className: "field-input", value: O.defaultValue || "", onChange: (l) => T((g) => ({ ...g, defaultValue: l.target.value })), placeholder: "Optional" }) }),
-      /* @__PURE__ */ e(b, { label: "Validation regex", children: /* @__PURE__ */ e("input", { className: "field-input", value: O.namingRegex || "", onChange: (l) => T((g) => ({ ...g, namingRegex: l.target.value })) }) }),
-      O.dataType !== "ENUM" && /* @__PURE__ */ e(b, { label: "Allowed values (comma-separated)", children: /* @__PURE__ */ e("input", { className: "field-input", value: O.allowedValues || "", onChange: (l) => T((g) => ({ ...g, allowedValues: l.target.value })) }) }),
-      /* @__PURE__ */ e(b, { label: "Tooltip", children: /* @__PURE__ */ e("input", { className: "field-input", value: O.tooltip || "", onChange: (l) => T((g) => ({ ...g, tooltip: l.target.value })) }) }),
-      /* @__PURE__ */ i("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 }, children: [
-        /* @__PURE__ */ e("input", { type: "checkbox", checked: !!O.required, onChange: (l) => T((g) => ({ ...g, required: l.target.checked })) }),
+      /* @__PURE__ */ e(I, { label: "Default value", children: /* @__PURE__ */ e("input", { className: "field-input", value: M.defaultValue || "", onChange: (d) => v((g) => ({ ...g, defaultValue: d.target.value })), placeholder: "Optional" }) }),
+      /* @__PURE__ */ e(I, { label: "Validation regex", children: /* @__PURE__ */ e("input", { className: "field-input", value: M.namingRegex || "", onChange: (d) => v((g) => ({ ...g, namingRegex: d.target.value })) }) }),
+      M.dataType !== "ENUM" && /* @__PURE__ */ e(I, { label: "Allowed values (comma-separated)", children: /* @__PURE__ */ e("input", { className: "field-input", value: M.allowedValues || "", onChange: (d) => v((g) => ({ ...g, allowedValues: d.target.value })) }) }),
+      /* @__PURE__ */ e(I, { label: "Tooltip", children: /* @__PURE__ */ e("input", { className: "field-input", value: M.tooltip || "", onChange: (d) => v((g) => ({ ...g, tooltip: d.target.value })) }) }),
+      /* @__PURE__ */ n("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 }, children: [
+        /* @__PURE__ */ e("input", { type: "checkbox", checked: !!M.required, onChange: (d) => v((g) => ({ ...g, required: d.target.checked })) }),
         "Required field"
       ] })
     ] }),
-    k.length > 0 && /* @__PURE__ */ i("table", { className: "settings-table", style: { marginBottom: 8 }, children: [
-      /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ i("tr", { children: [
+    T.length > 0 && /* @__PURE__ */ n("table", { className: "settings-table", style: { marginBottom: 8 }, children: [
+      /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ n("tr", { children: [
         /* @__PURE__ */ e("th", { children: "Name" }),
         /* @__PURE__ */ e("th", { children: "Label" }),
         /* @__PURE__ */ e("th", { children: "Type" }),
         /* @__PURE__ */ e("th", { children: "Req" }),
         /* @__PURE__ */ e("th", {})
       ] }) }),
-      /* @__PURE__ */ e("tbody", { children: [...k].sort((l, g) => (l.display_order || l.DISPLAY_ORDER || 0) - (g.display_order || g.DISPLAY_ORDER || 0)).map((l) => {
-        const g = l.id || l.ID, v = l.name || l.NAME, p = l.label || l.LABEL || v, C = l.data_type || l.DATA_TYPE || "STRING", y = !!(l.required || l.REQUIRED);
-        return /* @__PURE__ */ i("tr", { children: [
-          /* @__PURE__ */ e("td", { className: "settings-td-mono", children: v }),
-          /* @__PURE__ */ e("td", { children: p }),
-          /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: C }) }),
-          /* @__PURE__ */ e("td", { style: { color: y ? "var(--success)" : "var(--muted)" }, children: y ? "✓" : "—" }),
-          /* @__PURE__ */ e("td", { children: /* @__PURE__ */ i("div", { style: { display: "flex", gap: 4 }, children: [
-            r && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => X(l), children: /* @__PURE__ */ e(pe, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
-            r && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: () => Z(l), children: /* @__PURE__ */ e(ae, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+      /* @__PURE__ */ e("tbody", { children: [...T].sort((d, g) => (d.display_order || d.DISPLAY_ORDER || 0) - (g.display_order || g.DISPLAY_ORDER || 0)).map((d) => {
+        const g = d.id || d.ID, N = d.name || d.NAME, u = d.label || d.LABEL || N, A = d.data_type || d.DATA_TYPE || "STRING", h = !!(d.required || d.REQUIRED);
+        return /* @__PURE__ */ n("tr", { children: [
+          /* @__PURE__ */ e("td", { className: "settings-td-mono", children: N }),
+          /* @__PURE__ */ e("td", { children: u }),
+          /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: A }) }),
+          /* @__PURE__ */ e("td", { style: { color: h ? "var(--success)" : "var(--muted)" }, children: h ? "✓" : "—" }),
+          /* @__PURE__ */ e("td", { children: /* @__PURE__ */ n("div", { style: { display: "flex", gap: 4 }, children: [
+            l && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => H(d), children: /* @__PURE__ */ e(ye, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
+            l && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: () => te(d), children: /* @__PURE__ */ e(ce, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
           ] }) })
         ] }, g);
       }) })
     ] }),
-    k.length === 0 && !u && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No attributes" }),
-    u ? /* @__PURE__ */ i("div", { style: { display: "flex", flexDirection: "column", gap: 8, background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 6, padding: 12, marginTop: 4 }, children: [
-      /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }, children: [
-        /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, placeholder: "Name (key) *", value: u.name || "", onChange: (l) => m((g) => ({ ...g, name: l.target.value })) }),
-        /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Label (display) *", value: u.label || "", onChange: (l) => m((g) => ({ ...g, label: l.target.value })) })
+    T.length === 0 && !p && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No attributes" }),
+    p ? /* @__PURE__ */ n("div", { style: { display: "flex", flexDirection: "column", gap: 8, background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 6, padding: 12, marginTop: 4 }, children: [
+      /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }, children: [
+        /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, placeholder: "Name (key) *", value: p.name || "", onChange: (d) => C((g) => ({ ...g, name: d.target.value })) }),
+        /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Label (display) *", value: p.label || "", onChange: (d) => C((g) => ({ ...g, label: d.target.value })) })
       ] }),
-      /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 8 }, children: [
-        /* @__PURE__ */ e("select", { className: "field-input", value: u.dataType || "STRING", onChange: (l) => m((g) => ({ ...g, dataType: l.target.value })), children: Ve.map((l) => /* @__PURE__ */ e("option", { value: l, children: l }, l)) }),
-        /* @__PURE__ */ e("select", { className: "field-input", value: u.widgetType || "TEXT", onChange: (l) => m((g) => ({ ...g, widgetType: l.target.value })), children: Ge.map((l) => /* @__PURE__ */ e("option", { value: l, children: l }, l)) }),
-        /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", placeholder: "Order", value: u.displayOrder ?? "", onChange: (l) => m((g) => ({ ...g, displayOrder: l.target.value })) })
+      /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 8 }, children: [
+        /* @__PURE__ */ e("select", { className: "field-input", value: p.dataType || "STRING", onChange: (d) => C((g) => ({ ...g, dataType: d.target.value })), children: Ge.map((d) => /* @__PURE__ */ e("option", { value: d, children: d }, d)) }),
+        /* @__PURE__ */ e("select", { className: "field-input", value: p.widgetType || "TEXT", onChange: (d) => C((g) => ({ ...g, widgetType: d.target.value })), children: Be.map((d) => /* @__PURE__ */ e("option", { value: d, children: d }, d)) }),
+        /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", placeholder: "Order", value: p.displayOrder ?? "", onChange: (d) => C((g) => ({ ...g, displayOrder: d.target.value })) })
       ] }),
-      u.dataType === "ENUM" && /* @__PURE__ */ e(
-        qe,
+      p.dataType === "ENUM" && /* @__PURE__ */ e(
+        Ue,
         {
-          userId: t,
-          enumDefinitionId: u.enumDefinitionId || null,
-          onChange: (l) => m((g) => ({ ...g, enumDefinitionId: l }))
+          userId: a,
+          enumDefinitionId: p.enumDefinitionId || null,
+          onChange: (d) => C((g) => ({ ...g, enumDefinitionId: d }))
         }
       ),
-      /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Default value (optional)", value: u.defaultValue || "", onChange: (l) => m((g) => ({ ...g, defaultValue: l.target.value })) }),
-      /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Validation regex (optional)", value: u.namingRegex || "", onChange: (l) => m((g) => ({ ...g, namingRegex: l.target.value })) }),
-      u.dataType !== "ENUM" && /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Allowed values comma-separated (optional)", value: u.allowedValues || "", onChange: (l) => m((g) => ({ ...g, allowedValues: l.target.value })) }),
-      /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Tooltip (optional)", value: u.tooltip || "", onChange: (l) => m((g) => ({ ...g, tooltip: l.target.value })) }),
-      /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
-        /* @__PURE__ */ i("label", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 12 }, children: [
-          /* @__PURE__ */ e("input", { type: "checkbox", checked: !!u.required, onChange: (l) => m((g) => ({ ...g, required: l.target.checked })) }),
+      /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Default value (optional)", value: p.defaultValue || "", onChange: (d) => C((g) => ({ ...g, defaultValue: d.target.value })) }),
+      /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Validation regex (optional)", value: p.namingRegex || "", onChange: (d) => C((g) => ({ ...g, namingRegex: d.target.value })) }),
+      p.dataType !== "ENUM" && /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Allowed values comma-separated (optional)", value: p.allowedValues || "", onChange: (d) => C((g) => ({ ...g, allowedValues: d.target.value })) }),
+      /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Tooltip (optional)", value: p.tooltip || "", onChange: (d) => C((g) => ({ ...g, tooltip: d.target.value })) }),
+      /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
+        /* @__PURE__ */ n("label", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 12 }, children: [
+          /* @__PURE__ */ e("input", { type: "checkbox", checked: !!p.required, onChange: (d) => C((g) => ({ ...g, required: d.target.checked })) }),
           "Required"
         ] }),
-        /* @__PURE__ */ i("div", { style: { display: "flex", gap: 6 }, children: [
-          /* @__PURE__ */ e("button", { className: "btn", onClick: () => m(null), children: "Cancel" }),
-          /* @__PURE__ */ e("button", { className: "btn btn-primary", onClick: w, disabled: B || !((o = u.name) != null && o.trim()) || !((D = u.label) != null && D.trim()), children: B ? "Adding…" : "Add" })
+        /* @__PURE__ */ n("div", { style: { display: "flex", gap: 6 }, children: [
+          /* @__PURE__ */ e("button", { className: "btn", onClick: () => C(null), children: "Cancel" }),
+          /* @__PURE__ */ e("button", { className: "btn btn-primary", onClick: L, disabled: W || !((s = p.name) != null && s.trim()) || !((R = p.label) != null && R.trim()), children: W ? "Adding…" : "Add" })
         ] })
       ] })
-    ] }) : r ? /* @__PURE__ */ i(
+    ] }) : l ? /* @__PURE__ */ n(
       "button",
       {
         className: "btn btn-sm",
         style: { display: "flex", alignItems: "center", gap: 5, alignSelf: "flex-start", marginTop: 4 },
-        onClick: () => m({ dataType: "STRING", widgetType: "TEXT", required: !1 }),
+        onClick: () => C({ dataType: "STRING", widgetType: "TEXT", required: !1 }),
         children: [
-          /* @__PURE__ */ e(ge, { size: 11, strokeWidth: 2.5 }),
+          /* @__PURE__ */ e(be, { size: 11, strokeWidth: 2.5 }),
           "Add attribute"
         ]
       }
     ) : null
   ] });
 }
-function It({ userId: t, linkTypeId: n, sourceLifecycleId: r, targetLifecycleId: c, canWrite: k, toast: P }) {
-  const [u, m] = x(null), [V, Y] = x([]), [O, T] = x([]), [B, h] = x([]), [S, X] = x(null), [J, w] = x(!1), Z = He(
-    () => f.getLinkTypeCascades(t, n).then((v) => m(Array.isArray(v) ? v : [])).catch(() => m([])),
-    [t, n]
+function St({ userId: a, linkTypeId: t, sourceLifecycleId: l, targetLifecycleId: y, canWrite: T, toast: S }) {
+  const [p, C] = _(null), [P, G] = _([]), [M, v] = _([]), [W, c] = _([]), [x, H] = _(null), [ae, L] = _(!1), te = $e(
+    () => f.getLinkTypeCascades(a, t).then((N) => C(Array.isArray(N) ? N : [])).catch(() => C([])),
+    [a, t]
   );
-  Se(() => {
-    Z();
-  }, [Z]);
-  function o() {
-    const v = [];
-    r && V.length === 0 && v.push(f.getLifecycleTransitions(t, r).then((p) => Y(Array.isArray(p) ? p : [])).catch(() => {
-    })), c && O.length === 0 && v.push(f.getLifecycleStates(t, c).then((p) => T(Array.isArray(p) ? p : [])).catch(() => {
-    })), c && B.length === 0 && v.push(f.getLifecycleTransitions(t, c).then((p) => h(Array.isArray(p) ? p : [])).catch(() => {
-    })), Promise.all(v).then(() => X({ parentTransitionId: "", childFromStateId: "", childTransitionId: "" }));
+  Ae(() => {
+    te();
+  }, [te]);
+  function s() {
+    const N = [];
+    l && P.length === 0 && N.push(f.getLifecycleTransitions(a, l).then((u) => G(Array.isArray(u) ? u : [])).catch(() => {
+    })), y && M.length === 0 && N.push(f.getLifecycleStates(a, y).then((u) => v(Array.isArray(u) ? u : [])).catch(() => {
+    })), y && W.length === 0 && N.push(f.getLifecycleTransitions(a, y).then((u) => c(Array.isArray(u) ? u : [])).catch(() => {
+    })), Promise.all(N).then(() => H({ parentTransitionId: "", childFromStateId: "", childTransitionId: "" }));
   }
-  async function D() {
-    if (!(!(S != null && S.parentTransitionId) || !(S != null && S.childFromStateId) || !(S != null && S.childTransitionId))) {
-      w(!0);
+  async function R() {
+    if (!(!(x != null && x.parentTransitionId) || !(x != null && x.childFromStateId) || !(x != null && x.childTransitionId))) {
+      L(!0);
       try {
-        await f.createLinkTypeCascade(t, n, S.parentTransitionId, S.childFromStateId, S.childTransitionId), await Z(), X(null);
-      } catch (v) {
-        P(v, "error");
+        await f.createLinkTypeCascade(a, t, x.parentTransitionId, x.childFromStateId, x.childTransitionId), await te(), H(null);
+      } catch (N) {
+        S(N, "error");
       } finally {
-        w(!1);
+        L(!1);
       }
     }
   }
-  async function l(v) {
-    const p = v.parent_transition_name || v.PARENT_TRANSITION_NAME || v.parent_transition_id, C = v.child_from_state_name || v.CHILD_FROM_STATE_NAME || v.child_from_state_id, y = v.child_transition_name || v.CHILD_TRANSITION_NAME || v.child_transition_id;
-    if (window.confirm(`Delete cascade rule "${p} → [${C}] → ${y}"?`))
+  async function d(N) {
+    const u = N.parent_transition_name || N.PARENT_TRANSITION_NAME || N.parent_transition_id, A = N.child_from_state_name || N.CHILD_FROM_STATE_NAME || N.child_from_state_id, h = N.child_transition_name || N.CHILD_TRANSITION_NAME || N.child_transition_id;
+    if (window.confirm(`Delete cascade rule "${u} → [${A}] → ${h}"?`))
       try {
-        await f.deleteLinkTypeCascade(t, n, v.id || v.ID), await Z();
-      } catch (M) {
-        P(M, "error");
+        await f.deleteLinkTypeCascade(a, t, N.id || N.ID), await te();
+      } catch (V) {
+        S(V, "error");
       }
   }
-  const g = (v) => /* @__PURE__ */ e("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: v || "#6b7280", flexShrink: 0 } });
-  return u === null ? /* @__PURE__ */ e("div", { style: { fontSize: 12, color: "var(--muted)", padding: "4px 0" }, children: "Loading…" }) : !r || !c ? /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "Cascade rules require both source and target node types to have a lifecycle." }) : /* @__PURE__ */ i(ne, { children: [
-    u.length > 0 && /* @__PURE__ */ i("table", { className: "settings-table", style: { marginBottom: 8 }, children: [
-      /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ i("tr", { children: [
+  const g = (N) => /* @__PURE__ */ e("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: N || "#6b7280", flexShrink: 0 } });
+  return p === null ? /* @__PURE__ */ e("div", { style: { fontSize: 12, color: "var(--muted)", padding: "4px 0" }, children: "Loading…" }) : !l || !y ? /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "Cascade rules require both source and target node types to have a lifecycle." }) : /* @__PURE__ */ n(re, { children: [
+    p.length > 0 && /* @__PURE__ */ n("table", { className: "settings-table", style: { marginBottom: 8 }, children: [
+      /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ n("tr", { children: [
         /* @__PURE__ */ e("th", { children: "Parent transition" }),
         /* @__PURE__ */ e("th", {}),
         /* @__PURE__ */ e("th", { children: "Child state" }),
@@ -806,348 +975,367 @@ function It({ userId: t, linkTypeId: n, sourceLifecycleId: r, targetLifecycleId:
         /* @__PURE__ */ e("th", { children: "Child transition" }),
         /* @__PURE__ */ e("th", {})
       ] }) }),
-      /* @__PURE__ */ e("tbody", { children: u.map((v) => {
-        const p = v.child_from_state_color || v.CHILD_FROM_STATE_COLOR, C = v.parent_transition_name || v.PARENT_TRANSITION_NAME || v.parent_transition_id, y = v.child_from_state_name || v.CHILD_FROM_STATE_NAME || v.child_from_state_id, M = v.child_transition_name || v.CHILD_TRANSITION_NAME || v.child_transition_id;
-        return /* @__PURE__ */ i("tr", { children: [
-          /* @__PURE__ */ e("td", { style: { fontSize: 12 }, children: C }),
+      /* @__PURE__ */ e("tbody", { children: p.map((N) => {
+        const u = N.child_from_state_color || N.CHILD_FROM_STATE_COLOR, A = N.parent_transition_name || N.PARENT_TRANSITION_NAME || N.parent_transition_id, h = N.child_from_state_name || N.CHILD_FROM_STATE_NAME || N.child_from_state_id, V = N.child_transition_name || N.CHILD_TRANSITION_NAME || N.child_transition_id;
+        return /* @__PURE__ */ n("tr", { children: [
+          /* @__PURE__ */ e("td", { style: { fontSize: 12 }, children: A }),
           /* @__PURE__ */ e("td", { style: { color: "var(--muted)", fontSize: 12 }, children: "→" }),
-          /* @__PURE__ */ e("td", { children: /* @__PURE__ */ i("span", { style: { display: "flex", alignItems: "center", gap: 6 }, children: [
-            g(p),
-            /* @__PURE__ */ e("span", { style: { color: p || "var(--text)", fontSize: 12 }, children: y })
+          /* @__PURE__ */ e("td", { children: /* @__PURE__ */ n("span", { style: { display: "flex", alignItems: "center", gap: 6 }, children: [
+            g(u),
+            /* @__PURE__ */ e("span", { style: { color: u || "var(--text)", fontSize: 12 }, children: h })
           ] }) }),
           /* @__PURE__ */ e("td", { style: { color: "var(--muted)", fontSize: 12 }, children: "→" }),
-          /* @__PURE__ */ e("td", { style: { fontSize: 12 }, children: M }),
-          /* @__PURE__ */ e("td", { children: k && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: () => l(v), children: /* @__PURE__ */ e(ae, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) }) })
-        ] }, v.id || v.ID);
+          /* @__PURE__ */ e("td", { style: { fontSize: 12 }, children: V }),
+          /* @__PURE__ */ e("td", { children: T && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: () => d(N), children: /* @__PURE__ */ e(ce, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) }) })
+        ] }, N.id || N.ID);
       }) })
     ] }),
-    u.length === 0 && !S && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No cascade rules — child nodes will not be automatically transitioned." }),
-    S ? /* @__PURE__ */ i("div", { style: { display: "flex", flexDirection: "column", gap: 8, background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 6, padding: 12 }, children: [
-      /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr auto 1fr auto 1fr", gap: 8, alignItems: "center" }, children: [
-        /* @__PURE__ */ i("select", { className: "field-input", value: S.parentTransitionId, onChange: (v) => X((p) => ({ ...p, parentTransitionId: v.target.value })), children: [
+    p.length === 0 && !x && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No cascade rules — child nodes will not be automatically transitioned." }),
+    x ? /* @__PURE__ */ n("div", { style: { display: "flex", flexDirection: "column", gap: 8, background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 6, padding: 12 }, children: [
+      /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr auto 1fr auto 1fr", gap: 8, alignItems: "center" }, children: [
+        /* @__PURE__ */ n("select", { className: "field-input", value: x.parentTransitionId, onChange: (N) => H((u) => ({ ...u, parentTransitionId: N.target.value })), children: [
           /* @__PURE__ */ e("option", { value: "", children: "Parent transition…" }),
-          V.map((v) => {
-            const p = v.id || v.ID;
-            return /* @__PURE__ */ e("option", { value: p, children: v.name || v.NAME || p }, p);
+          P.map((N) => {
+            const u = N.id || N.ID;
+            return /* @__PURE__ */ e("option", { value: u, children: N.name || N.NAME || u }, u);
           })
         ] }),
         /* @__PURE__ */ e("span", { style: { color: "var(--muted)", fontSize: 13 }, children: "→" }),
-        /* @__PURE__ */ i("select", { className: "field-input", value: S.childFromStateId, onChange: (v) => X((p) => ({ ...p, childFromStateId: v.target.value })), children: [
+        /* @__PURE__ */ n("select", { className: "field-input", value: x.childFromStateId, onChange: (N) => H((u) => ({ ...u, childFromStateId: N.target.value })), children: [
           /* @__PURE__ */ e("option", { value: "", children: "Child state…" }),
-          O.map((v) => {
-            const p = v.id || v.ID;
-            return /* @__PURE__ */ e("option", { value: p, children: v.name || v.NAME || p }, p);
+          M.map((N) => {
+            const u = N.id || N.ID;
+            return /* @__PURE__ */ e("option", { value: u, children: N.name || N.NAME || u }, u);
           })
         ] }),
         /* @__PURE__ */ e("span", { style: { color: "var(--muted)", fontSize: 13 }, children: "→" }),
-        /* @__PURE__ */ i("select", { className: "field-input", value: S.childTransitionId, onChange: (v) => X((p) => ({ ...p, childTransitionId: v.target.value })), children: [
+        /* @__PURE__ */ n("select", { className: "field-input", value: x.childTransitionId, onChange: (N) => H((u) => ({ ...u, childTransitionId: N.target.value })), children: [
           /* @__PURE__ */ e("option", { value: "", children: "Child transition…" }),
-          B.map((v) => {
-            const p = v.id || v.ID;
-            return /* @__PURE__ */ e("option", { value: p, children: v.name || v.NAME || p }, p);
+          W.map((N) => {
+            const u = N.id || N.ID;
+            return /* @__PURE__ */ e("option", { value: u, children: N.name || N.NAME || u }, u);
           })
         ] })
       ] }),
-      /* @__PURE__ */ i("div", { style: { display: "flex", justifyContent: "flex-end", gap: 6 }, children: [
-        /* @__PURE__ */ e("button", { className: "btn", onClick: () => X(null), children: "Cancel" }),
-        /* @__PURE__ */ e("button", { className: "btn btn-primary", onClick: D, disabled: J || !S.parentTransitionId || !S.childFromStateId || !S.childTransitionId, children: J ? "Adding…" : "Add Rule" })
+      /* @__PURE__ */ n("div", { style: { display: "flex", justifyContent: "flex-end", gap: 6 }, children: [
+        /* @__PURE__ */ e("button", { className: "btn", onClick: () => H(null), children: "Cancel" }),
+        /* @__PURE__ */ e("button", { className: "btn btn-primary", onClick: R, disabled: ae || !x.parentTransitionId || !x.childFromStateId || !x.childTransitionId, children: ae ? "Adding…" : "Add Rule" })
       ] })
-    ] }) : k ? /* @__PURE__ */ i("button", { className: "btn btn-sm", style: { display: "flex", alignItems: "center", gap: 5, alignSelf: "flex-start", marginTop: 4 }, onClick: o, children: [
-      /* @__PURE__ */ e(ge, { size: 11, strokeWidth: 2.5 }),
+    ] }) : T ? /* @__PURE__ */ n("button", { className: "btn btn-sm", style: { display: "flex", alignItems: "center", gap: 5, alignSelf: "flex-start", marginTop: 4 }, onClick: s, children: [
+      /* @__PURE__ */ e(be, { size: 11, strokeWidth: 2.5 }),
       "Add rule"
     ] }) : null
   ] });
 }
-function Et({ userId: t, canWrite: n, toast: r }) {
-  const [c, k] = x([]), [P, u] = x(null), [m, V] = x({}), [Y, O] = x({}), [T, B] = x(!0), [h, S] = x([]), [X, J] = x([]), [w, Z] = x(null), [o, D] = x({}), [l, g] = x(!1);
-  function v() {
-    return f.getNodeTypes(t).then((a) => k(Array.isArray(a) ? a : []));
+function At({ userId: a, canWrite: t, toast: l }) {
+  const [y, T] = _([]), [S, p] = _(null), [C, P] = _({}), [G, M] = _({}), [v, W] = _(!0), [c, x] = _([]), [H, ae] = _([]), [L, te] = _(null), [s, R] = _({}), [d, g] = _(!1);
+  function N() {
+    return f.getNodeTypes(a).then((i) => T(Array.isArray(i) ? i : []));
   }
-  Se(() => {
-    v().finally(() => B(!1)), f.getLifecycles(t).then((a) => S(Array.isArray(a) ? a : [])), f.getSources(t).then((a) => J(Array.isArray(a) ? a : []));
-  }, [t]), Ue("/topic/metamodel", (a) => {
-    a.event === "METAMODEL_CHANGED" && v();
-  }, t);
-  const p = {};
-  c.forEach((a) => {
-    p[a.id || a.ID] = a.name || a.NAME;
+  Ae(() => {
+    N().finally(() => W(!1)), f.getLifecycles(a).then((i) => x(Array.isArray(i) ? i : [])), f.getSources(a).then((i) => ae(Array.isArray(i) ? i : []));
+  }, [a]), qe((i) => {
+    i.event === "METAMODEL_CHANGED" && N();
   });
-  async function C(a) {
-    const d = a.id || a.ID;
-    if (P === d) {
-      u(null);
+  const u = {};
+  y.forEach((i) => {
+    u[i.id || i.ID] = i.name || i.NAME;
+  });
+  async function A(i) {
+    const r = i.id || i.ID;
+    if (S === r) {
+      p(null);
       return;
     }
-    u(d);
-    const $ = [];
-    m[d] || $.push(
-      f.getNodeTypeAttributes(t, d).then((U) => V((F) => ({ ...F, [d]: Array.isArray(U) ? U : [] }))).catch(() => V((U) => ({ ...U, [d]: [] })))
-    ), Y[d] || $.push(
-      f.getNodeTypeLinkTypes(t, d).then((U) => O((F) => ({ ...F, [d]: Array.isArray(U) ? U : [] }))).catch(() => O((U) => ({ ...U, [d]: [] })))
-    ), await Promise.all($);
+    p(r);
+    const O = [];
+    C[r] || O.push(
+      f.getNodeTypeAttributes(a, r).then((B) => P((K) => ({ ...K, [r]: Array.isArray(B) ? B : [] }))).catch(() => P((B) => ({ ...B, [r]: [] })))
+    ), G[r] || O.push(
+      f.getNodeTypeLinkTypes(a, r).then((B) => M((K) => ({ ...K, [r]: Array.isArray(B) ? B : [] }))).catch(() => M((B) => ({ ...B, [r]: [] })))
+    ), await Promise.all(O);
   }
-  function y(a, d = {}, $ = {}) {
-    D($), Z({ type: a, ctx: d });
+  function h(i, r = {}, O = {}) {
+    R(O), te({ type: i, ctx: r });
   }
-  function M() {
-    Z(null), D({});
+  function V() {
+    te(null), R({});
   }
-  async function Q() {
-    var a, d, $, U, F, oe, le, be, Ne, he, re, ve, de, Te, Ae, xe, we, _, s;
+  async function J() {
+    var i, r, O, B, K, ne, b, z, Q, Ee, ge, Ne, de, pe, Te, ke, _e, k, o, q, ie, le;
     g(!0);
     try {
-      const { type: z, ctx: q } = w;
-      if (z === "create-nodetype")
-        await f.createNodeType(t, {
-          name: (a = o.name) == null ? void 0 : a.trim(),
-          description: ((d = o.description) == null ? void 0 : d.trim()) || null,
-          lifecycleId: o.lifecycleId || null,
-          numberingScheme: o.numberingScheme || "ALPHA_NUMERIC",
-          versionPolicy: o.versionPolicy || "ITERATE",
-          color: o.color || null,
-          icon: o.icon || null,
-          parentNodeTypeId: o.parentNodeTypeId || null
-        }), await v();
-      else if (z === "edit-identity")
-        await f.updateNodeTypeIdentity(t, q.nodeTypeId, {
-          logicalIdLabel: o.logicalIdLabel || "Identifier",
-          logicalIdPattern: (($ = o.logicalIdPattern) == null ? void 0 : $.trim()) || null
-        }), await v(), u(null);
-      else if (z === "edit-appearance")
-        await f.updateNodeTypeAppearance(t, q.nodeTypeId, o.color || null, o.icon || null), await v(), u(null);
-      else if (z === "edit-lifecycle")
-        await f.updateNodeTypeLifecycle(t, q.nodeTypeId, o.lifecycleId || null), await v(), u(null);
-      else if (z === "edit-versioning")
+      const { type: U, ctx: j } = L;
+      if (U === "create-nodetype")
+        await f.createNodeType(a, {
+          code: (i = s.code) == null ? void 0 : i.trim(),
+          name: (r = s.name) == null ? void 0 : r.trim(),
+          description: ((O = s.description) == null ? void 0 : O.trim()) || null,
+          lifecycleId: s.lifecycleId || null,
+          numberingScheme: s.numberingScheme || "ALPHA_NUMERIC",
+          versionPolicy: s.versionPolicy || "ITERATE",
+          color: s.color || null,
+          icon: s.icon || null,
+          parentNodeTypeId: s.parentNodeTypeId || null
+        }), await N();
+      else if (U === "edit-identity")
+        await f.updateNodeTypeIdentity(a, j.nodeTypeId, {
+          logicalIdLabel: s.logicalIdLabel || "Identifier",
+          logicalIdPattern: ((B = s.logicalIdPattern) == null ? void 0 : B.trim()) || null
+        }), await N(), p(null);
+      else if (U === "edit-appearance")
+        await f.updateNodeTypeAppearance(a, j.nodeTypeId, s.color || null, s.icon || null), await N(), p(null);
+      else if (U === "edit-lifecycle")
+        await f.updateNodeTypeLifecycle(a, j.nodeTypeId, s.lifecycleId || null), await N(), p(null);
+      else if (U === "edit-versioning")
         await Promise.all([
-          f.updateNodeTypeNumberingScheme(t, q.nodeTypeId, o.numberingScheme || "ALPHA_NUMERIC"),
-          f.updateNodeTypeVersionPolicy(t, q.nodeTypeId, o.versionPolicy || "ITERATE")
-        ]), await v(), u(null);
-      else if (z === "create-attr") {
-        await f.createAttribute(t, q.nodeTypeId, {
-          name: (U = o.name) == null ? void 0 : U.trim(),
-          label: (F = o.label) == null ? void 0 : F.trim(),
-          dataType: o.dataType || "STRING",
-          widgetType: o.widgetType || "TEXT",
-          required: !!o.required,
-          asName: !!o.asName,
-          enumDefinitionId: o.dataType === "ENUM" && o.enumDefinitionId || null,
-          displaySection: ((oe = o.displaySection) == null ? void 0 : oe.trim()) || null,
-          displayOrder: o.displayOrder !== "" ? Number(o.displayOrder) : 0,
-          defaultValue: ((le = o.defaultValue) == null ? void 0 : le.trim()) || null,
-          namingRegex: ((be = o.namingRegex) == null ? void 0 : be.trim()) || null,
-          allowedValues: o.dataType !== "ENUM" && ((Ne = o.allowedValues) == null ? void 0 : Ne.trim()) || null,
-          tooltip: ((he = o.tooltip) == null ? void 0 : he.trim()) || null
+          f.updateNodeTypeNumberingScheme(a, j.nodeTypeId, s.numberingScheme || "ALPHA_NUMERIC"),
+          f.updateNodeTypeVersionPolicy(a, j.nodeTypeId, s.versionPolicy || "ITERATE")
+        ]), await N(), p(null);
+      else if (U === "create-attr") {
+        await f.createAttribute(a, j.nodeTypeId, {
+          code: Se((K = s.name) == null ? void 0 : K.trim()),
+          name: (ne = s.name) == null ? void 0 : ne.trim(),
+          label: (b = s.label) == null ? void 0 : b.trim(),
+          dataType: s.dataType || "STRING",
+          widgetType: s.widgetType || "TEXT",
+          required: !!s.required,
+          asName: !!s.asName,
+          enumDefinitionId: s.dataType === "ENUM" && s.enumDefinitionId || null,
+          displaySection: ((z = s.displaySection) == null ? void 0 : z.trim()) || null,
+          displayOrder: s.displayOrder !== "" ? Number(s.displayOrder) : 0,
+          defaultValue: ((Q = s.defaultValue) == null ? void 0 : Q.trim()) || null,
+          namingRegex: ((Ee = s.namingRegex) == null ? void 0 : Ee.trim()) || null,
+          allowedValues: s.dataType !== "ENUM" && ((ge = s.allowedValues) == null ? void 0 : ge.trim()) || null,
+          tooltip: ((Ne = s.tooltip) == null ? void 0 : Ne.trim()) || null
         });
-        const H = await f.getNodeTypeAttributes(t, q.nodeTypeId);
-        V((G) => ({ ...G, [q.nodeTypeId]: Array.isArray(H) ? H : [] }));
-      } else if (z === "edit-attr") {
-        await f.updateAttribute(t, q.nodeTypeId, q.attrId, {
-          label: (re = o.label) == null ? void 0 : re.trim(),
-          dataType: o.dataType || "STRING",
-          widgetType: o.widgetType || "TEXT",
-          required: !!o.required,
-          asName: !!o.asName,
-          enumDefinitionId: o.dataType === "ENUM" && o.enumDefinitionId || null,
-          displaySection: ((ve = o.displaySection) == null ? void 0 : ve.trim()) || null,
-          displayOrder: o.displayOrder !== "" ? Number(o.displayOrder) : 0,
-          defaultValue: ((de = o.defaultValue) == null ? void 0 : de.trim()) || null,
-          namingRegex: ((Te = o.namingRegex) == null ? void 0 : Te.trim()) || null,
-          allowedValues: o.dataType !== "ENUM" && ((Ae = o.allowedValues) == null ? void 0 : Ae.trim()) || null,
-          tooltip: ((xe = o.tooltip) == null ? void 0 : xe.trim()) || null
+        const w = await f.getNodeTypeAttributes(a, j.nodeTypeId);
+        P((D) => ({ ...D, [j.nodeTypeId]: Array.isArray(w) ? w : [] }));
+      } else if (U === "edit-attr") {
+        await f.updateAttribute(a, j.nodeTypeId, j.attrId, {
+          label: (de = s.label) == null ? void 0 : de.trim(),
+          dataType: s.dataType || "STRING",
+          widgetType: s.widgetType || "TEXT",
+          required: !!s.required,
+          asName: !!s.asName,
+          enumDefinitionId: s.dataType === "ENUM" && s.enumDefinitionId || null,
+          displaySection: ((pe = s.displaySection) == null ? void 0 : pe.trim()) || null,
+          displayOrder: s.displayOrder !== "" ? Number(s.displayOrder) : 0,
+          defaultValue: ((Te = s.defaultValue) == null ? void 0 : Te.trim()) || null,
+          namingRegex: ((ke = s.namingRegex) == null ? void 0 : ke.trim()) || null,
+          allowedValues: s.dataType !== "ENUM" && ((_e = s.allowedValues) == null ? void 0 : _e.trim()) || null,
+          tooltip: ((k = s.tooltip) == null ? void 0 : k.trim()) || null
         });
-        const H = await f.getNodeTypeAttributes(t, q.nodeTypeId);
-        V((G) => ({ ...G, [q.nodeTypeId]: Array.isArray(H) ? H : [] }));
-      } else if (z === "create-link") {
-        const H = o.targetSourceId || "SELF", G = H === "SELF" ? o.targetNodeTypeId || null : o.targetType || null;
-        await f.createLinkType(t, {
-          name: (we = o.name) == null ? void 0 : we.trim(),
-          sourceNodeTypeId: q.nodeTypeId,
-          targetSourceId: H,
-          targetType: G,
-          linkPolicy: o.linkPolicy || "VERSION_TO_MASTER",
-          minCardinality: Number(o.minCardinality) || 0,
-          maxCardinality: o.maxCardinality !== "" ? Number(o.maxCardinality) : null,
-          color: o.color || null
+        const w = await f.getNodeTypeAttributes(a, j.nodeTypeId);
+        P((D) => ({ ...D, [j.nodeTypeId]: Array.isArray(w) ? w : [] }));
+      } else if (U === "create-link") {
+        const w = s.targetSourceId || "SELF", D = w === "SELF" ? s.targetNodeTypeId || null : s.targetType || null;
+        await f.createLinkType(a, {
+          code: (o = s.code) == null ? void 0 : o.trim(),
+          name: (q = s.name) == null ? void 0 : q.trim(),
+          sourceNodeTypeId: j.nodeTypeId,
+          targetSourceId: w,
+          targetType: D,
+          linkPolicy: s.linkPolicy || "VERSION_TO_MASTER",
+          minCardinality: Number(s.minCardinality) || 0,
+          maxCardinality: s.maxCardinality !== "" ? Number(s.maxCardinality) : null,
+          color: s.color || null
         });
-        const j = await f.getNodeTypeLinkTypes(t, q.nodeTypeId);
-        O((A) => ({ ...A, [q.nodeTypeId]: Array.isArray(j) ? j : [] }));
-      } else if (z === "edit-link") {
-        const H = o.targetSourceId || "SELF", G = H === "SELF" ? o.targetNodeTypeId || null : o.targetType || null;
-        await f.updateLinkType(t, q.linkTypeId, {
-          name: (_ = o.name) == null ? void 0 : _.trim(),
-          description: ((s = o.description) == null ? void 0 : s.trim()) || null,
-          linkPolicy: o.linkPolicy || "VERSION_TO_MASTER",
-          minCardinality: Number(o.minCardinality) || 0,
-          maxCardinality: o.maxCardinality !== "" && o.maxCardinality != null ? Number(o.maxCardinality) : null,
-          color: o.color || null,
-          targetSourceId: H,
-          targetNodeTypeId: G
+        const X = await f.getNodeTypeLinkTypes(a, j.nodeTypeId);
+        M((ee) => ({ ...ee, [j.nodeTypeId]: Array.isArray(X) ? X : [] }));
+      } else if (U === "edit-link") {
+        const w = s.targetSourceId || "SELF", D = w === "SELF" ? s.targetNodeTypeId || null : s.targetType || null;
+        await f.updateLinkType(a, j.linkTypeId, {
+          name: (ie = s.name) == null ? void 0 : ie.trim(),
+          description: ((le = s.description) == null ? void 0 : le.trim()) || null,
+          linkPolicy: s.linkPolicy || "VERSION_TO_MASTER",
+          minCardinality: Number(s.minCardinality) || 0,
+          maxCardinality: s.maxCardinality !== "" && s.maxCardinality != null ? Number(s.maxCardinality) : null,
+          color: s.color || null,
+          targetSourceId: w,
+          targetNodeTypeId: D
         });
-        const j = await f.getNodeTypeLinkTypes(t, q.nodeTypeId);
-        O((A) => ({ ...A, [q.nodeTypeId]: Array.isArray(j) ? j : [] }));
-      } else z === "edit-parent" && (await f.updateNodeTypeParent(t, q.nodeTypeId, o.parentNodeTypeId || null), await v(), u(null));
-      M();
-    } catch (z) {
-      r(z, "error");
+        const X = await f.getNodeTypeLinkTypes(a, j.nodeTypeId);
+        M((ee) => ({ ...ee, [j.nodeTypeId]: Array.isArray(X) ? X : [] }));
+      } else U === "edit-parent" && (await f.updateNodeTypeParent(a, j.nodeTypeId, s.parentNodeTypeId || null), await N(), p(null));
+      V();
+    } catch (U) {
+      l(U, "error");
     } finally {
       g(!1);
     }
   }
-  async function E(a, d) {
-    if (a.stopPropagation(), !!window.confirm(`Delete node type "${d.name || d.NAME}"?
+  async function se(i, r) {
+    if (i.stopPropagation(), !!window.confirm(`Delete node type "${r.name || r.NAME}"?
 
 This also deletes all its attributes and link types. Cannot be undone.`))
       try {
-        await f.deleteNodeType(t, d.id || d.ID), await v(), P === (d.id || d.ID) && u(null);
-      } catch ($) {
-        r($, "error");
+        await f.deleteNodeType(a, r.id || r.ID), await N(), S === (r.id || r.ID) && p(null);
+      } catch (O) {
+        l(O, "error");
       }
   }
-  async function N(a, d, $) {
-    if (a.stopPropagation(), !!window.confirm(`Delete attribute "${$.label || $.LABEL || $.name || $.NAME}"?`))
+  async function m(i, r, O) {
+    if (i.stopPropagation(), !!window.confirm(`Delete attribute "${O.label || O.LABEL || O.name || O.NAME}"?`))
       try {
-        await f.deleteAttribute(t, d, $.id || $.ID);
-        const U = await f.getNodeTypeAttributes(t, d);
-        V((F) => ({ ...F, [d]: Array.isArray(U) ? U : [] }));
-      } catch (U) {
-        r(U, "error");
+        await f.deleteAttribute(a, r, O.id || O.ID);
+        const B = await f.getNodeTypeAttributes(a, r);
+        P((K) => ({ ...K, [r]: Array.isArray(B) ? B : [] }));
+      } catch (B) {
+        l(B, "error");
       }
   }
-  async function W(a, d, $) {
-    if (a.stopPropagation(), !!window.confirm(`Delete link type "${$.name || $.NAME}"?`))
+  async function F(i, r, O) {
+    if (i.stopPropagation(), !!window.confirm(`Delete link type "${O.name || O.NAME}"?`))
       try {
-        await f.deleteLinkType(t, $.id || $.ID);
-        const U = await f.getNodeTypeLinkTypes(t, d);
-        O((F) => ({ ...F, [d]: Array.isArray(U) ? U : [] }));
-      } catch (U) {
-        r(U, "error");
+        await f.deleteLinkType(a, O.id || O.ID);
+        const B = await f.getNodeTypeLinkTypes(a, r);
+        M((K) => ({ ...K, [r]: Array.isArray(B) ? B : [] }));
+      } catch (B) {
+        l(B, "error");
       }
   }
-  const ie = () => {
-    var d, $, U, F, oe, le;
-    if (!w || l) return !0;
-    const { type: a } = w;
-    return a === "create-nodetype" ? !((d = o.name) != null && d.trim()) : a === "create-attr" ? !(($ = o.name) != null && $.trim()) || !((U = o.label) != null && U.trim()) : a === "edit-attr" ? !((F = o.label) != null && F.trim()) : a === "create-link" ? !((oe = o.name) != null && oe.trim()) || !o.targetNodeTypeId : a === "edit-link" ? !((le = o.name) != null && le.trim()) : !1;
+  const Z = () => {
+    var r, O, B, K, ne, b, z, Q;
+    if (!L || d) return !0;
+    const { type: i } = L;
+    return i === "create-nodetype" ? !((r = s.code) != null && r.trim()) || !((O = s.name) != null && O.trim()) : i === "create-attr" ? !((B = s.name) != null && B.trim()) || !((K = s.label) != null && K.trim()) : i === "edit-attr" ? !((ne = s.label) != null && ne.trim()) : i === "create-link" ? !((b = s.code) != null && b.trim()) || !((z = s.name) != null && z.trim()) || !s.targetNodeTypeId : i === "edit-link" ? !((Q = s.name) != null && Q.trim()) : !1;
   };
-  return T ? /* @__PURE__ */ e("div", { className: "settings-loading", children: "Loading…" }) : /* @__PURE__ */ i("div", { className: "settings-list", children: [
-    w && /* @__PURE__ */ i(
-      De,
+  return v ? /* @__PURE__ */ e("div", { className: "settings-loading", children: "Loading…" }) : /* @__PURE__ */ n("div", { className: "settings-list", children: [
+    L && /* @__PURE__ */ n(
+      Re,
       {
-        title: w.type === "create-nodetype" ? "New Node Type" : w.type === "edit-identity" ? "Edit Identifier" : w.type === "edit-parent" ? "Change Parent" : w.type === "create-attr" ? "Add Attribute" : w.type === "edit-attr" ? "Edit Attribute" : w.type === "create-link" ? "Add Link Type" : w.type === "edit-link" ? `Edit Link Type — ${w.ctx.linkName}` : "",
-        width: w.type === "edit-link" ? 620 : 480,
-        onClose: M,
-        onSave: Q,
-        saving: ie(),
-        saveLabel: ["edit-identity", "edit-attr", "edit-link", "edit-parent"].includes(w.type) ? "Update" : "Create",
+        title: L.type === "create-nodetype" ? "New Node Type" : L.type === "edit-identity" ? "Edit Identifier" : L.type === "edit-parent" ? "Change Parent" : L.type === "create-attr" ? "Add Attribute" : L.type === "edit-attr" ? "Edit Attribute" : L.type === "create-link" ? "Add Link Type" : L.type === "edit-link" ? `Edit Link Type — ${L.ctx.linkName}` : "",
+        width: L.type === "edit-link" ? 620 : 480,
+        onClose: V,
+        onSave: J,
+        saving: Z(),
+        saveLabel: ["edit-identity", "edit-attr", "edit-link", "edit-parent"].includes(L.type) ? "Update" : "Create",
         children: [
-          w.type === "create-nodetype" && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ e(b, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: o.name || "", onChange: (a) => D((d) => ({ ...d, name: a.target.value })), placeholder: "e.g. Assembly" }) }),
-            /* @__PURE__ */ e(b, { label: "Description", children: /* @__PURE__ */ e("input", { className: "field-input", value: o.description || "", onChange: (a) => D((d) => ({ ...d, description: a.target.value })), placeholder: "Optional description" }) }),
-            /* @__PURE__ */ e(b, { label: "Lifecycle", children: /* @__PURE__ */ i("select", { className: "field-input", value: o.lifecycleId || "", onChange: (a) => D((d) => ({ ...d, lifecycleId: a.target.value })), children: [
+          L.type === "create-nodetype" && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ e(I, { label: "Code *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: s.code || "", onChange: (i) => R((r) => ({ ...r, code: i.target.value, codeEdited: !0 })), placeholder: "e.g. assembly", style: { fontFamily: "var(--mono)" } }) }),
+            /* @__PURE__ */ e(I, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", value: s.name || "", onChange: (i) => R((r) => ({ ...r, name: i.target.value, code: r.codeEdited ? r.code : Se(i.target.value) })), placeholder: "e.g. Assembly" }) }),
+            /* @__PURE__ */ e(I, { label: "Description", children: /* @__PURE__ */ e("input", { className: "field-input", value: s.description || "", onChange: (i) => R((r) => ({ ...r, description: i.target.value })), placeholder: "Optional description" }) }),
+            /* @__PURE__ */ e(I, { label: "Lifecycle", children: /* @__PURE__ */ n("select", { className: "field-input", value: s.lifecycleId || "", onChange: (i) => R((r) => ({ ...r, lifecycleId: i.target.value })), children: [
               /* @__PURE__ */ e("option", { value: "", children: "None" }),
-              h.map((a) => {
-                const d = a.id || a.ID;
-                return /* @__PURE__ */ e("option", { value: d, children: a.name || a.NAME || d }, d);
+              c.map((i) => {
+                const r = i.id || i.ID;
+                return /* @__PURE__ */ e("option", { value: r, children: i.name || i.NAME || r }, r);
               })
             ] }) }),
-            /* @__PURE__ */ e(b, { label: "Numbering Scheme", children: /* @__PURE__ */ e("select", { className: "field-input", value: o.numberingScheme || "ALPHA_NUMERIC", onChange: (a) => D((d) => ({ ...d, numberingScheme: a.target.value })), children: Ke.map((a) => /* @__PURE__ */ e("option", { value: a, children: a }, a)) }) }),
-            /* @__PURE__ */ e(b, { label: "Version Policy", children: /* @__PURE__ */ e("select", { className: "field-input", value: o.versionPolicy || "ITERATE", onChange: (a) => D((d) => ({ ...d, versionPolicy: a.target.value })), children: Qe.map((a) => /* @__PURE__ */ e("option", { value: a, children: a }, a)) }) }),
-            /* @__PURE__ */ e(b, { label: "Parent node type (optional)", children: /* @__PURE__ */ i("select", { className: "field-input", value: o.parentNodeTypeId || "", onChange: (a) => D((d) => ({ ...d, parentNodeTypeId: a.target.value })), children: [
+            /* @__PURE__ */ e(I, { label: "Numbering Scheme", children: /* @__PURE__ */ e("select", { className: "field-input", value: s.numberingScheme || "ALPHA_NUMERIC", onChange: (i) => R((r) => ({ ...r, numberingScheme: i.target.value })), children: Ze.map((i) => /* @__PURE__ */ e("option", { value: i, children: i }, i)) }) }),
+            /* @__PURE__ */ e(I, { label: "Version Policy", children: /* @__PURE__ */ e("select", { className: "field-input", value: s.versionPolicy || "ITERATE", onChange: (i) => R((r) => ({ ...r, versionPolicy: i.target.value })), children: et.map((i) => /* @__PURE__ */ e("option", { value: i, children: i }, i)) }) }),
+            /* @__PURE__ */ e(I, { label: "Parent node type (optional)", children: /* @__PURE__ */ n("select", { className: "field-input", value: s.parentNodeTypeId || "", onChange: (i) => R((r) => ({ ...r, parentNodeTypeId: i.target.value })), children: [
               /* @__PURE__ */ e("option", { value: "", children: "None" }),
-              c.map((a) => {
-                const d = a.id || a.ID;
-                return /* @__PURE__ */ e("option", { value: d, children: a.name || a.NAME || d }, d);
+              y.map((i) => {
+                const r = i.id || i.ID;
+                return /* @__PURE__ */ e("option", { value: r, children: i.name || i.NAME || r }, r);
               })
             ] }) })
           ] }),
-          w.type === "edit-identity" && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ e(b, { label: "Label", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: o.logicalIdLabel || "", onChange: (a) => D((d) => ({ ...d, logicalIdLabel: a.target.value })), placeholder: "Identifier" }) }),
-            /* @__PURE__ */ e(b, { label: "Validation Pattern (regex)", children: /* @__PURE__ */ e("input", { className: "field-input", value: o.logicalIdPattern || "", onChange: (a) => D((d) => ({ ...d, logicalIdPattern: a.target.value })), placeholder: "e.g. ^[A-Z]{2}-\\d{4}$" }) })
+          L.type === "edit-identity" && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ e(I, { label: "Label", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: s.logicalIdLabel || "", onChange: (i) => R((r) => ({ ...r, logicalIdLabel: i.target.value })), placeholder: "Identifier" }) }),
+            /* @__PURE__ */ e(I, { label: "Validation Pattern (regex)", children: /* @__PURE__ */ e("input", { className: "field-input", value: s.logicalIdPattern || "", onChange: (i) => R((r) => ({ ...r, logicalIdPattern: i.target.value })), placeholder: "e.g. ^[A-Z]{2}-\\d{4}$" }) })
           ] }),
-          w.type === "edit-parent" && /* @__PURE__ */ e(ne, { children: /* @__PURE__ */ e(b, { label: "Parent node type", children: /* @__PURE__ */ i("select", { className: "field-input", autoFocus: !0, value: o.parentNodeTypeId || "", onChange: (a) => D((d) => ({ ...d, parentNodeTypeId: a.target.value })), children: [
+          L.type === "edit-parent" && /* @__PURE__ */ e(re, { children: /* @__PURE__ */ e(I, { label: "Parent node type", children: /* @__PURE__ */ n("select", { className: "field-input", autoFocus: !0, value: s.parentNodeTypeId || "", onChange: (i) => R((r) => ({ ...r, parentNodeTypeId: i.target.value })), children: [
             /* @__PURE__ */ e("option", { value: "", children: "None (root type)" }),
-            c.filter((a) => (a.id || a.ID) !== w.ctx.nodeTypeId).map((a) => {
-              const d = a.id || a.ID;
-              return /* @__PURE__ */ e("option", { value: d, children: a.name || a.NAME || d }, d);
+            y.filter((i) => (i.id || i.ID) !== L.ctx.nodeTypeId).map((i) => {
+              const r = i.id || i.ID;
+              return /* @__PURE__ */ e("option", { value: r, children: i.name || i.NAME || r }, r);
             })
           ] }) }) }),
-          w.type === "edit-lifecycle" && /* @__PURE__ */ e(ne, { children: /* @__PURE__ */ e(b, { label: "Lifecycle", children: /* @__PURE__ */ i("select", { className: "field-input", autoFocus: !0, value: o.lifecycleId || "", onChange: (a) => D((d) => ({ ...d, lifecycleId: a.target.value })), children: [
+          L.type === "edit-lifecycle" && /* @__PURE__ */ e(re, { children: /* @__PURE__ */ e(I, { label: "Lifecycle", children: /* @__PURE__ */ n("select", { className: "field-input", autoFocus: !0, value: s.lifecycleId || "", onChange: (i) => R((r) => ({ ...r, lifecycleId: i.target.value })), children: [
             /* @__PURE__ */ e("option", { value: "", children: "None" }),
-            h.map((a) => {
-              const d = a.id || a.ID;
-              return /* @__PURE__ */ e("option", { value: d, children: a.name || a.NAME || d }, d);
+            c.map((i) => {
+              const r = i.id || i.ID;
+              return /* @__PURE__ */ e("option", { value: r, children: i.name || i.NAME || r }, r);
             })
           ] }) }) }),
-          w.type === "edit-versioning" && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ e(b, { label: "Numbering Scheme", children: /* @__PURE__ */ e("select", { className: "field-input", autoFocus: !0, value: o.numberingScheme || "ALPHA_NUMERIC", onChange: (a) => D((d) => ({ ...d, numberingScheme: a.target.value })), children: Ke.map((a) => /* @__PURE__ */ e("option", { value: a, children: a }, a)) }) }),
-            /* @__PURE__ */ e(b, { label: "Version Policy", children: /* @__PURE__ */ e("select", { className: "field-input", value: o.versionPolicy || "ITERATE", onChange: (a) => D((d) => ({ ...d, versionPolicy: a.target.value })), children: Qe.map((a) => /* @__PURE__ */ e("option", { value: a, children: a }, a)) }) })
+          L.type === "edit-versioning" && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ e(I, { label: "Numbering Scheme", children: /* @__PURE__ */ e("select", { className: "field-input", autoFocus: !0, value: s.numberingScheme || "ALPHA_NUMERIC", onChange: (i) => R((r) => ({ ...r, numberingScheme: i.target.value })), children: Ze.map((i) => /* @__PURE__ */ e("option", { value: i, children: i }, i)) }) }),
+            /* @__PURE__ */ e(I, { label: "Version Policy", children: /* @__PURE__ */ e("select", { className: "field-input", value: s.versionPolicy || "ITERATE", onChange: (i) => R((r) => ({ ...r, versionPolicy: i.target.value })), children: et.map((i) => /* @__PURE__ */ e("option", { value: i, children: i }, i)) }) })
           ] }),
-          w.type === "edit-appearance" && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ e(ze, { label: "Color", value: o.color || "", onChange: (a) => D((d) => ({ ...d, color: a })) }),
-            /* @__PURE__ */ e(dt, { value: o.icon || "", onChange: (a) => D((d) => ({ ...d, icon: a })) })
+          L.type === "edit-appearance" && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ e(Pe, { label: "Color", value: s.color || "", onChange: (i) => R((r) => ({ ...r, color: i })) }),
+            /* @__PURE__ */ e(ot, { value: s.icon || "", onChange: (i) => R((r) => ({ ...r, icon: i })) })
           ] }),
-          w.type === "create-attr" && /* @__PURE__ */ e(Ye, { form: o, setForm: D, userId: t }),
-          w.type === "edit-attr" && /* @__PURE__ */ e(Ye, { form: o, setForm: D, autoFocusName: !1, userId: t }),
-          w.type === "create-link" && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ e(b, { label: "Link Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: o.name || "", onChange: (a) => D((d) => ({ ...d, name: a.target.value })), placeholder: "e.g. composed_of" }) }),
-            /* @__PURE__ */ e(b, { label: "Target Source", children: /* @__PURE__ */ i("select", { className: "field-input", value: o.targetSourceId || "SELF", onChange: (a) => D((d) => ({ ...d, targetSourceId: a.target.value, targetNodeTypeId: "", targetType: "" })), children: [
+          L.type === "create-attr" && /* @__PURE__ */ e(Xe, { form: s, setForm: R, userId: a }),
+          L.type === "edit-attr" && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ e(Xe, { form: s, setForm: R, autoFocusName: !1, userId: a }),
+            /* @__PURE__ */ e(Ye, { label: "Validation" }),
+            /* @__PURE__ */ e(
+              Tt,
+              {
+                userId: a,
+                nodeTypeId: L.ctx.nodeTypeId,
+                attrDefId: L.ctx.attrId,
+                lifecycleId: L.ctx.lifecycleId,
+                canWrite: t,
+                toast: l
+              }
+            )
+          ] }),
+          L.type === "create-link" && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ e(I, { label: "Code *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: s.code || "", onChange: (i) => R((r) => ({ ...r, code: i.target.value, codeEdited: !0 })), placeholder: "e.g. composed-of", style: { fontFamily: "var(--mono)" } }) }),
+            /* @__PURE__ */ e(I, { label: "Link Name *", children: /* @__PURE__ */ e("input", { className: "field-input", value: s.name || "", onChange: (i) => R((r) => ({ ...r, name: i.target.value, code: r.codeEdited ? r.code : Se(i.target.value) })), placeholder: "e.g. composed_of" }) }),
+            /* @__PURE__ */ e(I, { label: "Target Source", children: /* @__PURE__ */ n("select", { className: "field-input", value: s.targetSourceId || "SELF", onChange: (i) => R((r) => ({ ...r, targetSourceId: i.target.value, targetNodeTypeId: "", targetType: "" })), children: [
               /* @__PURE__ */ e("option", { value: "SELF", children: "Self (PSM)" }),
-              X.filter((a) => (a.id || a.ID) !== "SELF").map((a) => {
-                const d = a.id || a.ID;
-                return /* @__PURE__ */ e("option", { value: d, children: a.name || a.NAME || d }, d);
+              H.filter((i) => (i.id || i.ID) !== "SELF").map((i) => {
+                const r = i.id || i.ID;
+                return /* @__PURE__ */ e("option", { value: r, children: i.name || i.NAME || r }, r);
               })
             ] }) }),
-            !o.targetSourceId || o.targetSourceId === "SELF" ? /* @__PURE__ */ e(b, { label: "Target Node Type", children: /* @__PURE__ */ i("select", { className: "field-input", value: o.targetNodeTypeId || "", onChange: (a) => D((d) => ({ ...d, targetNodeTypeId: a.target.value })), children: [
+            !s.targetSourceId || s.targetSourceId === "SELF" ? /* @__PURE__ */ e(I, { label: "Target Node Type", children: /* @__PURE__ */ n("select", { className: "field-input", value: s.targetNodeTypeId || "", onChange: (i) => R((r) => ({ ...r, targetNodeTypeId: i.target.value })), children: [
               /* @__PURE__ */ e("option", { value: "", children: "Any" }),
-              c.map((a) => {
-                const d = a.id || a.ID;
-                return /* @__PURE__ */ e("option", { value: d, children: a.name || a.NAME || d }, d);
+              y.map((i) => {
+                const r = i.id || i.ID;
+                return /* @__PURE__ */ e("option", { value: r, children: i.name || i.NAME || r }, r);
               })
-            ] }) }) : /* @__PURE__ */ e(b, { label: "Target Type", children: /* @__PURE__ */ e("input", { className: "field-input", value: o.targetType || "", onChange: (a) => D((d) => ({ ...d, targetType: a.target.value })), placeholder: "Type name in source" }) }),
-            /* @__PURE__ */ e(b, { label: "Link Policy", children: /* @__PURE__ */ e("select", { className: "field-input", value: o.linkPolicy || "VERSION_TO_MASTER", onChange: (a) => D((d) => ({ ...d, linkPolicy: a.target.value })), children: Xe.map((a) => /* @__PURE__ */ e("option", { value: a, children: a }, a)) }) }),
-            /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
-              /* @__PURE__ */ e(b, { label: "Min Cardinality", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: o.minCardinality ?? "0", onChange: (a) => D((d) => ({ ...d, minCardinality: a.target.value })) }) }),
-              /* @__PURE__ */ e(b, { label: "Max (blank = unlimited)", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: o.maxCardinality ?? "", onChange: (a) => D((d) => ({ ...d, maxCardinality: a.target.value })), placeholder: "∞" }) })
+            ] }) }) : /* @__PURE__ */ e(I, { label: "Target Type", children: /* @__PURE__ */ e("input", { className: "field-input", value: s.targetType || "", onChange: (i) => R((r) => ({ ...r, targetType: i.target.value })), placeholder: "Type name in source" }) }),
+            /* @__PURE__ */ e(I, { label: "Link Policy", children: /* @__PURE__ */ e("select", { className: "field-input", value: s.linkPolicy || "VERSION_TO_MASTER", onChange: (i) => R((r) => ({ ...r, linkPolicy: i.target.value })), children: Je.map((i) => /* @__PURE__ */ e("option", { value: i, children: i }, i)) }) }),
+            /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
+              /* @__PURE__ */ e(I, { label: "Min Cardinality", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: s.minCardinality ?? "0", onChange: (i) => R((r) => ({ ...r, minCardinality: i.target.value })) }) }),
+              /* @__PURE__ */ e(I, { label: "Max (blank = unlimited)", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: s.maxCardinality ?? "", onChange: (i) => R((r) => ({ ...r, maxCardinality: i.target.value })), placeholder: "∞" }) })
             ] }),
-            /* @__PURE__ */ e(ze, { label: "Color", value: o.color || "", onChange: (a) => D((d) => ({ ...d, color: a })) })
+            /* @__PURE__ */ e(Pe, { label: "Color", value: s.color || "", onChange: (i) => R((r) => ({ ...r, color: i })) })
           ] }),
-          w.type === "edit-link" && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ e(b, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: o.name || "", onChange: (a) => D((d) => ({ ...d, name: a.target.value })) }) }),
-            /* @__PURE__ */ e(b, { label: "Description", children: /* @__PURE__ */ e("input", { className: "field-input", value: o.description || "", onChange: (a) => D((d) => ({ ...d, description: a.target.value })), placeholder: "Optional description" }) }),
-            /* @__PURE__ */ e(b, { label: "Target Source", children: /* @__PURE__ */ i("select", { className: "field-input", value: o.targetSourceId || "SELF", onChange: (a) => D((d) => ({ ...d, targetSourceId: a.target.value, targetNodeTypeId: "", targetType: "" })), children: [
+          L.type === "edit-link" && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ e(I, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: s.name || "", onChange: (i) => R((r) => ({ ...r, name: i.target.value })) }) }),
+            /* @__PURE__ */ e(I, { label: "Description", children: /* @__PURE__ */ e("input", { className: "field-input", value: s.description || "", onChange: (i) => R((r) => ({ ...r, description: i.target.value })), placeholder: "Optional description" }) }),
+            /* @__PURE__ */ e(I, { label: "Target Source", children: /* @__PURE__ */ n("select", { className: "field-input", value: s.targetSourceId || "SELF", onChange: (i) => R((r) => ({ ...r, targetSourceId: i.target.value, targetNodeTypeId: "", targetType: "" })), children: [
               /* @__PURE__ */ e("option", { value: "SELF", children: "Self (PSM)" }),
-              X.filter((a) => (a.id || a.ID) !== "SELF").map((a) => {
-                const d = a.id || a.ID;
-                return /* @__PURE__ */ e("option", { value: d, children: a.name || a.NAME || d }, d);
+              H.filter((i) => (i.id || i.ID) !== "SELF").map((i) => {
+                const r = i.id || i.ID;
+                return /* @__PURE__ */ e("option", { value: r, children: i.name || i.NAME || r }, r);
               })
             ] }) }),
-            !o.targetSourceId || o.targetSourceId === "SELF" ? /* @__PURE__ */ e(b, { label: "Target Node Type", children: /* @__PURE__ */ i("select", { className: "field-input", value: o.targetNodeTypeId || "", onChange: (a) => D((d) => ({ ...d, targetNodeTypeId: a.target.value })), children: [
+            !s.targetSourceId || s.targetSourceId === "SELF" ? /* @__PURE__ */ e(I, { label: "Target Node Type", children: /* @__PURE__ */ n("select", { className: "field-input", value: s.targetNodeTypeId || "", onChange: (i) => R((r) => ({ ...r, targetNodeTypeId: i.target.value })), children: [
               /* @__PURE__ */ e("option", { value: "", children: "Any" }),
-              c.map((a) => {
-                const d = a.id || a.ID;
-                return /* @__PURE__ */ e("option", { value: d, children: a.name || a.NAME || d }, d);
+              y.map((i) => {
+                const r = i.id || i.ID;
+                return /* @__PURE__ */ e("option", { value: r, children: i.name || i.NAME || r }, r);
               })
-            ] }) }) : /* @__PURE__ */ e(b, { label: "Target Type", children: /* @__PURE__ */ e("input", { className: "field-input", value: o.targetType || "", onChange: (a) => D((d) => ({ ...d, targetType: a.target.value })), placeholder: "Type name in source" }) }),
-            /* @__PURE__ */ e(b, { label: "Link Policy", children: /* @__PURE__ */ e("select", { className: "field-input", value: o.linkPolicy || "VERSION_TO_MASTER", onChange: (a) => D((d) => ({ ...d, linkPolicy: a.target.value })), children: Xe.map((a) => /* @__PURE__ */ e("option", { value: a, children: a }, a)) }) }),
-            /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
-              /* @__PURE__ */ e(b, { label: "Min Cardinality", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: o.minCardinality ?? "0", onChange: (a) => D((d) => ({ ...d, minCardinality: a.target.value })) }) }),
-              /* @__PURE__ */ e(b, { label: "Max (blank = unlimited)", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: o.maxCardinality ?? "", onChange: (a) => D((d) => ({ ...d, maxCardinality: a.target.value })), placeholder: "∞" }) })
+            ] }) }) : /* @__PURE__ */ e(I, { label: "Target Type", children: /* @__PURE__ */ e("input", { className: "field-input", value: s.targetType || "", onChange: (i) => R((r) => ({ ...r, targetType: i.target.value })), placeholder: "Type name in source" }) }),
+            /* @__PURE__ */ e(I, { label: "Link Policy", children: /* @__PURE__ */ e("select", { className: "field-input", value: s.linkPolicy || "VERSION_TO_MASTER", onChange: (i) => R((r) => ({ ...r, linkPolicy: i.target.value })), children: Je.map((i) => /* @__PURE__ */ e("option", { value: i, children: i }, i)) }) }),
+            /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
+              /* @__PURE__ */ e(I, { label: "Min Cardinality", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: s.minCardinality ?? "0", onChange: (i) => R((r) => ({ ...r, minCardinality: i.target.value })) }) }),
+              /* @__PURE__ */ e(I, { label: "Max (blank = unlimited)", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: s.maxCardinality ?? "", onChange: (i) => R((r) => ({ ...r, maxCardinality: i.target.value })), placeholder: "∞" }) })
             ] }),
-            /* @__PURE__ */ e(ze, { label: "Color", value: o.color || "", onChange: (a) => D((d) => ({ ...d, color: a })) }),
-            /* @__PURE__ */ e(Je, { label: "Attributes" }),
-            /* @__PURE__ */ e(Tt, { userId: t, linkTypeId: w.ctx.linkTypeId, canWrite: n, toast: r }),
-            /* @__PURE__ */ e(Je, { label: "Cascade Rules" }),
+            /* @__PURE__ */ e(Pe, { label: "Color", value: s.color || "", onChange: (i) => R((r) => ({ ...r, color: i })) }),
+            /* @__PURE__ */ e(Ye, { label: "Attributes" }),
+            /* @__PURE__ */ e(Ct, { userId: a, linkTypeId: L.ctx.linkTypeId, canWrite: t, toast: l }),
+            /* @__PURE__ */ e(Ye, { label: "Cascade Rules" }),
             (() => {
-              const a = c.find(($) => ($.id || $.ID) === w.ctx.nodeTypeId), d = c.find(($) => ($.id || $.ID) === w.ctx.targetNodeTypeId);
+              const i = y.find((O) => (O.id || O.ID) === L.ctx.nodeTypeId), r = y.find((O) => (O.id || O.ID) === L.ctx.targetNodeTypeId);
               return /* @__PURE__ */ e(
-                It,
+                St,
                 {
-                  userId: t,
-                  linkTypeId: w.ctx.linkTypeId,
-                  sourceLifecycleId: (a == null ? void 0 : a.lifecycle_id) || (a == null ? void 0 : a.LIFECYCLE_ID),
-                  targetLifecycleId: (d == null ? void 0 : d.lifecycle_id) || (d == null ? void 0 : d.LIFECYCLE_ID),
-                  canWrite: n,
-                  toast: r
+                  userId: a,
+                  linkTypeId: L.ctx.linkTypeId,
+                  sourceLifecycleId: (i == null ? void 0 : i.lifecycle_id) || (i == null ? void 0 : i.LIFECYCLE_ID),
+                  targetLifecycleId: (r == null ? void 0 : r.lifecycle_id) || (r == null ? void 0 : r.LIFECYCLE_ID),
+                  canWrite: t,
+                  toast: l
                 }
               );
             })()
@@ -1155,150 +1343,148 @@ This also deletes all its attributes and link types. Cannot be undone.`))
         ]
       }
     ),
-    /* @__PURE__ */ e("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 8 }, children: n && /* @__PURE__ */ i(
+    /* @__PURE__ */ e("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 8 }, children: t && /* @__PURE__ */ n(
       "button",
       {
         className: "btn btn-sm",
         style: { display: "flex", alignItems: "center", gap: 5 },
-        onClick: () => y("create-nodetype", {}, { lifecycleId: h[0] ? h[0].id || h[0].ID : "", numberingScheme: "ALPHA_NUMERIC", versionPolicy: "ITERATE" }),
+        onClick: () => h("create-nodetype", {}, { lifecycleId: c[0] ? c[0].id || c[0].ID : "", numberingScheme: "ALPHA_NUMERIC", versionPolicy: "ITERATE" }),
         children: [
-          /* @__PURE__ */ e(ge, { size: 11, strokeWidth: 2.5 }),
+          /* @__PURE__ */ e(be, { size: 11, strokeWidth: 2.5 }),
           "New node type"
         ]
       }
     ) }),
-    c.map((a) => {
-      var _;
-      const d = a.id || a.ID, $ = a.name || a.NAME || d, U = P === d, F = m[d] || [], oe = Y[d] || [], le = a.logical_id_label || a.LOGICAL_ID_LABEL || "Identifier", be = a.logical_id_pattern || a.LOGICAL_ID_PATTERN || "", Ne = a.numbering_scheme || a.NUMBERING_SCHEME || "ALPHA_NUMERIC", he = a.version_policy || a.VERSION_POLICY || "ITERATE", re = a.lifecycle_id || a.LIFECYCLE_ID || null, ve = ((_ = h.find((s) => (s.id || s.ID) === re)) == null ? void 0 : _.name) || re || "—", de = a.color || a.COLOR || null, Te = a.icon || a.ICON || null, Ae = Te ? Me[Te] : null, xe = a.parent_node_type_id || a.PARENT_NODE_TYPE_ID || null, we = xe ? p[xe] || xe : null;
-      return /* @__PURE__ */ i("div", { className: "settings-card", children: [
-        /* @__PURE__ */ i("div", { className: "settings-card-hd", onClick: () => C(a), style: { display: "flex", alignItems: "center" }, children: [
-          /* @__PURE__ */ e("span", { className: "settings-card-chevron", children: U ? /* @__PURE__ */ e(Re, { size: 13, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(Oe, { size: 13, strokeWidth: 2, color: "var(--muted)" }) }),
-          Ae ? /* @__PURE__ */ e(Ae, { size: 14, strokeWidth: 2, color: de || "var(--muted)", style: { marginRight: 4, flexShrink: 0 } }) : de ? /* @__PURE__ */ e("span", { style: { width: 10, height: 10, borderRadius: "50%", background: de, flexShrink: 0, marginRight: 4 } }) : null,
-          /* @__PURE__ */ e("span", { className: "settings-card-name", children: $ }),
-          /* @__PURE__ */ e("span", { className: "settings-card-id", children: d }),
-          n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete node type", style: { marginLeft: "auto" }, onClick: (s) => E(s, a), children: /* @__PURE__ */ e(ae, { size: 12, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+    y.map((i) => {
+      var k;
+      const r = i.id || i.ID, O = i.name || i.NAME || r, B = S === r, K = C[r] || [], ne = G[r] || [], b = i.logical_id_label || i.LOGICAL_ID_LABEL || "Identifier", z = i.logical_id_pattern || i.LOGICAL_ID_PATTERN || "", Q = i.numbering_scheme || i.NUMBERING_SCHEME || "ALPHA_NUMERIC", Ee = i.version_policy || i.VERSION_POLICY || "ITERATE", ge = i.lifecycle_id || i.LIFECYCLE_ID || null, Ne = ((k = c.find((o) => (o.id || o.ID) === ge)) == null ? void 0 : k.name) || ge || "—", de = i.color || i.COLOR || null, pe = i.icon || i.ICON || null, Te = pe ? Ve[pe] : null, ke = i.parent_node_type_id || i.PARENT_NODE_TYPE_ID || null, _e = ke ? u[ke] || ke : null;
+      return /* @__PURE__ */ n("div", { className: "settings-card", children: [
+        /* @__PURE__ */ n("div", { className: "settings-card-hd", onClick: () => A(i), style: { display: "flex", alignItems: "center" }, children: [
+          /* @__PURE__ */ e("span", { className: "settings-card-chevron", children: B ? /* @__PURE__ */ e(Oe, { size: 13, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(ze, { size: 13, strokeWidth: 2, color: "var(--muted)" }) }),
+          Te ? /* @__PURE__ */ e(Te, { size: 14, strokeWidth: 2, color: de || "var(--muted)", style: { marginRight: 4, flexShrink: 0 } }) : de ? /* @__PURE__ */ e("span", { style: { width: 10, height: 10, borderRadius: "50%", background: de, flexShrink: 0, marginRight: 4 } }) : null,
+          /* @__PURE__ */ e("span", { className: "settings-card-name", children: O }),
+          /* @__PURE__ */ e("span", { className: "settings-card-id", children: r }),
+          t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete node type", style: { marginLeft: "auto" }, onClick: (o) => se(o, i), children: /* @__PURE__ */ e(ce, { size: 12, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
         ] }),
-        U && /* @__PURE__ */ i("div", { className: "settings-card-body", children: [
-          /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }, children: [
+        B && /* @__PURE__ */ n("div", { className: "settings-card-body", children: [
+          /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }, children: [
             /* @__PURE__ */ e("span", { className: "settings-sub-label", style: { margin: 0 }, children: "Inheritance" }),
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Change parent", onClick: () => y("edit-parent", { nodeTypeId: d }, { parentNodeTypeId: xe || "" }), children: /* @__PURE__ */ e(pe, { size: 12, strokeWidth: 2, color: "var(--accent)" }) })
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Change parent", onClick: () => h("edit-parent", { nodeTypeId: r }, { parentNodeTypeId: ke || "" }), children: /* @__PURE__ */ e(ye, { size: 12, strokeWidth: 2, color: "var(--accent)" }) })
           ] }),
-          /* @__PURE__ */ e("table", { className: "settings-table", children: /* @__PURE__ */ e("tbody", { children: /* @__PURE__ */ i("tr", { children: [
+          /* @__PURE__ */ e("table", { className: "settings-table", children: /* @__PURE__ */ e("tbody", { children: /* @__PURE__ */ n("tr", { children: [
             /* @__PURE__ */ e("td", { style: { color: "var(--muted)", width: 110 }, children: "Inherits from" }),
-            /* @__PURE__ */ e("td", { children: we ? /* @__PURE__ */ e("span", { className: "settings-badge", children: we }) : /* @__PURE__ */ e("span", { style: { color: "var(--muted2)" }, children: "—" }) })
+            /* @__PURE__ */ e("td", { children: _e ? /* @__PURE__ */ e("span", { className: "settings-badge", children: _e }) : /* @__PURE__ */ e("span", { style: { color: "var(--muted2)" }, children: "—" }) })
           ] }) }) }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
+          /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
             /* @__PURE__ */ e("span", { className: "settings-sub-label", style: { margin: 0 }, children: "Identifier" }),
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit identifier", onClick: () => y("edit-identity", { nodeTypeId: d }, { logicalIdLabel: le, logicalIdPattern: be }), children: /* @__PURE__ */ e(pe, { size: 12, strokeWidth: 2, color: "var(--accent)" }) })
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit identifier", onClick: () => h("edit-identity", { nodeTypeId: r }, { logicalIdLabel: b, logicalIdPattern: z }), children: /* @__PURE__ */ e(ye, { size: 12, strokeWidth: 2, color: "var(--accent)" }) })
           ] }),
-          /* @__PURE__ */ e("table", { className: "settings-table", children: /* @__PURE__ */ i("tbody", { children: [
-            /* @__PURE__ */ i("tr", { children: [
+          /* @__PURE__ */ e("table", { className: "settings-table", children: /* @__PURE__ */ n("tbody", { children: [
+            /* @__PURE__ */ n("tr", { children: [
               /* @__PURE__ */ e("td", { style: { color: "var(--muted)", width: 110 }, children: "Label" }),
-              /* @__PURE__ */ e("td", { className: "settings-td-mono", children: le })
+              /* @__PURE__ */ e("td", { className: "settings-td-mono", children: b })
             ] }),
-            /* @__PURE__ */ i("tr", { children: [
+            /* @__PURE__ */ n("tr", { children: [
               /* @__PURE__ */ e("td", { style: { color: "var(--muted)" }, children: "Pattern" }),
-              /* @__PURE__ */ e("td", { className: "settings-td-mono", children: be || "—" })
+              /* @__PURE__ */ e("td", { className: "settings-td-mono", children: z || "—" })
             ] })
           ] }) }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
+          /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
             /* @__PURE__ */ e("span", { className: "settings-sub-label", style: { margin: 0 }, children: "Lifecycle" }),
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Change lifecycle", onClick: () => y("edit-lifecycle", { nodeTypeId: d }, { lifecycleId: re || "" }), children: /* @__PURE__ */ e(pe, { size: 12, strokeWidth: 2, color: "var(--accent)" }) })
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Change lifecycle", onClick: () => h("edit-lifecycle", { nodeTypeId: r }, { lifecycleId: ge || "" }), children: /* @__PURE__ */ e(ye, { size: 12, strokeWidth: 2, color: "var(--accent)" }) })
           ] }),
-          /* @__PURE__ */ e("table", { className: "settings-table", children: /* @__PURE__ */ e("tbody", { children: /* @__PURE__ */ i("tr", { children: [
+          /* @__PURE__ */ e("table", { className: "settings-table", children: /* @__PURE__ */ e("tbody", { children: /* @__PURE__ */ n("tr", { children: [
             /* @__PURE__ */ e("td", { style: { color: "var(--muted)", width: 110 }, children: "Lifecycle" }),
-            /* @__PURE__ */ e("td", { children: re ? /* @__PURE__ */ e("span", { className: "settings-badge", children: ve }) : /* @__PURE__ */ e("span", { style: { color: "var(--muted)" }, children: "—" }) })
+            /* @__PURE__ */ e("td", { children: ge ? /* @__PURE__ */ e("span", { className: "settings-badge", children: Ne }) : /* @__PURE__ */ e("span", { style: { color: "var(--muted)" }, children: "—" }) })
           ] }) }) }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
+          /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
             /* @__PURE__ */ e("span", { className: "settings-sub-label", style: { margin: 0 }, children: "Versioning" }),
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit versioning", onClick: () => y("edit-versioning", { nodeTypeId: d }, { numberingScheme: Ne, versionPolicy: he }), children: /* @__PURE__ */ e(pe, { size: 12, strokeWidth: 2, color: "var(--accent)" }) })
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit versioning", onClick: () => h("edit-versioning", { nodeTypeId: r }, { numberingScheme: Q, versionPolicy: Ee }), children: /* @__PURE__ */ e(ye, { size: 12, strokeWidth: 2, color: "var(--accent)" }) })
           ] }),
-          /* @__PURE__ */ e("table", { className: "settings-table", children: /* @__PURE__ */ i("tbody", { children: [
-            /* @__PURE__ */ i("tr", { children: [
+          /* @__PURE__ */ e("table", { className: "settings-table", children: /* @__PURE__ */ n("tbody", { children: [
+            /* @__PURE__ */ n("tr", { children: [
               /* @__PURE__ */ e("td", { style: { color: "var(--muted)", width: 110 }, children: "Numbering" }),
-              /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: Ne }) })
+              /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: Q }) })
             ] }),
-            /* @__PURE__ */ i("tr", { children: [
+            /* @__PURE__ */ n("tr", { children: [
               /* @__PURE__ */ e("td", { style: { color: "var(--muted)" }, children: "Policy" }),
-              /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: he }) })
+              /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: Ee }) })
             ] })
           ] }) }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
+          /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
             /* @__PURE__ */ e("span", { className: "settings-sub-label", style: { margin: 0 }, children: "Appearance" }),
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit appearance", onClick: () => y("edit-appearance", { nodeTypeId: d }, { color: de || "", icon: Te || "" }), children: /* @__PURE__ */ e(pe, { size: 12, strokeWidth: 2, color: "var(--accent)" }) })
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit appearance", onClick: () => h("edit-appearance", { nodeTypeId: r }, { color: de || "", icon: pe || "" }), children: /* @__PURE__ */ e(ye, { size: 12, strokeWidth: 2, color: "var(--accent)" }) })
           ] }),
-          /* @__PURE__ */ e("table", { className: "settings-table", children: /* @__PURE__ */ i("tbody", { children: [
-            /* @__PURE__ */ i("tr", { children: [
+          /* @__PURE__ */ e("table", { className: "settings-table", children: /* @__PURE__ */ n("tbody", { children: [
+            /* @__PURE__ */ n("tr", { children: [
               /* @__PURE__ */ e("td", { style: { color: "var(--muted)", width: 110 }, children: "Color" }),
-              /* @__PURE__ */ e("td", { children: de ? /* @__PURE__ */ i("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 }, children: [
+              /* @__PURE__ */ e("td", { children: de ? /* @__PURE__ */ n("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 }, children: [
                 /* @__PURE__ */ e("span", { style: { width: 12, height: 12, borderRadius: 3, background: de, display: "inline-block" } }),
                 /* @__PURE__ */ e("span", { className: "settings-td-mono", style: { fontSize: 10 }, children: de })
               ] }) : /* @__PURE__ */ e("span", { style: { color: "var(--muted2)" }, children: "—" }) })
             ] }),
-            /* @__PURE__ */ i("tr", { children: [
+            /* @__PURE__ */ n("tr", { children: [
               /* @__PURE__ */ e("td", { style: { color: "var(--muted)" }, children: "Icon" }),
-              /* @__PURE__ */ e("td", { children: Ae ? /* @__PURE__ */ i("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 }, children: [
-                /* @__PURE__ */ e(Ae, { size: 13, strokeWidth: 2, color: de || "var(--muted)" }),
-                /* @__PURE__ */ e("span", { style: { fontSize: 10, color: "var(--muted)" }, children: Te })
+              /* @__PURE__ */ e("td", { children: Te ? /* @__PURE__ */ n("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 }, children: [
+                /* @__PURE__ */ e(Te, { size: 13, strokeWidth: 2, color: de || "var(--muted)" }),
+                /* @__PURE__ */ e("span", { style: { fontSize: 10, color: "var(--muted)" }, children: pe })
               ] }) : /* @__PURE__ */ e("span", { style: { color: "var(--muted2)" }, children: "—" }) })
             ] })
           ] }) }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
+          /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
             /* @__PURE__ */ e("span", { className: "settings-sub-label", style: { margin: 0 }, children: "Attributes" }),
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Add attribute", onClick: () => y("create-attr", { nodeTypeId: d }, { dataType: "STRING", widgetType: "TEXT", required: !1, asName: !1 }), children: /* @__PURE__ */ e(ge, { size: 12, strokeWidth: 2.5, color: "var(--accent)" }) })
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Add attribute", onClick: () => h("create-attr", { nodeTypeId: r }, { dataType: "STRING", widgetType: "TEXT", required: !1, asName: !1 }), children: /* @__PURE__ */ e(be, { size: 12, strokeWidth: 2.5, color: "var(--accent)" }) })
           ] }),
-          F.length === 0 ? /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No attributes defined" }) : /* @__PURE__ */ i("table", { className: "settings-table", children: [
-            /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ i("tr", { children: [
+          K.length === 0 ? /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No attributes defined" }) : /* @__PURE__ */ n("table", { className: "settings-table", children: [
+            /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ n("tr", { children: [
               /* @__PURE__ */ e("th", { children: "Name" }),
               /* @__PURE__ */ e("th", { children: "Label" }),
               /* @__PURE__ */ e("th", { children: "Type" }),
-              /* @__PURE__ */ e("th", { children: "Req" }),
               /* @__PURE__ */ e("th", { children: "As Name" }),
               /* @__PURE__ */ e("th", { children: "Section" }),
               /* @__PURE__ */ e("th", {})
             ] }) }),
-            /* @__PURE__ */ e("tbody", { children: [...F].sort((s, z) => (s.display_order || s.DISPLAY_ORDER || 0) - (z.display_order || z.DISPLAY_ORDER || 0)).map((s) => {
-              const z = s.id || s.ID, q = s.name || s.NAME, H = s.label || s.LABEL || q, G = s.widget_type || s.WIDGET_TYPE || "TEXT", j = !!(s.required || s.REQUIRED), A = !!(s.as_name || s.AS_NAME), L = s.display_section || s.DISPLAY_SECTION || "—", te = !!(s.inherited || s.INHERITED), se = s.inherited_from || s.INHERITED_FROM || null;
-              return /* @__PURE__ */ i("tr", { children: [
-                /* @__PURE__ */ e("td", { className: "settings-td-mono", children: /* @__PURE__ */ i("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [
-                  q,
-                  te && /* @__PURE__ */ i("span", { style: { fontSize: 9, background: "var(--accent-dim,rgba(99,179,237,.15))", color: "var(--accent)", borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap" }, children: [
+            /* @__PURE__ */ e("tbody", { children: [...K].sort((o, q) => (o.display_order || o.DISPLAY_ORDER || 0) - (q.display_order || q.DISPLAY_ORDER || 0)).map((o) => {
+              const q = o.id || o.ID, ie = o.name || o.NAME, le = o.label || o.LABEL || ie, U = o.widget_type || o.WIDGET_TYPE || "TEXT", j = !!(o.required || o.REQUIRED), w = !!(o.as_name || o.AS_NAME), D = o.display_section || o.DISPLAY_SECTION || "—", X = !!(o.inherited || o.INHERITED), ee = o.inherited_from || o.INHERITED_FROM || null;
+              return /* @__PURE__ */ n("tr", { children: [
+                /* @__PURE__ */ e("td", { className: "settings-td-mono", children: /* @__PURE__ */ n("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [
+                  ie,
+                  X && /* @__PURE__ */ n("span", { style: { fontSize: 9, background: "var(--accent-dim,rgba(99,179,237,.15))", color: "var(--accent)", borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap" }, children: [
                     "from ",
-                    se || "parent"
+                    ee || "parent"
                   ] })
                 ] }) }),
-                /* @__PURE__ */ e("td", { children: H }),
-                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: G }) }),
-                /* @__PURE__ */ e("td", { style: { color: j ? "var(--success)" : "var(--muted)" }, children: j ? "✓" : "—" }),
-                /* @__PURE__ */ e("td", { style: { color: A ? "var(--accent)" : "var(--muted)", fontWeight: A ? 600 : 400 }, children: A ? "★" : "—" }),
-                /* @__PURE__ */ e("td", { style: { color: "var(--muted)" }, children: L }),
-                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ i("div", { style: { display: "flex", gap: 4 }, children: [
-                  n && !te && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => y("edit-attr", { nodeTypeId: d, attrId: z }, {
-                    name: q,
-                    label: H,
-                    dataType: s.data_type || s.DATA_TYPE || "STRING",
-                    widgetType: s.widget_type || s.WIDGET_TYPE || "TEXT",
+                /* @__PURE__ */ e("td", { children: le }),
+                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: U }) }),
+                /* @__PURE__ */ e("td", { style: { color: w ? "var(--accent)" : "var(--muted)", fontWeight: w ? 600 : 400 }, children: w ? "★" : "—" }),
+                /* @__PURE__ */ e("td", { style: { color: "var(--muted)" }, children: D }),
+                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ n("div", { style: { display: "flex", gap: 4 }, children: [
+                  t && !X && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => h("edit-attr", { nodeTypeId: r, attrId: q, lifecycleId: ge }, {
+                    name: ie,
+                    label: le,
+                    dataType: o.data_type || o.DATA_TYPE || "STRING",
+                    widgetType: o.widget_type || o.WIDGET_TYPE || "TEXT",
                     required: j,
-                    asName: A,
-                    enumDefinitionId: s.enum_definition_id || s.ENUM_DEFINITION_ID || null,
-                    displaySection: s.display_section || s.DISPLAY_SECTION || "",
-                    displayOrder: s.display_order ?? s.DISPLAY_ORDER ?? "",
-                    defaultValue: s.default_value || s.DEFAULT_VALUE || "",
-                    namingRegex: s.naming_regex || s.NAMING_REGEX || "",
-                    allowedValues: s.allowed_values || s.ALLOWED_VALUES || "",
-                    tooltip: s.tooltip || s.TOOLTIP || ""
-                  }), children: /* @__PURE__ */ e(pe, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
-                  n && !te && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: (me) => N(me, d, s), children: /* @__PURE__ */ e(ae, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+                    asName: w,
+                    enumDefinitionId: o.enum_definition_id || o.ENUM_DEFINITION_ID || null,
+                    displaySection: o.display_section || o.DISPLAY_SECTION || "",
+                    displayOrder: o.display_order ?? o.DISPLAY_ORDER ?? "",
+                    defaultValue: o.default_value || o.DEFAULT_VALUE || "",
+                    namingRegex: o.naming_regex || o.NAMING_REGEX || "",
+                    allowedValues: o.allowed_values || o.ALLOWED_VALUES || "",
+                    tooltip: o.tooltip || o.TOOLTIP || ""
+                  }), children: /* @__PURE__ */ e(ye, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
+                  t && !X && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: (fe) => m(fe, r, o), children: /* @__PURE__ */ e(ce, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
                 ] }) })
-              ] }, z);
+              ] }, q);
             }) })
           ] }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
+          /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }, children: [
             /* @__PURE__ */ e("span", { className: "settings-sub-label", style: { margin: 0 }, children: "Outgoing Links" }),
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Add link type", onClick: () => y("create-link", { nodeTypeId: d }, { linkPolicy: "VERSION_TO_MASTER", minCardinality: "0", targetSourceId: "SELF", targetNodeTypeId: c[0] ? c[0].id || c[0].ID : "" }), children: /* @__PURE__ */ e(ge, { size: 12, strokeWidth: 2.5, color: "var(--accent)" }) })
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Add link type", onClick: () => h("create-link", { nodeTypeId: r }, { linkPolicy: "VERSION_TO_MASTER", minCardinality: "0", targetSourceId: "SELF", targetNodeTypeId: y[0] ? y[0].id || y[0].ID : "" }), children: /* @__PURE__ */ e(be, { size: 12, strokeWidth: 2.5, color: "var(--accent)" }) })
           ] }),
-          oe.length === 0 ? /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No outgoing links defined" }) : /* @__PURE__ */ i("table", { className: "settings-table", children: [
-            /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ i("tr", { children: [
+          ne.length === 0 ? /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No outgoing links defined" }) : /* @__PURE__ */ n("table", { className: "settings-table", children: [
+            /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ n("tr", { children: [
               /* @__PURE__ */ e("th", {}),
               /* @__PURE__ */ e("th", { children: "Name" }),
               /* @__PURE__ */ e("th", { children: "Target" }),
@@ -1306,207 +1492,209 @@ This also deletes all its attributes and link types. Cannot be undone.`))
               /* @__PURE__ */ e("th", { children: "Cardinality" }),
               /* @__PURE__ */ e("th", {})
             ] }) }),
-            /* @__PURE__ */ e("tbody", { children: oe.map((s) => {
-              const z = s.id || s.ID, q = s.name || s.NAME || z, H = s.target_source_id || s.TARGET_SOURCE_ID || "SELF", G = s.target_type || s.TARGET_TYPE, j = G ? H === "SELF" ? p[G] || G : `${H}:${G}` : "Any", A = s.link_policy || s.LINK_POLICY || "—", L = s.min_cardinality ?? s.MIN_CARDINALITY ?? 0, te = s.max_cardinality ?? s.MAX_CARDINALITY, se = te == null ? `${L}..*` : `${L}..${te}`, me = s.color || s.COLOR || null, ce = !!(s.inherited || s.INHERITED), fe = s.inherited_from || s.INHERITED_FROM || null;
-              return /* @__PURE__ */ i("tr", { style: ce ? { opacity: 0.75 } : void 0, children: [
-                /* @__PURE__ */ e("td", { style: { width: 18 }, children: /* @__PURE__ */ e("span", { style: { display: "inline-block", width: 10, height: 10, borderRadius: 2, background: me || "var(--border)" } }) }),
-                /* @__PURE__ */ e("td", { className: "settings-td-mono", children: /* @__PURE__ */ i("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [
-                  q,
-                  ce && /* @__PURE__ */ i("span", { style: { fontSize: 9, background: "var(--accent-dim,rgba(99,179,237,.15))", color: "var(--accent)", borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap" }, children: [
+            /* @__PURE__ */ e("tbody", { children: ne.map((o) => {
+              const q = o.id || o.ID, ie = o.name || o.NAME || q, le = o.target_source_id || o.TARGET_SOURCE_ID || "SELF", U = o.target_type || o.TARGET_TYPE, j = U ? le === "SELF" ? u[U] || U : `${le}:${U}` : "Any", w = o.link_policy || o.LINK_POLICY || "—", D = o.min_cardinality ?? o.MIN_CARDINALITY ?? 0, X = o.max_cardinality ?? o.MAX_CARDINALITY, ee = X == null ? `${D}..*` : `${D}..${X}`, fe = o.color || o.COLOR || null, ue = !!(o.inherited || o.INHERITED), me = o.inherited_from || o.INHERITED_FROM || null;
+              return /* @__PURE__ */ n("tr", { style: ue ? { opacity: 0.75 } : void 0, children: [
+                /* @__PURE__ */ e("td", { style: { width: 18 }, children: /* @__PURE__ */ e("span", { style: { display: "inline-block", width: 10, height: 10, borderRadius: 2, background: fe || "var(--border)" } }) }),
+                /* @__PURE__ */ e("td", { className: "settings-td-mono", children: /* @__PURE__ */ n("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [
+                  ie,
+                  ue && /* @__PURE__ */ n("span", { style: { fontSize: 9, background: "var(--accent-dim,rgba(99,179,237,.15))", color: "var(--accent)", borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap" }, children: [
                     "from ",
-                    fe || "parent"
+                    me || "parent"
                   ] })
                 ] }) }),
                 /* @__PURE__ */ e("td", { children: j }),
-                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: A }) }),
-                /* @__PURE__ */ e("td", { style: { color: "var(--muted)" }, children: se }),
-                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ i("div", { style: { display: "flex", gap: 4 }, children: [
-                  n && !ce && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit link type", onClick: () => y("edit-link", { nodeTypeId: d, linkTypeId: z, linkName: q, targetNodeTypeId: G }, {
-                    name: q,
-                    description: s.description || s.DESCRIPTION || "",
-                    linkPolicy: A,
-                    minCardinality: String(L),
-                    maxCardinality: te != null ? String(te) : "",
-                    color: me || "",
-                    targetSourceId: H,
-                    targetNodeTypeId: G || "",
-                    targetType: H !== "SELF" && G || ""
-                  }), children: /* @__PURE__ */ e(pe, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
-                  n && !ce && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete link type", onClick: (Ie) => W(Ie, d, s), children: /* @__PURE__ */ e(ae, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: w }) }),
+                /* @__PURE__ */ e("td", { style: { color: "var(--muted)" }, children: ee }),
+                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ n("div", { style: { display: "flex", gap: 4 }, children: [
+                  t && !ue && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit link type", onClick: () => h("edit-link", { nodeTypeId: r, linkTypeId: q, linkName: ie, targetNodeTypeId: U }, {
+                    name: ie,
+                    description: o.description || o.DESCRIPTION || "",
+                    linkPolicy: w,
+                    minCardinality: String(D),
+                    maxCardinality: X != null ? String(X) : "",
+                    color: fe || "",
+                    targetSourceId: le,
+                    targetNodeTypeId: U || "",
+                    targetType: le !== "SELF" && U || ""
+                  }), children: /* @__PURE__ */ e(ye, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
+                  t && !ue && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete link type", onClick: (Ie) => F(Ie, r, o), children: /* @__PURE__ */ e(ce, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
                 ] }) })
-              ] }, z);
+              ] }, q);
             }) })
           ] })
         ] })
-      ] }, d);
+      ] }, r);
     })
   ] });
 }
-function Ct({ userId: t, canWrite: n, toast: r }) {
-  const [c, k] = x([]), [P, u] = x(null), [m, V] = x({}), [Y, O] = x(!0), [T, B] = x(null), [h, S] = x({}), [X, J] = x(!1);
-  function w() {
-    return f.getDomains(t).then((p) => k(Array.isArray(p) ? p : []));
+function xt({ userId: a, canWrite: t, toast: l }) {
+  const [y, T] = _([]), [S, p] = _(null), [C, P] = _({}), [G, M] = _(!0), [v, W] = _(null), [c, x] = _({}), [H, ae] = _(!1);
+  function L() {
+    return f.getDomains(a).then((u) => T(Array.isArray(u) ? u : []));
   }
-  Se(() => {
-    w().finally(() => O(!1));
-  }, [t]), Ue("/topic/metamodel", (p) => {
-    p.event === "METAMODEL_CHANGED" && w();
-  }, t);
-  async function Z(p) {
-    const C = p.id;
-    if (P === C) {
-      u(null);
+  Ae(() => {
+    L().finally(() => M(!1));
+  }, [a]), qe((u) => {
+    u.event === "METAMODEL_CHANGED" && L();
+  });
+  async function te(u) {
+    const A = u.id;
+    if (S === A) {
+      p(null);
       return;
     }
-    if (u(C), !m[C])
+    if (p(A), !C[A])
       try {
-        const y = await f.getDomainAttributes(t, C);
-        V((M) => ({ ...M, [C]: Array.isArray(y) ? y : [] }));
+        const h = await f.getDomainAttributes(a, A);
+        P((V) => ({ ...V, [A]: Array.isArray(h) ? h : [] }));
       } catch {
-        V((y) => ({ ...y, [C]: [] }));
+        P((h) => ({ ...h, [A]: [] }));
       }
   }
-  function o(p, C = {}, y = {}) {
-    S(y), B({ type: p, ctx: C });
+  function s(u, A = {}, h = {}) {
+    x(h), W({ type: u, ctx: A });
   }
-  function D() {
-    B(null), S({});
+  function R() {
+    W(null), x({});
   }
-  async function l() {
-    var p, C, y, M, Q, E, N, W, ie, a, d, $, U, F, oe, le, be, Ne;
-    J(!0);
+  async function d() {
+    var u, A, h, V, J, se, m, F, Z, i, r, O, B, K, ne, b, z, Q, Ee, ge;
+    ae(!0);
     try {
-      const { type: he, ctx: re } = T;
-      if (he === "create-domain")
-        await f.createDomain(t, { name: (p = h.name) == null ? void 0 : p.trim(), description: ((C = h.description) == null ? void 0 : C.trim()) || null, color: h.color || null, icon: h.icon || null }), await w();
-      else if (he === "edit-domain")
-        await f.updateDomain(t, re.domainId, { name: (y = h.name) == null ? void 0 : y.trim(), description: ((M = h.description) == null ? void 0 : M.trim()) || null, color: h.color || null, icon: h.icon || null }), await w();
-      else if (he === "create-attr") {
-        await f.createDomainAttribute(t, re.domainId, {
-          name: (Q = h.name) == null ? void 0 : Q.trim(),
-          label: (E = h.label) == null ? void 0 : E.trim(),
-          dataType: h.dataType || "STRING",
-          widgetType: h.widgetType || "TEXT",
-          required: !!h.required,
-          enumDefinitionId: h.dataType === "ENUM" && h.enumDefinitionId || null,
-          displaySection: ((N = h.displaySection) == null ? void 0 : N.trim()) || null,
-          displayOrder: h.displayOrder !== "" ? Number(h.displayOrder) : 0,
-          defaultValue: ((W = h.defaultValue) == null ? void 0 : W.trim()) || null,
-          namingRegex: ((ie = h.namingRegex) == null ? void 0 : ie.trim()) || null,
-          allowedValues: h.dataType !== "ENUM" && ((a = h.allowedValues) == null ? void 0 : a.trim()) || null,
-          tooltip: ((d = h.tooltip) == null ? void 0 : d.trim()) || null
+      const { type: Ne, ctx: de } = v;
+      if (Ne === "create-domain")
+        await f.createDomain(a, { code: (u = c.code) == null ? void 0 : u.trim(), name: (A = c.name) == null ? void 0 : A.trim(), description: ((h = c.description) == null ? void 0 : h.trim()) || null, color: c.color || null, icon: c.icon || null }), await L();
+      else if (Ne === "edit-domain")
+        await f.updateDomain(a, de.domainId, { name: (V = c.name) == null ? void 0 : V.trim(), description: ((J = c.description) == null ? void 0 : J.trim()) || null, color: c.color || null, icon: c.icon || null }), await L();
+      else if (Ne === "create-attr") {
+        await f.createDomainAttribute(a, de.domainId, {
+          code: Se((se = c.name) == null ? void 0 : se.trim()),
+          name: (m = c.name) == null ? void 0 : m.trim(),
+          label: (F = c.label) == null ? void 0 : F.trim(),
+          dataType: c.dataType || "STRING",
+          widgetType: c.widgetType || "TEXT",
+          required: !!c.required,
+          enumDefinitionId: c.dataType === "ENUM" && c.enumDefinitionId || null,
+          displaySection: ((Z = c.displaySection) == null ? void 0 : Z.trim()) || null,
+          displayOrder: c.displayOrder !== "" ? Number(c.displayOrder) : 0,
+          defaultValue: ((i = c.defaultValue) == null ? void 0 : i.trim()) || null,
+          namingRegex: ((r = c.namingRegex) == null ? void 0 : r.trim()) || null,
+          allowedValues: c.dataType !== "ENUM" && ((O = c.allowedValues) == null ? void 0 : O.trim()) || null,
+          tooltip: ((B = c.tooltip) == null ? void 0 : B.trim()) || null
         });
-        const ve = await f.getDomainAttributes(t, re.domainId);
-        V((de) => ({ ...de, [re.domainId]: Array.isArray(ve) ? ve : [] }));
-      } else if (he === "edit-attr") {
-        await f.updateDomainAttribute(t, re.domainId, re.attrId, {
-          name: ($ = h.name) == null ? void 0 : $.trim(),
-          label: (U = h.label) == null ? void 0 : U.trim(),
-          dataType: h.dataType || "STRING",
-          widgetType: h.widgetType || "TEXT",
-          required: !!h.required,
-          enumDefinitionId: h.dataType === "ENUM" && h.enumDefinitionId || null,
-          displaySection: ((F = h.displaySection) == null ? void 0 : F.trim()) || null,
-          displayOrder: h.displayOrder !== "" ? Number(h.displayOrder) : 0,
-          defaultValue: ((oe = h.defaultValue) == null ? void 0 : oe.trim()) || null,
-          namingRegex: ((le = h.namingRegex) == null ? void 0 : le.trim()) || null,
-          allowedValues: h.dataType !== "ENUM" && ((be = h.allowedValues) == null ? void 0 : be.trim()) || null,
-          tooltip: ((Ne = h.tooltip) == null ? void 0 : Ne.trim()) || null
+        const pe = await f.getDomainAttributes(a, de.domainId);
+        P((Te) => ({ ...Te, [de.domainId]: Array.isArray(pe) ? pe : [] }));
+      } else if (Ne === "edit-attr") {
+        await f.updateDomainAttribute(a, de.domainId, de.attrId, {
+          name: (K = c.name) == null ? void 0 : K.trim(),
+          label: (ne = c.label) == null ? void 0 : ne.trim(),
+          dataType: c.dataType || "STRING",
+          widgetType: c.widgetType || "TEXT",
+          required: !!c.required,
+          enumDefinitionId: c.dataType === "ENUM" && c.enumDefinitionId || null,
+          displaySection: ((b = c.displaySection) == null ? void 0 : b.trim()) || null,
+          displayOrder: c.displayOrder !== "" ? Number(c.displayOrder) : 0,
+          defaultValue: ((z = c.defaultValue) == null ? void 0 : z.trim()) || null,
+          namingRegex: ((Q = c.namingRegex) == null ? void 0 : Q.trim()) || null,
+          allowedValues: c.dataType !== "ENUM" && ((Ee = c.allowedValues) == null ? void 0 : Ee.trim()) || null,
+          tooltip: ((ge = c.tooltip) == null ? void 0 : ge.trim()) || null
         });
-        const ve = await f.getDomainAttributes(t, re.domainId);
-        V((de) => ({ ...de, [re.domainId]: Array.isArray(ve) ? ve : [] }));
+        const pe = await f.getDomainAttributes(a, de.domainId);
+        P((Te) => ({ ...Te, [de.domainId]: Array.isArray(pe) ? pe : [] }));
       }
-      D();
-    } catch (he) {
-      r(he, "error");
+      R();
+    } catch (Ne) {
+      l(Ne, "error");
     } finally {
-      J(!1);
+      ae(!1);
     }
   }
-  async function g(p, C) {
-    if (p.stopPropagation(), !!window.confirm(`Delete domain "${C.name}"?
+  async function g(u, A) {
+    if (u.stopPropagation(), !!window.confirm(`Delete domain "${A.name}"?
 
 This also deletes all its attributes. Cannot be undone.`))
       try {
-        await f.deleteDomain(t, C.id), await w(), P === C.id && u(null);
-      } catch (y) {
-        r(y, "error");
+        await f.deleteDomain(a, A.id), await L(), S === A.id && p(null);
+      } catch (h) {
+        l(h, "error");
       }
   }
-  async function v(p, C, y) {
-    if (p.stopPropagation(), !!window.confirm(`Delete attribute "${y.label || y.name}"?`))
+  async function N(u, A, h) {
+    if (u.stopPropagation(), !!window.confirm(`Delete attribute "${h.label || h.name}"?`))
       try {
-        await f.deleteDomainAttribute(t, C, y.id);
-        const M = await f.getDomainAttributes(t, C);
-        V((Q) => ({ ...Q, [C]: Array.isArray(M) ? M : [] }));
-      } catch (M) {
-        r(M, "error");
+        await f.deleteDomainAttribute(a, A, h.id);
+        const V = await f.getDomainAttributes(a, A);
+        P((J) => ({ ...J, [A]: Array.isArray(V) ? V : [] }));
+      } catch (V) {
+        l(V, "error");
       }
   }
-  return Y ? /* @__PURE__ */ e("div", { className: "settings-loading", children: "Loading…" }) : /* @__PURE__ */ i("div", { className: "settings-list", children: [
-    T && /* @__PURE__ */ i(
-      De,
+  return G ? /* @__PURE__ */ e("div", { className: "settings-loading", children: "Loading…" }) : /* @__PURE__ */ n("div", { className: "settings-list", children: [
+    v && /* @__PURE__ */ n(
+      Re,
       {
-        title: T.type === "create-domain" ? "New Domain" : T.type === "edit-domain" ? "Edit Domain" : T.type === "create-attr" ? "Add Attribute" : "Edit Attribute",
+        title: v.type === "create-domain" ? "New Domain" : v.type === "edit-domain" ? "Edit Domain" : v.type === "create-attr" ? "Add Attribute" : "Edit Attribute",
         width: 480,
-        onClose: D,
-        onSave: l,
-        saving: X,
-        saveLabel: ["edit-domain", "edit-attr"].includes(T.type) ? "Update" : "Create",
+        onClose: R,
+        onSave: d,
+        saving: H,
+        saveLabel: ["edit-domain", "edit-attr"].includes(v.type) ? "Update" : "Create",
         children: [
-          (T.type === "create-domain" || T.type === "edit-domain") && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ e(b, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: h.name || "", onChange: (p) => S((C) => ({ ...C, name: p.target.value })), placeholder: "e.g. Electrical" }) }),
-            /* @__PURE__ */ e(b, { label: "Description", children: /* @__PURE__ */ e("input", { className: "field-input", value: h.description || "", onChange: (p) => S((C) => ({ ...C, description: p.target.value })), placeholder: "Optional description" }) }),
-            /* @__PURE__ */ e(ze, { label: "Color", value: h.color || "", onChange: (p) => S((C) => ({ ...C, color: p })) })
+          (v.type === "create-domain" || v.type === "edit-domain") && /* @__PURE__ */ n(re, { children: [
+            v.type === "create-domain" && /* @__PURE__ */ e(I, { label: "Code *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: c.code || "", onChange: (u) => x((A) => ({ ...A, code: u.target.value, codeEdited: !0 })), placeholder: "e.g. electrical", style: { fontFamily: "var(--mono)" } }) }),
+            /* @__PURE__ */ e(I, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: v.type !== "create-domain", value: c.name || "", onChange: (u) => x((A) => ({ ...A, name: u.target.value, ...v.type === "create-domain" && !A.codeEdited ? { code: Se(u.target.value) } : {} })), placeholder: "e.g. Electrical" }) }),
+            /* @__PURE__ */ e(I, { label: "Description", children: /* @__PURE__ */ e("input", { className: "field-input", value: c.description || "", onChange: (u) => x((A) => ({ ...A, description: u.target.value })), placeholder: "Optional description" }) }),
+            /* @__PURE__ */ e(Pe, { label: "Color", value: c.color || "", onChange: (u) => x((A) => ({ ...A, color: u })) })
           ] }),
-          T.type === "create-attr" && /* @__PURE__ */ e(Ye, { form: h, setForm: S, hideAsName: !0, userId: t }),
-          T.type === "edit-attr" && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ e(b, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: h.name || "", onChange: (p) => S((C) => ({ ...C, name: p.target.value })) }) }),
-            /* @__PURE__ */ e(b, { label: "Label (display) *", children: /* @__PURE__ */ e("input", { className: "field-input", value: h.label || "", onChange: (p) => S((C) => ({ ...C, label: p.target.value })) }) }),
-            /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
-              /* @__PURE__ */ e(b, { label: "Data Type", children: /* @__PURE__ */ e("select", { className: "field-input", value: h.dataType || "STRING", onChange: (p) => S((C) => ({ ...C, dataType: p.target.value })), children: Ve.map((p) => /* @__PURE__ */ e("option", { value: p, children: p }, p)) }) }),
-              /* @__PURE__ */ e(b, { label: "Widget", children: /* @__PURE__ */ e("select", { className: "field-input", value: h.widgetType || "TEXT", onChange: (p) => S((C) => ({ ...C, widgetType: p.target.value })), children: Ge.map((p) => /* @__PURE__ */ e("option", { value: p, children: p }, p)) }) })
+          v.type === "create-attr" && /* @__PURE__ */ e(Xe, { form: c, setForm: x, hideAsName: !0, userId: a }),
+          v.type === "edit-attr" && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ e(I, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: c.name || "", onChange: (u) => x((A) => ({ ...A, name: u.target.value })) }) }),
+            /* @__PURE__ */ e(I, { label: "Label (display) *", children: /* @__PURE__ */ e("input", { className: "field-input", value: c.label || "", onChange: (u) => x((A) => ({ ...A, label: u.target.value })) }) }),
+            /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }, children: [
+              /* @__PURE__ */ e(I, { label: "Data Type", children: /* @__PURE__ */ e("select", { className: "field-input", value: c.dataType || "STRING", onChange: (u) => x((A) => ({ ...A, dataType: u.target.value })), children: Ge.map((u) => /* @__PURE__ */ e("option", { value: u, children: u }, u)) }) }),
+              /* @__PURE__ */ e(I, { label: "Widget", children: /* @__PURE__ */ e("select", { className: "field-input", value: c.widgetType || "TEXT", onChange: (u) => x((A) => ({ ...A, widgetType: u.target.value })), children: Be.map((u) => /* @__PURE__ */ e("option", { value: u, children: u }, u)) }) })
             ] }),
-            h.dataType === "ENUM" && /* @__PURE__ */ e(qe, { userId: t, enumDefinitionId: h.enumDefinitionId || null, onChange: (p) => S((C) => ({ ...C, enumDefinitionId: p })) }),
-            /* @__PURE__ */ i("div", { style: { display: "grid", gridTemplateColumns: "1fr 80px", gap: 12 }, children: [
-              /* @__PURE__ */ e(b, { label: "Section", children: /* @__PURE__ */ e("input", { className: "field-input", value: h.displaySection || "", onChange: (p) => S((C) => ({ ...C, displaySection: p.target.value })) }) }),
-              /* @__PURE__ */ e(b, { label: "Order", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: h.displayOrder ?? "", onChange: (p) => S((C) => ({ ...C, displayOrder: p.target.value })) }) })
+            c.dataType === "ENUM" && /* @__PURE__ */ e(Ue, { userId: a, enumDefinitionId: c.enumDefinitionId || null, onChange: (u) => x((A) => ({ ...A, enumDefinitionId: u })) }),
+            /* @__PURE__ */ n("div", { style: { display: "grid", gridTemplateColumns: "1fr 80px", gap: 12 }, children: [
+              /* @__PURE__ */ e(I, { label: "Section", children: /* @__PURE__ */ e("input", { className: "field-input", value: c.displaySection || "", onChange: (u) => x((A) => ({ ...A, displaySection: u.target.value })) }) }),
+              /* @__PURE__ */ e(I, { label: "Order", children: /* @__PURE__ */ e("input", { className: "field-input", type: "number", min: "0", value: c.displayOrder ?? "", onChange: (u) => x((A) => ({ ...A, displayOrder: u.target.value })) }) })
             ] }),
-            /* @__PURE__ */ i("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 }, children: [
-              /* @__PURE__ */ e("input", { type: "checkbox", checked: !!h.required, onChange: (p) => S((C) => ({ ...C, required: p.target.checked })) }),
+            /* @__PURE__ */ n("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 }, children: [
+              /* @__PURE__ */ e("input", { type: "checkbox", checked: !!c.required, onChange: (u) => x((A) => ({ ...A, required: u.target.checked })) }),
               "Required field"
             ] })
           ] })
         ]
       }
     ),
-    /* @__PURE__ */ e("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 8 }, children: n && /* @__PURE__ */ i("button", { className: "btn btn-sm", style: { display: "flex", alignItems: "center", gap: 5 }, onClick: () => o("create-domain", {}, {}), children: [
-      /* @__PURE__ */ e(ge, { size: 11, strokeWidth: 2.5 }),
+    /* @__PURE__ */ e("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 8 }, children: t && /* @__PURE__ */ n("button", { className: "btn btn-sm", style: { display: "flex", alignItems: "center", gap: 5 }, onClick: () => s("create-domain", {}, {}), children: [
+      /* @__PURE__ */ e(be, { size: 11, strokeWidth: 2.5 }),
       "New domain"
     ] }) }),
-    c.map((p) => {
-      const C = p.id, y = p.name || C, M = P === C, Q = m[C] || [], E = p.color || null;
-      return /* @__PURE__ */ i("div", { className: "settings-card", children: [
-        /* @__PURE__ */ i("div", { className: "settings-card-hd", onClick: () => Z(p), style: { display: "flex", alignItems: "center" }, children: [
-          /* @__PURE__ */ e("span", { className: "settings-card-chevron", children: M ? /* @__PURE__ */ e(Re, { size: 13, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(Oe, { size: 13, strokeWidth: 2, color: "var(--muted)" }) }),
-          E && /* @__PURE__ */ e("span", { style: { width: 10, height: 10, borderRadius: "50%", background: E, flexShrink: 0, marginRight: 4 } }),
-          /* @__PURE__ */ e("span", { className: "settings-card-name", children: y }),
-          /* @__PURE__ */ e("span", { className: "settings-card-id", children: C }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", gap: 4, marginLeft: "auto" }, children: [
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit domain", onClick: (N) => {
-              N.stopPropagation(), o("edit-domain", { domainId: C }, { name: p.name, description: p.description || "", color: E || "" });
-            }, children: /* @__PURE__ */ e(pe, { size: 12, strokeWidth: 2, color: "var(--accent)" }) }),
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete domain", onClick: (N) => g(N, p), children: /* @__PURE__ */ e(ae, { size: 12, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+    y.map((u) => {
+      const A = u.id, h = u.name || A, V = S === A, J = C[A] || [], se = u.color || null;
+      return /* @__PURE__ */ n("div", { className: "settings-card", children: [
+        /* @__PURE__ */ n("div", { className: "settings-card-hd", onClick: () => te(u), style: { display: "flex", alignItems: "center" }, children: [
+          /* @__PURE__ */ e("span", { className: "settings-card-chevron", children: V ? /* @__PURE__ */ e(Oe, { size: 13, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(ze, { size: 13, strokeWidth: 2, color: "var(--muted)" }) }),
+          se && /* @__PURE__ */ e("span", { style: { width: 10, height: 10, borderRadius: "50%", background: se, flexShrink: 0, marginRight: 4 } }),
+          /* @__PURE__ */ e("span", { className: "settings-card-name", children: h }),
+          /* @__PURE__ */ e("span", { className: "settings-card-id", children: A }),
+          /* @__PURE__ */ n("div", { style: { display: "flex", gap: 4, marginLeft: "auto" }, children: [
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit domain", onClick: (m) => {
+              m.stopPropagation(), s("edit-domain", { domainId: A }, { name: u.name, description: u.description || "", color: se || "" });
+            }, children: /* @__PURE__ */ e(ye, { size: 12, strokeWidth: 2, color: "var(--accent)" }) }),
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete domain", onClick: (m) => g(m, u), children: /* @__PURE__ */ e(ce, { size: 12, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
           ] })
         ] }),
-        M && /* @__PURE__ */ i("div", { className: "settings-card-body", children: [
-          p.description && /* @__PURE__ */ e("div", { style: { fontSize: 11, color: "var(--muted)", marginBottom: 8 }, children: p.description }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }, children: [
+        V && /* @__PURE__ */ n("div", { className: "settings-card-body", children: [
+          u.description && /* @__PURE__ */ e("div", { style: { fontSize: 11, color: "var(--muted)", marginBottom: 8 }, children: u.description }),
+          /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }, children: [
             /* @__PURE__ */ e("span", { className: "settings-sub-label", style: { margin: 0 }, children: "Attributes" }),
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Add attribute", onClick: () => o("create-attr", { domainId: C }, { dataType: "STRING", widgetType: "TEXT", required: !1 }), children: /* @__PURE__ */ e(ge, { size: 12, strokeWidth: 2.5, color: "var(--accent)" }) })
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Add attribute", onClick: () => s("create-attr", { domainId: A }, { dataType: "STRING", widgetType: "TEXT", required: !1 }), children: /* @__PURE__ */ e(be, { size: 12, strokeWidth: 2.5, color: "var(--accent)" }) })
           ] }),
-          Q.length === 0 ? /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No attributes defined" }) : /* @__PURE__ */ i("table", { className: "settings-table", children: [
-            /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ i("tr", { children: [
+          J.length === 0 ? /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No attributes defined" }) : /* @__PURE__ */ n("table", { className: "settings-table", children: [
+            /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ n("tr", { children: [
               /* @__PURE__ */ e("th", { children: "Name" }),
               /* @__PURE__ */ e("th", { children: "Label" }),
               /* @__PURE__ */ e("th", { children: "Type" }),
@@ -1514,433 +1702,456 @@ This also deletes all its attributes. Cannot be undone.`))
               /* @__PURE__ */ e("th", { children: "Section" }),
               /* @__PURE__ */ e("th", {})
             ] }) }),
-            /* @__PURE__ */ e("tbody", { children: [...Q].sort((N, W) => (N.display_order || 0) - (W.display_order || 0)).map((N) => /* @__PURE__ */ i("tr", { children: [
-              /* @__PURE__ */ e("td", { className: "settings-td-mono", children: N.name }),
-              /* @__PURE__ */ e("td", { children: N.label || N.name }),
-              /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: N.widget_type || "TEXT" }) }),
-              /* @__PURE__ */ e("td", { style: { color: N.required ? "var(--success)" : "var(--muted)" }, children: N.required ? "✓" : "—" }),
-              /* @__PURE__ */ e("td", { style: { color: "var(--muted)" }, children: N.display_section || "—" }),
-              /* @__PURE__ */ e("td", { children: /* @__PURE__ */ i("div", { style: { display: "flex", gap: 4 }, children: [
-                n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => o("edit-attr", { domainId: C, attrId: N.id }, {
-                  name: N.name,
-                  label: N.label || N.name,
-                  dataType: N.data_type || "STRING",
-                  widgetType: N.widget_type || "TEXT",
-                  required: !!N.required,
-                  enumDefinitionId: N.enum_definition_id || null,
-                  displaySection: N.display_section || "",
-                  displayOrder: N.display_order ?? "",
-                  defaultValue: N.default_value || "",
-                  namingRegex: N.naming_regex || "",
-                  allowedValues: N.allowed_values || "",
-                  tooltip: N.tooltip || ""
-                }), children: /* @__PURE__ */ e(pe, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
-                n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: (W) => v(W, C, N), children: /* @__PURE__ */ e(ae, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+            /* @__PURE__ */ e("tbody", { children: [...J].sort((m, F) => (m.display_order || 0) - (F.display_order || 0)).map((m) => /* @__PURE__ */ n("tr", { children: [
+              /* @__PURE__ */ e("td", { className: "settings-td-mono", children: m.name }),
+              /* @__PURE__ */ e("td", { children: m.label || m.name }),
+              /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: m.widget_type || "TEXT" }) }),
+              /* @__PURE__ */ e("td", { style: { color: m.required ? "var(--success)" : "var(--muted)" }, children: m.required ? "✓" : "—" }),
+              /* @__PURE__ */ e("td", { style: { color: "var(--muted)" }, children: m.display_section || "—" }),
+              /* @__PURE__ */ e("td", { children: /* @__PURE__ */ n("div", { style: { display: "flex", gap: 4 }, children: [
+                t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => s("edit-attr", { domainId: A, attrId: m.id }, {
+                  name: m.name,
+                  label: m.label || m.name,
+                  dataType: m.data_type || "STRING",
+                  widgetType: m.widget_type || "TEXT",
+                  required: !!m.required,
+                  enumDefinitionId: m.enum_definition_id || null,
+                  displaySection: m.display_section || "",
+                  displayOrder: m.display_order ?? "",
+                  defaultValue: m.default_value || "",
+                  namingRegex: m.naming_regex || "",
+                  allowedValues: m.allowed_values || "",
+                  tooltip: m.tooltip || ""
+                }), children: /* @__PURE__ */ e(ye, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
+                t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: (F) => N(F, A, m), children: /* @__PURE__ */ e(ce, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
               ] }) })
-            ] }, N.id)) })
+            ] }, m.id)) })
           ] })
         ] })
-      ] }, C);
+      ] }, A);
     }),
-    c.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No domains defined yet" })
+    y.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No domains defined yet" })
   ] });
 }
-function St({ userId: t, canWrite: n, toast: r }) {
-  var Q;
-  const [c, k] = x([]), [P, u] = x(null), [m, V] = x({}), [Y, O] = x(null), [T, B] = x({}), [h, S] = x(!1), [X, J] = x(null), [w, Z] = x(null), o = He(
-    () => f.getEnums(t).then((E) => k(Array.isArray(E) ? E : [])).catch(() => k([])),
-    [t]
+function wt({ userId: a, canWrite: t, toast: l }) {
+  var J, se;
+  const [y, T] = _([]), [S, p] = _(null), [C, P] = _({}), [G, M] = _(null), [v, W] = _({}), [c, x] = _(!1), [H, ae] = _(null), [L, te] = _(null), s = $e(
+    () => f.getEnums(a).then((m) => T(Array.isArray(m) ? m : [])).catch(() => T([])),
+    [a]
   );
-  Se(() => {
-    o();
-  }, [o]);
-  function D(E) {
-    f.getEnumValues(t, E).then((N) => V((W) => ({ ...W, [E]: Array.isArray(N) ? N : [] }))).catch(() => V((N) => ({ ...N, [E]: [] })));
+  Ae(() => {
+    s();
+  }, [s]);
+  function R(m) {
+    f.getEnumValues(a, m).then((F) => P((Z) => ({ ...Z, [m]: Array.isArray(F) ? F.filter(Boolean) : [] }))).catch(() => P((F) => ({ ...F, [m]: [] })));
   }
-  function l(E) {
-    if (P === E) {
-      u(null);
+  function d(m) {
+    if (S === m) {
+      p(null);
       return;
     }
-    u(E), m[E] || D(E);
+    p(m), C[m] || R(m);
   }
   async function g() {
-    var E, N, W, ie;
-    S(!0);
+    var m, F, Z, i, r;
+    x(!0);
     try {
-      const { type: a, ctx: d } = Y;
-      a === "create-enum" ? (await f.createEnum(t, { name: (E = T.name) == null ? void 0 : E.trim(), description: ((N = T.description) == null ? void 0 : N.trim()) || null }), await o()) : a === "edit-enum" && (await f.updateEnum(t, d.enumId, { name: (W = T.name) == null ? void 0 : W.trim(), description: ((ie = T.description) == null ? void 0 : ie.trim()) || null }), await o()), O(null), B({});
-    } catch (a) {
-      r(a, "error");
+      const { type: O, ctx: B } = G;
+      O === "create-enum" ? (await f.createEnum(a, { code: (m = v.code) == null ? void 0 : m.trim(), name: (F = v.name) == null ? void 0 : F.trim(), description: ((Z = v.description) == null ? void 0 : Z.trim()) || null }), await s()) : O === "edit-enum" && (await f.updateEnum(a, B.enumId, { name: (i = v.name) == null ? void 0 : i.trim(), description: ((r = v.description) == null ? void 0 : r.trim()) || null }), await s()), M(null), W({});
+    } catch (O) {
+      l(O, "error");
     } finally {
-      S(!1);
+      x(!1);
     }
   }
-  async function v(E, N) {
-    if (E.stopPropagation(), !!window.confirm(`Delete enumeration "${N.name}"?
+  async function N(m, F) {
+    if (m.stopPropagation(), !!window.confirm(`Delete enumeration "${F.name}"?
 
 This also deletes all its values. Cannot be undone.`))
       try {
-        await f.deleteEnum(t, N.id), await o(), P === N.id && u(null);
-      } catch (W) {
-        r(W, "error");
+        await f.deleteEnum(a, F.id), await s(), S === F.id && p(null);
+      } catch (Z) {
+        l(Z, "error");
       }
   }
-  async function p(E) {
-    var N, W;
-    if ((N = X == null ? void 0 : X.value) != null && N.trim()) {
-      S(!0);
+  async function u(m) {
+    var F, Z;
+    if ((F = H == null ? void 0 : H.value) != null && F.trim()) {
+      x(!0);
       try {
-        await f.addEnumValue(t, E, { value: X.value.trim(), label: ((W = X.label) == null ? void 0 : W.trim()) || null }), D(E), J(null);
-      } catch (ie) {
-        r(ie, "error");
+        await f.addEnumValue(a, m, { value: H.value.trim(), label: ((Z = H.label) == null ? void 0 : Z.trim()) || null }), R(m), ae(null);
+      } catch (i) {
+        l(i, "error");
       } finally {
-        S(!1);
+        x(!1);
       }
     }
   }
-  async function C(E, N) {
-    if (window.confirm(`Delete value "${N.value}"?`))
+  async function A(m, F) {
+    if (window.confirm(`Delete value "${F.value}"?`))
       try {
-        await f.deleteEnumValue(t, E, N.id), D(E);
-      } catch (W) {
-        r(W, "error");
+        await f.deleteEnumValue(a, m, F.id), R(m);
+      } catch (Z) {
+        l(Z, "error");
       }
   }
-  async function y() {
-    var E, N;
-    if (w) {
-      S(!0);
+  async function h() {
+    var m, F;
+    if (L) {
+      x(!0);
       try {
-        await f.updateEnumValue(t, w.enumId, w.id, {
-          value: (E = w.value) == null ? void 0 : E.trim(),
-          label: ((N = w.label) == null ? void 0 : N.trim()) || null,
-          displayOrder: w.displayOrder ?? 0
-        }), D(w.enumId), Z(null);
-      } catch (W) {
-        r(W, "error");
+        await f.updateEnumValue(a, L.enumId, L.id, {
+          value: (m = L.value) == null ? void 0 : m.trim(),
+          label: ((F = L.label) == null ? void 0 : F.trim()) || null,
+          displayOrder: L.displayOrder ?? 0
+        }), R(L.enumId), te(null);
+      } catch (Z) {
+        l(Z, "error");
       } finally {
-        S(!1);
+        x(!1);
       }
     }
   }
-  async function M(E, N, W) {
-    const ie = m[E];
-    if (!ie) return;
-    const a = N + W;
-    if (a < 0 || a >= ie.length) return;
-    const d = [...ie];
-    [d[N], d[a]] = [d[a], d[N]], V(($) => ({ ...$, [E]: d }));
+  async function V(m, F, Z) {
+    const i = C[m];
+    if (!i) return;
+    const r = F + Z;
+    if (r < 0 || r >= i.length) return;
+    const O = [...i];
+    [O[F], O[r]] = [O[r], O[F]], P((B) => ({ ...B, [m]: O }));
     try {
-      await f.reorderEnumValues(t, E, d.map(($) => $.id));
-    } catch ($) {
-      r($, "error"), D(E);
+      await f.reorderEnumValues(a, m, O.map((B) => B.id));
+    } catch (B) {
+      l(B, "error"), R(m);
     }
   }
-  return /* @__PURE__ */ i("div", { className: "settings-section", children: [
-    Y && /* @__PURE__ */ i(
-      De,
+  return /* @__PURE__ */ n("div", { className: "settings-section", children: [
+    G && /* @__PURE__ */ n(
+      Re,
       {
-        title: Y.type === "create-enum" ? "New Enumeration" : "Edit Enumeration",
+        title: G.type === "create-enum" ? "New Enumeration" : "Edit Enumeration",
         width: 420,
         onClose: () => {
-          O(null), B({});
+          M(null), W({});
         },
         onSave: g,
-        saving: h || !((Q = T.name) != null && Q.trim()),
-        saveLabel: Y.type === "edit-enum" ? "Update" : "Create",
+        saving: c || !((J = v.name) != null && J.trim()) || G.type === "create-enum" && !((se = v.code) != null && se.trim()),
+        saveLabel: G.type === "edit-enum" ? "Update" : "Create",
         children: [
-          /* @__PURE__ */ e(b, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: T.name || "", onChange: (E) => B((N) => ({ ...N, name: E.target.value })), placeholder: "e.g. Materials" }) }),
-          /* @__PURE__ */ e(b, { label: "Description", children: /* @__PURE__ */ e("input", { className: "field-input", value: T.description || "", onChange: (E) => B((N) => ({ ...N, description: E.target.value })), placeholder: "Optional description" }) })
+          G.type === "create-enum" && /* @__PURE__ */ e(I, { label: "Code *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: v.code || "", onChange: (m) => W((F) => ({ ...F, code: m.target.value, codeEdited: !0 })), placeholder: "e.g. materials", style: { fontFamily: "var(--mono)" } }) }),
+          /* @__PURE__ */ e(I, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: G.type !== "create-enum", value: v.name || "", onChange: (m) => W((F) => ({ ...F, name: m.target.value, ...G.type === "create-enum" && !F.codeEdited ? { code: Se(m.target.value) } : {} })), placeholder: "e.g. Materials" }) }),
+          /* @__PURE__ */ e(I, { label: "Description", children: /* @__PURE__ */ e("input", { className: "field-input", value: v.description || "", onChange: (m) => W((F) => ({ ...F, description: m.target.value })), placeholder: "Optional description" }) })
         ]
       }
     ),
-    /* @__PURE__ */ e("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 8 }, children: n && /* @__PURE__ */ i(
+    /* @__PURE__ */ e("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 8 }, children: t && /* @__PURE__ */ n(
       "button",
       {
         className: "btn btn-sm",
         style: { display: "flex", alignItems: "center", gap: 5 },
         onClick: () => {
-          O({ type: "create-enum", ctx: {} }), B({});
+          M({ type: "create-enum", ctx: {} }), W({});
         },
         children: [
-          /* @__PURE__ */ e(ge, { size: 11, strokeWidth: 2.5 }),
+          /* @__PURE__ */ e(be, { size: 11, strokeWidth: 2.5 }),
           "New enumeration"
         ]
       }
     ) }),
-    c.map((E) => {
-      var ie;
-      const N = P === E.id, W = m[E.id] || [];
-      return /* @__PURE__ */ i("div", { className: "settings-card", children: [
-        /* @__PURE__ */ i("div", { className: "settings-card-hd", onClick: () => l(E.id), style: { display: "flex", alignItems: "center" }, children: [
-          /* @__PURE__ */ e("span", { className: "settings-card-chevron", children: N ? /* @__PURE__ */ e(Re, { size: 13, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(Oe, { size: 13, strokeWidth: 2, color: "var(--muted)" }) }),
-          /* @__PURE__ */ e("span", { className: "settings-card-name", children: E.name }),
-          /* @__PURE__ */ i("span", { className: "settings-badge", style: { marginLeft: 6 }, children: [
-            E.valueCount,
+    y.map((m) => {
+      var i;
+      const F = S === m.id, Z = C[m.id] || [];
+      return /* @__PURE__ */ n("div", { className: "settings-card", children: [
+        /* @__PURE__ */ n("div", { className: "settings-card-hd", onClick: () => d(m.id), style: { display: "flex", alignItems: "center" }, children: [
+          /* @__PURE__ */ e("span", { className: "settings-card-chevron", children: F ? /* @__PURE__ */ e(Oe, { size: 13, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(ze, { size: 13, strokeWidth: 2, color: "var(--muted)" }) }),
+          /* @__PURE__ */ e("span", { className: "settings-card-name", children: m.name }),
+          /* @__PURE__ */ n("span", { className: "settings-badge", style: { marginLeft: 6 }, children: [
+            m.valueCount,
             " value",
-            E.valueCount !== 1 ? "s" : ""
+            m.valueCount !== 1 ? "s" : ""
           ] }),
-          E.description && /* @__PURE__ */ e("span", { style: { fontSize: 11, color: "var(--muted)", marginLeft: 8 }, children: E.description }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", gap: 4, marginLeft: "auto" }, children: [
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: (a) => {
-              a.stopPropagation(), O({ type: "edit-enum", ctx: { enumId: E.id } }), B({ name: E.name, description: E.description || "" });
-            }, children: /* @__PURE__ */ e(pe, { size: 12, strokeWidth: 2, color: "var(--accent)" }) }),
-            n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: (a) => v(a, E), children: /* @__PURE__ */ e(ae, { size: 12, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+          m.description && /* @__PURE__ */ e("span", { style: { fontSize: 11, color: "var(--muted)", marginLeft: 8 }, children: m.description }),
+          /* @__PURE__ */ n("div", { style: { display: "flex", gap: 4, marginLeft: "auto" }, children: [
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: (r) => {
+              r.stopPropagation(), M({ type: "edit-enum", ctx: { enumId: m.id } }), W({ name: m.name, description: m.description || "" });
+            }, children: /* @__PURE__ */ e(ye, { size: 12, strokeWidth: 2, color: "var(--accent)" }) }),
+            t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: (r) => N(r, m), children: /* @__PURE__ */ e(ce, { size: 12, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
           ] })
         ] }),
-        N && /* @__PURE__ */ i("div", { className: "settings-card-body", style: { padding: "8px 16px 12px" }, children: [
-          W.length > 0 && /* @__PURE__ */ i("table", { className: "settings-table", style: { marginBottom: 8 }, children: [
-            /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ i("tr", { children: [
+        F && /* @__PURE__ */ n("div", { className: "settings-card-body", style: { padding: "8px 16px 12px" }, children: [
+          Z.length > 0 && /* @__PURE__ */ n("table", { className: "settings-table", style: { marginBottom: 8 }, children: [
+            /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ n("tr", { children: [
               /* @__PURE__ */ e("th", { style: { width: 40 }, children: "#" }),
               /* @__PURE__ */ e("th", { children: "Value" }),
               /* @__PURE__ */ e("th", { children: "Label" }),
               /* @__PURE__ */ e("th", { style: { width: 1 } })
             ] }) }),
-            /* @__PURE__ */ e("tbody", { children: W.map((a, d) => {
-              var U;
-              return (w == null ? void 0 : w.id) === a.id ? /* @__PURE__ */ i("tr", { children: [
-                /* @__PURE__ */ e("td", { style: { textAlign: "center", color: "var(--muted)", fontSize: 11 }, children: d }),
-                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: w.value || "", onChange: (F) => Z((oe) => ({ ...oe, value: F.target.value })), onKeyDown: (F) => {
-                  F.key === "Enter" && y(), F.key === "Escape" && Z(null);
+            /* @__PURE__ */ e("tbody", { children: Z.map((r, O) => {
+              var K;
+              return (L == null ? void 0 : L.id) === r.id ? /* @__PURE__ */ n("tr", { children: [
+                /* @__PURE__ */ e("td", { style: { textAlign: "center", color: "var(--muted)", fontSize: 11 }, children: O }),
+                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: L.value || "", onChange: (ne) => te((b) => ({ ...b, value: ne.target.value })), onKeyDown: (ne) => {
+                  ne.key === "Enter" && h(), ne.key === "Escape" && te(null);
                 }, style: { fontSize: 12, padding: "2px 6px" } }) }),
-                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("input", { className: "field-input", value: w.label || "", onChange: (F) => Z((oe) => ({ ...oe, label: F.target.value })), onKeyDown: (F) => {
-                  F.key === "Enter" && y(), F.key === "Escape" && Z(null);
+                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("input", { className: "field-input", value: L.label || "", onChange: (ne) => te((b) => ({ ...b, label: ne.target.value })), onKeyDown: (ne) => {
+                  ne.key === "Enter" && h(), ne.key === "Escape" && te(null);
                 }, placeholder: "(optional)", style: { fontSize: 12, padding: "2px 6px" } }) }),
-                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ i("div", { style: { display: "flex", gap: 4, justifyContent: "flex-end", whiteSpace: "nowrap" }, children: [
-                  /* @__PURE__ */ e("button", { className: "btn btn-primary btn-sm", onClick: y, disabled: h || !((U = w.value) != null && U.trim()), style: { fontSize: 11, padding: "2px 8px" }, children: "Save" }),
-                  /* @__PURE__ */ e("button", { className: "btn btn-sm", onClick: () => Z(null), style: { fontSize: 11, padding: "2px 8px" }, children: "Cancel" })
+                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ n("div", { style: { display: "flex", gap: 4, justifyContent: "flex-end", whiteSpace: "nowrap" }, children: [
+                  /* @__PURE__ */ e("button", { className: "btn btn-primary btn-sm", onClick: h, disabled: c || !((K = L.value) != null && K.trim()), style: { fontSize: 11, padding: "2px 8px" }, children: "Save" }),
+                  /* @__PURE__ */ e("button", { className: "btn btn-sm", onClick: () => te(null), style: { fontSize: 11, padding: "2px 8px" }, children: "Cancel" })
                 ] }) })
-              ] }, a.id) : /* @__PURE__ */ i("tr", { children: [
-                /* @__PURE__ */ e("td", { style: { textAlign: "center", color: "var(--muted)", fontSize: 11 }, children: d }),
-                /* @__PURE__ */ e("td", { className: "settings-td-mono", children: a.value }),
-                /* @__PURE__ */ e("td", { style: { color: a.label ? "var(--fg)" : "var(--muted)" }, children: a.label || "—" }),
-                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ i("div", { style: { display: "flex", gap: 2, justifyContent: "flex-end", whiteSpace: "nowrap" }, children: [
-                  n && d > 0 && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Move up", onClick: () => M(E.id, d, -1), style: { fontSize: 10 }, children: "▲" }),
-                  n && d < W.length - 1 && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Move down", onClick: () => M(E.id, d, 1), style: { fontSize: 10 }, children: "▼" }),
-                  n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => Z({ id: a.id, enumId: E.id, value: a.value, label: a.label || "", displayOrder: d }), children: /* @__PURE__ */ e(pe, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
-                  n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: () => C(E.id, a), children: /* @__PURE__ */ e(ae, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+              ] }, r.id) : /* @__PURE__ */ n("tr", { children: [
+                /* @__PURE__ */ e("td", { style: { textAlign: "center", color: "var(--muted)", fontSize: 11 }, children: O }),
+                /* @__PURE__ */ e("td", { className: "settings-td-mono", children: r.value }),
+                /* @__PURE__ */ e("td", { style: { color: r.label ? "var(--fg)" : "var(--muted)" }, children: r.label || "—" }),
+                /* @__PURE__ */ e("td", { children: /* @__PURE__ */ n("div", { style: { display: "flex", gap: 2, justifyContent: "flex-end", whiteSpace: "nowrap" }, children: [
+                  t && O > 0 && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Move up", onClick: () => V(m.id, O, -1), style: { fontSize: 10 }, children: "▲" }),
+                  t && O < Z.length - 1 && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Move down", onClick: () => V(m.id, O, 1), style: { fontSize: 10 }, children: "▼" }),
+                  t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => te({ id: r.id, enumId: m.id, value: r.value, label: r.label || "", displayOrder: O }), children: /* @__PURE__ */ e(ye, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
+                  t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: () => A(m.id, r), children: /* @__PURE__ */ e(ce, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
                 ] }) })
-              ] }, a.id);
+              ] }, r.id);
             }) })
           ] }),
-          W.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No values yet" }),
-          n && (X == null ? void 0 : X.enumId) === E.id ? /* @__PURE__ */ i("div", { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 4 }, children: [
-            /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, placeholder: "Value *", value: X.value || "", onChange: (a) => J((d) => ({ ...d, value: a.target.value })), onKeyDown: (a) => {
-              a.key === "Enter" && p(E.id);
+          Z.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No values yet" }),
+          t && (H == null ? void 0 : H.enumId) === m.id ? /* @__PURE__ */ n("div", { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 4 }, children: [
+            /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, placeholder: "Value *", value: H.value || "", onChange: (r) => ae((O) => ({ ...O, value: r.target.value })), onKeyDown: (r) => {
+              r.key === "Enter" && u(m.id);
             }, style: { flex: 1 } }),
-            /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Label (optional)", value: X.label || "", onChange: (a) => J((d) => ({ ...d, label: a.target.value })), style: { flex: 1 } }),
-            /* @__PURE__ */ e("button", { className: "btn btn-primary btn-sm", onClick: () => p(E.id), disabled: h || !((ie = X.value) != null && ie.trim()), children: "Add" }),
-            /* @__PURE__ */ e("button", { className: "btn btn-sm", onClick: () => J(null), children: "Cancel" })
-          ] }) : n ? /* @__PURE__ */ i("button", { className: "btn btn-sm", style: { display: "flex", alignItems: "center", gap: 5, marginTop: 4 }, onClick: () => J({ enumId: E.id, value: "", label: "" }), children: [
-            /* @__PURE__ */ e(ge, { size: 11, strokeWidth: 2.5 }),
+            /* @__PURE__ */ e("input", { className: "field-input", placeholder: "Label (optional)", value: H.label || "", onChange: (r) => ae((O) => ({ ...O, label: r.target.value })), style: { flex: 1 } }),
+            /* @__PURE__ */ e("button", { className: "btn btn-primary btn-sm", onClick: () => u(m.id), disabled: c || !((i = H.value) != null && i.trim()), children: "Add" }),
+            /* @__PURE__ */ e("button", { className: "btn btn-sm", onClick: () => ae(null), children: "Cancel" })
+          ] }) : t ? /* @__PURE__ */ n("button", { className: "btn btn-sm", style: { display: "flex", alignItems: "center", gap: 5, marginTop: 4 }, onClick: () => ae({ enumId: m.id, value: "", label: "" }), children: [
+            /* @__PURE__ */ e(be, { size: 11, strokeWidth: 2.5 }),
             "Add value"
           ] }) : null
         ] })
-      ] }, E.id);
+      ] }, m.id);
     }),
-    c.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No enumerations defined yet" })
+    y.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No enumerations defined yet" })
   ] });
 }
-function At({ userId: t, canWrite: n, toast: r }) {
-  var we;
-  const [c, k] = x([]), [P, u] = x(null), [m, V] = x({}), [Y, O] = x(!0), [T, B] = x(null), [h, S] = x({}), [X, J] = x(!1), [w, Z] = x([]), [o, D] = x(""), [l, g] = x(!1), [v, p] = x({}), [C, y] = x([]), [M, Q] = x({}), [E, N] = x(null), [W, ie] = x(null), [a, d] = x([]), $ = at;
-  function U() {
-    return f.getLifecycles(t).then((_) => k(Array.isArray(_) ? _ : []));
+function kt({ userId: a, canWrite: t, toast: l }) {
+  var _e;
+  const [y, T] = _([]), [S, p] = _(null), [C, P] = _({}), [G, M] = _(!0), [v, W] = _(null), [c, x] = _({}), [H, ae] = _(!1), [L, te] = _([]), [s, R] = _(""), [d, g] = _(!1), [N, u] = _({}), [A, h] = _([]), [V, J] = _({}), [se, m] = _(null), [F, Z] = _(null), [i, r] = _([]), O = lt;
+  function B() {
+    return f.getLifecycles(a).then((k) => T(Array.isArray(k) ? k : []));
   }
-  Se(() => {
-    U().finally(() => O(!1)), lt("GET", "/roles").then((_) => Z(Array.isArray(_) ? _ : [])).catch(() => {
-    }), rt("GET", "/algorithms/instances").then((_) => y(Array.isArray(_) ? _ : [])).catch(() => {
-    }), f.getMetadataKeys(t, "LIFECYCLE_STATE").then((_) => d(Array.isArray(_) ? _ : [])).catch(() => {
+  Ae(() => {
+    B().finally(() => M(!1)), dt("GET", "/roles").then((k) => te(Array.isArray(k) ? k : [])).catch(() => {
+    }), Qe("GET", "/algorithms/instances").then((k) => h(Array.isArray(k) ? k : [])).catch(() => {
+    }), f.getMetadataKeys(a, "LIFECYCLE_STATE").then((k) => r(Array.isArray(k) ? k : [])).catch(() => {
     });
-  }, [t]), Ue(
-    "/topic/metamodel",
-    (_) => {
-      _.event === "METAMODEL_CHANGED" && U();
-    },
-    t
-  );
-  async function F(_) {
-    const [s, z] = await Promise.all([
-      f.getLifecycleStates(t, _),
-      f.getLifecycleTransitions(t, _)
-    ]), q = Array.isArray(z) ? z : [];
-    V((G) => ({ ...G, [_]: {
-      states: Array.isArray(s) ? s : [],
-      transitions: q
+  }, [a]), qe((k) => {
+    k.event === "METAMODEL_CHANGED" && B();
+  });
+  async function K(k) {
+    const [o, q] = await Promise.all([
+      f.getLifecycleStates(a, k),
+      f.getLifecycleTransitions(a, k)
+    ]), ie = Array.isArray(q) ? q : [];
+    P((U) => ({ ...U, [k]: {
+      states: Array.isArray(o) ? o : [],
+      transitions: ie
     } }));
-    for (const G of q) {
-      const j = G.id || G.ID;
-      f.listTransitionGuards(t, j).then((A) => p((L) => ({ ...L, [j]: Array.isArray(A) ? A : [] }))).catch(() => {
+    for (const U of ie) {
+      const j = U.id || U.ID;
+      f.listTransitionGuards(a, j).then((w) => u((D) => ({ ...D, [j]: Array.isArray(w) ? w : [] }))).catch(() => {
       });
     }
-    const H = Array.isArray(s) ? s : [];
-    for (const G of H) {
-      const j = G.id || G.ID;
-      f.listLifecycleStateActions(t, _, j).then((A) => Q((L) => ({ ...L, [j]: Array.isArray(A) ? A : [] }))).catch(() => {
+    const le = Array.isArray(o) ? o : [];
+    for (const U of le) {
+      const j = U.id || U.ID;
+      f.listLifecycleStateActions(a, k, j).then((w) => J((D) => ({ ...D, [j]: Array.isArray(w) ? w : [] }))).catch(() => {
       });
     }
   }
-  async function oe(_) {
-    const s = _.id || _.ID;
-    if (P === s) {
-      u(null);
+  async function ne(k) {
+    const o = k.id || k.ID;
+    if (S === o) {
+      p(null);
       return;
     }
-    u(s), m[s] || await F(s).catch((z) => r(z, "error"));
+    p(o), C[o] || await K(o).catch((q) => l(q, "error"));
   }
-  function le(_, s = {}, z = {}) {
-    S(z), B({ type: _, ctx: s }), D("");
+  function b(k, o = {}, q = {}) {
+    x(q), W({ type: k, ctx: o }), R("");
   }
-  function be() {
-    B(null), S({}), D("");
+  function z() {
+    W(null), x({}), R("");
   }
-  async function Ne() {
-    var _, s, z, q, H;
-    J(!0);
+  async function Q() {
+    var k, o, q, ie, le, U, j, w, D;
+    ae(!0);
     try {
-      const { type: G, ctx: j } = T, A = h.metadata || {}, L = {};
-      for (const [me, ce] of Object.entries(A))
-        ce != null && (L[me] = ce);
-      const te = {
-        name: (_ = h.name) == null ? void 0 : _.trim(),
-        isInitial: !!h.isInitial,
-        metadata: L,
-        displayOrder: h.displayOrder !== "" ? Number(h.displayOrder) : 0,
-        color: h.color || null
-      }, se = {
-        name: (s = h.name) == null ? void 0 : s.trim(),
-        fromStateId: h.fromStateId,
-        toStateId: h.toStateId,
-        actionType: h.actionType || "NONE",
-        versionStrategy: h.versionStrategy || "NONE"
+      const { type: X, ctx: ee } = v, fe = c.metadata || {}, ue = {};
+      for (const [Ce, Y] of Object.entries(fe))
+        Y != null && (ue[Ce] = Y);
+      const me = {
+        code: (k = c.code) == null ? void 0 : k.trim(),
+        name: (o = c.name) == null ? void 0 : o.trim(),
+        isInitial: !!c.isInitial,
+        metadata: ue,
+        displayOrder: c.displayOrder !== "" ? Number(c.displayOrder) : 0,
+        color: c.color || null
+      }, Ie = {
+        code: (q = c.code) == null ? void 0 : q.trim(),
+        name: (ie = c.name) == null ? void 0 : ie.trim(),
+        fromStateId: c.fromStateId,
+        toStateId: c.toStateId,
+        actionType: c.actionType || "NONE",
+        versionStrategy: c.versionStrategy || "NONE"
       };
-      G === "create-lc" ? (await f.createLifecycle(t, { name: (z = h.name) == null ? void 0 : z.trim(), description: ((q = h.description) == null ? void 0 : q.trim()) || null }), await U()) : G === "duplicate-lc" ? (await f.duplicateLifecycle(t, j.sourceId, (H = h.name) == null ? void 0 : H.trim()), await U()) : G === "create-state" ? (await f.addLifecycleState(t, j.lifecycleId, te), await F(j.lifecycleId)) : G === "edit-state" ? (await f.updateLifecycleState(t, j.lifecycleId, j.stateId, te), await F(j.lifecycleId)) : G === "create-transition" ? (await f.addLifecycleTransition(t, j.lifecycleId, se), await F(j.lifecycleId)) : G === "edit-transition" && (await f.updateLifecycleTransition(t, j.lifecycleId, j.transId, se), await F(j.lifecycleId)), be();
-    } catch (G) {
-      r(G, "error");
+      X === "create-lc" ? (await f.createLifecycle(a, { code: (le = c.code) == null ? void 0 : le.trim(), name: (U = c.name) == null ? void 0 : U.trim(), description: ((j = c.description) == null ? void 0 : j.trim()) || null }), await B()) : X === "duplicate-lc" ? (await f.duplicateLifecycle(a, ee.sourceId, (w = c.code) == null ? void 0 : w.trim(), (D = c.name) == null ? void 0 : D.trim()), await B()) : X === "create-state" ? (await f.addLifecycleState(a, ee.lifecycleId, me), await K(ee.lifecycleId)) : X === "edit-state" ? (await f.updateLifecycleState(a, ee.lifecycleId, ee.stateId, me), await K(ee.lifecycleId)) : X === "create-transition" ? (await f.addLifecycleTransition(a, ee.lifecycleId, Ie), await K(ee.lifecycleId)) : X === "edit-transition" && (await f.updateLifecycleTransition(a, ee.lifecycleId, ee.transId, Ie), await K(ee.lifecycleId)), z();
+    } catch (X) {
+      l(X, "error");
     } finally {
-      J(!1);
+      ae(!1);
     }
   }
-  async function he(_, s) {
-    if (_.stopPropagation(), !!window.confirm(`Delete lifecycle "${s.name || s.NAME}"?
+  async function Ee(k, o) {
+    if (k.stopPropagation(), !!window.confirm(`Delete lifecycle "${o.name || o.NAME}"?
 
 This deletes all states, transitions and attribute state rules. Cannot be undone.`))
       try {
-        await f.deleteLifecycle(t, s.id || s.ID), await U(), P === (s.id || s.ID) && u(null);
-      } catch (z) {
-        r(z, "error");
+        await f.deleteLifecycle(a, o.id || o.ID), await B(), S === (o.id || o.ID) && p(null);
+      } catch (q) {
+        l(q, "error");
       }
   }
-  async function re(_, s) {
-    if (window.confirm(`Delete state "${s.name || s.NAME}"?
+  async function ge(k, o) {
+    if (window.confirm(`Delete state "${o.name || o.NAME}"?
 
 Attribute state rules for this state will also be deleted.`))
       try {
-        await f.deleteLifecycleState(t, _, s.id || s.ID), await F(_);
-      } catch (z) {
-        r(z, "error");
+        await f.deleteLifecycleState(a, k, o.id || o.ID), await K(k);
+      } catch (q) {
+        l(q, "error");
       }
   }
-  async function ve(_, s) {
-    if (window.confirm(`Delete transition "${s.name || s.NAME}"?`))
+  async function Ne(k, o) {
+    if (window.confirm(`Delete transition "${o.name || o.NAME}"?`))
       try {
-        await f.deleteLifecycleTransition(t, _, s.id || s.ID), await F(_);
-      } catch (z) {
-        r(z, "error");
+        await f.deleteLifecycleTransition(a, k, o.id || o.ID), await K(k);
+      } catch (q) {
+        l(q, "error");
       }
   }
-  async function de(_, s) {
-    if (o) {
+  async function de(k, o) {
+    if (s) {
       g(!0);
       try {
-        await f.addTransitionSignatureRequirement(t, _, o), D(""), await F(s);
-      } catch (z) {
-        r(z, "error");
+        await f.addTransitionSignatureRequirement(a, k, s), R(""), await K(o);
+      } catch (q) {
+        l(q, "error");
       } finally {
         g(!1);
       }
     }
   }
-  async function Te(_, s, z) {
+  async function pe(k, o, q) {
     g(!0);
     try {
-      await f.removeTransitionSignatureRequirement(t, _, s), await F(z);
-    } catch (q) {
-      r(q, "error");
+      await f.removeTransitionSignatureRequirement(a, k, o), await K(q);
+    } catch (ie) {
+      l(ie, "error");
     } finally {
       g(!1);
     }
   }
-  if (Y) return /* @__PURE__ */ e("div", { className: "settings-loading", children: "Loading…" });
-  const Ae = {
+  if (G) return /* @__PURE__ */ e("div", { className: "settings-loading", children: "Loading…" });
+  const Te = {
     "create-lc": "New Lifecycle",
     "duplicate-lc": "Duplicate Lifecycle",
     "create-state": "Add State",
     "edit-state": "Edit State",
     "create-transition": "Add Transition",
     "edit-transition": "Edit Transition"
-  }[T == null ? void 0 : T.type] || "", xe = T && ["edit-state", "edit-transition"].includes(T.type);
-  return /* @__PURE__ */ i("div", { className: "settings-list", children: [
-    T && /* @__PURE__ */ i(
-      De,
+  }[v == null ? void 0 : v.type] || "", ke = v && ["edit-state", "edit-transition"].includes(v.type);
+  return /* @__PURE__ */ n("div", { className: "settings-list", children: [
+    v && /* @__PURE__ */ n(
+      Re,
       {
-        title: Ae,
-        onClose: be,
-        onSave: Ne,
-        saving: X,
-        saveLabel: xe ? "Update" : "Create",
-        width: (we = T.type) != null && we.includes("state") || T.type === "edit-transition" ? 520 : 480,
+        title: Te,
+        onClose: z,
+        onSave: Q,
+        saving: H,
+        saveLabel: ke ? "Update" : "Create",
+        width: (_e = v.type) != null && _e.includes("state") || v.type === "edit-transition" ? 520 : 480,
         children: [
-          T.type === "create-lc" && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ e(b, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: h.name || "", onChange: (_) => S((s) => ({ ...s, name: _.target.value })), placeholder: "e.g. Standard" }) }),
-            /* @__PURE__ */ e(b, { label: "Description", children: /* @__PURE__ */ e("input", { className: "field-input", value: h.description || "", onChange: (_) => S((s) => ({ ...s, description: _.target.value })), placeholder: "Optional description" }) })
+          v.type === "create-lc" && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ e(I, { label: "Code *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: c.code || "", onChange: (k) => x((o) => ({ ...o, code: k.target.value, codeEdited: !0 })), placeholder: "e.g. standard", style: { fontFamily: "var(--mono)" } }) }),
+            /* @__PURE__ */ e(I, { label: "Name *", children: /* @__PURE__ */ e("input", { className: "field-input", value: c.name || "", onChange: (k) => x((o) => ({ ...o, name: k.target.value, code: o.codeEdited ? o.code : Se(k.target.value) })), placeholder: "e.g. Standard" }) }),
+            /* @__PURE__ */ e(I, { label: "Description", children: /* @__PURE__ */ e("input", { className: "field-input", value: c.description || "", onChange: (k) => x((o) => ({ ...o, description: k.target.value })), placeholder: "Optional description" }) })
           ] }),
-          T.type === "duplicate-lc" && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ i("div", { style: { fontSize: 11, color: "var(--muted)", marginBottom: 8 }, children: [
+          v.type === "duplicate-lc" && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ n("div", { style: { fontSize: 11, color: "var(--muted)", marginBottom: 8 }, children: [
               "Duplicating ",
-              /* @__PURE__ */ e("strong", { style: { color: "var(--text)" }, children: T.ctx.sourceName }),
+              /* @__PURE__ */ e("strong", { style: { color: "var(--text)" }, children: v.ctx.sourceName }),
               " — copies all states, transitions, guards, signature requirements, state actions, and metadata."
             ] }),
-            /* @__PURE__ */ e(b, { label: "New Name *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: h.name || "", onChange: (_) => S((s) => ({ ...s, name: _.target.value })), placeholder: "e.g. Standard (v2)" }) })
+            /* @__PURE__ */ e(I, { label: "New Code *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: c.code || "", onChange: (k) => x((o) => ({ ...o, code: k.target.value, codeEdited: !0 })), placeholder: "e.g. standard-v2", style: { fontFamily: "var(--mono)" } }) }),
+            /* @__PURE__ */ e(I, { label: "New Name *", children: /* @__PURE__ */ e("input", { className: "field-input", value: c.name || "", onChange: (k) => x((o) => ({ ...o, name: k.target.value, code: o.codeEdited ? o.code : Se(k.target.value) })), placeholder: "e.g. Standard (v2)" }) })
           ] }),
-          (T.type === "create-state" || T.type === "edit-state") && /* @__PURE__ */ e(bt, { form: h, setForm: S, knownMetaKeys: a }),
-          (T.type === "create-transition" || T.type === "edit-transition") && /* @__PURE__ */ e(Nt, { form: h, setForm: S, states: T.ctx.states || [] }),
-          T.type === "edit-transition" && n && (() => {
-            var G, j;
-            const _ = T.ctx.lifecycleId, s = T.ctx.transId, z = (j = (G = m[_]) == null ? void 0 : G.transitions) == null ? void 0 : j.find((A) => (A.id || A.ID) === s), q = (z == null ? void 0 : z.signatureRequirements) || [], H = new Set(q.map((A) => A.roleRequired));
-            return /* @__PURE__ */ i("div", { style: { marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 14 }, children: [
+          (v.type === "create-state" || v.type === "edit-state") && /* @__PURE__ */ n(re, { children: [
+            v.type === "create-state" && /* @__PURE__ */ e(I, { label: "Code *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: c.code || "", onChange: (k) => x((o) => ({ ...o, code: k.target.value, codeEdited: !0 })), placeholder: `e.g. ${v.ctx.lifecycleId || "lc"}-in-work`, style: { fontFamily: "var(--mono)" } }) }),
+            /* @__PURE__ */ e(
+              It,
+              {
+                form: c,
+                setForm: x,
+                knownMetaKeys: i,
+                onNameChange: v.type === "create-state" ? (k) => x((o) => ({ ...o, name: k, code: o.codeEdited ? o.code : `${v.ctx.lifecycleId}-${Se(k)}` })) : null
+              }
+            )
+          ] }),
+          (v.type === "create-transition" || v.type === "edit-transition") && /* @__PURE__ */ n(re, { children: [
+            v.type === "create-transition" && /* @__PURE__ */ e(I, { label: "Code *", children: /* @__PURE__ */ e("input", { className: "field-input", autoFocus: !0, value: c.code || "", onChange: (k) => x((o) => ({ ...o, code: k.target.value, codeEdited: !0 })), placeholder: `e.g. ${v.ctx.lifecycleId || "lc"}-freeze`, style: { fontFamily: "var(--mono)" } }) }),
+            /* @__PURE__ */ e(
+              Et,
+              {
+                form: c,
+                setForm: x,
+                states: v.ctx.states || [],
+                onNameChange: v.type === "create-transition" ? (k) => x((o) => ({ ...o, name: k, code: o.codeEdited ? o.code : `${v.ctx.lifecycleId}-${Se(k)}` })) : null
+              }
+            )
+          ] }),
+          v.type === "edit-transition" && t && (() => {
+            var U, j;
+            const k = v.ctx.lifecycleId, o = v.ctx.transId, q = (j = (U = C[k]) == null ? void 0 : U.transitions) == null ? void 0 : j.find((w) => (w.id || w.ID) === o), ie = (q == null ? void 0 : q.signatureRequirements) || [], le = new Set(ie.map((w) => w.roleRequired));
+            return /* @__PURE__ */ n("div", { style: { marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 14 }, children: [
               /* @__PURE__ */ e("div", { style: { fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }, children: "Signature Requirements" }),
-              q.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { fontSize: 11 }, children: "No signatures required for this transition" }),
-              q.map((A) => {
-                var L;
-                return /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12 }, children: [
-                  /* @__PURE__ */ e("span", { style: { flex: 1, color: "var(--text)" }, children: ((L = w.find((te) => (te.id || te.ID) === A.roleRequired)) == null ? void 0 : L.name) || A.roleRequired }),
+              ie.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { fontSize: 11 }, children: "No signatures required for this transition" }),
+              ie.map((w) => {
+                var D;
+                return /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12 }, children: [
+                  /* @__PURE__ */ e("span", { style: { flex: 1, color: "var(--text)" }, children: ((D = L.find((X) => (X.id || X.ID) === w.roleRequired)) == null ? void 0 : D.name) || w.roleRequired }),
                   /* @__PURE__ */ e(
                     "button",
                     {
                       className: "panel-icon-btn",
-                      disabled: l,
-                      onClick: () => Te(s, A.id, _),
+                      disabled: d,
+                      onClick: () => pe(o, w.id, k),
                       title: "Remove requirement",
-                      children: /* @__PURE__ */ e(ae, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" })
+                      children: /* @__PURE__ */ e(ce, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" })
                     }
                   )
-                ] }, A.id);
+                ] }, w.id);
               }),
-              /* @__PURE__ */ i("div", { style: { display: "flex", gap: 6, marginTop: 8 }, children: [
-                /* @__PURE__ */ i(
+              /* @__PURE__ */ n("div", { style: { display: "flex", gap: 6, marginTop: 8 }, children: [
+                /* @__PURE__ */ n(
                   "select",
                   {
                     className: "field-input",
                     style: { flex: 1, fontSize: 12 },
-                    value: o,
-                    onChange: (A) => D(A.target.value),
+                    value: s,
+                    onChange: (w) => R(w.target.value),
                     children: [
                       /* @__PURE__ */ e("option", { value: "", children: "Add required role…" }),
-                      w.map((A) => {
-                        const L = A.id || A.ID;
-                        return /* @__PURE__ */ e("option", { value: L, disabled: H.has(L), children: A.name || A.NAME || L }, L);
+                      L.map((w) => {
+                        const D = w.id || w.ID;
+                        return /* @__PURE__ */ e("option", { value: D, disabled: le.has(D), children: w.name || w.NAME || D }, D);
                       })
                     ]
                   }
@@ -1949,8 +2160,8 @@ Attribute state rules for this state will also be deleted.`))
                   "button",
                   {
                     className: "btn btn-sm",
-                    disabled: !o || l,
-                    onClick: () => de(s, _),
+                    disabled: !s || d,
+                    onClick: () => de(o, k),
                     children: "Add"
                   }
                 )
@@ -1960,45 +2171,45 @@ Attribute state rules for this state will also be deleted.`))
         ]
       }
     ),
-    /* @__PURE__ */ e("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 8 }, children: n && /* @__PURE__ */ i("button", { className: "btn btn-sm", style: { display: "flex", alignItems: "center", gap: 5 }, onClick: () => le("create-lc"), children: [
-      /* @__PURE__ */ e(ge, { size: 11, strokeWidth: 2.5 }),
+    /* @__PURE__ */ e("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 8 }, children: t && /* @__PURE__ */ n("button", { className: "btn btn-sm", style: { display: "flex", alignItems: "center", gap: 5 }, onClick: () => b("create-lc"), children: [
+      /* @__PURE__ */ e(be, { size: 11, strokeWidth: 2.5 }),
       "New lifecycle"
     ] }) }),
-    c.map((_) => {
+    y.map((k) => {
       var j;
-      const s = _.id || _.ID, z = _.name || _.NAME || s, q = P === s, H = m[s], G = (H == null ? void 0 : H.states) || [];
-      return /* @__PURE__ */ i("div", { className: "settings-card", children: [
-        /* @__PURE__ */ i("div", { className: "settings-card-hd", onClick: () => oe(_), style: { display: "flex", alignItems: "center" }, children: [
-          /* @__PURE__ */ e("span", { className: "settings-card-chevron", children: q ? /* @__PURE__ */ e(Re, { size: 13, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(Oe, { size: 13, strokeWidth: 2, color: "var(--muted)" }) }),
-          /* @__PURE__ */ e("span", { className: "settings-card-name", children: z }),
-          /* @__PURE__ */ e("span", { className: "settings-card-id", children: s }),
-          n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Duplicate lifecycle", style: { marginLeft: "auto" }, onClick: (A) => {
-            A.stopPropagation(), le("duplicate-lc", { sourceId: s, sourceName: z }, { name: `${z} (copy)` });
-          }, children: /* @__PURE__ */ e(ut, { size: 12, strokeWidth: 2, color: "var(--accent)" }) }),
-          n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete lifecycle", onClick: (A) => he(A, _), children: /* @__PURE__ */ e(ae, { size: 12, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+      const o = k.id || k.ID, q = k.name || k.NAME || o, ie = S === o, le = C[o], U = (le == null ? void 0 : le.states) || [];
+      return /* @__PURE__ */ n("div", { className: "settings-card", children: [
+        /* @__PURE__ */ n("div", { className: "settings-card-hd", onClick: () => ne(k), style: { display: "flex", alignItems: "center" }, children: [
+          /* @__PURE__ */ e("span", { className: "settings-card-chevron", children: ie ? /* @__PURE__ */ e(Oe, { size: 13, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(ze, { size: 13, strokeWidth: 2, color: "var(--muted)" }) }),
+          /* @__PURE__ */ e("span", { className: "settings-card-name", children: q }),
+          /* @__PURE__ */ e("span", { className: "settings-card-id", children: o }),
+          t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Duplicate lifecycle", style: { marginLeft: "auto" }, onClick: (w) => {
+            w.stopPropagation(), b("duplicate-lc", { sourceId: o, sourceName: q }, { name: `${q} (copy)`, code: Se(`${q}-copy`) });
+          }, children: /* @__PURE__ */ e(pt, { size: 12, strokeWidth: 2, color: "var(--accent)" }) }),
+          t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete lifecycle", onClick: (w) => Ee(w, k), children: /* @__PURE__ */ e(ce, { size: 12, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
         ] }),
-        q && H && /* @__PURE__ */ i("div", { className: "settings-card-body", style: { display: "flex", flexDirection: "column", gap: 0 }, children: [
-          ((j = H.states) == null ? void 0 : j.length) > 0 && $ && /* @__PURE__ */ e("div", { style: { marginBottom: 16, overflowX: "auto" }, children: /* @__PURE__ */ e($, { lifecycleId: s, userId: t, previewMode: !0 }) }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }, children: [
+        ie && le && /* @__PURE__ */ n("div", { className: "settings-card-body", style: { display: "flex", flexDirection: "column", gap: 0 }, children: [
+          ((j = le.states) == null ? void 0 : j.length) > 0 && O && /* @__PURE__ */ e("div", { style: { marginBottom: 16, overflowX: "auto" }, children: /* @__PURE__ */ e(O, { lifecycleId: o, userId: a, previewMode: !0 }) }),
+          /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }, children: [
             /* @__PURE__ */ e("span", { className: "settings-sub-label", style: { margin: 0 }, children: "States" }),
-            n && /* @__PURE__ */ e(
+            t && /* @__PURE__ */ e(
               "button",
               {
                 className: "panel-icon-btn",
                 title: "Add state",
-                onClick: () => le("create-state", { lifecycleId: s }, { color: $e, displayOrder: "" }),
-                children: /* @__PURE__ */ e(ge, { size: 12, strokeWidth: 2.5, color: "var(--accent)" })
+                onClick: () => b("create-state", { lifecycleId: o }, { color: Fe, displayOrder: "" }),
+                children: /* @__PURE__ */ e(be, { size: 12, strokeWidth: 2.5, color: "var(--accent)" })
               }
             )
           ] }),
-          G.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { marginBottom: 12 }, children: "No states defined" }),
-          G.map((A) => {
-            const L = A.id || A.ID, te = A.name || A.NAME || L, se = We(A), me = A.metadata || {}, ce = [
-              A.is_initial || A.IS_INITIAL ? "INIT" : null,
-              ...Object.keys(me).map((K) => K.toUpperCase())
-            ].filter(Boolean), fe = A.display_order ?? A.DISPLAY_ORDER ?? 0, Ie = E === L, ke = M[L] || [];
-            return /* @__PURE__ */ i("div", { style: { marginBottom: 3 }, children: [
-              /* @__PURE__ */ i("div", { style: {
+          U.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { marginBottom: 12 }, children: "No states defined" }),
+          U.map((w) => {
+            const D = w.id || w.ID, X = w.name || w.NAME || D, ee = He(w), fe = w.metadata || {}, ue = [
+              w.is_initial || w.IS_INITIAL ? "INIT" : null,
+              ...Object.keys(fe).map((Y) => Y.toUpperCase())
+            ].filter(Boolean), me = w.display_order ?? w.DISPLAY_ORDER ?? 0, Ie = se === D, Ce = V[D] || [];
+            return /* @__PURE__ */ n("div", { style: { marginBottom: 3 }, children: [
+              /* @__PURE__ */ n("div", { style: {
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
@@ -2008,62 +2219,62 @@ Attribute state rules for this state will also be deleted.`))
                 border: "1px solid var(--border)",
                 borderBottom: Ie ? "1px solid var(--border2)" : "1px solid var(--border)",
                 cursor: "pointer"
-              }, onClick: () => N(Ie ? null : L), children: [
-                /* @__PURE__ */ e("span", { style: { flexShrink: 0 }, children: Ie ? /* @__PURE__ */ e(Re, { size: 11, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(Oe, { size: 11, strokeWidth: 2, color: "var(--muted)" }) }),
+              }, onClick: () => m(Ie ? null : D), children: [
+                /* @__PURE__ */ e("span", { style: { flexShrink: 0 }, children: Ie ? /* @__PURE__ */ e(Oe, { size: 11, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(ze, { size: 11, strokeWidth: 2, color: "var(--muted)" }) }),
                 /* @__PURE__ */ e("span", { style: {
                   width: 14,
                   height: 14,
                   borderRadius: "50%",
                   flexShrink: 0,
-                  background: se,
-                  boxShadow: `0 0 0 2px ${se}33`
+                  background: ee,
+                  boxShadow: `0 0 0 2px ${ee}33`
                 } }),
-                /* @__PURE__ */ e("span", { style: { fontWeight: 600, fontSize: 12, color: "var(--text)", flex: 1 }, children: te }),
-                /* @__PURE__ */ e("div", { style: { display: "flex", gap: 4 }, children: ce.map((K) => /* @__PURE__ */ e("span", { className: "lc-state-flag", style: { background: se + "22", color: se, borderColor: se + "55" }, children: K }, K)) }),
-                ke.length > 0 && /* @__PURE__ */ i("span", { className: "settings-badge", title: `${ke.length} state action(s)`, children: [
-                  ke.length,
+                /* @__PURE__ */ e("span", { style: { fontWeight: 600, fontSize: 12, color: "var(--text)", flex: 1 }, children: X }),
+                /* @__PURE__ */ e("div", { style: { display: "flex", gap: 4 }, children: ue.map((Y) => /* @__PURE__ */ e("span", { className: "lc-state-flag", style: { background: ee + "22", color: ee, borderColor: ee + "55" }, children: Y }, Y)) }),
+                Ce.length > 0 && /* @__PURE__ */ n("span", { className: "settings-badge", title: `${Ce.length} state action(s)`, children: [
+                  Ce.length,
                   " action",
-                  ke.length > 1 ? "s" : ""
+                  Ce.length > 1 ? "s" : ""
                 ] }),
-                /* @__PURE__ */ i("span", { style: { fontSize: 10, color: "var(--muted)", minWidth: 24, textAlign: "right" }, children: [
+                /* @__PURE__ */ n("span", { style: { fontSize: 10, color: "var(--muted)", minWidth: 24, textAlign: "right" }, children: [
                   "#",
-                  fe
+                  me
                 ] }),
-                n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit state", onClick: (K) => {
-                  K.stopPropagation(), le("edit-state", { lifecycleId: s, stateId: L }, {
-                    name: te,
-                    isInitial: !!(A.is_initial || A.IS_INITIAL),
-                    metadata: { ...me },
-                    displayOrder: fe,
-                    color: se
+                t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit state", onClick: (Y) => {
+                  Y.stopPropagation(), b("edit-state", { lifecycleId: o, stateId: D }, {
+                    name: X,
+                    isInitial: !!(w.is_initial || w.IS_INITIAL),
+                    metadata: { ...fe },
+                    displayOrder: me,
+                    color: ee
                   });
-                }, children: /* @__PURE__ */ e(pe, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
-                n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete state", onClick: (K) => {
-                  K.stopPropagation(), re(s, A);
-                }, children: /* @__PURE__ */ e(ae, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+                }, children: /* @__PURE__ */ e(ye, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
+                t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete state", onClick: (Y) => {
+                  Y.stopPropagation(), ge(o, w);
+                }, children: /* @__PURE__ */ e(ce, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
               ] }),
-              Ie && /* @__PURE__ */ i("div", { style: {
+              Ie && /* @__PURE__ */ n("div", { style: {
                 padding: "10px 12px",
                 background: "var(--subtle-bg2)",
                 border: "1px solid var(--border)",
                 borderTop: "none",
                 borderRadius: "0 0 5px 5px"
               }, children: [
-                /* @__PURE__ */ i("div", { style: { display: "flex", gap: 16, marginBottom: 12, fontSize: 11 }, children: [
-                  /* @__PURE__ */ i("div", { children: [
+                /* @__PURE__ */ n("div", { style: { display: "flex", gap: 16, marginBottom: 12, fontSize: 11 }, children: [
+                  /* @__PURE__ */ n("div", { children: [
                     /* @__PURE__ */ e("span", { style: { color: "var(--muted)" }, children: "ID" }),
                     " ",
-                    /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--text)", fontSize: 10 }, children: L })
+                    /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--text)", fontSize: 10 }, children: D })
                   ] }),
-                  /* @__PURE__ */ i("div", { children: [
+                  /* @__PURE__ */ n("div", { children: [
                     /* @__PURE__ */ e("span", { style: { color: "var(--muted)" }, children: "Order" }),
                     " ",
-                    /* @__PURE__ */ e("span", { style: { color: "var(--text)" }, children: fe })
+                    /* @__PURE__ */ e("span", { style: { color: "var(--text)" }, children: me })
                   ] })
                 ] }),
-                Object.keys(me).length > 0 && /* @__PURE__ */ i("div", { style: { marginBottom: 12 }, children: [
+                Object.keys(fe).length > 0 && /* @__PURE__ */ n("div", { style: { marginBottom: 12 }, children: [
                   /* @__PURE__ */ e("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }, children: "Metadata" }),
-                  /* @__PURE__ */ e("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" }, children: Object.entries(me).map(([K, ee]) => /* @__PURE__ */ i("span", { style: {
+                  /* @__PURE__ */ e("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" }, children: Object.entries(fe).map(([Y, oe]) => /* @__PURE__ */ n("span", { style: {
                     fontSize: 10,
                     fontFamily: "var(--mono)",
                     padding: "2px 6px",
@@ -2072,14 +2283,14 @@ Attribute state rules for this state will also be deleted.`))
                     color: "var(--accent)",
                     border: "1px solid rgba(106,172,255,.2)"
                   }, children: [
-                    K,
+                    Y,
                     "=",
-                    ee
-                  ] }, K)) })
+                    oe
+                  ] }, Y)) })
                 ] }),
                 /* @__PURE__ */ e("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }, children: "State Actions" }),
-                ke.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { fontSize: 11, marginBottom: 8 }, children: "No actions attached to this state" }),
-                ke.map((K) => /* @__PURE__ */ i("div", { style: {
+                Ce.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { fontSize: 11, marginBottom: 8 }, children: "No actions attached to this state" }),
+                Ce.map((Y) => /* @__PURE__ */ n("div", { style: {
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
@@ -2090,155 +2301,155 @@ Attribute state rules for this state will also be deleted.`))
                   border: "1px solid var(--border)",
                   fontSize: 11
                 }, children: [
-                  /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--accent)", fontWeight: 600 }, children: K.algorithmCode || K.instanceName }),
-                  /* @__PURE__ */ e(Ze, { module: K.moduleName }),
+                  /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--accent)", fontWeight: 600 }, children: Y.algorithmCode || Y.instanceName }),
+                  /* @__PURE__ */ e(tt, { module: Y.moduleName }),
                   /* @__PURE__ */ e("span", { className: "settings-badge", style: {
-                    background: K.trigger === "ON_ENTER" ? "rgba(52,211,153,.15)" : "rgba(248,113,113,.15)",
-                    color: K.trigger === "ON_ENTER" ? "#34d399" : "#f87171",
+                    background: Y.trigger === "ON_ENTER" ? "rgba(52,211,153,.15)" : "rgba(248,113,113,.15)",
+                    color: Y.trigger === "ON_ENTER" ? "#34d399" : "#f87171",
                     fontSize: 9
-                  }, children: K.trigger }),
+                  }, children: Y.trigger }),
                   /* @__PURE__ */ e("span", { className: "settings-badge", style: {
-                    background: K.executionMode === "TRANSACTIONAL" ? "rgba(167,139,250,.15)" : "rgba(250,204,21,.15)",
-                    color: K.executionMode === "TRANSACTIONAL" ? "#a78bfa" : "#facc15",
+                    background: Y.executionMode === "TRANSACTIONAL" ? "rgba(167,139,250,.15)" : "rgba(250,204,21,.15)",
+                    color: Y.executionMode === "TRANSACTIONAL" ? "#a78bfa" : "#facc15",
                     fontSize: 9
-                  }, children: K.executionMode }),
+                  }, children: Y.executionMode }),
                   /* @__PURE__ */ e("span", { style: { flex: 1 } }),
-                  n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Detach action", onClick: async () => {
+                  t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Detach action", onClick: async () => {
                     try {
-                      await f.detachLifecycleStateAction(t, s, L, K.id), Q((ee) => ({ ...ee, [L]: (ee[L] || []).filter((Ee) => Ee.id !== K.id) })), r("Action detached", "success");
-                    } catch (ee) {
-                      r(ee, "error");
+                      await f.detachLifecycleStateAction(a, o, D, Y.id), J((oe) => ({ ...oe, [D]: (oe[D] || []).filter((xe) => xe.id !== Y.id) })), l("Action detached", "success");
+                    } catch (oe) {
+                      l(oe, "error");
                     }
-                  }, children: /* @__PURE__ */ e(ae, { size: 10, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
-                ] }, K.id)),
-                n && (() => {
-                  const K = C.filter((ee) => ee.typeName === "State Action");
-                  return /* @__PURE__ */ i("div", { style: { display: "flex", gap: 6, marginTop: 6, alignItems: "center" }, children: [
-                    /* @__PURE__ */ i("select", { className: "field-input", id: `sa-inst-${L}`, style: { flex: 1, fontSize: 11 }, defaultValue: "", children: [
+                  }, children: /* @__PURE__ */ e(ce, { size: 10, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+                ] }, Y.id)),
+                t && (() => {
+                  const Y = A.filter((oe) => oe.typeName === "State Action");
+                  return /* @__PURE__ */ n("div", { style: { display: "flex", gap: 6, marginTop: 6, alignItems: "center" }, children: [
+                    /* @__PURE__ */ n("select", { className: "field-input", id: `sa-inst-${D}`, style: { flex: 1, fontSize: 11 }, defaultValue: "", children: [
                       /* @__PURE__ */ e("option", { value: "", children: "Select action instance…" }),
-                      K.map((ee) => /* @__PURE__ */ i("option", { value: ee.id, children: [
-                        ee.algorithmName || ee.name,
+                      Y.map((oe) => /* @__PURE__ */ n("option", { value: oe.id, children: [
+                        oe.algorithmName || oe.name,
                         " — ",
-                        ee.name
-                      ] }, ee.id)),
-                      K.length === 0 && /* @__PURE__ */ e("option", { disabled: !0, children: "No State Action instances available" })
+                        oe.name
+                      ] }, oe.id)),
+                      Y.length === 0 && /* @__PURE__ */ e("option", { disabled: !0, children: "No State Action instances available" })
                     ] }),
-                    /* @__PURE__ */ i("select", { className: "field-input", id: `sa-trigger-${L}`, style: { width: 100, fontSize: 11 }, defaultValue: "ON_ENTER", children: [
+                    /* @__PURE__ */ n("select", { className: "field-input", id: `sa-trigger-${D}`, style: { width: 100, fontSize: 11 }, defaultValue: "ON_ENTER", children: [
                       /* @__PURE__ */ e("option", { value: "ON_ENTER", children: "ON_ENTER" }),
                       /* @__PURE__ */ e("option", { value: "ON_EXIT", children: "ON_EXIT" })
                     ] }),
-                    /* @__PURE__ */ i("select", { className: "field-input", id: `sa-mode-${L}`, style: { width: 130, fontSize: 11 }, defaultValue: "TRANSACTIONAL", children: [
+                    /* @__PURE__ */ n("select", { className: "field-input", id: `sa-mode-${D}`, style: { width: 130, fontSize: 11 }, defaultValue: "TRANSACTIONAL", children: [
                       /* @__PURE__ */ e("option", { value: "TRANSACTIONAL", children: "TRANSACTIONAL" }),
                       /* @__PURE__ */ e("option", { value: "POST_COMMIT", children: "POST_COMMIT" })
                     ] }),
                     /* @__PURE__ */ e("button", { className: "btn btn-sm", style: { fontSize: 10 }, onClick: async () => {
-                      const ee = document.getElementById(`sa-inst-${L}`), Ee = document.getElementById(`sa-trigger-${L}`), Le = document.getElementById(`sa-mode-${L}`);
-                      if (ee != null && ee.value)
+                      const oe = document.getElementById(`sa-inst-${D}`), xe = document.getElementById(`sa-trigger-${D}`), De = document.getElementById(`sa-mode-${D}`);
+                      if (oe != null && oe.value)
                         try {
-                          await f.attachLifecycleStateAction(t, s, L, ee.value, Ee.value, Le.value);
-                          const Ce = await f.listLifecycleStateActions(t, s, L);
-                          Q((Fe) => ({ ...Fe, [L]: Array.isArray(Ce) ? Ce : [] })), ee.value = "", r("Action attached", "success");
-                        } catch (Ce) {
-                          r(Ce, "error");
+                          await f.attachLifecycleStateAction(a, o, D, oe.value, xe.value, De.value);
+                          const we = await f.listLifecycleStateActions(a, o, D);
+                          J((We) => ({ ...We, [D]: Array.isArray(we) ? we : [] })), oe.value = "", l("Action attached", "success");
+                        } catch (we) {
+                          l(we, "error");
                         }
                     }, children: "Attach" })
                   ] });
                 })()
               ] })
-            ] }, L);
+            ] }, D);
           }),
-          /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, marginBottom: 6 }, children: [
+          /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, marginBottom: 6 }, children: [
             /* @__PURE__ */ e("span", { className: "settings-sub-label", style: { margin: 0 }, children: "Transitions" }),
-            n && /* @__PURE__ */ e(
+            t && /* @__PURE__ */ e(
               "button",
               {
                 className: "panel-icon-btn",
                 title: "Add transition",
-                onClick: () => le("create-transition", { lifecycleId: s, states: G }, { actionType: "NONE", versionStrategy: "NONE" }),
-                children: /* @__PURE__ */ e(ge, { size: 12, strokeWidth: 2.5, color: "var(--accent)" })
+                onClick: () => b("create-transition", { lifecycleId: o, states: U }, { actionType: "NONE", versionStrategy: "NONE" }),
+                children: /* @__PURE__ */ e(be, { size: 12, strokeWidth: 2.5, color: "var(--accent)" })
               }
             )
           ] }),
-          H.transitions.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No transitions defined" }),
-          H.transitions.map((A) => {
-            const L = A.id || A.ID, te = A.name || A.NAME || L, se = A.from_state_id || A.FROM_STATE_ID || "", me = A.to_state_id || A.TO_STATE_ID || "", ce = G.find((R) => (R.id || R.ID) === se), fe = G.find((R) => (R.id || R.ID) === me), Ie = We(ce), ke = We(fe), K = A.version_strategy || A.VERSION_STRATEGY, ee = A.action_type || A.ACTION_TYPE || "NONE", Ee = v[L] || [], Le = W === L, Ce = A.signatureRequirements || [], Fe = C.filter((R) => R.typeName === "Action Guard" || R.typeName === "Lifecycle Guard");
-            return /* @__PURE__ */ i("div", { style: { marginBottom: 3 }, children: [
-              /* @__PURE__ */ i("div", { style: {
+          le.transitions.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", children: "No transitions defined" }),
+          le.transitions.map((w) => {
+            const D = w.id || w.ID, X = w.name || w.NAME || D, ee = w.from_state_id || w.FROM_STATE_ID || "", fe = w.to_state_id || w.TO_STATE_ID || "", ue = U.find(($) => ($.id || $.ID) === ee), me = U.find(($) => ($.id || $.ID) === fe), Ie = He(ue), Ce = He(me), Y = w.version_strategy || w.VERSION_STRATEGY, oe = w.action_type || w.ACTION_TYPE || "NONE", xe = N[D] || [], De = F === D, we = w.signatureRequirements || [], We = A.filter(($) => $.typeName === "Action Guard" || $.typeName === "Lifecycle Guard");
+            return /* @__PURE__ */ n("div", { style: { marginBottom: 3 }, children: [
+              /* @__PURE__ */ n("div", { style: {
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
                 padding: "6px 8px",
-                borderRadius: Le ? "5px 5px 0 0" : 5,
+                borderRadius: De ? "5px 5px 0 0" : 5,
                 background: "var(--subtle-bg)",
                 border: "1px solid var(--border)",
-                borderBottom: Le ? "1px solid var(--border2)" : "1px solid var(--border)",
+                borderBottom: De ? "1px solid var(--border2)" : "1px solid var(--border)",
                 cursor: "pointer"
-              }, onClick: () => ie(Le ? null : L), children: [
-                /* @__PURE__ */ e("span", { style: { flexShrink: 0 }, children: Le ? /* @__PURE__ */ e(Re, { size: 11, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(Oe, { size: 11, strokeWidth: 2, color: "var(--muted)" }) }),
-                /* @__PURE__ */ e("span", { style: { fontWeight: 600, fontSize: 12, color: "var(--text)", minWidth: 90 }, children: te }),
-                /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", gap: 5, flex: 1, fontSize: 11 }, children: [
-                  /* @__PURE__ */ i("span", { style: { display: "flex", alignItems: "center", gap: 4 }, children: [
+              }, onClick: () => Z(De ? null : D), children: [
+                /* @__PURE__ */ e("span", { style: { flexShrink: 0 }, children: De ? /* @__PURE__ */ e(Oe, { size: 11, strokeWidth: 2, color: "var(--muted)" }) : /* @__PURE__ */ e(ze, { size: 11, strokeWidth: 2, color: "var(--muted)" }) }),
+                /* @__PURE__ */ e("span", { style: { fontWeight: 600, fontSize: 12, color: "var(--text)", minWidth: 90 }, children: X }),
+                /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", gap: 5, flex: 1, fontSize: 11 }, children: [
+                  /* @__PURE__ */ n("span", { style: { display: "flex", alignItems: "center", gap: 4 }, children: [
                     /* @__PURE__ */ e("span", { style: { width: 8, height: 8, borderRadius: "50%", background: Ie, flexShrink: 0 } }),
-                    /* @__PURE__ */ e("span", { style: { color: Ie }, children: (ce == null ? void 0 : ce.name) || (ce == null ? void 0 : ce.NAME) || se })
+                    /* @__PURE__ */ e("span", { style: { color: Ie }, children: (ue == null ? void 0 : ue.name) || (ue == null ? void 0 : ue.NAME) || ee })
                   ] }),
                   /* @__PURE__ */ e("span", { style: { color: "var(--muted)" }, children: "→" }),
-                  /* @__PURE__ */ i("span", { style: { display: "flex", alignItems: "center", gap: 4 }, children: [
-                    /* @__PURE__ */ e("span", { style: { width: 8, height: 8, borderRadius: "50%", background: ke, flexShrink: 0 } }),
-                    /* @__PURE__ */ e("span", { style: { color: ke }, children: (fe == null ? void 0 : fe.name) || (fe == null ? void 0 : fe.NAME) || me })
+                  /* @__PURE__ */ n("span", { style: { display: "flex", alignItems: "center", gap: 4 }, children: [
+                    /* @__PURE__ */ e("span", { style: { width: 8, height: 8, borderRadius: "50%", background: Ce, flexShrink: 0 } }),
+                    /* @__PURE__ */ e("span", { style: { color: Ce }, children: (me == null ? void 0 : me.name) || (me == null ? void 0 : me.NAME) || fe })
                   ] })
                 ] }),
-                /* @__PURE__ */ i("div", { style: { display: "flex", gap: 4, flexWrap: "wrap" }, children: [
-                  Ee.length > 0 && /* @__PURE__ */ i("span", { className: "settings-badge", title: Ee.map((R) => R.algorithmCode).join(", "), children: [
-                    Ee.length,
+                /* @__PURE__ */ n("div", { style: { display: "flex", gap: 4, flexWrap: "wrap" }, children: [
+                  xe.length > 0 && /* @__PURE__ */ n("span", { className: "settings-badge", title: xe.map(($) => $.algorithmCode).join(", "), children: [
+                    xe.length,
                     " guard",
-                    Ee.length > 1 ? "s" : ""
+                    xe.length > 1 ? "s" : ""
                   ] }),
-                  K && K !== "NONE" && /* @__PURE__ */ e("span", { className: "settings-badge", children: K }),
-                  Ce.length > 0 && /* @__PURE__ */ i("span", { className: "settings-badge", style: { background: "rgba(139,92,246,.18)", color: "#a78bfa" }, children: [
-                    Ce.length,
+                  Y && Y !== "NONE" && /* @__PURE__ */ e("span", { className: "settings-badge", children: Y }),
+                  we.length > 0 && /* @__PURE__ */ n("span", { className: "settings-badge", style: { background: "rgba(139,92,246,.18)", color: "#a78bfa" }, children: [
+                    we.length,
                     " sign."
                   ] })
                 ] }),
-                n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit transition", onClick: (R) => {
-                  R.stopPropagation(), le("edit-transition", { lifecycleId: s, transId: L, states: G }, {
-                    name: te,
-                    fromStateId: se,
-                    toStateId: me,
-                    actionType: ee,
-                    versionStrategy: K || "NONE"
+                t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit transition", onClick: ($) => {
+                  $.stopPropagation(), b("edit-transition", { lifecycleId: o, transId: D, states: U }, {
+                    name: X,
+                    fromStateId: ee,
+                    toStateId: fe,
+                    actionType: oe,
+                    versionStrategy: Y || "NONE"
                   });
-                }, children: /* @__PURE__ */ e(pe, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
-                n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete transition", onClick: (R) => {
-                  R.stopPropagation(), ve(s, A);
-                }, children: /* @__PURE__ */ e(ae, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+                }, children: /* @__PURE__ */ e(ye, { size: 11, strokeWidth: 2, color: "var(--accent)" }) }),
+                t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete transition", onClick: ($) => {
+                  $.stopPropagation(), Ne(o, w);
+                }, children: /* @__PURE__ */ e(ce, { size: 11, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
               ] }),
-              Le && /* @__PURE__ */ i("div", { style: {
+              De && /* @__PURE__ */ n("div", { style: {
                 padding: "10px 12px",
                 background: "var(--subtle-bg2)",
                 border: "1px solid var(--border)",
                 borderTop: "none",
                 borderRadius: "0 0 5px 5px"
               }, children: [
-                /* @__PURE__ */ i("div", { style: { display: "flex", gap: 16, marginBottom: 12, fontSize: 11, flexWrap: "wrap" }, children: [
-                  /* @__PURE__ */ i("div", { children: [
+                /* @__PURE__ */ n("div", { style: { display: "flex", gap: 16, marginBottom: 12, fontSize: 11, flexWrap: "wrap" }, children: [
+                  /* @__PURE__ */ n("div", { children: [
                     /* @__PURE__ */ e("span", { style: { color: "var(--muted)" }, children: "ID" }),
                     " ",
-                    /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--text)", fontSize: 10 }, children: L })
+                    /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--text)", fontSize: 10 }, children: D })
                   ] }),
-                  /* @__PURE__ */ i("div", { children: [
+                  /* @__PURE__ */ n("div", { children: [
                     /* @__PURE__ */ e("span", { style: { color: "var(--muted)" }, children: "Action Type" }),
                     " ",
-                    /* @__PURE__ */ e("span", { style: { color: "var(--text)" }, children: ee })
+                    /* @__PURE__ */ e("span", { style: { color: "var(--text)" }, children: oe })
                   ] }),
-                  /* @__PURE__ */ i("div", { children: [
+                  /* @__PURE__ */ n("div", { children: [
                     /* @__PURE__ */ e("span", { style: { color: "var(--muted)" }, children: "Version Strategy" }),
                     " ",
-                    /* @__PURE__ */ e("span", { style: { color: "var(--text)" }, children: K || "NONE" })
+                    /* @__PURE__ */ e("span", { style: { color: "var(--text)" }, children: Y || "NONE" })
                   ] })
                 ] }),
                 /* @__PURE__ */ e("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }, children: "Guards" }),
-                Ee.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { fontSize: 11, marginBottom: 8 }, children: "No guards attached" }),
-                Ee.map((R) => /* @__PURE__ */ i("div", { style: {
+                xe.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { fontSize: 11, marginBottom: 8 }, children: "No guards attached" }),
+                xe.map(($) => /* @__PURE__ */ n("div", { style: {
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
@@ -2249,28 +2460,28 @@ Attribute state rules for this state will also be deleted.`))
                   border: "1px solid var(--border)",
                   fontSize: 11
                 }, children: [
-                  /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--accent)", fontWeight: 600 }, children: R.algorithmName || R.algorithmCode || R.instanceName }),
-                  R.algorithmCode && R.algorithmName && /* @__PURE__ */ i("span", { style: { fontSize: 10, color: "var(--muted)" }, children: [
+                  /* @__PURE__ */ e("span", { style: { fontFamily: "var(--mono)", color: "var(--accent)", fontWeight: 600 }, children: $.algorithmName || $.algorithmCode || $.instanceName }),
+                  $.algorithmCode && $.algorithmName && /* @__PURE__ */ n("span", { style: { fontSize: 10, color: "var(--muted)" }, children: [
                     "(",
-                    R.algorithmCode,
+                    $.algorithmCode,
                     ")"
                   ] }),
-                  /* @__PURE__ */ e(Ze, { module: R.moduleName }),
-                  n ? /* @__PURE__ */ i(
+                  /* @__PURE__ */ e(tt, { module: $.moduleName }),
+                  t ? /* @__PURE__ */ n(
                     "select",
                     {
                       className: "field-input",
                       style: { fontSize: 10, padding: "0 4px", height: 20 },
-                      value: R.effect,
-                      onChange: async (ue) => {
-                        const ye = ue.target.value;
+                      value: $.effect,
+                      onChange: async (he) => {
+                        const ve = he.target.value;
                         try {
-                          await f.updateTransitionGuard(t, R.id, ye), p((_e) => ({
-                            ..._e,
-                            [L]: (_e[L] || []).map((Be) => Be.id === R.id ? { ...Be, effect: ye } : Be)
-                          })), r("Effect updated", "success");
-                        } catch (_e) {
-                          r(_e, "error");
+                          await f.updateTransitionGuard(a, $.id, ve), u((Le) => ({
+                            ...Le,
+                            [D]: (Le[D] || []).map((je) => je.id === $.id ? { ...je, effect: ve } : je)
+                          })), l("Effect updated", "success");
+                        } catch (Le) {
+                          l(Le, "error");
                         }
                       },
                       children: [
@@ -2278,46 +2489,46 @@ Attribute state rules for this state will also be deleted.`))
                         /* @__PURE__ */ e("option", { value: "BLOCK", children: "BLOCK" })
                       ]
                     }
-                  ) : /* @__PURE__ */ e("span", { className: `settings-badge ${R.effect === "BLOCK" ? "badge-warn" : ""}`, style: { fontSize: 9 }, children: R.effect }),
+                  ) : /* @__PURE__ */ e("span", { className: `settings-badge ${$.effect === "BLOCK" ? "badge-warn" : ""}`, style: { fontSize: 9 }, children: $.effect }),
                   /* @__PURE__ */ e("span", { style: { flex: 1 } }),
-                  n && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Detach guard", onClick: async () => {
+                  t && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Detach guard", onClick: async () => {
                     try {
-                      await f.detachTransitionGuard(t, R.id), p((ue) => ({ ...ue, [L]: (ue[L] || []).filter((ye) => ye.id !== R.id) })), r("Guard detached", "success");
-                    } catch (ue) {
-                      r(ue, "error");
+                      await f.detachTransitionGuard(a, $.id), u((he) => ({ ...he, [D]: (he[D] || []).filter((ve) => ve.id !== $.id) })), l("Guard detached", "success");
+                    } catch (he) {
+                      l(he, "error");
                     }
-                  }, children: /* @__PURE__ */ e(ae, { size: 10, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
-                ] }, R.id)),
-                n && /* @__PURE__ */ i("div", { style: { display: "flex", gap: 6, marginTop: 4, alignItems: "center" }, children: [
-                  /* @__PURE__ */ i("select", { className: "field-input", id: `tg-inst-${L}`, style: { flex: 1, fontSize: 11 }, defaultValue: "", children: [
+                  }, children: /* @__PURE__ */ e(ce, { size: 10, strokeWidth: 2, color: "var(--danger, #f87171)" }) })
+                ] }, $.id)),
+                t && /* @__PURE__ */ n("div", { style: { display: "flex", gap: 6, marginTop: 4, alignItems: "center" }, children: [
+                  /* @__PURE__ */ n("select", { className: "field-input", id: `tg-inst-${D}`, style: { flex: 1, fontSize: 11 }, defaultValue: "", children: [
                     /* @__PURE__ */ e("option", { value: "", children: "Select guard instance…" }),
-                    Fe.map((R) => /* @__PURE__ */ i("option", { value: R.id, children: [
-                      R.algorithmName || R.name,
+                    We.map(($) => /* @__PURE__ */ n("option", { value: $.id, children: [
+                      $.algorithmName || $.name,
                       " — ",
-                      R.name
-                    ] }, R.id))
+                      $.name
+                    ] }, $.id))
                   ] }),
-                  /* @__PURE__ */ i("select", { className: "field-input", id: `tg-effect-${L}`, style: { width: 80, fontSize: 11 }, defaultValue: "BLOCK", children: [
+                  /* @__PURE__ */ n("select", { className: "field-input", id: `tg-effect-${D}`, style: { width: 80, fontSize: 11 }, defaultValue: "BLOCK", children: [
                     /* @__PURE__ */ e("option", { value: "BLOCK", children: "BLOCK" }),
                     /* @__PURE__ */ e("option", { value: "HIDE", children: "HIDE" })
                   ] }),
                   /* @__PURE__ */ e("button", { className: "btn btn-sm", style: { fontSize: 10 }, onClick: async () => {
-                    const R = document.getElementById(`tg-inst-${L}`), ue = document.getElementById(`tg-effect-${L}`);
-                    if (R != null && R.value)
+                    const $ = document.getElementById(`tg-inst-${D}`), he = document.getElementById(`tg-effect-${D}`);
+                    if ($ != null && $.value)
                       try {
-                        await f.attachTransitionGuard(t, L, R.value, ue.value, 0);
-                        const ye = await f.listTransitionGuards(t, L);
-                        p((_e) => ({ ..._e, [L]: Array.isArray(ye) ? ye : [] })), R.value = "", r("Guard attached", "success");
-                      } catch (ye) {
-                        r(ye, "error");
+                        await f.attachTransitionGuard(a, D, $.value, he.value, 0);
+                        const ve = await f.listTransitionGuards(a, D);
+                        u((Le) => ({ ...Le, [D]: Array.isArray(ve) ? ve : [] })), $.value = "", l("Guard attached", "success");
+                      } catch (ve) {
+                        l(ve, "error");
                       }
                   }, children: "Attach" })
                 ] }),
                 /* @__PURE__ */ e("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", marginTop: 14, marginBottom: 6 }, children: "Signature Requirements" }),
-                Ce.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { fontSize: 11, marginBottom: 8 }, children: "No signatures required" }),
-                Ce.map((R) => {
-                  var ue;
-                  return /* @__PURE__ */ i("div", { style: {
+                we.length === 0 && /* @__PURE__ */ e("div", { className: "settings-empty-row", style: { fontSize: 11, marginBottom: 8 }, children: "No signatures required" }),
+                we.map(($) => {
+                  var he;
+                  return /* @__PURE__ */ n("div", { style: {
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
@@ -2328,32 +2539,32 @@ Attribute state rules for this state will also be deleted.`))
                     border: "1px solid var(--border)",
                     fontSize: 11
                   }, children: [
-                    /* @__PURE__ */ e("span", { style: { color: "var(--text)", flex: 1 }, children: ((ue = w.find((ye) => (ye.id || ye.ID) === R.roleRequired)) == null ? void 0 : ue.name) || R.roleRequired }),
-                    n && /* @__PURE__ */ e(
+                    /* @__PURE__ */ e("span", { style: { color: "var(--text)", flex: 1 }, children: ((he = L.find((ve) => (ve.id || ve.ID) === $.roleRequired)) == null ? void 0 : he.name) || $.roleRequired }),
+                    t && /* @__PURE__ */ e(
                       "button",
                       {
                         className: "panel-icon-btn",
-                        disabled: l,
+                        disabled: d,
                         title: "Remove requirement",
-                        onClick: () => Te(L, R.id, s),
-                        children: /* @__PURE__ */ e(ae, { size: 10, strokeWidth: 2, color: "var(--danger, #f87171)" })
+                        onClick: () => pe(D, $.id, o),
+                        children: /* @__PURE__ */ e(ce, { size: 10, strokeWidth: 2, color: "var(--danger, #f87171)" })
                       }
                     )
-                  ] }, R.id);
+                  ] }, $.id);
                 }),
-                n && /* @__PURE__ */ i("div", { style: { display: "flex", gap: 6, marginTop: 4, alignItems: "center" }, children: [
-                  /* @__PURE__ */ i(
+                t && /* @__PURE__ */ n("div", { style: { display: "flex", gap: 6, marginTop: 4, alignItems: "center" }, children: [
+                  /* @__PURE__ */ n(
                     "select",
                     {
                       className: "field-input",
                       style: { flex: 1, fontSize: 11 },
-                      value: o,
-                      onChange: (R) => D(R.target.value),
+                      value: s,
+                      onChange: ($) => R($.target.value),
                       children: [
                         /* @__PURE__ */ e("option", { value: "", children: "Add required role…" }),
-                        w.map((R) => {
-                          const ue = R.id || R.ID, ye = Ce.some((_e) => _e.roleRequired === ue);
-                          return /* @__PURE__ */ e("option", { value: ue, disabled: ye, children: R.name || R.NAME || ue }, ue);
+                        L.map(($) => {
+                          const he = $.id || $.ID, ve = we.some((Le) => Le.roleRequired === he);
+                          return /* @__PURE__ */ e("option", { value: he, disabled: ve, children: $.name || $.NAME || he }, he);
                         })
                       ]
                     }
@@ -2363,71 +2574,71 @@ Attribute state rules for this state will also be deleted.`))
                     {
                       className: "btn btn-sm",
                       style: { fontSize: 10 },
-                      disabled: !o || l,
-                      onClick: () => de(L, s),
+                      disabled: !s || d,
+                      onClick: () => de(D, o),
                       children: "Add"
                     }
                   )
                 ] })
               ] })
-            ] }, L);
+            ] }, D);
           })
         ] })
-      ] }, s);
+      ] }, o);
     })
   ] });
 }
-function xt({ userId: t, canWrite: n, toast: r }) {
-  const [c, k] = x([]), [P, u] = x([]), [m, V] = x(!0), [Y, O] = x(null), [T, B] = x({}), [h, S] = x(!1);
-  async function X() {
-    const [l, g] = await Promise.all([
-      f.getSources(t).catch(() => []),
-      f.getSourceResolvers(t).catch(() => [])
+function _t({ userId: a, canWrite: t, toast: l }) {
+  const [y, T] = _([]), [S, p] = _([]), [C, P] = _(!0), [G, M] = _(null), [v, W] = _({}), [c, x] = _(!1);
+  async function H() {
+    const [d, g] = await Promise.all([
+      f.getSources(a).catch(() => []),
+      f.getSourceResolvers(a).catch(() => [])
     ]);
-    k(Array.isArray(l) ? l : []), u(Array.isArray(g) ? g : []);
+    T(Array.isArray(d) ? d : []), p(Array.isArray(g) ? g : []);
   }
-  Se(() => {
-    X().finally(() => V(!1));
-  }, [t]);
-  function J() {
-    var l;
-    B({ id: "", name: "", description: "", resolverInstanceId: ((l = P[0]) == null ? void 0 : l.instanceId) || "", color: "", icon: "" }), O({ kind: "create" });
+  Ae(() => {
+    H().finally(() => P(!1));
+  }, [a]);
+  function ae() {
+    var d;
+    W({ id: "", name: "", description: "", resolverInstanceId: ((d = S[0]) == null ? void 0 : d.instanceId) || "", color: "", icon: "" }), M({ kind: "create" });
   }
-  function w(l) {
-    B({ id: l.id, name: l.name, description: l.description || "", resolverInstanceId: l.resolverInstanceId, color: l.color || "", icon: l.icon || "" }), O({ kind: "edit", original: l });
+  function L(d) {
+    W({ id: d.id, name: d.name, description: d.description || "", resolverInstanceId: d.resolverInstanceId, color: d.color || "", icon: d.icon || "" }), M({ kind: "edit", original: d });
   }
-  function Z() {
-    O(null), B({});
+  function te() {
+    M(null), W({});
   }
-  async function o() {
-    var l, g, v;
-    S(!0);
+  async function s() {
+    var d, g, N;
+    x(!0);
     try {
-      const p = {
-        name: (l = T.name) == null ? void 0 : l.trim(),
-        description: ((g = T.description) == null ? void 0 : g.trim()) || null,
-        resolverInstanceId: T.resolverInstanceId,
-        color: T.color || null,
-        icon: T.icon || null
+      const u = {
+        name: (d = v.name) == null ? void 0 : d.trim(),
+        description: ((g = v.description) == null ? void 0 : g.trim()) || null,
+        resolverInstanceId: v.resolverInstanceId,
+        color: v.color || null,
+        icon: v.icon || null
       };
-      Y.kind === "create" ? (await f.createSource(t, { id: (v = T.id) == null ? void 0 : v.trim(), ...p }), r("Source created", "success")) : (await f.updateSource(t, Y.original.id, p), r("Source updated", "success")), Z(), await X();
-    } catch (p) {
-      r(p, "error");
+      G.kind === "create" ? (await f.createSource(a, { id: (N = v.id) == null ? void 0 : N.trim(), ...u }), l("Source created", "success")) : (await f.updateSource(a, G.original.id, u), l("Source updated", "success")), te(), await H();
+    } catch (u) {
+      l(u, "error");
     } finally {
-      S(!1);
+      x(!1);
     }
   }
-  async function D(l) {
-    if (window.confirm(`Delete source "${l.name}" (${l.id})?`))
+  async function R(d) {
+    if (window.confirm(`Delete source "${d.name}" (${d.id})?`))
       try {
-        await f.deleteSource(t, l.id), r("Source deleted", "success"), await X();
+        await f.deleteSource(a, d.id), l("Source deleted", "success"), await H();
       } catch (g) {
-        r(g, "error");
+        l(g, "error");
       }
   }
-  return m ? /* @__PURE__ */ e("div", { style: { padding: 16, color: "var(--muted)" }, children: "Loading…" }) : /* @__PURE__ */ i("div", { style: { padding: "0 16px 24px" }, children: [
-    /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }, children: [
-      /* @__PURE__ */ i("div", { style: { flex: 1, fontSize: 12, color: "var(--muted)" }, children: [
+  return C ? /* @__PURE__ */ e("div", { style: { padding: 16, color: "var(--muted)" }, children: "Loading…" }) : /* @__PURE__ */ n("div", { style: { padding: "0 16px 24px" }, children: [
+    /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }, children: [
+      /* @__PURE__ */ n("div", { style: { flex: 1, fontSize: 12, color: "var(--muted)" }, children: [
         "Sources declare the systems that host link targets. Each source binds to a resolver (algorithm of type ",
         /* @__PURE__ */ e("code", { children: "algtype-source-resolver" }),
         "). The built-in",
@@ -2435,13 +2646,13 @@ function xt({ userId: t, canWrite: n, toast: r }) {
         /* @__PURE__ */ e("span", { className: "settings-badge", children: "SELF" }),
         " source targets nodes inside this PLM instance and is not editable."
       ] }),
-      n && /* @__PURE__ */ i("button", { className: "btn btn-primary btn-sm", onClick: J, disabled: P.length === 0, children: [
-        /* @__PURE__ */ e(ge, { size: 11, strokeWidth: 2 }),
+      t && /* @__PURE__ */ n("button", { className: "btn btn-primary btn-sm", onClick: ae, disabled: S.length === 0, children: [
+        /* @__PURE__ */ e(be, { size: 11, strokeWidth: 2 }),
         " Add Source"
       ] })
     ] }),
-    /* @__PURE__ */ i("table", { className: "settings-table", children: [
-      /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ i("tr", { children: [
+    /* @__PURE__ */ n("table", { className: "settings-table", children: [
+      /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ n("tr", { children: [
         /* @__PURE__ */ e("th", { style: { width: 40 } }),
         /* @__PURE__ */ e("th", { style: { width: 160 }, children: "ID" }),
         /* @__PURE__ */ e("th", { children: "Name" }),
@@ -2449,234 +2660,234 @@ function xt({ userId: t, canWrite: n, toast: r }) {
         /* @__PURE__ */ e("th", { children: "Description" }),
         /* @__PURE__ */ e("th", { style: { width: 90 } })
       ] }) }),
-      /* @__PURE__ */ e("tbody", { children: c.map((l) => {
-        const g = l.icon ? Me[l.icon] : null;
-        return /* @__PURE__ */ i("tr", { children: [
-          /* @__PURE__ */ e("td", { children: g ? /* @__PURE__ */ e(g, { size: 16, strokeWidth: 1.8, color: l.color || "var(--muted)" }) : /* @__PURE__ */ e("span", { style: { color: "var(--muted2)" }, children: "—" }) }),
-          /* @__PURE__ */ i("td", { className: "settings-td-mono", children: [
-            l.id,
+      /* @__PURE__ */ e("tbody", { children: y.map((d) => {
+        const g = d.icon ? Ve[d.icon] : null;
+        return /* @__PURE__ */ n("tr", { children: [
+          /* @__PURE__ */ e("td", { children: g ? /* @__PURE__ */ e(g, { size: 16, strokeWidth: 1.8, color: d.color || "var(--muted)" }) : /* @__PURE__ */ e("span", { style: { color: "var(--muted2)" }, children: "—" }) }),
+          /* @__PURE__ */ n("td", { className: "settings-td-mono", children: [
+            d.id,
             " ",
-            l.builtin && /* @__PURE__ */ e("span", { className: "settings-badge", style: { marginLeft: 4 }, children: "built-in" })
+            d.builtin && /* @__PURE__ */ e("span", { className: "settings-badge", style: { marginLeft: 4 }, children: "built-in" })
           ] }),
-          /* @__PURE__ */ e("td", { children: l.name }),
-          /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: l.resolverAlgorithmCode }) }),
-          /* @__PURE__ */ e("td", { style: { color: "var(--muted)", fontSize: 12 }, children: l.description }),
-          /* @__PURE__ */ e("td", { style: { textAlign: "right", whiteSpace: "nowrap" }, children: n && !l.builtin && /* @__PURE__ */ i(ne, { children: [
-            /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => w(l), children: /* @__PURE__ */ e(pe, { size: 12, strokeWidth: 2, color: "var(--accent)" }) }),
-            /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: () => D(l), style: { marginLeft: 4 }, children: /* @__PURE__ */ e(ae, { size: 12, strokeWidth: 2, color: "var(--danger)" }) })
+          /* @__PURE__ */ e("td", { children: d.name }),
+          /* @__PURE__ */ e("td", { children: /* @__PURE__ */ e("span", { className: "settings-badge", children: d.resolverAlgorithmCode }) }),
+          /* @__PURE__ */ e("td", { style: { color: "var(--muted)", fontSize: 12 }, children: d.description }),
+          /* @__PURE__ */ e("td", { style: { textAlign: "right", whiteSpace: "nowrap" }, children: t && !d.builtin && /* @__PURE__ */ n(re, { children: [
+            /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => L(d), children: /* @__PURE__ */ e(ye, { size: 12, strokeWidth: 2, color: "var(--accent)" }) }),
+            /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: () => R(d), style: { marginLeft: 4 }, children: /* @__PURE__ */ e(ce, { size: 12, strokeWidth: 2, color: "var(--danger)" }) })
           ] }) })
-        ] }, l.id);
+        ] }, d.id);
       }) })
     ] }),
-    Y && /* @__PURE__ */ i(
-      De,
+    G && /* @__PURE__ */ n(
+      Re,
       {
-        title: Y.kind === "create" ? "New Source" : `Edit ${Y.original.name}`,
-        onClose: Z,
-        onSave: o,
-        saving: h || !T.name || !T.resolverInstanceId || Y.kind === "create" && !T.id,
+        title: G.kind === "create" ? "New Source" : `Edit ${G.original.name}`,
+        onClose: te,
+        onSave: s,
+        saving: c || !v.name || !v.resolverInstanceId || G.kind === "create" && !v.id,
         children: [
-          /* @__PURE__ */ e(b, { label: "ID", children: /* @__PURE__ */ e(
+          /* @__PURE__ */ e(I, { label: "ID", children: /* @__PURE__ */ e(
             "input",
             {
               className: "field-input",
-              value: T.id || "",
-              disabled: Y.kind === "edit",
-              onChange: (l) => B((g) => ({ ...g, id: l.target.value })),
+              value: v.id || "",
+              disabled: G.kind === "edit",
+              onChange: (d) => W((g) => ({ ...g, id: d.target.value })),
               placeholder: "e.g. FILE_LOCAL"
             }
           ) }),
-          /* @__PURE__ */ e(b, { label: "Name", children: /* @__PURE__ */ e("input", { className: "field-input", value: T.name || "", onChange: (l) => B((g) => ({ ...g, name: l.target.value })) }) }),
-          /* @__PURE__ */ e(b, { label: "Description", children: /* @__PURE__ */ e(
+          /* @__PURE__ */ e(I, { label: "Name", children: /* @__PURE__ */ e("input", { className: "field-input", value: v.name || "", onChange: (d) => W((g) => ({ ...g, name: d.target.value })) }) }),
+          /* @__PURE__ */ e(I, { label: "Description", children: /* @__PURE__ */ e(
             "textarea",
             {
               className: "field-input",
               rows: 2,
-              value: T.description || "",
-              onChange: (l) => B((g) => ({ ...g, description: l.target.value }))
+              value: v.description || "",
+              onChange: (d) => W((g) => ({ ...g, description: d.target.value }))
             }
           ) }),
-          /* @__PURE__ */ e(b, { label: "Resolver", children: /* @__PURE__ */ i(
+          /* @__PURE__ */ e(I, { label: "Resolver", children: /* @__PURE__ */ n(
             "select",
             {
               className: "field-input",
-              value: T.resolverInstanceId || "",
-              onChange: (l) => B((g) => ({ ...g, resolverInstanceId: l.target.value })),
+              value: v.resolverInstanceId || "",
+              onChange: (d) => W((g) => ({ ...g, resolverInstanceId: d.target.value })),
               children: [
                 /* @__PURE__ */ e("option", { value: "", children: "— select —" }),
-                P.map((l) => /* @__PURE__ */ i("option", { value: l.instanceId, children: [
-                  l.algorithmCode,
+                S.map((d) => /* @__PURE__ */ n("option", { value: d.instanceId, children: [
+                  d.algorithmCode,
                   " — ",
-                  l.instanceName
-                ] }, l.instanceId))
+                  d.instanceName
+                ] }, d.instanceId))
               ]
             }
           ) }),
-          /* @__PURE__ */ e(ze, { label: "Color", value: T.color, onChange: (l) => B((g) => ({ ...g, color: l })) }),
-          /* @__PURE__ */ e(dt, { value: T.icon, onChange: (l) => B((g) => ({ ...g, icon: l })) })
+          /* @__PURE__ */ e(Pe, { label: "Color", value: v.color, onChange: (d) => W((g) => ({ ...g, color: d })) }),
+          /* @__PURE__ */ e(ot, { value: v.icon, onChange: (d) => W((g) => ({ ...g, icon: d })) })
         ]
       }
     )
   ] });
 }
-function kt({ userId: t, canWrite: n, toast: r }) {
-  const [c, k] = x([]), [P, u] = x([]), [m, V] = x([]), [Y, O] = x(!0), [T, B] = x(null), [h, S] = x({}), [X, J] = x(!1);
-  async function w() {
-    const [y, M, Q] = await Promise.all([
+function Lt({ userId: a, canWrite: t, toast: l }) {
+  const [y, T] = _([]), [S, p] = _([]), [C, P] = _([]), [G, M] = _(!0), [v, W] = _(null), [c, x] = _({}), [H, ae] = _(!1);
+  async function L() {
+    const [h, V, J] = await Promise.all([
       f.getImportContexts().catch(() => []),
       f.getImportAlgorithmInstances().catch(() => []),
       f.getValidationAlgorithmInstances().catch(() => [])
     ]);
-    k(Array.isArray(y) ? y : []), u(Array.isArray(M) ? M : []), V(Array.isArray(Q) ? Q : []);
+    T(Array.isArray(h) ? h : []), p(Array.isArray(V) ? V : []), P(Array.isArray(J) ? J : []);
   }
-  Se(() => {
-    w().finally(() => O(!1));
-  }, [t]);
-  function Z() {
-    S({ code: "", label: "", allowedRootNodeTypes: "", acceptedFormats: "", importContextAlgorithmInstanceId: "", nodeValidationAlgorithmInstanceId: "" }), B({ kind: "create" });
+  Ae(() => {
+    L().finally(() => M(!1));
+  }, [a]);
+  function te() {
+    x({ code: "", label: "", allowedRootNodeTypes: "", acceptedFormats: "", importContextAlgorithmInstanceId: "", nodeValidationAlgorithmInstanceId: "" }), W({ kind: "create" });
   }
-  function o(y) {
-    S({
-      code: y.code,
-      label: y.label,
-      allowedRootNodeTypes: y.allowedRootNodeTypes || "",
-      acceptedFormats: y.acceptedFormats || "",
-      importContextAlgorithmInstanceId: y.importContextAlgorithmInstanceId || "",
-      nodeValidationAlgorithmInstanceId: y.nodeValidationAlgorithmInstanceId || ""
-    }), B({ kind: "edit", original: y });
+  function s(h) {
+    x({
+      code: h.code,
+      label: h.label,
+      allowedRootNodeTypes: h.allowedRootNodeTypes || "",
+      acceptedFormats: h.acceptedFormats || "",
+      importContextAlgorithmInstanceId: h.importContextAlgorithmInstanceId || "",
+      nodeValidationAlgorithmInstanceId: h.nodeValidationAlgorithmInstanceId || ""
+    }), W({ kind: "edit", original: h });
   }
-  function D() {
-    B(null), S({});
+  function R() {
+    W(null), x({});
   }
-  function l(y) {
-    return y.name || y.instanceName || y.algorithmCode || y.instanceId || y.id || "?";
+  function d(h) {
+    return h.name || h.instanceName || h.algorithmCode || h.instanceId || h.id || "?";
   }
-  function g(y) {
-    return y.instanceId || y.id;
+  function g(h) {
+    return h.instanceId || h.id;
   }
-  async function v() {
-    var y, M, Q, E;
-    J(!0);
+  async function N() {
+    var h, V, J, se;
+    ae(!0);
     try {
-      const N = {
-        code: (y = h.code) == null ? void 0 : y.trim(),
-        label: (M = h.label) == null ? void 0 : M.trim(),
-        allowedRootNodeTypes: ((Q = h.allowedRootNodeTypes) == null ? void 0 : Q.trim()) || null,
-        acceptedFormats: ((E = h.acceptedFormats) == null ? void 0 : E.trim()) || null,
-        importContextAlgorithmInstanceId: h.importContextAlgorithmInstanceId || null,
-        nodeValidationAlgorithmInstanceId: h.nodeValidationAlgorithmInstanceId || null
+      const m = {
+        code: (h = c.code) == null ? void 0 : h.trim(),
+        label: (V = c.label) == null ? void 0 : V.trim(),
+        allowedRootNodeTypes: ((J = c.allowedRootNodeTypes) == null ? void 0 : J.trim()) || null,
+        acceptedFormats: ((se = c.acceptedFormats) == null ? void 0 : se.trim()) || null,
+        importContextAlgorithmInstanceId: c.importContextAlgorithmInstanceId || null,
+        nodeValidationAlgorithmInstanceId: c.nodeValidationAlgorithmInstanceId || null
       };
-      T.kind === "create" ? (await f.createImportContext(N), r("Import context created", "success")) : (await f.updateImportContext(T.original.id, N), r("Import context updated", "success")), D(), await w();
-    } catch (N) {
-      r(N, "error");
+      v.kind === "create" ? (await f.createImportContext(m), l("Import context created", "success")) : (await f.updateImportContext(v.original.id, m), l("Import context updated", "success")), R(), await L();
+    } catch (m) {
+      l(m, "error");
     } finally {
-      J(!1);
+      ae(!1);
     }
   }
-  async function p(y) {
-    if (window.confirm(`Delete import context "${y.label}" (${y.code})?`))
+  async function u(h) {
+    if (window.confirm(`Delete import context "${h.label}" (${h.code})?`))
       try {
-        await f.deleteImportContext(y.id), r("Import context deleted", "success"), await w();
-      } catch (M) {
-        r(M, "error");
+        await f.deleteImportContext(h.id), l("Import context deleted", "success"), await L();
+      } catch (V) {
+        l(V, "error");
       }
   }
-  function C(y, M) {
-    if (!M) return "—";
-    const Q = y.find((E) => g(E) === M);
-    return Q ? l(Q) : M;
+  function A(h, V) {
+    if (!V) return "—";
+    const J = h.find((se) => g(se) === V);
+    return J ? d(J) : V;
   }
-  return Y ? /* @__PURE__ */ e("div", { style: { padding: 16, color: "var(--muted)" }, children: "Loading…" }) : /* @__PURE__ */ i("div", { style: { padding: "0 16px 24px" }, children: [
-    /* @__PURE__ */ i("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }, children: [
-      /* @__PURE__ */ i("div", { style: { flex: 1, fontSize: 12, color: "var(--muted)" }, children: [
+  return G ? /* @__PURE__ */ e("div", { style: { padding: 16, color: "var(--muted)" }, children: "Loading…" }) : /* @__PURE__ */ n("div", { style: { padding: "0 16px 24px" }, children: [
+    /* @__PURE__ */ n("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }, children: [
+      /* @__PURE__ */ n("div", { style: { flex: 1, fontSize: 12, color: "var(--muted)" }, children: [
         "Import contexts bind a logical code to algorithm instances for CAD file processing (cad-api) and node validation (psm-api). The built-in",
         " ",
         /* @__PURE__ */ e("span", { className: "settings-badge", children: "default" }),
         " context uses service-level default algorithms when no specific context is requested."
       ] }),
-      n && /* @__PURE__ */ i("button", { className: "btn btn-primary btn-sm", onClick: Z, children: [
-        /* @__PURE__ */ e(ge, { size: 11, strokeWidth: 2 }),
+      t && /* @__PURE__ */ n("button", { className: "btn btn-primary btn-sm", onClick: te, children: [
+        /* @__PURE__ */ e(be, { size: 11, strokeWidth: 2 }),
         " Add Context"
       ] })
     ] }),
-    /* @__PURE__ */ i("table", { className: "settings-table", children: [
-      /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ i("tr", { children: [
+    /* @__PURE__ */ n("table", { className: "settings-table", children: [
+      /* @__PURE__ */ e("thead", { children: /* @__PURE__ */ n("tr", { children: [
         /* @__PURE__ */ e("th", { style: { width: 140 }, children: "Code" }),
         /* @__PURE__ */ e("th", { children: "Label" }),
         /* @__PURE__ */ e("th", { children: "Import algorithm" }),
         /* @__PURE__ */ e("th", { children: "Validation algorithm" }),
         /* @__PURE__ */ e("th", { style: { width: 90 } })
       ] }) }),
-      /* @__PURE__ */ e("tbody", { children: c.map((y) => /* @__PURE__ */ i("tr", { children: [
-        /* @__PURE__ */ i("td", { className: "settings-td-mono", children: [
-          y.code,
-          y.code === "default" && /* @__PURE__ */ e("span", { className: "settings-badge", style: { marginLeft: 4 }, children: "built-in" })
+      /* @__PURE__ */ e("tbody", { children: y.map((h) => /* @__PURE__ */ n("tr", { children: [
+        /* @__PURE__ */ n("td", { className: "settings-td-mono", children: [
+          h.code,
+          h.code === "default" && /* @__PURE__ */ e("span", { className: "settings-badge", style: { marginLeft: 4 }, children: "built-in" })
         ] }),
-        /* @__PURE__ */ e("td", { children: y.label }),
-        /* @__PURE__ */ e("td", { style: { fontSize: 12, color: "var(--muted)" }, children: C(P, y.importContextAlgorithmInstanceId) }),
-        /* @__PURE__ */ e("td", { style: { fontSize: 12, color: "var(--muted)" }, children: C(m, y.nodeValidationAlgorithmInstanceId) }),
-        /* @__PURE__ */ e("td", { style: { textAlign: "right", whiteSpace: "nowrap" }, children: n && /* @__PURE__ */ i(ne, { children: [
-          /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => o(y), children: /* @__PURE__ */ e(pe, { size: 12, strokeWidth: 2, color: "var(--accent)" }) }),
-          y.code !== "default" && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: () => p(y), style: { marginLeft: 4 }, children: /* @__PURE__ */ e(ae, { size: 12, strokeWidth: 2, color: "var(--danger)" }) })
+        /* @__PURE__ */ e("td", { children: h.label }),
+        /* @__PURE__ */ e("td", { style: { fontSize: 12, color: "var(--muted)" }, children: A(S, h.importContextAlgorithmInstanceId) }),
+        /* @__PURE__ */ e("td", { style: { fontSize: 12, color: "var(--muted)" }, children: A(C, h.nodeValidationAlgorithmInstanceId) }),
+        /* @__PURE__ */ e("td", { style: { textAlign: "right", whiteSpace: "nowrap" }, children: t && /* @__PURE__ */ n(re, { children: [
+          /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Edit", onClick: () => s(h), children: /* @__PURE__ */ e(ye, { size: 12, strokeWidth: 2, color: "var(--accent)" }) }),
+          h.code !== "default" && /* @__PURE__ */ e("button", { className: "panel-icon-btn", title: "Delete", onClick: () => u(h), style: { marginLeft: 4 }, children: /* @__PURE__ */ e(ce, { size: 12, strokeWidth: 2, color: "var(--danger)" }) })
         ] }) })
-      ] }, y.id)) })
+      ] }, h.id)) })
     ] }),
-    T && /* @__PURE__ */ i(
-      De,
+    v && /* @__PURE__ */ n(
+      Re,
       {
-        title: T.kind === "create" ? "New Import Context" : `Edit ${T.original.label}`,
-        onClose: D,
-        onSave: v,
-        saving: X || !h.label || T.kind === "create" && !h.code,
+        title: v.kind === "create" ? "New Import Context" : `Edit ${v.original.label}`,
+        onClose: R,
+        onSave: N,
+        saving: H || !c.label || v.kind === "create" && !c.code,
         children: [
-          /* @__PURE__ */ e(b, { label: "Code", children: /* @__PURE__ */ e(
+          /* @__PURE__ */ e(I, { label: "Code", children: /* @__PURE__ */ e(
             "input",
             {
               className: "field-input",
-              value: h.code || "",
-              disabled: T.kind === "edit",
-              onChange: (y) => S((M) => ({ ...M, code: y.target.value })),
+              value: c.code || "",
+              disabled: v.kind === "edit",
+              onChange: (h) => x((V) => ({ ...V, code: h.target.value })),
               placeholder: "e.g. catia-v5-mech"
             }
           ) }),
-          /* @__PURE__ */ e(b, { label: "Label", children: /* @__PURE__ */ e("input", { className: "field-input", value: h.label || "", onChange: (y) => S((M) => ({ ...M, label: y.target.value })) }) }),
-          /* @__PURE__ */ e(b, { label: "Accepted formats", children: /* @__PURE__ */ e("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }, children: gt.map((y) => {
-            const M = h.acceptedFormats || "", Q = M.includes(`"${y}"`);
-            function E() {
-              let N = [];
+          /* @__PURE__ */ e(I, { label: "Label", children: /* @__PURE__ */ e("input", { className: "field-input", value: c.label || "", onChange: (h) => x((V) => ({ ...V, label: h.target.value })) }) }),
+          /* @__PURE__ */ e(I, { label: "Accepted formats", children: /* @__PURE__ */ e("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }, children: ft.map((h) => {
+            const V = c.acceptedFormats || "", J = V.includes(`"${h}"`);
+            function se() {
+              let m = [];
               try {
-                N = JSON.parse(M || "[]");
+                m = JSON.parse(V || "[]");
               } catch {
-                N = [];
+                m = [];
               }
-              N = Q ? N.filter((W) => W !== y) : [...N, y], S((W) => ({ ...W, acceptedFormats: N.length ? JSON.stringify(N) : "" }));
+              m = J ? m.filter((F) => F !== h) : [...m, h], x((F) => ({ ...F, acceptedFormats: m.length ? JSON.stringify(m) : "" }));
             }
-            return /* @__PURE__ */ i("label", { style: { display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }, children: [
-              /* @__PURE__ */ e("input", { type: "checkbox", checked: Q, onChange: E }),
-              y
-            ] }, y);
+            return /* @__PURE__ */ n("label", { style: { display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }, children: [
+              /* @__PURE__ */ e("input", { type: "checkbox", checked: J, onChange: se }),
+              h
+            ] }, h);
           }) }) }),
-          /* @__PURE__ */ e(b, { label: "Import algorithm instance", children: /* @__PURE__ */ i(
+          /* @__PURE__ */ e(I, { label: "Import algorithm instance", children: /* @__PURE__ */ n(
             "select",
             {
               className: "field-input",
-              value: h.importContextAlgorithmInstanceId || "",
-              onChange: (y) => S((M) => ({ ...M, importContextAlgorithmInstanceId: y.target.value })),
+              value: c.importContextAlgorithmInstanceId || "",
+              onChange: (h) => x((V) => ({ ...V, importContextAlgorithmInstanceId: h.target.value })),
               children: [
                 /* @__PURE__ */ e("option", { value: "", children: "— none (use default) —" }),
-                P.map((y) => /* @__PURE__ */ e("option", { value: g(y), children: l(y) }, g(y)))
+                S.map((h) => /* @__PURE__ */ e("option", { value: g(h), children: d(h) }, g(h)))
               ]
             }
           ) }),
-          /* @__PURE__ */ e(b, { label: "Node validation algorithm instance", children: /* @__PURE__ */ i(
+          /* @__PURE__ */ e(I, { label: "Node validation algorithm instance", children: /* @__PURE__ */ n(
             "select",
             {
               className: "field-input",
-              value: h.nodeValidationAlgorithmInstanceId || "",
-              onChange: (y) => S((M) => ({ ...M, nodeValidationAlgorithmInstanceId: y.target.value })),
+              value: c.nodeValidationAlgorithmInstanceId || "",
+              onChange: (h) => x((V) => ({ ...V, nodeValidationAlgorithmInstanceId: h.target.value })),
               children: [
                 /* @__PURE__ */ e("option", { value: "", children: "— none (use default) —" }),
-                m.map((y) => /* @__PURE__ */ e("option", { value: g(y), children: l(y) }, g(y)))
+                C.map((h) => /* @__PURE__ */ e("option", { value: g(h), children: d(h) }, g(h)))
               ]
             }
           ) })
@@ -2685,26 +2896,26 @@ function kt({ userId: t, canWrite: n, toast: r }) {
     )
   ] });
 }
-const Lt = {
+const Ot = {
   id: "psa-settings",
   zone: "settings",
-  init(t) {
-    var n, r;
-    Ue = t.useWebSocket ?? (() => {
-    }), at = ((n = t.components) == null ? void 0 : n.LifecycleDiagram) ?? null, Me = ((r = t.icons) == null ? void 0 : r.NODE_ICONS) ?? {}, it = Object.keys(Me), lt = (c, k, P) => t.http.serviceRequest("pno", c, k, P), rt = (c, k, P) => t.http.serviceRequest("platform", c, k, P), pt(t);
+  init(a) {
+    var t, l;
+    qe = a.useWsEvent ?? (() => {
+    }), lt = ((t = a.components) == null ? void 0 : t.LifecycleDiagram) ?? null, Ve = ((l = a.icons) == null ? void 0 : l.NODE_ICONS) ?? {}, rt = Object.keys(Ve), dt = (y, T, S) => a.http.serviceRequest("pno", y, T, S), Qe = (y, T, S) => a.http.serviceRequest("platform", y, T, S), mt(a);
   },
   sections: {
-    "node-types": Et,
-    domains: Ct,
-    enums: St,
-    lifecycles: At,
-    sources: xt,
-    "import-contexts": kt
+    "node-types": At,
+    domains: xt,
+    enums: wt,
+    lifecycles: kt,
+    sources: _t,
+    "import-contexts": Lt
   }
 };
 export {
-  Ct as DomainsSection,
-  St as EnumsSection,
-  Et as NodeTypesSection,
-  Lt as default
+  xt as DomainsSection,
+  wt as EnumsSection,
+  At as NodeTypesSection,
+  Ot as default
 };

@@ -2,7 +2,6 @@ package com.plm.admin.metamodel;
 
 import com.plm.admin.config.ConfigChangedEvent;
 import com.plm.admin.lifecycle.LifecycleService;
-import com.plm.admin.metadata.MetadataService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -19,7 +18,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -28,7 +26,7 @@ public class MetaModelService {
 
     private final DSLContext dsl;
     private final ApplicationEventPublisher eventPublisher;
-    private final MetadataService metadataService;
+    private final AttributeValidatorAdminService validatorAdminService;
 
     // ================================================================
     // NODE TYPE
@@ -117,7 +115,8 @@ public class MetaModelService {
     public void deleteNodeType(String nodeTypeId) {
         int children = dsl.fetchCount(dsl.selectOne().from("node_type").where("parent_node_type_id = ?", nodeTypeId));
         if (children > 0) throw new IllegalStateException("Node type has " + children + " child type(s)");
-        dsl.execute("DELETE FROM attribute_state_rule WHERE attribute_definition_id IN (SELECT id FROM attribute_definition WHERE node_type_id = ?)", nodeTypeId);
+        dsl.execute("DELETE FROM attribute_validation_rule WHERE attribute_definition_id IN (SELECT id FROM attribute_definition WHERE node_type_id = ?)", nodeTypeId);
+        dsl.execute("DELETE FROM attribute_metadata WHERE attribute_definition_id IN (SELECT id FROM attribute_definition WHERE node_type_id = ?)", nodeTypeId);
         dsl.execute("DELETE FROM view_attribute_override WHERE attribute_def_id IN (SELECT id FROM attribute_definition WHERE node_type_id = ?)", nodeTypeId);
         dsl.execute("DELETE FROM attribute_definition WHERE node_type_id = ?", nodeTypeId);
         dsl.execute(
@@ -134,11 +133,77 @@ public class MetaModelService {
     // ATTRIBUTE DEFINITION
     // ================================================================
 
-    public List<Record> getAttributeDefinitions(String nodeTypeId) {
-        return dsl.select().from("attribute_definition")
+    public List<Map<String, Object>> getAttributeDefinitions(String nodeTypeId) {
+        List<String> chain = buildNodeTypeAncestorChain(nodeTypeId);
+
+        Set<String> seenNames = new LinkedHashSet<>();
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        List<Record> ownAttrs = dsl.select().from("attribute_definition")
             .where("node_type_id = ?", nodeTypeId)
             .orderBy(DSL.field("display_order"))
             .fetch();
+        for (Record ad : ownAttrs) {
+            seenNames.add(ad.get("name", String.class));
+            Map<String, Object> m = new LinkedHashMap<>(ad.intoMap());
+            m.put("inherited", false);
+            m.put("inherited_from", null);
+            result.add(m);
+        }
+
+        for (String ancestorId : chain) {
+            if (ancestorId.equals(nodeTypeId)) continue;
+            String ancestorName = dsl.select(DSL.field("name"))
+                .from("node_type").where("id = ?", ancestorId)
+                .fetchOne(DSL.field("name"), String.class);
+            List<Record> ancestorAttrs = dsl.select().from("attribute_definition")
+                .where("node_type_id = ?", ancestorId)
+                .orderBy(DSL.field("display_order"))
+                .fetch();
+            for (Record ad : ancestorAttrs) {
+                String adName = ad.get("name", String.class);
+                if (!seenNames.add(adName)) continue;
+                Map<String, Object> m = new LinkedHashMap<>(ad.intoMap());
+                m.put("inherited", true);
+                m.put("inherited_from", ancestorName);
+                result.add(m);
+            }
+        }
+        result.forEach(this::enrichAttributeMap);
+        return result;
+    }
+
+    /**
+     * Re-adds the {@code required} / {@code naming_regex} / {@code allowed_values} keys
+     * the admin UI expects. They are no longer columns — required & regex come from the
+     * validation rules / metadata, allowed values are reconstructed from the enum tables.
+     */
+    public void enrichAttributeMap(Map<String, Object> m) {
+        String attrId = (String) m.get("id");
+        if (attrId == null) return;
+        m.put("required", validatorAdminService.isRequiredGlobal(attrId));
+        m.put("naming_regex", validatorAdminService.getRegex(attrId));
+        m.put("allowed_values", enumAllowedJson((String) m.get("enum_definition_id")));
+    }
+
+    /** ENUM value list as JSON {@code [{"value","label"}]} from the enum tables, or null. */
+    String enumAllowedJson(String enumDefId) {
+        if (enumDefId == null || enumDefId.isBlank()) return null;
+        List<Record> rows = dsl.fetch(
+            "SELECT value, label FROM enum_value WHERE enum_definition_id = ? ORDER BY display_order", enumDefId);
+        if (rows.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < rows.size(); i++) {
+            if (i > 0) sb.append(",");
+            String val = rows.get(i).get("value", String.class);
+            String lbl = rows.get(i).get("label", String.class);
+            sb.append("{\"value\":\"").append(val == null ? "" : val.replace("\"", "\\\"")).append("\"");
+            if (lbl != null && !lbl.isBlank()) {
+                sb.append(",\"label\":\"").append(lbl.replace("\"", "\\\"")).append("\"");
+            }
+            sb.append("}");
+        }
+        return sb.append("]").toString();
     }
 
     @Transactional
@@ -152,21 +217,23 @@ public class MetaModelService {
             if (existing > 0) throw new IllegalArgumentException("A 'as_name' attribute already exists for this node type");
         }
         String enumDefId = (String) params.get("enumDefinitionId");
-        String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         dsl.execute("""
             INSERT INTO attribute_definition
-              (ID, NODE_TYPE_ID, NAME, LABEL, DATA_TYPE, REQUIRED, DEFAULT_VALUE,
-               NAMING_REGEX, ALLOWED_VALUES, WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP, AS_NAME,
+              (ID, NODE_TYPE_ID, NAME, LABEL, DATA_TYPE, DEFAULT_VALUE,
+               WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP, AS_NAME,
                ENUM_DEFINITION_ID, CREATED_AT)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             code, nodeTypeId, params.get("name"), params.get("label"),
-            params.getOrDefault("dataType", "STRING"), toIntFlag(params.get("required")),
-            params.get("defaultValue"), params.get("namingRegex"), allowedValues,
+            params.getOrDefault("dataType", "STRING"),
+            params.get("defaultValue"),
             params.getOrDefault("widgetType", "TEXT"), toInt(params.get("displayOrder"), 0),
             params.get("displaySection"), params.get("tooltip"), asName ? 1 : 0,
             enumDefId, LocalDateTime.now()
         );
+        // required / regex are now pluggable validation rules, not columns.
+        validatorAdminService.setRequiredGlobal(code, toIntFlag(params.get("required")) == 1);
+        validatorAdminService.setRegex(code, (String) params.get("namingRegex"));
         publishChange("CREATE", "ATTRIBUTE_DEFINITION", code);
         return code;
     }
@@ -174,45 +241,94 @@ public class MetaModelService {
     @Transactional
     public void updateAttributeDefinition(String attrId, Map<String, Object> params) {
         String enumDefId = (String) params.get("enumDefinitionId");
-        String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         boolean asName = Boolean.TRUE.equals(params.get("asName"));
         dsl.execute("""
             UPDATE attribute_definition SET
-              LABEL = ?, DATA_TYPE = ?, REQUIRED = ?, DEFAULT_VALUE = ?,
-              NAMING_REGEX = ?, ALLOWED_VALUES = ?, WIDGET_TYPE = ?,
+              LABEL = ?, DATA_TYPE = ?, DEFAULT_VALUE = ?, WIDGET_TYPE = ?,
               DISPLAY_ORDER = ?, DISPLAY_SECTION = ?, TOOLTIP = ?, AS_NAME = ?,
               ENUM_DEFINITION_ID = ?
             WHERE ID = ?
             """,
             params.get("label"), params.getOrDefault("dataType", "STRING"),
-            toIntFlag(params.get("required")), params.get("defaultValue"),
-            params.get("namingRegex"), allowedValues, params.getOrDefault("widgetType", "TEXT"),
+            params.get("defaultValue"), params.getOrDefault("widgetType", "TEXT"),
             toInt(params.get("displayOrder"), 0), params.get("displaySection"),
             params.get("tooltip"), asName ? 1 : 0, enumDefId, attrId
         );
+        // required / regex are now pluggable validation rules, not columns.
+        if (params.containsKey("required")) {
+            validatorAdminService.setRequiredGlobal(attrId, toIntFlag(params.get("required")) == 1);
+        }
+        if (params.containsKey("namingRegex")) {
+            validatorAdminService.setRegex(attrId, (String) params.get("namingRegex"));
+        }
         publishChange("UPDATE", "ATTRIBUTE_DEFINITION", attrId);
     }
 
     @Transactional
     public void deleteAttribute(String attrId) {
         dsl.execute("DELETE FROM view_attribute_override WHERE attribute_def_id = ?", attrId);
-        dsl.execute("DELETE FROM attribute_state_rule WHERE attribute_definition_id = ?", attrId);
+        validatorAdminService.deleteAllForAttribute(attrId);
         dsl.execute("DELETE FROM attribute_definition WHERE id = ?", attrId);
         publishChange("DELETE", "ATTRIBUTE_DEFINITION", attrId);
     }
 
     // ================================================================
-    // ATTRIBUTE STATE RULE
+    // ATTRIBUTE STATE MATRIX (required / editable / visible per state)
+    // Backed by attribute_validation_rule + attribute_metadata.
     // ================================================================
 
-    public List<Record> getAttributeStateMatrix(String nodeTypeId) {
-        return dsl.select()
-            .from("attribute_definition ad")
-            .leftJoin("attribute_state_rule asr").on("asr.attribute_definition_id = ad.id")
-            .leftJoin("lifecycle_state ls").on("ls.id = asr.lifecycle_state_id")
-            .where("ad.node_type_id = ?", nodeTypeId)
-            .orderBy(DSL.field("ad.display_order"), DSL.field("ls.display_order"))
-            .fetch();
+    /**
+     * Effective required/editable/visible per (attribute, state), derived from the
+     * validation rules and metadata. Returns one row per attribute × lifecycle state
+     * of the node type's lifecycle, mirroring the legacy matrix shape for the UI.
+     */
+    public List<Map<String, Object>> getAttributeStateMatrix(String nodeTypeId) {
+        List<Record> attrs = dsl.select().from("attribute_definition")
+            .where("node_type_id = ?", nodeTypeId)
+            .orderBy(DSL.field("display_order")).fetch();
+
+        List<Record> states = dsl.fetch(
+            "SELECT ls.id, ls.name, ls.display_order FROM lifecycle_state ls "
+            + "JOIN node_type nt ON nt.lifecycle_id = ls.lifecycle_id "
+            + "WHERE nt.id = ? ORDER BY ls.display_order", nodeTypeId);
+
+        List<Record> rules = dsl.select().from("attribute_validation_rule")
+            .where("(node_type_id = ? OR node_type_id IS NULL)", nodeTypeId).fetch();
+        List<Record> hiddenMeta = dsl.select().from("attribute_metadata")
+            .where("meta_key LIKE 'visibility.hidden.%'").fetch();
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Record ad : attrs) {
+            String attrId = ad.get("id", String.class);
+            boolean requiredAll = ruleExists(rules, attrId, null, AttributeValidatorAdminService.REQUIRED_INSTANCE);
+            for (Record st : states) {
+                String stateId = st.get("id", String.class);
+                boolean required = requiredAll || ruleExists(rules, attrId, stateId, AttributeValidatorAdminService.REQUIRED_INSTANCE);
+                boolean locked   = ruleExists(rules, attrId, stateId, AttributeValidatorAdminService.EDITABLE_INSTANCE);
+                boolean hidden   = hiddenMeta.stream().anyMatch(m ->
+                    attrId.equals(m.get("attribute_definition_id", String.class))
+                    && ("visibility.hidden." + stateId).equals(m.get("meta_key", String.class)));
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("attribute_definition_id", attrId);
+                row.put("name", ad.get("name", String.class));
+                row.put("label", ad.get("label", String.class));
+                row.put("display_order", ad.get("display_order", Integer.class));
+                row.put("lifecycle_state_id", stateId);
+                row.put("state_name", st.get("name", String.class));
+                row.put("required", required);
+                row.put("editable", !locked);
+                row.put("visible", !hidden);
+                out.add(row);
+            }
+        }
+        return out;
+    }
+
+    private static boolean ruleExists(List<Record> rules, String attrId, String stateId, String instanceId) {
+        return rules.stream().anyMatch(r ->
+            attrId.equals(r.get("attribute_definition_id", String.class))
+            && instanceId.equals(r.get("algorithm_instance_id", String.class))
+            && java.util.Objects.equals(stateId, r.get("lifecycle_state_id", String.class)));
     }
 
     @Transactional
@@ -224,16 +340,9 @@ public class MetaModelService {
                 .from("attribute_definition").where("id = ?", attributeDefId)
                 .fetchOne(DSL.field("node_type_id"), String.class);
         }
-        dsl.execute(
-            "DELETE FROM attribute_state_rule WHERE node_type_id = ? AND attribute_definition_id = ? AND lifecycle_state_id = ?",
-            effectiveNodeTypeId, attributeDefId, stateId);
-        String id = UUID.randomUUID().toString();
-        dsl.execute(
-            "INSERT INTO attribute_state_rule (ID, NODE_TYPE_ID, ATTRIBUTE_DEFINITION_ID, LIFECYCLE_STATE_ID, REQUIRED, EDITABLE, VISIBLE) VALUES (?,?,?,?,?,?,?)",
-            id, effectiveNodeTypeId, attributeDefId, stateId,
-            required ? 1 : 0, editable ? 1 : 0, visible ? 1 : 0);
-        publishChange("UPDATE", "ATTRIBUTE_STATE_RULE", id);
-        return id;
+        validatorAdminService.setStateRule(effectiveNodeTypeId, attributeDefId, stateId, required, editable, visible);
+        publishChange("UPDATE", "ATTR_VALIDATOR", attributeDefId);
+        return attributeDefId + ":" + stateId;
     }
 
     // ================================================================
@@ -415,18 +524,17 @@ public class MetaModelService {
     @Transactional
     public String createLinkTypeAttribute(String linkTypeId, Map<String, Object> params) {
         String enumDefId = (String) params.get("enumDefinitionId");
-        String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         String name = (String) params.get("name");
         dsl.execute("""
             INSERT INTO link_type_attribute
               (LINK_TYPE_ID, NAME, LABEL, DATA_TYPE, REQUIRED, DEFAULT_VALUE,
-               NAMING_REGEX, ALLOWED_VALUES, WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP,
+               NAMING_REGEX, WIDGET_TYPE, DISPLAY_ORDER, DISPLAY_SECTION, TOOLTIP,
                ENUM_DEFINITION_ID, CREATED_AT)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             linkTypeId, name, params.get("label"),
             params.getOrDefault("dataType", "STRING"), toIntFlag(params.get("required")),
-            params.get("defaultValue"), params.get("namingRegex"), allowedValues,
+            params.get("defaultValue"), params.get("namingRegex"),
             params.getOrDefault("widgetType", "TEXT"), toInt(params.get("displayOrder"), 0),
             params.get("displaySection"), params.get("tooltip"), enumDefId, LocalDateTime.now()
         );
@@ -437,18 +545,17 @@ public class MetaModelService {
     @Transactional
     public void updateLinkTypeAttribute(String linkTypeId, String name, Map<String, Object> params) {
         String enumDefId = (String) params.get("enumDefinitionId");
-        String allowedValues = resolveAllowedValues(enumDefId, (String) params.get("allowedValues"));
         dsl.execute("""
             UPDATE link_type_attribute SET
               LABEL = ?, DATA_TYPE = ?, REQUIRED = ?, DEFAULT_VALUE = ?,
-              NAMING_REGEX = ?, ALLOWED_VALUES = ?, WIDGET_TYPE = ?,
+              NAMING_REGEX = ?, WIDGET_TYPE = ?,
               DISPLAY_ORDER = ?, DISPLAY_SECTION = ?, TOOLTIP = ?,
               ENUM_DEFINITION_ID = ?
             WHERE LINK_TYPE_ID = ? AND NAME = ?
             """,
             params.get("label"), params.getOrDefault("dataType", "STRING"),
             toIntFlag(params.get("required")), params.get("defaultValue"),
-            params.get("namingRegex"), allowedValues, params.getOrDefault("widgetType", "TEXT"),
+            params.get("namingRegex"), params.getOrDefault("widgetType", "TEXT"),
             toInt(params.get("displayOrder"), 0), params.get("displaySection"),
             params.get("tooltip"), enumDefId, linkTypeId, name
         );
@@ -515,30 +622,6 @@ public class MetaModelService {
                 .fetchOne(DSL.field("parent_node_type_id"), String.class);
             depth++;
         }
-    }
-
-    private String resolveAllowedValues(String enumDefId, String explicitAllowedValues) {
-        if (enumDefId != null && !enumDefId.isBlank()) {
-            var rows = dsl.select(DSL.field("value"), DSL.field("label"))
-                .from("enum_value").where("enum_definition_id = ?", enumDefId)
-                .orderBy(DSL.field("display_order")).fetch();
-            if (!rows.isEmpty()) {
-                StringBuilder sb = new StringBuilder("[");
-                for (int i = 0; i < rows.size(); i++) {
-                    if (i > 0) sb.append(",");
-                    String val = rows.get(i).get("value", String.class);
-                    String lbl = rows.get(i).get("label", String.class);
-                    sb.append("{\"value\":\"").append(val.replace("\"", "\\\"")).append("\"");
-                    if (lbl != null && !lbl.isBlank()) {
-                        sb.append(",\"label\":\"").append(lbl.replace("\"", "\\\"")).append("\"");
-                    }
-                    sb.append("}");
-                }
-                sb.append("]");
-                return sb.toString();
-            }
-        }
-        return explicitAllowedValues;
     }
 
     private void publishChange(String changeType, String entityType, String entityId) {

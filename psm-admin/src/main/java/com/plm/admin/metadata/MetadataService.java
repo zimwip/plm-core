@@ -65,6 +65,13 @@ public class MetadataService {
     }
 
     @Transactional
+    public void removeOne(String targetType, String targetId, String key) {
+        dsl.execute(
+            "DELETE FROM entity_metadata WHERE target_type = ? AND target_id = ? AND meta_key = ?",
+            targetType, targetId, key);
+    }
+
+    @Transactional
     public void removeAll(String targetType, String targetId) {
         dsl.execute(
             "DELETE FROM entity_metadata WHERE target_type = ? AND target_id = ?",

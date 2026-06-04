@@ -30,15 +30,6 @@ public interface MetaModelCachePort {
     /** All domain infos keyed by ID. */
     Map<String, DomainInfo> getAllDomainInfos();
 
-    /** State rule info (simplified from JOOQ Record). */
-    record StateRuleInfo(boolean required, boolean editable, boolean visible) {}
-
-    /**
-     * Returns the most specific state rule for a (contextNodeTypeId, attrDefId, stateId) triple.
-     * Returns null if no rule exists.
-     */
-    StateRuleInfo getStateRuleInfo(String contextNodeTypeId, String attrDefId, String stateId);
-
     /** Invalidates the cache; next access triggers a rebuild. No-op for push-based implementations. */
     void invalidate();
 }

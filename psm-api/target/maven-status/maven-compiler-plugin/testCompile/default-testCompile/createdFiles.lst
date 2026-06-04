@@ -1,6 +1,3 @@
-com/plm/PlmIntegrationTest.class
-com/plm/PlmAttributeValidationTest.class
-com/plm/PlmRoleAndViewTest.class
 com/plm/ModularArchitectureTest.class
-com/plm/PlmTransactionTest.class
 com/plm/PlmExtendedTest.class
+com/plm/PlmAttributeValidationTest.class

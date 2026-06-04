@@ -95,7 +95,7 @@ public class TransactionFederatorClient {
         } catch (Exception e) {
             String detail = upstreamError(e);
             log.warn("Transaction op failed on {}: {}", serviceCode, detail);
-            throw new com.plm.platform.api.shared.PlmFunctionalException("[" + serviceCode + "] " + detail, 502);
+            throw new com.plm.platform.exception.PlmFunctionalException("[" + serviceCode + "] " + detail, 502);
         }
     }
 

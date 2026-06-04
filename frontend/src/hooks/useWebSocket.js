@@ -1,7 +1,8 @@
 // hooks/useWebSocket.js
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { getSessionToken } from '../services/api';
 import { useShellStore } from '../shell/shellStore';
+import { useWsEvent } from './useWsEvent';
 
 function wsLog(level, message) {
   useShellStore.getState().appendLog(level, message);
@@ -88,7 +89,16 @@ function closeSocket() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (socket) {
     socket.onclose = null; // prevent reconnect on intentional close
-    socket.close();
+    socket.onmessage = null;
+    if (socket.readyState === WebSocket.CONNECTING) {
+      // Calling close() on a still-CONNECTING socket logs
+      // "WebSocket is closed before the connection is established".
+      // Defer the close until it opens, then shut it down cleanly.
+      const s = socket;
+      s.onopen = () => s.close();
+    } else {
+      socket.close();
+    }
     socket = null;
   }
 }
@@ -138,16 +148,22 @@ function setProjectSpace(ps) {
  *
  * Auth: session token passed as ?token= on the /api/ws URL.
  *
- * @param {string|string[]} topics  - Kept for API compatibility. Ignored —
- *                                    NATS subjects handle scoping server-side.
  * @param {function} onEvent        - Called with each parsed JSON event object.
  * @param {string} userId           - Triggers reconnect when the user changes.
  * @param {string} projectSpaceId   - Current project space; sent via subscribe
  *                                    message after connect and on each change.
  */
-export function useWebSocket(topics, onEvent, userId, projectSpaceId) {
-  const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+/**
+ * Shell-only: owns the single physical WebSocket connection (ref-counted,
+ * reconnect on user change) and subscribes {@code onEvent} to the bus.
+ *
+ * Non-shell code must NOT call this — use {@link useWsEvent} (exposed as
+ * {@code shellAPI.useWsEvent}) instead, so there is never more than one
+ * physical connection.
+ */
+export function useWebSocket(onEvent, userId, projectSpaceId) {
+  // Event subscription on the shared bus.
+  useWsEvent(onEvent);
 
   // ── Shared connection lifetime (reconnect on user change) ─────────
   useEffect(() => {
@@ -155,15 +171,7 @@ export function useWebSocket(topics, onEvent, userId, projectSpaceId) {
     return () => release();
   }, [userId]);
 
-  // ── Logical event subscription on the shared bus ──────────────────
-  useEffect(() => {
-    const handler = (evt) => { if (onEventRef.current) onEventRef.current(evt); };
-    return useShellStore.getState().subscribeWsEvent(handler);
-  }, []);
-
   // ── Project space subscription (no reconnect on ps change) ────────
-  // Only the shell passes projectSpaceId; other callers (plugins) omit it
-  // and must not clobber the shared value.
   useEffect(() => {
     if (projectSpaceId === undefined) return;
     setProjectSpace(projectSpaceId);

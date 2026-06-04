@@ -176,7 +176,7 @@ export default function BrowseNav({
     const k = keyOf(d);
     setLoadingItems(s => ({ ...s, [k]: true }));
     try {
-      const res = await api.fetchListableItems(userId, d, page, PAGE_SIZE);
+      const res = await api.fetchListableItems(d, page, PAGE_SIZE);
       setPages(s => {
         const prev = s[k];
         const merged = page === 0 || !prev

@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 import { eventBus } from './EventBus';
 import { useShellStore } from './shellStore';
 import { usePlmStore } from '../store/usePlmStore';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useWsEvent } from '../hooks/useWsEvent';
 import {
   getSessionToken, getProjectSpaceId as apiGetProjectSpaceId,
   api, txApi, authoringApi, cadApi, pollJobStatus,
@@ -41,7 +41,9 @@ export function createShellAPI({ navigate, openTab, closeTab }) {
     // Remote plugins share the same React instance (importmap), so Zustand
     // hooks work correctly when called in remote component bodies.
     usePlmStore,
-    useWebSocket,
+    // Subscribe-only WS access for plugins. The physical connection is owned
+    // exclusively by the shell (App.jsx) — plugins only register event handlers.
+    useWsEvent,
 
     // ── Backend API clients — pre-configured with auth + error handling ──
     api, txApi, authoringApi, cadApi,

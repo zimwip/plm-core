@@ -114,7 +114,7 @@ export const usePlmStore = create((set, get) => ({
     try {
       const psmDescs = items.filter(d => d.serviceCode === 'psm' && d.list);
       const pages = await Promise.all(
-        psmDescs.map(d => api.fetchListableItems(userId, d, 0, 50)
+        psmDescs.map(d => api.fetchListableItems(d, 0, 50)
           .then(r => r.items || [])
           .catch(() => []))
       );
@@ -145,9 +145,9 @@ export const usePlmStore = create((set, get) => ({
     const { userId } = get();
     if (!userId) return;
     try {
-      const t = await txApi.current(userId);
+      const t = await txApi.current();
       if (t) {
-        const items = await txApi.nodes(userId, t.serviceCode, t.txId).catch(() => []);
+        const items = await txApi.nodes(t.serviceCode, t.txId).catch(() => []);
         const nodes = Array.isArray(items) ? items : [];
         const locked = new Set(nodes.map(n => n.itemId).filter(Boolean));
         set({ activeTx: t, txNodes: nodes, lockedByMe: locked });

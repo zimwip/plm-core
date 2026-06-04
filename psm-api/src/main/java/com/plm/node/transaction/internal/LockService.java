@@ -231,7 +231,7 @@ public class LockService {
         static final LockInfo FREE = new LockInfo(false, null, null);
     }
 
-    public static class LockConflictException extends com.plm.shared.exception.PlmFunctionalException {
+    public static class LockConflictException extends com.plm.platform.exception.PlmFunctionalException {
         public LockConflictException(String nodeId, String lockedBy) {
             super("Node " + nodeId + " is locked by " + lockedBy, 409);
         }

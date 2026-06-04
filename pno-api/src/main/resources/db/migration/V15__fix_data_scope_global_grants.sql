@@ -1,8 +1,0 @@
--- ============================================================
--- V15 — No-op
---
--- Originally attempted to convert DATA grants to NULL project_space_id.
--- DST now reads X-PLM-ProjectSpace from every request so project-space
--- context is available normally. The V13 project-space-specific grants
--- (CROSS JOIN) remain correct. No schema change needed.
--- ============================================================

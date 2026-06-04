@@ -90,14 +90,22 @@ public class NodeController {
             .anyMatch(a -> "update_node".equals(a.code())
                 && a.guardViolations().isEmpty());
 
+        // Node-level editable (global): gated by lock/checkout/tx/permission via the
+        // update_node action. When the node is not editable, every field is readonly —
+        // per-attribute editable rules can only further restrict (effective = node AND attr).
         List<FieldValue> values = globalCanWrite ? base.values() : base.values().stream()
-            .map(f -> f.editable()
-                ? new FieldValue(f.name(), f.value(), false, f.required())
-                : f)
+            .map(f -> {
+                java.util.Map<String, Object> e = new java.util.LinkedHashMap<>(f.extras());
+                e.put("editable", false);
+                return new FieldValue(f.name(), f.value(), e);
+            })
             .toList();
 
+        java.util.Map<String, Object> metadata = new java.util.LinkedHashMap<>(base.metadata());
+        metadata.put("editable", globalCanWrite);
+
         return ResponseEntity.ok(new DetailDescriptor(
-            base.id(), base.itemType(), values, actions, base.metadata()));
+            base.id(), base.itemType(), values, actions, metadata));
     }
 
     // ── Liens — lecture ───────────────────────────────────────────────

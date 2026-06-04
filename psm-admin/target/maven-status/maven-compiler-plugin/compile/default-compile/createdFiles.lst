@@ -5,6 +5,7 @@ com/plm/admin/shared/JacksonConfig.class
 com/plm/admin/lifecycle/LifecycleController.class
 com/plm/admin/source/SourceService$1.class
 com/plm/admin/importcontext/ImportContextService$1.class
+com/plm/admin/metamodel/AttributeValidatorController.class
 com/plm/admin/lifecycle/LifecycleGuardService$1.class
 com/plm/admin/shared/GlobalExceptionHandler.class
 com/plm/admin/authz/NodeTypeValueProvider.class
@@ -13,7 +14,10 @@ com/plm/admin/config/ConfigSnapshotBuilder.class
 com/plm/admin/metadata/MetadataService.class
 com/plm/admin/importcontext/ImportContextService.class
 com/plm/admin/importcontext/ImportContextController.class
+com/plm/admin/metamodel/AttributeValidatorBootstrap$1.class
 com/plm/admin/source/SourceService.class
+com/plm/admin/metamodel/AttributeValidatorAdminService.class
+com/plm/admin/metamodel/AttributeValidatorBootstrap.class
 com/plm/admin/config/PlatformConfigRelay.class
 com/plm/admin/lifecycle/LifecycleGuardService.class
 com/plm/admin/shared/MapKeyUtil.class
@@ -28,14 +32,15 @@ com/plm/admin/security/PlmAdminUserContext.class
 com/plm/admin/source/SourceDto.class
 com/plm/admin/config/ConfigSnapshotBuilder$PlatformActionSnapshot.class
 com/plm/admin/shared/JacksonConfig$1.class
-com/plm/admin/shared/PlmFunctionalException.class
 com/plm/admin/permission/PermissionAdminService.class
 com/plm/admin/domain/DomainService.class
 com/plm/admin/metamodel/MetaModelService.class
+com/plm/admin/metamodel/AttributeValidatorBootstrap$Instances.class
 com/plm/admin/enumdef/EnumDefinitionController.class
 com/plm/admin/security/PlmAdminSecurityContext.class
 com/plm/admin/permission/RoleController.class
 com/plm/admin/settings/PsmAdminSettingSections.class
+com/plm/admin/metamodel/AttributeValidatorBootstrap$2.class
 com/plm/admin/config/ConfigSnapshotBuilder$1.class
 com/plm/admin/security/PsmAdminAuthContextBinder.class
 com/plm/admin/source/SourceController.class

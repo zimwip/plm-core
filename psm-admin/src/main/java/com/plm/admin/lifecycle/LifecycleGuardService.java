@@ -93,7 +93,7 @@ public class LifecycleGuardService {
         eventPublisher.publishEvent(new ConfigChangedEvent("DELETE", "LIFECYCLE_TRANSITION_GUARD", transitionId));
     }
 
-    private Map<String, Map<String, Object>> fetchInstanceIndex() {
+    public Map<String, Map<String, Object>> fetchInstanceIndex() {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Service-Secret", serviceSecret);

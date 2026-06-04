@@ -5,6 +5,11 @@ package com.plm.shared.model;
  * Built from config snapshots provided by psm-admin, walking the
  * parent_node_type_id chain.
  *
+ * <p><b>Validation is no longer carried here.</b> {@code required} and naming-regex
+ * moved to pluggable {@code AttributeValidator} rules (see {@code AttributeValidatorService}).
+ * {@code allowedValues} is the resolved ENUM value list (JSON), reconstructed from the
+ * enum tables — kept for rendering and intrinsic ENUM membership checks.
+ *
  * @param inherited        true when this attribute is defined in an ancestor type
  * @param inheritedFrom    display name of the ancestor type that defines it, or null if own
  * @param ownerNodeTypeId  the node_type_id of the type that actually defines this attribute_definition row (null for domain attrs)
@@ -17,9 +22,7 @@ public record ResolvedAttribute(
     String label,
     String dataType,
     String widgetType,
-    boolean required,
     String defaultValue,
-    String namingRegex,
     String allowedValues,
     String enumDefinitionId,
     int displayOrder,

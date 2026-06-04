@@ -229,7 +229,7 @@ export default function NodeEditor({
   onRegisterPreview,
 }) {
   const {
-    usePlmStore, useWebSocket,
+    usePlmStore, useWsEvent,
     api, txApi, authoringApi, pollJobStatus,
     jobs: shellJobs,
     getDraggedNode, clearDraggedNode,
@@ -587,8 +587,7 @@ export default function NodeEditor({
     }
   }, [linkPanel]);
 
-  useWebSocket(
-    nodeId ? `/topic/nodes/${nodeId}` : null,
+  useWsEvent(
     (evt) => {
       // With NATS global subjects, all events arrive. Filter by nodeId.
       if (evt.nodeId && evt.nodeId !== nodeId) return;
@@ -608,22 +607,17 @@ export default function NodeEditor({
         refreshCommentCounts();
       }
     },
-    userId,
   );
 
-  useWebSocket(
-    '/topic/global',
-    (evt) => {
-      if (evt.event === 'METAMODEL_CHANGED') {
-        clearLinkTypeCache();
-        psmApi.clearDomainDescriptorCache();
-        setPbsLoaded(false);
-        setTypeDesc(null);
-        setDomainDescs(new Map());
-      }
-    },
-    userId,
-  );
+  useWsEvent((evt) => {
+    if (evt.event === 'METAMODEL_CHANGED') {
+      clearLinkTypeCache();
+      psmApi.clearDomainDescriptorCache();
+      setPbsLoaded(false);
+      setTypeDesc(null);
+      setDomainDescs(new Map());
+    }
+  });
 
   async function openDiff(v2Num) {
     // Compare the selected version with the previous one in the history list
@@ -947,19 +941,23 @@ export default function NodeEditor({
 
       const sourceDomainId   = em.sourceDomainId   || dom?.enrich?.sourceDomainId   || legacy?.sourceDomainId   || '';
       const sourceDomainName = em.sourceDomainName  || dom?.enrich?.sourceDomainName || dom?.domainName          || legacy?.sourceDomainName || '';
+      const fvExtras = fv.extras || {};
       const a = {
         id:           fv.name,
         name:         fv.name,
         value:        fv.value,
-        editable:     fv.editable ?? false,
-        required:     fv.required ?? legacy?.required ?? false,
+        // Per-field decision comes only from field extras (no legacy fallback);
+        // node-level gating is applied at render time via the node metadata.
+        editable:     fvExtras.editable ?? true,
+        required:     fvExtras.required ?? false,
         label:        tm?.label   ?? dom?.fm?.label   ?? legacy?.label ?? fv.name,
         widget:       fv.widget   ?? tm?.widget        ?? dom?.fm?.widget ?? legacy?.widget ?? 'text',
         tooltip:      fv.hint     ?? tm?.hint          ?? dom?.fm?.tooltip ?? legacy?.tooltip ?? null,
         hint:         fv.hint     ?? tm?.hint          ?? dom?.fm?.tooltip ?? legacy?.hint ?? null,
         displayOrder: tm?.displayOrder ?? dom?.fm?.displayOrder ?? legacy?.displayOrder ?? 0,
         section:      tm?.group        ?? dom?.fm?.group        ?? legacy?.section ?? 'General',
-        namingRegex:     em.namingRegex    || dom?.enrich?.namingRegex    || legacy?.namingRegex    || '',
+        namingRegex:     em.namingRegex    || em.regex || dom?.enrich?.namingRegex    || legacy?.namingRegex    || '',
+        description:     em.description    || dom?.enrich?.description    || '',
         allowedValues:   em.allowedValues  || dom?.enrich?.allowedValues  || legacy?.allowedValues  || '',
         sourceDomainId,
         sourceDomainName,
@@ -1382,9 +1380,12 @@ export default function NodeEditor({
 
       {/* ── Attributes ───────────────────────────────── */}
       {activeSubTab === 'attributes' && (() => {
+        // Node-level editable gate (lock/checkout/tx/permission) from the descriptor metadata.
+        // Effective per-field editability = node editable AND the field's own extras.editable.
+        const nodeEditable = activeDesc?.metadata?.editable !== false;
         const renderAttrField = (attr) => {
           const currentVal = edits[attr.id] !== undefined ? edits[attr.id] : (attr.value || '');
-          const isEditable = attr.editable && !!updateNodeAction;
+          const isEditable = nodeEditable && attr.editable;
           const rawEnum = attr.allowedValues
             ? (() => { try { return JSON.parse(attr.allowedValues); } catch { return []; } })()
             : null;
@@ -1483,6 +1484,9 @@ export default function NodeEditor({
               )}
               {!attr.namingRegex && attr.tooltip && (
                 <span className="field-hint">{attr.tooltip}</span>
+              )}
+              {attr.description && (
+                <span className="field-hint">{attr.description}</span>
               )}
               {requiredViolation && (
                 <span className="field-hint error">Required</span>

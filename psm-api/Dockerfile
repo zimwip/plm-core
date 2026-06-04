@@ -16,6 +16,9 @@ FROM docker.io/library/node:20-alpine AS ui-builder
 WORKDIR /ui
 COPY psm-api/ui/package.json psm-api/ui/package-lock.json ./
 RUN npm ci --silent
+# Cache-bust below npm ci (run.sh passes a fresh CACHEBUST) so podman/Buildah
+# never serves a stale editor.js/nav.js plugin bundle. npm ci above stays cached.
+ARG CACHEBUST=0
 COPY psm-api/ui/vite.config.js .
 COPY psm-api/ui/src ./src
 # Override outDir so output lands at a predictable path (outDir in vite.config.js

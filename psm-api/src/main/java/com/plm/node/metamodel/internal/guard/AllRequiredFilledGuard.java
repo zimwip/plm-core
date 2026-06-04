@@ -9,6 +9,7 @@ import com.plm.platform.config.dto.LifecycleTransitionConfig;
 import com.plm.platform.action.guard.GuardEffect;
 import com.plm.platform.action.guard.GuardViolation;
 import com.plm.node.metamodel.MetaModelCachePort;
+import com.plm.node.metamodel.internal.validation.AttributeValidatorService;
 import com.plm.shared.model.ResolvedAttribute;
 import com.plm.node.version.internal.VersionService;
 import lombok.RequiredArgsConstructor;
@@ -23,8 +24,9 @@ import java.util.Map;
 /**
  * Lifecycle Guard: all required attributes for the target state must have values.
  *
- * Checks attribute values against the target state's attribute_state_rule.
- * Returns one violation per missing required field.
+ * Required-ness is resolved from the pluggable Required attribute validator
+ * ({@link AttributeValidatorService#isRequired}). Returns one violation per missing
+ * required field.
  */
 @AlgorithmBean(code = "all_required_filled", name = "All Required Filled", description = "All required attributes for target state must have values")
 @RequiredArgsConstructor
@@ -34,6 +36,7 @@ public class AllRequiredFilledGuard implements LifecycleGuard {
     private final ConfigCache    configCache;
     private final VersionService versionService;
     private final MetaModelCachePort metaModelCache;
+    private final AttributeValidatorService attributeValidatorService;
 
     @Override
     public String code() { return "all_required_filled"; }
@@ -74,8 +77,7 @@ public class AllRequiredFilledGuard implements LifecycleGuard {
 
         List<GuardViolation> violations = new ArrayList<>();
         for (ResolvedAttribute attr : allAttrs) {
-            MetaModelCachePort.StateRuleInfo rule = metaModelCache.getStateRuleInfo(nodeTypeId, attr.id(), toStateId);
-            if (rule == null || !rule.required()) continue;
+            if (!attributeValidatorService.isRequired(nodeTypeId, toStateId, attr.id())) continue;
             String value = currentValues.get(attr.id());
             if (value == null || value.isBlank()) {
                 String label = (attr.label() != null && !attr.label().isBlank())

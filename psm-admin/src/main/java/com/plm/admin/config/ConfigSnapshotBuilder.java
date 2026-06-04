@@ -89,8 +89,6 @@ public class ConfigSnapshotBuilder {
                .computeIfAbsent(str(a, "node_type_id"), k -> new ArrayList<>())
                .add(a));
 
-        List<Record> allRules = dsl.select().from("attribute_state_rule").fetch();
-
         List<NodeTypeConfig> result = new ArrayList<>();
         for (Record type : types) {
             String typeId = str(type, "id");
@@ -106,29 +104,20 @@ public class ConfigSnapshotBuilder {
                 for (Record a : attrsByType.getOrDefault(ancestorId, List.of())) {
                     String attrName = str(a, "name");
                     if (!seenNames.add(attrName)) continue;
+                    // required / naming_regex / allowed_values dropped as columns —
+                    // required & regex are pluggable validator rules (entityMetadata);
+                    // ENUM allowed values are reconstructed in psm-api from enum_definition_id.
                     mergedAttrs.add(new AttributeConfig(
                         str(a, "id"), attrName, str(a, "label"),
                         str(a, "data_type"), str(a, "widget_type"),
-                        bool(a, "required"), str(a, "default_value"),
-                        str(a, "naming_regex"), str(a, "allowed_values"),
+                        false, str(a, "default_value"),
+                        null, null,
                         str(a, "enum_definition_id"),
                         intVal(a, "display_order"),
                         str(a, "display_section"), str(a, "tooltip"),
                         bool(a, "as_name"), !isOwn,
                         isOwn ? null : ancestorName,
                         ancestorId, null, null
-                    ));
-                }
-            }
-
-            List<AttributeStateRuleConfig> typeRules = new ArrayList<>();
-            for (Record r : allRules) {
-                String ruleNtId = str(r, "node_type_id");
-                if (typeId.equals(ruleNtId) || ruleNtId == null) {
-                    typeRules.add(new AttributeStateRuleConfig(
-                        str(r, "id"), str(r, "attribute_definition_id"),
-                        str(r, "lifecycle_state_id"), ruleNtId,
-                        bool(r, "required"), bool(r, "editable"), bool(r, "visible")
                     ));
                 }
             }
@@ -141,7 +130,7 @@ public class ConfigSnapshotBuilder {
                 Boolean.TRUE.equals(type.get("collapse_history", Boolean.class)),
                 str(type, "color"), str(type, "icon"),
                 str(type, "parent_node_type_id"),
-                List.copyOf(chain), List.copyOf(mergedAttrs), List.copyOf(typeRules)
+                List.copyOf(chain), List.copyOf(mergedAttrs), List.of()
             ));
         }
         return result;
@@ -243,10 +232,12 @@ public class ConfigSnapshotBuilder {
 
             List<LinkTypeAttributeConfig> ltAttrs = new ArrayList<>();
             for (Record a : attrsByLt.getOrDefault(ltId, List.of())) {
+                // allowed_values dropped as a column — reconstruct ENUM value list from
+                // the enum tables (link attrs are not part of the node validator pipeline).
                 ltAttrs.add(new LinkTypeAttributeConfig(
                     ltId + "|" + str(a, "name"), ltId, str(a, "name"), str(a, "label"),
                     str(a, "data_type"), bool(a, "required"), str(a, "default_value"),
-                    str(a, "naming_regex"), str(a, "allowed_values"), str(a, "widget_type"),
+                    str(a, "naming_regex"), enumAllowedJson(str(a, "enum_definition_id")), str(a, "widget_type"),
                     intVal(a, "display_order"), str(a, "display_section"),
                     str(a, "tooltip"), str(a, "enum_definition_id")
                 ));
@@ -293,8 +284,8 @@ public class ConfigSnapshotBuilder {
                 domAttrs.add(new AttributeConfig(
                     str(a, "id"), str(a, "name"), str(a, "label"),
                     str(a, "data_type"), str(a, "widget_type"),
-                    bool(a, "required"), str(a, "default_value"),
-                    str(a, "naming_regex"), str(a, "allowed_values"),
+                    false, str(a, "default_value"),
+                    null, null,
                     str(a, "enum_definition_id"), intVal(a, "display_order"),
                     str(a, "display_section"), str(a, "tooltip"),
                     false, false, null, null, domId, domName
@@ -408,12 +399,54 @@ public class ConfigSnapshotBuilder {
 
     private Map<String, String> buildEntityMetadata() {
         Map<String, String> meta = new LinkedHashMap<>();
+
+        // Generic entity_metadata (e.g. LIFECYCLE_STATE frozen/released flags).
         dsl.select().from("entity_metadata").fetch()
             .forEach(r -> {
                 String key = str(r, "target_type") + ":" + str(r, "target_id") + ":" + str(r, "meta_key");
                 meta.put(key, str(r, "meta_value"));
             });
+
+        // Per-attribute metadata (regex, visibility) → ATTRIBUTE_DEFINITION:<attrId>:<key>
+        dsl.select().from("attribute_metadata").fetch()
+            .forEach(r -> {
+                String key = "ATTRIBUTE_DEFINITION:" + str(r, "attribute_definition_id") + ":" + str(r, "meta_key");
+                meta.put(key, str(r, "meta_value"));
+            });
+
+        // Validator attachments → ATTR_VALIDATOR:<nt|*>__<attrId>:<state|*>__<instanceId> = effect.
+        // node_type_id NULL = any node type (domain attrs); lifecycle_state_id NULL = all states.
+        dsl.select().from("attribute_validation_rule").fetch()
+            .forEach(r -> {
+                String nt    = str(r, "node_type_id");
+                String state = str(r, "lifecycle_state_id");
+                String key = "ATTR_VALIDATOR:"
+                    + (nt == null ? "*" : nt) + "__" + str(r, "attribute_definition_id")
+                    + ":" + (state == null ? "*" : state) + "__" + str(r, "algorithm_instance_id");
+                meta.put(key, str(r, "effect"));
+            });
+
         return meta;
+    }
+
+    /** ENUM value list as JSON {@code [{"value","label"}]} from the enum tables, or null. */
+    private String enumAllowedJson(String enumDefId) {
+        if (enumDefId == null || enumDefId.isBlank()) return null;
+        List<Record> rows = dsl.fetch(
+            "SELECT value, label FROM enum_value WHERE enum_definition_id = ? ORDER BY display_order", enumDefId);
+        if (rows.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < rows.size(); i++) {
+            if (i > 0) sb.append(",");
+            String val = rows.get(i).get("value", String.class);
+            String lbl = rows.get(i).get("label", String.class);
+            sb.append("{\"value\":\"").append(val == null ? "" : val.replace("\"", "\\\"")).append("\"");
+            if (lbl != null && !lbl.isBlank()) {
+                sb.append(",\"label\":\"").append(lbl.replace("\"", "\\\"")).append("\"");
+            }
+            sb.append("}");
+        }
+        return sb.append("]").toString();
     }
 
     // ── Platform fetch ───────────────────────────────────────────

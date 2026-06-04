@@ -53,5 +53,23 @@ export function detailToItem(detail) {
   for (const f of (detail.values ?? detail.fields ?? [])) {
     item[f.name] = f.value;
   }
+  // PSM system/identity fields live in metadata (not duplicated into values).
+  // Map the camelCase metadata envelope to the snake_case nav props NavRow reads.
+  const m = detail.metadata;
+  if (m) {
+    const sys = {
+      logical_id:         m.logicalId,
+      revision:           m.revision,
+      iteration:          m.iteration,
+      lifecycle_state_id: m.state,
+      tx_status:          m.txStatus,
+      locked_by:          m.lock?.lockedBy || null,
+      node_type_id:       m.nodeTypeId,
+      display_name:       m.displayName,
+    };
+    for (const [k, v] of Object.entries(sys)) {
+      if (v !== undefined && item[k] === undefined) item[k] = v;
+    }
+  }
   return item;
 }

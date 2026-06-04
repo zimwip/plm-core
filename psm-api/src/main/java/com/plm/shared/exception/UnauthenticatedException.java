@@ -1,5 +1,7 @@
 package com.plm.shared.exception;
 
+import com.plm.platform.exception.PlmFunctionalException;
+
 /**
  * Thrown when a service method requires authentication but no security context
  * is present on the current thread.

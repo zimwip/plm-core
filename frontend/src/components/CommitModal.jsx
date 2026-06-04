@@ -31,7 +31,7 @@ export default function CommitModal({ userId, serviceCode, txId, txNodes, stateC
     setLoading(true);
     try {
       const nodeIds = selectedIds.size === allIds.length ? null : [...selectedIds];
-      const res = await txApi.commit(userId, serviceCode, txId, comment, nodeIds);
+      const res = await txApi.commit(serviceCode, txId, comment, nodeIds);
       const contId       = res?.continuationTxId || null;
       const deferredCount = allIds.length - selectedIds.size;
       toast('Transaction committed', 'success');

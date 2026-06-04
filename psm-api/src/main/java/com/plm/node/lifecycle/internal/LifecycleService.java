@@ -440,7 +440,7 @@ public class LifecycleService {
     }
 
     public static class GuardException
-        extends com.plm.shared.exception.PlmFunctionalException
+        extends com.plm.platform.exception.PlmFunctionalException
     {
 
         public GuardException(String msg) {
@@ -449,7 +449,7 @@ public class LifecycleService {
     }
 
     public static class CascadeBlockedException
-        extends com.plm.shared.exception.PlmFunctionalException
+        extends com.plm.platform.exception.PlmFunctionalException
     {
 
         private final List<String> blockedNodes;

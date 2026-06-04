@@ -3,8 +3,9 @@ package com.plm.node.metamodel.internal;
 import com.plm.node.metamodel.MetaModelCachePort;
 import com.plm.platform.config.ConfigCache;
 import com.plm.platform.config.dto.AttributeConfig;
-import com.plm.platform.config.dto.AttributeStateRuleConfig;
 import com.plm.platform.config.dto.DomainConfig;
+import com.plm.platform.config.dto.EnumDefinitionConfig;
+import com.plm.platform.config.dto.EnumValueConfig;
 import com.plm.platform.config.dto.NodeTypeConfig;
 import com.plm.shared.model.ResolvedAttribute;
 import com.plm.shared.model.ResolvedNodeType;
@@ -16,7 +17,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * MetaModelCachePort implementation backed by {@link ConfigCache} from platform-lib.
@@ -35,7 +35,7 @@ public class ConfigCacheAdapter implements MetaModelCachePort {
     @Override
     public ResolvedNodeType get(String nodeTypeId) {
         return configCache.getNodeType(nodeTypeId)
-            .map(ConfigCacheAdapter::toResolvedNodeType)
+            .map(this::toResolvedNodeType)
             .orElse(null);
     }
 
@@ -51,7 +51,7 @@ public class ConfigCacheAdapter implements MetaModelCachePort {
     @Override
     public List<ResolvedAttribute> getDomainAttributes(String domainId) {
         return configCache.getDomainAttributes(domainId).stream()
-            .map(ConfigCacheAdapter::toResolvedAttribute)
+            .map(this::toResolvedAttribute)
             .toList();
     }
 
@@ -67,37 +67,6 @@ public class ConfigCacheAdapter implements MetaModelCachePort {
     }
 
     @Override
-    public StateRuleInfo getStateRuleInfo(String contextNodeTypeId, String attrDefId, String stateId) {
-        if (stateId == null || attrDefId == null) return null;
-
-        // 1. Context type override
-        Optional<AttributeStateRuleConfig> rule = configCache.getStateRule(contextNodeTypeId, attrDefId, stateId);
-        if (rule.isPresent()) return toStateRuleInfo(rule.get());
-
-        // 2. Fall back to owner type's rule (inherited attrs)
-        ResolvedNodeType nt = get(contextNodeTypeId);
-        if (nt != null) {
-            String ownerTypeId = nt.attributes().stream()
-                .filter(a -> a.id().equals(attrDefId))
-                .map(ResolvedAttribute::ownerNodeTypeId)
-                .findFirst().orElse(null);
-            if (ownerTypeId != null && !ownerTypeId.equals(contextNodeTypeId)) {
-                rule = configCache.getStateRule(ownerTypeId, attrDefId, stateId);
-                if (rule.isPresent()) return toStateRuleInfo(rule.get());
-            }
-        }
-
-        // 3. Fall back to domain-level default (nodeTypeId == null)
-        // ConfigCache stores state rules with nodeTypeId — domain-level defaults have null nodeTypeId.
-        // The ConfigCache.getStateRule() uses composite key nodeTypeId:attrDefId:stateId.
-        // For null nodeTypeId, we look up with "null" key.
-        rule = configCache.getStateRule("null", attrDefId, stateId);
-        if (rule.isPresent()) return toStateRuleInfo(rule.get());
-
-        return null;
-    }
-
-    @Override
     public void invalidate() {
         // No-op: ConfigCache lifecycle is managed by psm-admin push notifications
         log.debug("ConfigCacheAdapter.invalidate() called — no-op (push-based)");
@@ -105,9 +74,9 @@ public class ConfigCacheAdapter implements MetaModelCachePort {
 
     // ── Conversion helpers ────────────────────────────────────────────
 
-    private static ResolvedNodeType toResolvedNodeType(NodeTypeConfig nt) {
+    private ResolvedNodeType toResolvedNodeType(NodeTypeConfig nt) {
         List<ResolvedAttribute> attrs = nt.attributes() != null
-            ? nt.attributes().stream().map(ConfigCacheAdapter::toResolvedAttribute).toList()
+            ? nt.attributes().stream().map(this::toResolvedAttribute).toList()
             : List.of();
         return new ResolvedNodeType(
             nt.id(),
@@ -127,17 +96,15 @@ public class ConfigCacheAdapter implements MetaModelCachePort {
         );
     }
 
-    private static ResolvedAttribute toResolvedAttribute(AttributeConfig attr) {
+    private ResolvedAttribute toResolvedAttribute(AttributeConfig attr) {
         return new ResolvedAttribute(
             attr.id(),
             attr.name(),
             attr.label(),
             attr.dataType(),
             attr.widgetType(),
-            attr.required(),
             attr.defaultValue(),
-            attr.namingRegex(),
-            attr.allowedValues(),
+            resolveAllowedValues(attr),
             attr.enumDefinitionId(),
             attr.displayOrder(),
             attr.displaySection(),
@@ -151,7 +118,33 @@ public class ConfigCacheAdapter implements MetaModelCachePort {
         );
     }
 
-    private static StateRuleInfo toStateRuleInfo(AttributeStateRuleConfig rule) {
-        return new StateRuleInfo(rule.required(), rule.editable(), rule.visible());
+    /**
+     * ENUM value list as JSON {@code [{"value","label"}]}, reconstructed from the
+     * enum tables by {@code enumDefinitionId}. {@code allowed_values} was dropped as a
+     * column; the enum definition is the single source of truth. Returns the raw
+     * {@code allowedValues} (legacy/explicit) as a fallback when no enum is attached.
+     */
+    private String resolveAllowedValues(AttributeConfig attr) {
+        String enumDefId = attr.enumDefinitionId();
+        if (enumDefId == null || enumDefId.isBlank()) return attr.allowedValues();
+        EnumDefinitionConfig def = configCache.getEnumDefinition(enumDefId).orElse(null);
+        if (def == null || def.values() == null || def.values().isEmpty()) return attr.allowedValues();
+
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (EnumValueConfig v : def.values()) {
+            if (!first) sb.append(",");
+            first = false;
+            sb.append("{\"value\":\"").append(escape(v.value())).append("\"");
+            if (v.label() != null && !v.label().isBlank()) {
+                sb.append(",\"label\":\"").append(escape(v.label())).append("\"");
+            }
+            sb.append("}");
+        }
+        return sb.append("]").toString();
+    }
+
+    private static String escape(String s) {
+        return s == null ? "" : s.replace("\"", "\\\"");
     }
 }

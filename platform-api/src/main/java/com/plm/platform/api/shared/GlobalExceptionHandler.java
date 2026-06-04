@@ -1,5 +1,6 @@
 package com.plm.platform.api.shared;
 
+import com.plm.platform.exception.PlmFunctionalException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -1,5 +1,7 @@
 package com.plm.shared.exception;
 
+import com.plm.platform.exception.PlmFunctionalException;
+
 import java.util.List;
 
 public abstract class PlmValidationException extends PlmFunctionalException {

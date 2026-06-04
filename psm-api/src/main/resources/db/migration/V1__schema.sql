@@ -83,6 +83,15 @@ CREATE TABLE node_version_link (
     created_by             VARCHAR(100)  NOT NULL
 );
 
+-- Link instance attribute values (mirrors link_type_attribute definitions from psm-admin)
+CREATE TABLE node_version_link_attribute (
+    id           VARCHAR(36)   NOT NULL PRIMARY KEY,
+    node_link_id VARCHAR(36)   NOT NULL REFERENCES node_version_link(id) ON DELETE CASCADE,
+    attribute_id VARCHAR(36)   NOT NULL,
+    value        VARCHAR(4000),
+    CONSTRAINT uq_nvla UNIQUE (node_link_id, attribute_id)
+);
+
 -- ============================================================
 -- NODE VERSION ↔ DOMAIN (versioned assignment)
 -- ============================================================
@@ -156,29 +165,6 @@ CREATE TABLE node_version_comment (
 );
 
 -- ============================================================
--- ALGORITHM STATISTICS (runtime data, not config)
--- ============================================================
-
-CREATE TABLE algorithm_stat (
-    algorithm_code VARCHAR(100) NOT NULL PRIMARY KEY,
-    call_count     BIGINT       NOT NULL DEFAULT 0,
-    total_ns       BIGINT       NOT NULL DEFAULT 0,
-    min_ns         BIGINT       NOT NULL DEFAULT 9223372036854775807,
-    max_ns         BIGINT       NOT NULL DEFAULT 0,
-    last_flushed   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE algorithm_stat_window (
-    algorithm_code VARCHAR(100) NOT NULL,
-    window_start   TIMESTAMP    NOT NULL,
-    call_count     BIGINT       NOT NULL DEFAULT 0,
-    total_ns       BIGINT       NOT NULL DEFAULT 0,
-    min_ns         BIGINT       NOT NULL DEFAULT 9223372036854775807,
-    max_ns         BIGINT       NOT NULL DEFAULT 0,
-    PRIMARY KEY (algorithm_code, window_start)
-);
-
--- ============================================================
 -- INDEXES
 -- ============================================================
 
@@ -190,6 +176,7 @@ CREATE INDEX idx_node_version_tx     ON node_version(tx_id);
 CREATE INDEX idx_node_version_fp     ON node_version(fingerprint);
 CREATE INDEX idx_link_source         ON node_version_link(source_node_version_id);
 CREATE INDEX idx_link_target_self    ON node_version_link(target_source_id, target_type, target_key);
+CREATE INDEX idx_nvla_link           ON node_version_link_attribute(node_link_id);
 CREATE INDEX idx_baseline_entry      ON baseline_entry(baseline_id);
 CREATE INDEX idx_signature_node      ON node_signature(node_id);
 CREATE INDEX idx_signature_version   ON node_signature(node_version_id);
@@ -198,4 +185,3 @@ CREATE INDEX idx_comment_node        ON node_version_comment(node_id);
 CREATE INDEX idx_comment_version     ON node_version_comment(node_version_id);
 CREATE INDEX idx_nvd_version         ON node_version_domain(node_version_id);
 CREATE INDEX idx_nvd_domain          ON node_version_domain(domain_id);
-CREATE INDEX idx_algorithm_stat_window_start ON algorithm_stat_window(window_start);

@@ -7,7 +7,7 @@ export default function SignaturePanel({
   filterVersionId,
   onClose,
 }) {
-  const { api, useWebSocket } = shellAPI;
+  const { api, useWsEvent } = shellAPI;
   const [signatures, setSignatures] = useState([]);
 
   const load = useCallback(async () => {
@@ -20,14 +20,10 @@ export default function SignaturePanel({
 
   useEffect(() => { load(); }, [load]);
 
-  useWebSocket(
-    nodeId ? `/topic/nodes/${nodeId}` : null,
-    (evt) => {
-      if (evt.nodeId && evt.nodeId !== nodeId) return;
-      if (evt.event === 'SIGNED') load();
-    },
-    userId,
-  );
+  useWsEvent((evt) => {
+    if (evt.nodeId && evt.nodeId !== nodeId) return;
+    if (evt.event === 'SIGNED') load();
+  });
 
   // Filter by version if provided
   const filtered = filterVersionId

@@ -15,6 +15,9 @@ FROM docker.io/library/node:20-alpine AS ui-builder
 WORKDIR /ui
 COPY dst/ui/package.json dst/ui/package-lock.json ./
 RUN npm ci --silent
+# Cache-bust below npm ci (run.sh passes a fresh CACHEBUST) so podman/Buildah
+# never serves a stale dst UI plugin bundle. npm ci above stays cached.
+ARG CACHEBUST=0
 COPY dst/ui/vite.config.js .
 COPY dst/ui/src ./src
 RUN npx vite build --outDir /ui-dist --emptyOutDir
