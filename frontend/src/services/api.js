@@ -899,6 +899,16 @@ export const api = {
   deactivateUser: (userId, targetUserId) =>
     pnoRequest('DELETE', `/users/${targetUserId}`, userId),
 
+  // App passwords (personal access tokens) — served by pno-api
+  listAccessTokens: (userId) =>
+    pnoRequest('GET', `/users/${userId}/tokens`, userId),
+
+  createAccessToken: (userId, label, ttlDays) =>
+    pnoRequest('POST', `/users/${userId}/tokens`, userId, { label, ttlDays }),
+
+  revokeAccessToken: (userId, tokenId) =>
+    pnoRequest('DELETE', `/users/${userId}/tokens/${tokenId}`, userId),
+
   getUserRoles: (userId, targetUserId, projectSpaceId) =>
     pnoRequest('GET', `/users/${targetUserId}/roles${projectSpaceId ? `?projectSpaceId=${encodeURIComponent(projectSpaceId)}` : ''}`, userId),
 

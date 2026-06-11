@@ -16,4 +16,10 @@ class PnoSettingSections {
     SettingSectionDto projSpacesSection() {
         return new SettingSectionDto("proj-spaces", "Project Spaces", "PNO", 20, "MANAGE_PNO", "hexagon");
     }
+
+    // Self-service (permission null): every user manages their own tokens.
+    @Bean
+    SettingSectionDto appPasswordsSection() {
+        return new SettingSectionDto("app-passwords", "App Passwords", "GENERAL", 15, null, "key");
+    }
 }

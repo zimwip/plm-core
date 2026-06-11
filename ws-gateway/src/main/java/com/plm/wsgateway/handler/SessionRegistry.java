@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketSession;
 
+import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -46,6 +47,11 @@ public class SessionRegistry {
             log.info("WS session removed: {} user={} (total={})", sessionId, entry.userId(), sessions.size());
         }
         return entry;
+    }
+
+    /** Live sessions, for broadcast operations such as the heartbeat scheduler. */
+    public Collection<SessionEntry> all() {
+        return sessions.values();
     }
 
     public int sessionCount() {

@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.IOException;
 
@@ -84,6 +85,24 @@ public class DataController {
     public ResponseEntity<DataMetadata> metadata(@PathVariable String id) {
         DstUserContext ctx = DstSecurityContext.get();
         return ResponseEntity.ok(dataService.getMetadata(id, ctx.getUserId(), ctx.getProjectSpaceId()));
+    }
+
+    @GetMapping("/{id}/content")
+    @PlmPermission("READ_DATA")
+    public ResponseEntity<StreamingResponseBody> content(@PathVariable String id) {
+        DstUserContext ctx = DstSecurityContext.get();
+        DataService.DataContent dc = dataService.openContent(id, ctx.getUserId(), ctx.getProjectSpaceId());
+        DataMetadata m = dc.metadata();
+        String filename = m.originalName() == null ? id : m.originalName().replace("\"", "");
+        return ResponseEntity.ok()
+            .header("Content-Type", m.contentType() != null ? m.contentType() : "application/octet-stream")
+            .header("Content-Length", String.valueOf(m.sizeBytes()))
+            .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+            .body(out -> {
+                try (var in = dc.stream()) {
+                    in.transferTo(out);
+                }
+            });
     }
 
     @GetMapping("/{id}")

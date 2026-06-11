@@ -134,6 +134,157 @@ function MyProfileSection({ userId, canWrite, toast }) {
   );
 }
 
+/* ── App Passwords (personal access tokens, pno) ─────────────────── */
+
+function AppPasswordsSection({ userId, toast }) {
+  const [tokens, setTokens] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ label: '', ttlDays: '' });
+  const [saving, setSaving] = useState(false);
+  // shown once after creation: { id, token, label }
+  const [revealed, setRevealed] = useState(null);
+
+  async function load() {
+    try {
+      const list = await api.listAccessTokens(userId);
+      setTokens(Array.isArray(list) ? list : []);
+    } catch (e) {
+      toast('Failed to load app passwords', 'error');
+      setTokens([]);
+    }
+  }
+
+  useEffect(() => { setRevealed(null); load(); }, [userId]);
+
+  async function handleCreate() {
+    setSaving(true);
+    try {
+      const created = await api.createAccessToken(
+        userId,
+        form.label.trim() || null,
+        form.ttlDays ? Number(form.ttlDays) : null);
+      setRevealed(created);
+      setForm({ label: '', ttlDays: '' });
+      setCreating(false);
+      await load();
+    } catch (e) {
+      toast('Failed to create app password', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRevoke(tokenId) {
+    if (!window.confirm('Revoke this app password? Clients using it will stop working within a minute.')) return;
+    try {
+      await api.revokeAccessToken(userId, tokenId);
+      if (revealed?.id === tokenId) setRevealed(null);
+      toast('App password revoked', 'success');
+      await load();
+    } catch (e) {
+      toast('Failed to revoke app password', 'error');
+    }
+  }
+
+  function copyToken() {
+    navigator.clipboard.writeText(revealed.token)
+      .then(() => toast('Token copied to clipboard', 'success'))
+      .catch(() => toast('Copy failed — select and copy manually', 'error'));
+  }
+
+  const fmtDate = (v) => (v ? new Date(v).toLocaleString() : '—');
+
+  if (tokens === null) return <div className="settings-loading">Loading…</div>;
+
+  return (
+    <div className="settings-list">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <div style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>
+          App passwords let external clients (WebDAV mounts, scripts) authenticate as you.
+          Use one as the Basic-auth password — your account name is the username.
+        </div>
+        <button className="btn btn-primary" onClick={() => { setCreating(!creating); setRevealed(null); }}>
+          {creating ? 'Cancel' : '+ New app password'}
+        </button>
+      </div>
+
+      {creating && (
+        <div className="settings-card" style={{ padding: 12, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Field label="Label">
+            <input className="field-input" autoFocus value={form.label}
+              placeholder="e.g. laptop davfs mount"
+              onChange={e => setForm(f => ({ ...f, label: e.target.value }))} />
+          </Field>
+          <Field label="Expires in (days, empty = never)">
+            <input className="field-input" type="number" min="1" value={form.ttlDays}
+              onChange={e => setForm(f => ({ ...f, ttlDays: e.target.value }))} />
+          </Field>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-primary" onClick={handleCreate} disabled={saving}>
+              {saving ? 'Creating…' : 'Create'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {revealed && (
+        <div className="settings-card" style={{ padding: 12, marginBottom: 12, border: '1px solid var(--accent)' }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+            Copy this token now — it is shown only once.
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <code style={{ fontSize: 12, color: 'var(--accent)', wordBreak: 'break-all', flex: 1 }}>
+              {revealed.token}
+            </code>
+            <button className="panel-icon-btn" title="Copy" onClick={copyToken}>
+              <CopyIcon size={13} strokeWidth={2} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tokens.length > 0 ? (
+        <table className="settings-table">
+          <thead>
+            <tr>
+              <th>Label</th>
+              <th>Created</th>
+              <th>Last used</th>
+              <th>Expires</th>
+              <th>Status</th>
+              <th style={{ width: 40 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {tokens.map(t => (
+              <tr key={t.id} style={t.revoked ? { opacity: 0.5 } : undefined}>
+                <td style={{ fontSize: 12 }}>{t.label || '(unnamed)'}</td>
+                <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtDate(t.created_at)}</td>
+                <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtDate(t.last_used_at)}</td>
+                <td style={{ fontSize: 12, color: 'var(--muted)' }}>{t.expires_at ? fmtDate(t.expires_at) : 'never'}</td>
+                <td style={{ fontSize: 12 }}>
+                  {t.revoked
+                    ? <span className="settings-badge">Revoked</span>
+                    : <span className="settings-badge settings-badge--accent">Active</span>}
+                </td>
+                <td>
+                  {!t.revoked && (
+                    <button className="panel-icon-btn" title="Revoke" onClick={() => handleRevoke(t.id)}>
+                      <TrashIcon size={11} strokeWidth={2} color="var(--danger, #f87171)" />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div className="settings-empty-row">No app passwords yet.</div>
+      )}
+    </div>
+  );
+}
+
 /* ── Theme Selector ──────────────────────────────────────────────── */
 const THEME_OPTIONS = [
   { value: 'dark',   label: 'Dark',   icon: '●' },
@@ -5455,6 +5606,7 @@ export function ImportContextsSection({ userId, canWrite, toast }) {
 // Shell owns platform/pno sections; service-owned sections (psa-*, dst-*)
 // come from remote plugins via platform-api manifest federation.
 registerSettingsPlugin('my-profile',           MyProfileSection);
+registerSettingsPlugin('app-passwords',        AppPasswordsSection);
 registerSettingsPlugin('api-playground',       ApiPlayground,           { wrapBody: false });
 registerSettingsPlugin('user-manual',          UserManual,              { wrapBody: false });
 registerSettingsPlugin('proj-spaces',          ProjectSpacesSection);

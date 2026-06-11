@@ -82,9 +82,15 @@ DELETE /api/pno/users/{id}/kv/{group}                         ← vider groupe
 GET    /api/pno/users/{id}/kv/{group}/single/{key}             ← valeur unique (UI_PREF)
 PUT    /api/pno/users/{id}/kv/{group}/single/{key}/{value}     ← set valeur unique (remplace)
 
+# Personal access tokens (app passwords — mot de passe Basic WebDAV)
+POST   /api/pno/users/{id}/tokens                  ← body {label?, ttlDays?} → plaintext retourné une seule fois
+GET    /api/pno/users/{id}/tokens                  ← métadonnées (jamais les hashes)
+DELETE /api/pno/users/{id}/tokens/{tokenId}        ← révocation (self ou admin)
+
 # Endpoints internes (X-Service-Secret)
 POST   /api/pno/internal/scopes/register           ← appelé par PermissionScopeRegistrationAutoConfiguration
 GET    /api/pno/internal/scope-values/{scope}/{key}
+POST   /api/pno/internal/tokens/verify             ← {userId, token} → {valid} (spe Basic /api/dav)
 ```
 
 ---

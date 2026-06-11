@@ -5,6 +5,7 @@ import com.plm.wsgateway.security.JwtVerifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
@@ -25,6 +26,7 @@ import java.util.Optional;
  */
 @Configuration
 @EnableWebSocket
+@EnableScheduling
 public class WebSocketConfig implements WebSocketConfigurer {
 
     private static final Logger log = LoggerFactory.getLogger(WebSocketConfig.class);

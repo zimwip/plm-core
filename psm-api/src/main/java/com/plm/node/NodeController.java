@@ -48,9 +48,10 @@ public class NodeController {
     public ResponseEntity<?> listNodes(
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "50") int size,
-        @RequestParam(required = false) String type
+        @RequestParam(required = false) String type,
+        @RequestParam(defaultValue = "false") boolean rootsOnly
     ) {
-        return ResponseEntity.ok(nodeService.listNodes(secCtx.requireProjectSpaceId(), page, size, type));
+        return ResponseEntity.ok(nodeService.listNodes(secCtx.requireProjectSpaceId(), page, size, type, rootsOnly));
     }
 
     // ── Lecture (Server-Driven UI) ────────────────────────────────────

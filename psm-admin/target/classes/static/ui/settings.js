@@ -1446,7 +1446,7 @@ This also deletes all its attributes and link types. Cannot be undone.`))
             ] }) }),
             /* @__PURE__ */ e("tbody", { children: [...K].sort((o, q) => (o.display_order || o.DISPLAY_ORDER || 0) - (q.display_order || q.DISPLAY_ORDER || 0)).map((o) => {
               const q = o.id || o.ID, ie = o.name || o.NAME, le = o.label || o.LABEL || ie, U = o.widget_type || o.WIDGET_TYPE || "TEXT", j = !!(o.required || o.REQUIRED), w = !!(o.as_name || o.AS_NAME), D = o.display_section || o.DISPLAY_SECTION || "—", X = !!(o.inherited || o.INHERITED), ee = o.inherited_from || o.INHERITED_FROM || null;
-              return /* @__PURE__ */ n("tr", { children: [
+              return /* @__PURE__ */ n("tr", { style: X ? { opacity: 0.75 } : void 0, children: [
                 /* @__PURE__ */ e("td", { className: "settings-td-mono", children: /* @__PURE__ */ n("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [
                   ie,
                   X && /* @__PURE__ */ n("span", { style: { fontSize: 9, background: "var(--accent-dim,rgba(99,179,237,.15))", color: "var(--accent)", borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap" }, children: [

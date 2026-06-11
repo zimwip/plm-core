@@ -250,6 +250,11 @@ public class NodeService {
     }
 
     public PagedResult<Map<String, Object>> listNodes(String projectSpaceId, int page, int size, String typeFilter) {
+        return listNodes(projectSpaceId, page, size, typeFilter, false);
+    }
+
+    public PagedResult<Map<String, Object>> listNodes(String projectSpaceId, int page, int size, String typeFilter,
+                                                      boolean rootsOnly) {
         // Resolve descendant spaces for hierarchy visibility
         List<String> spaceIds = pnoProjectSpaceClient.getDescendants(projectSpaceId);
         String placeholders = String.join(",", spaceIds.stream().map(s -> "?").toList());
@@ -278,10 +283,32 @@ public class NodeService {
         }
 
         String ntPlaceholders = String.join(",", readableNodeTypeIds.stream().map(s -> "?").toList());
-        Object[] args = new Object[spaceIds.size() + readableNodeTypeIds.size()];
+
+        // rootsOnly: exclude nodes that are the target of a SELF link (i.e. have a
+        // parent) — mirrors LinkService.getParentLinks matching (target_key equals
+        // logical_id or logical_id@<version>) and its tx visibility rules.
+        String rootsOnlyClause = "";
+        Object[] rootsOnlyArgs = new Object[0];
+        if (rootsOnly) {
+            var ctx = secCtx.currentUser();
+            rootsOnlyClause = """
+                  AND NOT EXISTS (
+                    SELECT 1 FROM node_version_link nlp
+                    JOIN node_version nvp ON nvp.id = nlp.source_node_version_id
+                    JOIN plm_transaction ptp ON ptp.id = nvp.tx_id
+                    WHERE nlp.target_source_id = 'SELF'
+                      AND (nlp.target_key = n.logical_id OR nlp.target_key LIKE n.logical_id || '@%')
+                      AND (ptp.status = 'COMMITTED'
+                           OR (ptp.status = 'OPEN' AND (ptp.owner_id = ? OR ? = 'true'))))
+                """;
+            rootsOnlyArgs = new Object[]{ctx.getUserId(), String.valueOf(ctx.isAdmin())};
+        }
+
+        Object[] args = new Object[spaceIds.size() + readableNodeTypeIds.size() + rootsOnlyArgs.length];
         int idx = 0;
         for (String s : spaceIds)            args[idx++] = s;
         for (String nt : readableNodeTypeIds) args[idx++] = nt;
+        for (Object a : rootsOnlyArgs)        args[idx++] = a;
 
         // children_count counts links from all committed or open versions.
         List<Record> rows = dsl.fetch(
@@ -309,8 +336,9 @@ public class NodeService {
                 JOIN plm_transaction pt2 ON pt2.id = nv2.tx_id
                 WHERE nv2.node_id = n.id
                   AND pt2.status IN ('COMMITTED', 'OPEN'))
+            %s
             ORDER BY n.created_at DESC
-            """.formatted(placeholders, ntPlaceholders),
+            """.formatted(placeholders, ntPlaceholders, rootsOnlyClause),
             args
         );
 

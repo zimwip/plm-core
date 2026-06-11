@@ -34,6 +34,39 @@ let reconnectTimer = null;
 let reconnectDelay = 1000;
 let closeTimer = null;
 
+// ── Liveness / keepalive ────────────────────────────────────────────
+// The stream is unidirectional (NATS → client), so an idle session receives
+// no frames and intermediary proxies silently drop the connection. The server
+// emits a text heartbeat every 25s; we mirror it with a client keepalive ping
+// and a watchdog that force-reconnects if no frame arrives within the window.
+const KEEPALIVE_MS = 25000;   // client → server ping cadence
+const WATCHDOG_MS = 10000;    // how often we check liveness
+const STALE_MS = 40000;       // no frame for this long ⇒ assume dead, reconnect
+let lastActivity = 0;
+let keepaliveTimer = null;
+let watchdogTimer = null;
+
+function startMonitors() {
+  stopMonitors();
+  lastActivity = Date.now();
+  keepaliveTimer = setInterval(() => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'ping' }));
+    }
+  }, KEEPALIVE_MS);
+  watchdogTimer = setInterval(() => {
+    if (socket && socket.readyState === WebSocket.OPEN && Date.now() - lastActivity > STALE_MS) {
+      wsLog('warn', `[WS] stale (no frame for ${STALE_MS}ms) — forcing reconnect`);
+      socket.close(); // onclose → backoff reconnect
+    }
+  }, WATCHDOG_MS);
+}
+
+function stopMonitors() {
+  if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+  if (watchdogTimer)  { clearInterval(watchdogTimer);  watchdogTimer = null; }
+}
+
 function sendSubscribe() {
   if (currentProjectSpaceId && socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'subscribe', projectSpaceId: currentProjectSpaceId }));
@@ -55,12 +88,17 @@ function openSocket() {
   socket.onopen = () => {
     reconnectDelay = 1000;
     wsLog('debug', '[WS] connected');
+    startMonitors();
     sendSubscribe();
   };
 
   socket.onmessage = (e) => {
+    lastActivity = Date.now();
     try {
       const event = JSON.parse(e.data);
+      // Heartbeat keeps the connection alive and feeds the watchdog; it is not
+      // an application event, so do not broadcast it on the shell bus.
+      if (event.type === 'heartbeat') return;
       wsLog('info', fmtEvent(event));
       useShellStore.getState().fireWsEvent(event);
     } catch (err) {
@@ -71,6 +109,7 @@ function openSocket() {
 
   socket.onclose = () => {
     socket = null;
+    stopMonitors();
     if (refCount === 0) return; // no live consumers — stay closed
     wsLog('warn', `[WS] disconnected — reconnecting in ${reconnectDelay}ms`);
     reconnectTimer = setTimeout(() => {
@@ -87,6 +126,7 @@ function openSocket() {
 
 function closeSocket() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  stopMonitors();
   if (socket) {
     socket.onclose = null; // prevent reconnect on intentional close
     socket.onmessage = null;

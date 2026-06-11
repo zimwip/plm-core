@@ -44,10 +44,13 @@ public class AuthenticationFilter implements WebFilter {
     public static final String JWT_ATTR = "spe.jwt";
 
     private final PnoContextClient pnoClient;
+    private final PnoTokenClient tokenClient;
     private final JwtService jwtService;
 
-    public AuthenticationFilter(PnoContextClient pnoClient, JwtService jwtService) {
+    public AuthenticationFilter(PnoContextClient pnoClient, PnoTokenClient tokenClient,
+                                JwtService jwtService) {
         this.pnoClient = pnoClient;
+        this.tokenClient = tokenClient;
         this.jwtService = jwtService;
     }
 
@@ -66,6 +69,23 @@ public class AuthenticationFilter implements WebFilter {
 
         HttpHeaders headers = exchange.getRequest().getHeaders();
         String authz = headers.getFirst(HttpHeaders.AUTHORIZATION);
+
+        // WebDAV clients (Finder, Explorer, davfs2) only speak Basic auth. On
+        // /api/dav the Basic username is the PLM userId and the password must
+        // be a personal access token (pno user_access_token, verified S2S).
+        if (path.startsWith("/api/dav")) {
+            BasicCredentials creds = decodeBasic(authz);
+            if (creds == null || creds.password().isBlank()) {
+                return unauthorized(exchange, "Basic credentials required");
+            }
+            String psHeader0 = headers.getFirst("X-PLM-ProjectSpace");
+            String basicPs = (psHeader0 != null && !psHeader0.isBlank()) ? psHeader0 : null;
+            return tokenClient.verify(creds.userId(), creds.password())
+                .flatMap(valid -> valid
+                    ? resolveAndForward(exchange, chain, creds.userId(), basicPs, extractServiceCode(path))
+                    : unauthorized(exchange, "Invalid access token"));
+        }
+
         String token = null;
         if (authz != null && authz.startsWith("Bearer ")) {
             token = authz.substring("Bearer ".length()).trim();
@@ -75,7 +95,7 @@ public class AuthenticationFilter implements WebFilter {
             token = exchange.getRequest().getQueryParams().getFirst("token");
         }
         if (token == null || token.isBlank()) {
-            return unauthorized(exchange.getResponse(), "Missing Bearer session token");
+            return unauthorized(exchange, "Missing Bearer session token");
         }
 
         // Operation-token elevation: caller presents their forward JWT (typ=fwd) as credential.
@@ -92,18 +112,23 @@ public class AuthenticationFilter implements WebFilter {
 
         Optional<JwtService.SessionClaims> session = jwtService.verifySession(token);
         if (session.isEmpty()) {
-            return unauthorized(exchange.getResponse(), "Invalid or expired session token");
+            return unauthorized(exchange, "Invalid or expired session token");
         }
 
         String userId = session.get().userId();
         String psHeader = headers.getFirst("X-PLM-ProjectSpace");
         String ps = (psHeader != null && !psHeader.isBlank()) ? psHeader : session.get().projectSpaceId();
 
-        String serviceCode = extractServiceCode(path);
+        return resolveAndForward(exchange, chain, userId, ps, extractServiceCode(path));
+    }
 
+    // Shared tail of both auth schemes: resolve user context via pno, gate on
+    // allowedServiceCodes, mint forward JWT, swap the Authorization header.
+    private Mono<Void> resolveAndForward(ServerWebExchange exchange, WebFilterChain chain,
+                                         String userId, String ps, String serviceCode) {
         return pnoClient.getUserContext(userId, ps)
             .switchIfEmpty(Mono.defer(() ->
-                unauthorized(exchange.getResponse(), "User no longer resolvable").then(Mono.empty())))
+                unauthorized(exchange, "User no longer resolvable").then(Mono.empty())))
             .flatMap(ctx -> {
                 if (serviceCode != null && !ctx.isAdmin()
                         && !ctx.allowedServiceCodes().contains(serviceCode)) {
@@ -126,6 +151,25 @@ public class AuthenticationFilter implements WebFilter {
             });
     }
 
+    record BasicCredentials(String userId, String password) {}
+
+    // Decodes a "Basic base64(user:pass)" header; null when absent/malformed.
+    private static BasicCredentials decodeBasic(String authz) {
+        if (authz == null || !authz.startsWith("Basic ")) return null;
+        try {
+            String decoded = new String(
+                java.util.Base64.getDecoder().decode(authz.substring("Basic ".length()).trim()),
+                StandardCharsets.UTF_8);
+            int colon = decoded.indexOf(':');
+            if (colon < 0) return null;
+            String user = decoded.substring(0, colon);
+            if (user.isBlank()) return null;
+            return new BasicCredentials(user, decoded.substring(colon + 1));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     // Returns the serviceCode segment from /api/<serviceCode>/... paths.
     // Returns null for /api/spe/... (spe's own paths are not proxied).
     private static String extractServiceCode(String path) {
@@ -143,6 +187,16 @@ public class AuthenticationFilter implements WebFilter {
         if (!path.startsWith("/api/")) return false;
         int second = path.indexOf('/', 5);
         return second > 0 && path.startsWith("/ui/", second);
+    }
+
+    // 401 with a Basic challenge on /api/dav — WebDAV clients need the
+    // WWW-Authenticate header to prompt for credentials.
+    private Mono<Void> unauthorized(ServerWebExchange exchange, String message) {
+        if (exchange.getRequest().getPath().value().startsWith("/api/dav")
+                && !exchange.getResponse().isCommitted()) {
+            exchange.getResponse().getHeaders().set("WWW-Authenticate", "Basic realm=\"PLM\"");
+        }
+        return unauthorized(exchange.getResponse(), message);
     }
 
     private Mono<Void> unauthorized(ServerHttpResponse response, String message) {

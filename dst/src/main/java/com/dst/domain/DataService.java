@@ -137,6 +137,16 @@ public class DataService {
         return new PresignedUrl(url, presignTtlSeconds, m.sizeBytes());
     }
 
+    /** Metadata + content stream pair for server-side streaming. */
+    public record DataContent(DataMetadata metadata, InputStream stream) {}
+
+    @PlmPermission("READ_DATA")
+    public DataContent openContent(String id, String userId, String projectSpaceId) {
+        DataMetadata m = loadOrThrow(id, projectSpaceId);
+        log.info("DATA stream id={} sha256={} by={} ps={}", id, m.sha256(), userId, projectSpaceId);
+        return new DataContent(m, storage.openStream(m.location()));
+    }
+
     @PlmPermission("MANAGE_DATA")
     @Transactional
     public void delete(String id, String userId, String projectSpaceId) {

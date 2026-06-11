@@ -5,10 +5,12 @@ import com.plm.platform.nats.NatsListenerFactory;
 import io.nats.client.Dispatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
@@ -34,6 +36,12 @@ public class PlmWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(PlmWebSocketHandler.class);
 
+    /** Text heartbeat keeps idle hops (nginx/spe/proxies) warm and feeds the client watchdog. */
+    private static final String HEARTBEAT_FRAME = "{\"type\":\"heartbeat\"}";
+    /** Concurrent send guards: a send blocked longer than this, or a buffer over the limit, closes the session. */
+    private static final int SEND_TIME_LIMIT_MS = 5_000;
+    private static final int SEND_BUFFER_LIMIT_BYTES = 512 * 1024;
+
     private final NatsListenerFactory natsListenerFactory;
     private final SessionRegistry sessionRegistry;
     private final ObjectMapper objectMapper;
@@ -56,12 +64,18 @@ public class PlmWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        // WebSocketSession.sendMessage is not thread-safe. NATS dispatcher threads and the
+        // heartbeat scheduler both write to this session, so wrap it once and use the
+        // decorated session for every send.
+        WebSocketSession concurrent = new ConcurrentWebSocketSessionDecorator(
+                session, SEND_TIME_LIMIT_MS, SEND_BUFFER_LIMIT_BYTES);
+
         Dispatcher globalDispatcher = natsListenerFactory.subscribe(
                 new String[]{"global.>"},
-                msg -> send(session, msg.getData())
+                msg -> send(concurrent, msg.getData())
         );
 
-        sessionRegistry.register(session, globalDispatcher, userId);
+        sessionRegistry.register(concurrent, globalDispatcher, userId);
     }
 
     @Override
@@ -73,15 +87,18 @@ public class PlmWebSocketHandler extends TextWebSocketHandler {
             @SuppressWarnings("unchecked")
             Map<String, Object> msg = objectMapper.readValue(message.getPayload(), Map.class);
             String type = (String) msg.get("type");
+            // Only "subscribe" is actionable. Other types (e.g. client keepalive "ping")
+            // are intentionally ignored — no-op, no error.
             if (!"subscribe".equals(type)) return;
 
             String ps = (String) msg.get("projectSpaceId");
             if (ps == null || ps.isBlank()) return;
 
             String subject = "project." + ps + ".users." + entry.userId() + ".>";
+            // Send via the decorated (thread-safe) session stored at registration.
             Dispatcher newDispatcher = natsListenerFactory.subscribe(
                     new String[]{subject},
-                    m -> send(session, m.getData())
+                    m -> send(entry.session(), m.getData())
             );
 
             Dispatcher old = entry.projectDispatcher().getAndSet(newDispatcher);
@@ -102,6 +119,28 @@ public class PlmWebSocketHandler extends TextWebSocketHandler {
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         log.warn("WS transport error: session={} error={}", session.getId(), exception.getMessage());
         closeSession(session.getId());
+    }
+
+    /**
+     * Periodic text heartbeat to every live session. Keeps idle connections warm across
+     * all hops (nginx/spe/proxies) and feeds the client-side liveness watchdog. A failed
+     * send (closed/broken socket) drains and removes the session.
+     */
+    @Scheduled(fixedRate = 25_000)
+    public void heartbeat() {
+        for (SessionRegistry.SessionEntry entry : sessionRegistry.all()) {
+            WebSocketSession s = entry.session();
+            try {
+                if (s.isOpen()) {
+                    s.sendMessage(new TextMessage(HEARTBEAT_FRAME));
+                } else {
+                    closeSession(s.getId());
+                }
+            } catch (IOException e) {
+                log.warn("WS heartbeat failed: session={} err={}", s.getId(), e.getMessage());
+                closeSession(s.getId());
+            }
+        }
     }
 
     private void closeSession(String sessionId) {

@@ -373,7 +373,10 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [userId, projectSpaceId, authRetry]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Keyed on user/retry only — a project-space switch must NOT re-authenticate or
+    // reload plugins. handleProjectSpaceChange owns per-space side-effects, and the
+    // WS subscribe is driven by useWebSocket's projectSpaceId effect.
+  }, [userId, authRetry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleUserChange(newUserId) {
     setUserId(newUserId);

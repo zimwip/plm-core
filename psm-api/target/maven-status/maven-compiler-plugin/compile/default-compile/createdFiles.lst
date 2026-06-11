@@ -30,8 +30,8 @@ com/plm/node/lifecycle/internal/guard/LifecycleGuardService.class
 com/plm/node/metamodel/internal/validation/AttributeValidatorService.class
 com/plm/node/lifecycle/internal/handler/TransitionActionHandler.class
 com/plm/node/lifecycle/internal/LifecycleService$GuardException.class
-com/plm/node/transaction/internal/LockWrapper.class
 com/plm/cad/CadImportActionHandler.class
+com/plm/node/transaction/internal/LockWrapper.class
 com/plm/node/NodeService$CircularReferenceException.class
 com/plm/shared/model/ResolvedNodeType.class
 com/plm/node/lifecycle/internal/stateaction/impl/CollapseHistoryAction.class
@@ -77,8 +77,8 @@ com/plm/shared/security/PsmAuthContextBinder.class
 com/plm/source/package-info.class
 com/plm/shared/security/ThreadLocalSecurityContext.class
 com/plm/shared/hook/RollbackContext.class
-com/plm/node/transaction/internal/package-info.class
 com/plm/cad/NodeImportValidationAlgorithm.class
+com/plm/node/transaction/internal/package-info.class
 com/plm/shared/model/ResolvedAttribute.class
 com/plm/node/resource/NodeItemContribution.class
 com/plm/node/lifecycle/internal/LifecycleService$CascadeBlockedException.class
@@ -97,8 +97,8 @@ com/plm/node/lifecycle/internal/LifecycleService$1CascadeRule.class
 com/plm/permission/internal/NodeScopeKeyResolver.class
 com/plm/node/NodeLookupAdapter.class
 com/plm/shared/hook/RollbackContext$RolledBackLink.class
-com/plm/shared/security/PlmProjectSpaceContext.class
 com/plm/cad/DefaultNodeImportValidationAlgorithm.class
+com/plm/shared/security/PlmProjectSpaceContext.class
 com/plm/shared/security/PsmAuthzContextProvider.class
 com/plm/shared/model/Enums$VersionPolicy.class
 com/plm/node/handler/NodeTypeScope.class
@@ -130,6 +130,7 @@ com/plm/node/metamodel/MetaModelCachePort.class
 com/plm/node/lifecycle/internal/LifecycleScope.class
 com/plm/node/lifecycle/internal/guard/LifecycleGuardService$ResolvedGuard.class
 com/plm/shared/metadata/Metadata.class
+com/plm/node/metamodel/internal/validation/EditableAttributeValidator.class
 com/plm/source/KeyHint.class
 com/plm/node/link/internal/handler/CreateLinkActionHandler.class
 com/plm/node/source/DataResolver.class
@@ -149,8 +150,8 @@ com/plm/node/lifecycle/internal/stateaction/StateActionService$StateKey.class
 com/plm/shared/metadata/MetadataRegistry.class
 com/plm/permission/internal/PolicyService.class
 com/plm/shared/node/NodeLookupPort.class
-com/plm/shared/hook/CommitContext.class
 com/plm/cad/CadApiClient.class
+com/plm/shared/hook/CommitContext.class
 com/plm/shared/config/JacksonConfig$1.class
 com/plm/shared/action/ActionScope.class
 com/plm/node/metamodel/internal/ValidationService$ValidationException.class
@@ -170,15 +171,14 @@ com/plm/node/source/SelfNodeResolver$ParsedKey.class
 com/plm/node/NodeService.class
 com/plm/node/transaction/internal/LockService.class
 com/plm/node/lifecycle/internal/stateaction/StateAction.class
-com/plm/node/transaction/internal/handler/RollbackActionHandler.class
 com/plm/cad/CadImportCreateActionHandler.class
+com/plm/node/transaction/internal/handler/RollbackActionHandler.class
 com/plm/PlmApplication.class
 com/plm/shared/model/numbering/AlphaNumericNumberingStrategy$1.class
 com/plm/node/ItemTypeController.class
 com/plm/node/transaction/InternalTransactionController$RemoveItemsRequest.class
 com/plm/node/signature/internal/guard/SignatureRejectionGuard.class
 com/plm/shared/model/Enums$ChangeType.class
-com/plm/node/metamodel/MetaModelCachePort$StateRuleInfo.class
 com/plm/shared/package-info.class
 com/plm/shared/hook/CommitContext$NodeVersionRef.class
 com/plm/shared/metadata/Metadata$List.class

@@ -25,5 +25,12 @@ public interface BinaryStorage {
      */
     String presignedGetUrl(String location, String filename, Duration ttl);
 
+    /**
+     * Open the stored bytes via the internal endpoint. Used by server-side
+     * consumers (e.g. webdav) that cannot follow public presigned URLs.
+     * Caller must close the stream.
+     */
+    InputStream openStream(String location);
+
     record StoreResult(String location, long sizeBytes, String sha256Hex) {}
 }

@@ -82,6 +82,11 @@ public class S3BinaryStorage implements BinaryStorage {
         return presigner.presignGetObject(presign).url().toString();
     }
 
+    @Override
+    public InputStream openStream(String location) {
+        return s3.getObject(GetObjectRequest.builder().bucket(bucket).key(location).build());
+    }
+
     private static String toHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder(bytes.length * 2);
         for (byte b : bytes) sb.append(String.format("%02x", b));

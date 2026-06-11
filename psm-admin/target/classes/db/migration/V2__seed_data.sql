@@ -183,7 +183,7 @@ INSERT INTO view_attribute_override (view_id, attribute_def_id, visible, editabl
 -- ============================================================
 
 INSERT INTO lifecycle_state_action (lifecycle_state_id, algorithm_instance_id, trigger, execution_mode, display_order) VALUES
-  ('st-released', 'si-collapse-history', 'ON_ENTER', 'TRANSACTIONAL', 10);
+  ('st-released', 'ainst-psm-c-collapse-history', 'ON_ENTER', 'TRANSACTIONAL', 10);
 
 -- ============================================================
 -- LIFECYCLE TRANSITION GUARDS

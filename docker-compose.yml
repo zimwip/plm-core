@@ -406,7 +406,7 @@ services:
       NATS_URL:                            nats://nats:4222
       NATS_MONITORING_URL:                 http://nats:8222
       PLM_NATS_ENABLED:                    "true"
-      PLATFORM_EXPECTED_SERVICES:          psm,pno,psa,platform,ws,spe,dst,cad
+      PLATFORM_EXPECTED_SERVICES:          psm,pno,psa,platform,ws,spe,dst,cad,dav
       SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
       SPRING_DATASOURCE_USERNAME:          plm
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
@@ -462,6 +462,48 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8085/api/ws/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - plm-net
+
+  # ============================================================
+  # WebDAV — read-only WebDAV façade over PSM (serviceCode dav).
+  # Stateless: tree from psm/pno, metamodel flags from psm-admin
+  # snapshot, file bytes proxied from dst.
+  # ============================================================
+  webdav:
+    build:
+      context: .
+      dockerfile: webdav/Dockerfile
+      target: runtime
+    image: webdav:dev
+    container_name: webdav
+    environment:
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
+      PLM_PLATFORM_URL:                    http://platform-api:8084
+      SPE_SELF_BASE_URL:                   http://webdav:8089
+      PSM_CONFIG_ADMIN_URL:                http://psm-admin:8083
+      NATS_URL:                            nats://nats:4222
+      PLM_NATS_ENABLED:                    "true"
+      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      LOGGING_LEVEL_ROOT:                  INFO
+    depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+      psm-admin:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8089/api/dav/actuator/health || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 5

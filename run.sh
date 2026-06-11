@@ -41,6 +41,7 @@ BACKEND_SVC_ROWS=(
     "platform-api|8084|||PLM"
     "spe-api|8082||true|SPE"
     "dst|8086|dst||DST"
+    "webdav|8089|||DAV"
     "cad-api|8087|cad||CAD"
     "search-api|8088|||SEARCH"
 )
