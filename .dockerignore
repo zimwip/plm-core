@@ -8,6 +8,13 @@ venv
 .env
 **/dist
 **/build
+# Maven + Cargo build output — services build inside their Dockerfile stages,
+# so host artifacts must never enter the context (huge, and stale).
+**/target
+# Go compiled binaries (built in-container).
+/platform-lib-go/platform-lib-go
+/ws-gateway-go/ws-gateway-go
+*.test
 *.log
 .DS_Store
 examples

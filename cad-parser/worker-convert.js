@@ -6,14 +6,13 @@
 // and lets the ConvertPool convert independent parts in parallel.
 
 import { parentPort } from 'worker_threads';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import initOcct from 'occt-import-js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
+// wasm ships next to this file (bundled deploy) — no node_modules path.
+// __dirname is injected by the esbuild banner (this file only runs bundled).
 const occtReady = initOcct({
-  locateFile: (path) => join(__dirname, 'node_modules/occt-import-js/dist', path),
+  locateFile: (path) => join(__dirname, path),
 });
 
 const LINEAR_DEFLECTION  = parseFloat(process.env.OCCT_LINEAR_DEFLECTION  ?? '0.05');

@@ -96,7 +96,7 @@ public class DavTreeService {
     private List<Resource> listSpaces() {
         DavUserContext ctx = DavSecurityContext.get();
         List<Map<String, Object>> spaces = serviceClient.get("pno",
-            "/api/pno/project-spaces?userId=" + ctx.getUserId(),
+            "/project-spaces?userId=" + ctx.getUserId(),
             new ParameterizedTypeReference<List<Map<String, Object>>>() {});
         if (spaces == null) return List.of();
         return spaces.stream()
@@ -111,7 +111,7 @@ public class DavTreeService {
         List<Resource> out = new ArrayList<>();
         for (String typeId : directoryNodeTypeIds()) {
             Map<String, Object> page = serviceClient.get("psm",
-                "/api/psm/nodes?type=" + typeId + "&rootsOnly=true&page=0&size=500",
+                "/nodes?type=" + typeId + "&rootsOnly=true&page=0&size=500",
                 new ParameterizedTypeReference<Map<String, Object>>() {});
             if (page == null) continue;
             @SuppressWarnings("unchecked")
@@ -184,7 +184,7 @@ public class DavTreeService {
 
     private List<Map<String, Object>> childLinks(String nodeId) {
         List<Map<String, Object>> links = serviceClient.get("psm",
-            "/api/psm/nodes/" + nodeId + "/links/children",
+            "/nodes/" + nodeId + "/links/children",
             new ParameterizedTypeReference<List<Map<String, Object>>>() {});
         return links != null ? links : List.of();
     }

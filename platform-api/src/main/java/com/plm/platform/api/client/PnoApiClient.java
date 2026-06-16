@@ -47,7 +47,7 @@ public class PnoApiClient {
         if (hit != null) return hit;
 
         UriComponentsBuilder pathBuilder = UriComponentsBuilder
-            .fromPath("/api/pno/users/" + userId + "/context");
+            .fromPath("/users/" + userId + "/context");
         if (projectSpaceId != null && !projectSpaceId.isBlank()) {
             pathBuilder.queryParam("projectSpaceId", projectSpaceId);
         }

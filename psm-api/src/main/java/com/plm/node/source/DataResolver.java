@@ -82,7 +82,7 @@ public class DataResolver implements SourceResolver {
         try {
             List<Map<String, Object>> files = serviceClient.get(
                 DST_SERVICE_CODE,
-                "/api/dst/data?size=" + limit,
+                "/data?size=" + limit,
                 new ParameterizedTypeReference<List<Map<String, Object>>>() {});
             if (files == null) return List.of();
             String q = query != null ? query.toLowerCase() : "";
@@ -113,7 +113,7 @@ public class DataResolver implements SourceResolver {
     @Override
     public void attach(SourceResolverContext ctx) {
         try {
-            serviceClient.post(DST_SERVICE_CODE, "/api/dst/data/" + ctx.key() + "/ref", null, Void.class);
+            serviceClient.post(DST_SERVICE_CODE, "/data/" + ctx.key() + "/ref", null, Void.class);
             log.info("DST ref++ key={}", ctx.key());
         } catch (Exception e) {
             log.warn("DST attach failed key={}: {}", ctx.key(), e.getMessage());
@@ -123,7 +123,7 @@ public class DataResolver implements SourceResolver {
     @Override
     public void detach(SourceResolverContext ctx) {
         try {
-            serviceClient.post(DST_SERVICE_CODE, "/api/dst/data/" + ctx.key() + "/unref", null, Void.class);
+            serviceClient.post(DST_SERVICE_CODE, "/data/" + ctx.key() + "/unref", null, Void.class);
             log.info("DST ref-- key={}", ctx.key());
         } catch (Exception e) {
             log.warn("DST detach failed key={}: {}", ctx.key(), e.getMessage());
@@ -133,7 +133,7 @@ public class DataResolver implements SourceResolver {
     private Map<String, Object> fetchMetadata(String dataId) {
         Map<String, Object> meta = serviceClient.get(
             DST_SERVICE_CODE,
-            "/api/dst/data/" + dataId + "/metadata",
+            "/data/" + dataId + "/metadata",
             new ParameterizedTypeReference<Map<String, Object>>() {});
         if (meta == null) throw new IllegalArgumentException("Empty metadata response for " + dataId);
         return meta;

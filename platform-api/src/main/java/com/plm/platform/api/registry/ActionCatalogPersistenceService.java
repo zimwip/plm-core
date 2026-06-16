@@ -5,9 +5,12 @@ import com.plm.platform.api.registry.ActionCatalogRegistryController.Contributio
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
+import org.jooq.Record;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Persists handler/guard/contribution catalog metadata into the platform DB.
@@ -31,16 +34,34 @@ public class ActionCatalogPersistenceService {
      * Allows the Settings UI to display registered algorithms without a separate seed
      * migration per service.
      *
-     * Uses deterministic IDs (prefix + serviceCode + code) so repeated calls
-     * on restart are safe. ON CONFLICT clauses match H2 (PostgreSQL mode) and PostgreSQL.
+     * <p>Computes a fingerprint of the incoming catalog and compares it against the
+     * rows already stored for {@code svc}. When every incoming row is already present
+     * (the common case: replica boots, PLATFORM_RESTARTED re-register, identical
+     * payloads) the method writes nothing and returns {@code false}, so the caller can
+     * skip the CONFIG_CHANGED broadcast. Only a genuine catalog change runs the upserts.
+     *
+     * <p>Uses deterministic IDs (prefix + serviceCode + code) and conflict targets that
+     * match the real unique constraints ({@code uq_algorithm_code} on (service_code, code),
+     * {@code uq_algorithm_instance_name} on (service_code, name)) so repeated calls never
+     * raise a duplicate-key error — including against differently-IDed seed rows.
+     *
+     * @return {@code true} if the catalog changed and rows were written; {@code false} if
+     *         the stored catalog already covered the incoming payload (no-op).
      */
-    public void persistToDB(String svc,
-                            List<ActionCatalogRegistry.HandlerEntry> handlers,
-                            List<ActionCatalogRegistry.GuardEntry> guards,
-                            List<ContributionInput> contributions) {
+    public boolean persistToDB(String svc,
+                               List<ActionCatalogRegistry.HandlerEntry> handlers,
+                               List<ActionCatalogRegistry.GuardEntry> guards,
+                               List<ContributionInput> contributions) {
 
         String handlerTypeId = "sys-handler-" + svc;
         String guardTypeId   = "sys-guard-"   + svc;
+
+        Set<String> incoming = incomingFingerprint(svc, handlerTypeId, guardTypeId, handlers, guards, contributions);
+        Set<String> current  = currentFingerprint(svc);
+        if (current.containsAll(incoming)) {
+            log.debug("Action catalog unchanged for service {} — skipping persist", svc);
+            return false;
+        }
 
         dsl.execute(
             "INSERT INTO algorithm_type (id, service_code, name, java_interface) VALUES (?,?,'Action Handler','ActionHandler') " +
@@ -60,11 +81,11 @@ public class ActionCatalogPersistenceService {
 
             dsl.execute(
                 "INSERT INTO algorithm (id, service_code, algorithm_type_id, code, name, handler_ref, module_name) VALUES (?,?,?,?,?,?,?) " +
-                "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, module_name = EXCLUDED.module_name",
+                "ON CONFLICT (service_code, code) DO UPDATE SET name = EXCLUDED.name, module_name = EXCLUDED.module_name",
                 algId, svc, handlerTypeId, h.code(), lbl, h.code(), mod);
             dsl.execute(
                 "INSERT INTO algorithm_instance (id, service_code, algorithm_id, name) VALUES (?,?,?,?) " +
-                "ON CONFLICT (id) DO NOTHING",
+                "ON CONFLICT (service_code, name) DO NOTHING",
                 instId, svc, algId, lbl);
         }
 
@@ -77,11 +98,11 @@ public class ActionCatalogPersistenceService {
 
             dsl.execute(
                 "INSERT INTO algorithm (id, service_code, algorithm_type_id, code, name, handler_ref, module_name) VALUES (?,?,?,?,?,?,?) " +
-                "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, module_name = EXCLUDED.module_name",
+                "ON CONFLICT (service_code, code) DO UPDATE SET name = EXCLUDED.name, module_name = EXCLUDED.module_name",
                 algId, svc, guardTypeId, g.code(), lbl, g.code(), mod);
             dsl.execute(
                 "INSERT INTO algorithm_instance (id, service_code, algorithm_id, name) VALUES (?,?,?,?) " +
-                "ON CONFLICT (id) DO NOTHING",
+                "ON CONFLICT (service_code, name) DO NOTHING",
                 instId, svc, algId, lbl);
         }
 
@@ -104,29 +125,23 @@ public class ActionCatalogPersistenceService {
                 String lbl    = a.label() != null ? a.label() : a.code();
                 String mod    = a.module();
 
-                try {
-                    // Use (service_code, code) as conflict target — seed migrations may use a
-                    // different id pattern (e.g. alg-psm-wrapper-lock vs alg-psm-c-wrapper-lock).
-                    dsl.execute(
-                        "INSERT INTO algorithm (id, service_code, algorithm_type_id, code, name, handler_ref, module_name) VALUES (?,?,?,?,?,?,?) " +
-                        "ON CONFLICT (service_code, code) DO UPDATE SET name = EXCLUDED.name, module_name = EXCLUDED.module_name",
-                        algId, svc, typeId, a.code(), lbl, a.code(), mod);
+                // (service_code, code) conflict target — seed migrations may use a
+                // different id pattern (e.g. alg-psm-wrapper-lock vs alg-psm-c-wrapper-lock).
+                dsl.execute(
+                    "INSERT INTO algorithm (id, service_code, algorithm_type_id, code, name, handler_ref, module_name) VALUES (?,?,?,?,?,?,?) " +
+                    "ON CONFLICT (service_code, code) DO UPDATE SET name = EXCLUDED.name, module_name = EXCLUDED.module_name",
+                    algId, svc, typeId, a.code(), lbl, a.code(), mod);
 
-                    // Resolve the actual algorithm id (may differ from algId if conflict fired)
-                    var rows = dsl.fetch("SELECT id FROM algorithm WHERE service_code = ? AND code = ?", svc, a.code());
-                    String resolvedAlgId = rows.isEmpty() ? algId : rows.get(0).get("id", String.class);
+                // Resolve the actual algorithm id (may differ from algId if conflict fired)
+                var rows = dsl.fetch("SELECT id FROM algorithm WHERE service_code = ? AND code = ?", svc, a.code());
+                String resolvedAlgId = rows.isEmpty() ? algId : rows.get(0).get("id", String.class);
 
-                    // ON CONFLICT (id) handles concurrent duplicate inserts from multiple instances.
-                    // Concurrent inserts racing on (service_code, name) are caught and ignored below.
-                    dsl.execute(
-                        "INSERT INTO algorithm_instance (id, service_code, algorithm_id, name) VALUES (?,?,?,?) " +
-                        "ON CONFLICT (id) DO NOTHING",
-                        instId, svc, resolvedAlgId, lbl);
-                } catch (Exception e) {
-                    // Expected: concurrent registration from another instance, or name conflict
-                    // with a differently-IDed seed row. Seed migrations are authoritative.
-                    log.debug("Contribution {}/{} instance skipped (concurrent/seed conflict): {}", svc, a.code(), e.getMessage());
-                }
+                // (service_code, name) conflict target — matches uq_algorithm_instance_name,
+                // so a name already held by a differently-IDed seed row is a clean no-op.
+                dsl.execute(
+                    "INSERT INTO algorithm_instance (id, service_code, algorithm_id, name) VALUES (?,?,?,?) " +
+                    "ON CONFLICT (service_code, name) DO NOTHING",
+                    instId, svc, resolvedAlgId, lbl);
             }
         }
 
@@ -135,5 +150,58 @@ public class ActionCatalogPersistenceService {
             .sum();
         log.debug("Persisted {} handlers + {} guards + {} contribution algorithms to platform DB for service {}",
             handlers.size(), guards.size(), algContribCount, svc);
+        return true;
+    }
+
+    /** Canonical lines describing every row this payload would write for {@code svc}. */
+    private Set<String> incomingFingerprint(String svc, String handlerTypeId, String guardTypeId,
+                                            List<ActionCatalogRegistry.HandlerEntry> handlers,
+                                            List<ActionCatalogRegistry.GuardEntry> guards,
+                                            List<ContributionInput> contributions) {
+        Set<String> lines = new LinkedHashSet<>();
+        lines.add("type|" + handlerTypeId + "|Action Handler");
+        lines.add("type|" + guardTypeId + "|Action Guard");
+
+        for (ActionCatalogRegistry.HandlerEntry h : handlers) {
+            String lbl = h.label() != null ? h.label() : h.code();
+            lines.add("alg|" + h.code() + "|" + lbl + "|" + nz(h.module()) + "|" + handlerTypeId);
+            lines.add("inst|" + lbl);
+        }
+        for (ActionCatalogRegistry.GuardEntry g : guards) {
+            String lbl = g.label() != null ? g.label() : g.code();
+            lines.add("alg|" + g.code() + "|" + lbl + "|" + nz(g.module()) + "|" + guardTypeId);
+            lines.add("inst|" + lbl);
+        }
+        for (ContributionInput contrib : contributions) {
+            if (contrib.algorithms() == null || contrib.algorithms().isEmpty()) continue;
+            lines.add("type|" + contrib.typeId() + "|" + contrib.typeName());
+            for (AlgorithmInput a : contrib.algorithms()) {
+                String lbl = a.label() != null ? a.label() : a.code();
+                lines.add("alg|" + a.code() + "|" + lbl + "|" + nz(a.module()) + "|" + contrib.typeId());
+                lines.add("inst|" + lbl);
+            }
+        }
+        return lines;
+    }
+
+    /** Same-shape lines for the rows already stored for {@code svc}. */
+    private Set<String> currentFingerprint(String svc) {
+        Set<String> lines = new LinkedHashSet<>();
+        for (Record r : dsl.fetch("SELECT id, name FROM algorithm_type WHERE service_code = ?", svc)) {
+            lines.add("type|" + r.get("id", String.class) + "|" + r.get("name", String.class));
+        }
+        for (Record r : dsl.fetch(
+                "SELECT code, name, module_name, algorithm_type_id FROM algorithm WHERE service_code = ?", svc)) {
+            lines.add("alg|" + r.get("code", String.class) + "|" + r.get("name", String.class) + "|"
+                + nz(r.get("module_name", String.class)) + "|" + r.get("algorithm_type_id", String.class));
+        }
+        for (Record r : dsl.fetch("SELECT name FROM algorithm_instance WHERE service_code = ?", svc)) {
+            lines.add("inst|" + r.get("name", String.class));
+        }
+        return lines;
+    }
+
+    private static String nz(String s) {
+        return s == null ? "" : s;
     }
 }

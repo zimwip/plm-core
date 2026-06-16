@@ -26,7 +26,7 @@ public class PsmActionClient {
             @SuppressWarnings("unchecked")
             Map<String, Object> response = serviceClient.get(
                 "psm",
-                "/api/psm/internal/cad/nodes/by-external-id?externalId=" + cadId,
+                "/internal/cad/nodes/by-external-id?externalId=" + cadId,
                 Map.class
             );
             if (response != null && response.containsKey("nodeId")) {
@@ -39,7 +39,7 @@ public class PsmActionClient {
     }
 
     public String openTransaction() {
-        Map<?, ?> response = serviceClient.post("psm", "/api/psm/transactions", Map.of(), Map.class);
+        Map<?, ?> response = serviceClient.post("psm", "/transactions", Map.of(), Map.class);
         if (response == null || !response.containsKey("txId")) {
             throw new IllegalStateException("PSM transaction open returned no id");
         }
@@ -59,7 +59,7 @@ public class PsmActionClient {
         @SuppressWarnings("unchecked")
         Map<String, Object> response = serviceClient.exchange(
             "psm",
-            "/api/psm/actions/create_node/" + nodeTypeId,
+            "/actions/create_node/" + nodeTypeId,
             HttpMethod.POST,
             body,
             Map.class,
@@ -78,7 +78,7 @@ public class PsmActionClient {
         Map<String, Object> body = Map.of("parameters", attrs);
         serviceClient.exchange(
             "psm",
-            "/api/psm/actions/update_node/" + nodeId,
+            "/actions/update_node/" + nodeId,
             HttpMethod.POST,
             body,
             Map.class,
@@ -99,7 +99,7 @@ public class PsmActionClient {
         @SuppressWarnings("unchecked")
         Map<String, Object> response = serviceClient.exchange(
             "psm",
-            "/api/psm/actions/create_link/" + sourceNodeId,
+            "/actions/create_link/" + sourceNodeId,
             HttpMethod.POST,
             body,
             Map.class,
@@ -120,7 +120,7 @@ public class PsmActionClient {
         attributes.forEach((k, v) -> params.put("linkAttr_" + k, v));
         serviceClient.exchange(
             "psm",
-            "/api/psm/actions/update_link/" + linkId,
+            "/actions/update_link/" + linkId,
             HttpMethod.POST,
             Map.of("parameters", params),
             Map.class,
@@ -136,7 +136,7 @@ public class PsmActionClient {
     public void commit(String txId, String projectSpaceId) {
         serviceClient.exchange(
             "psm",
-            "/api/psm/actions/commit/" + txId,
+            "/actions/commit/" + txId,
             HttpMethod.POST,
             Map.of("parameters", Map.of("comment", "CAD import")),
             Map.class,
@@ -149,7 +149,7 @@ public class PsmActionClient {
         try {
             serviceClient.exchange(
                 "psm",
-                "/api/psm/actions/rollback/" + txId,
+                "/actions/rollback/" + txId,
                 HttpMethod.POST,
                 Map.of("parameters", Map.of()),
                 Map.class,

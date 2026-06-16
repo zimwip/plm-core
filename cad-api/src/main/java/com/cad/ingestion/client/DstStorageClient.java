@@ -50,7 +50,7 @@ public class DstStorageClient {
 
             @SuppressWarnings("unchecked")
             Map<String, Object> response = rest.postForObject(
-                dstBaseUrl + "/api/dst/data",
+                dstBaseUrl + "/data",
                 request,
                 Map.class
             );
@@ -78,7 +78,7 @@ public class DstStorageClient {
         try {
             HttpHeaders headers = serviceClient.buildAuthHeaders();
             rest.exchange(
-                dstBaseUrl + "/api/dst/data/" + dstFileId + "/unref",
+                dstBaseUrl + "/data/" + dstFileId + "/unref",
                 HttpMethod.POST,
                 new HttpEntity<>(headers),
                 Void.class

@@ -18,7 +18,7 @@ public class PsaImportContextClient {
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> listAll() {
         try {
-            return serviceClient.get("psa", "/api/psa/internal/import-contexts", List.class);
+            return serviceClient.get("psa", "/internal/import-contexts", List.class);
         } catch (Exception e) {
             log.warn("Could not list import contexts from PSA: {}", e.getMessage());
             return List.of();
@@ -28,7 +28,7 @@ public class PsaImportContextClient {
     @SuppressWarnings("unchecked")
     public Map<String, Object> findByCode(String code) {
         try {
-            return serviceClient.get("psa", "/api/psa/internal/import-contexts/" + code, Map.class);
+            return serviceClient.get("psa", "/internal/import-contexts/" + code, Map.class);
         } catch (Exception e) {
             log.warn("Import context '{}' not found/unreachable in PSA: {}", code, e.getMessage());
             return null;

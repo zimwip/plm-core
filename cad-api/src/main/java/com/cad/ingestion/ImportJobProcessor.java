@@ -806,7 +806,7 @@ public class ImportJobProcessor {
     private Map<String, Object> fetchImportContext(String contextCode) {
         if (contextCode == null || contextCode.isBlank() || "default".equals(contextCode)) return null;
         try {
-            return serviceClient.get("psa", "/api/psa/internal/import-contexts/" + contextCode, Map.class);
+            return serviceClient.get("psa", "/internal/import-contexts/" + contextCode, Map.class);
         } catch (Exception e) {
             log.warn("Could not fetch import context '{}' from PSA: {}", contextCode, e.getMessage());
             return null;

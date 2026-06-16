@@ -59,15 +59,18 @@ public class ActionCatalogRegistryController {
 
         ServiceActionCatalog catalog = registry.register(request.serviceCode(), handlers, guards, events);
 
+        boolean changed = false;
         try {
-            persistenceService.persistToDB(request.serviceCode(), handlers, guards, contributions);
+            changed = persistenceService.persistToDB(request.serviceCode(), handlers, guards, contributions);
         } catch (Exception e) {
             log.warn("Registration DB persist failed for service {}: {}", request.serviceCode(), e.getMessage());
         }
 
         // Notify psm-admin (via PlatformConfigRelay) so it rebuilds its config snapshot.
-        // Fires after persistToDB regardless of success — psm-admin re-fetches from our DB.
-        if (!handlers.isEmpty() || !guards.isEmpty() || !contributions.isEmpty()) {
+        // Only when the persisted catalog actually changed — identical re-registrations
+        // (replica boots, PLATFORM_RESTARTED with unchanged catalog) must not thrash
+        // every consumer's ConfigCache.
+        if (changed) {
             try {
                 eventPublisher.publishEvent(new ConfigChangedEvent("REGISTER", "ACTION_CATALOG", request.serviceCode()));
             } catch (Exception e) {

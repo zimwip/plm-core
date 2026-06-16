@@ -2,9 +2,20 @@
 # PLM Core — .gitignore
 # ============================================================
 
-# ── Backend ──────────────────────────────────────────────────
+# ── Backend (Java/Maven) ─────────────────────────────────────
 plm-api/target/
 plm-api/*.jar
+
+# ── Rust (platform-lib-rs, spe-api-rs) ───────────────────────
+# Cargo build output (can be GBs). Cargo.lock is kept.
+**/target/
+
+# ── Go (platform-lib-go, ws-gateway-go) ──────────────────────
+# Compiled binaries (no extension) + test/coverage output.
+/platform-lib-go/platform-lib-go
+/ws-gateway-go/ws-gateway-go
+*.test
+*.out
 
 # ── Frontend / Node ──────────────────────────────────────────
 **/node_modules/

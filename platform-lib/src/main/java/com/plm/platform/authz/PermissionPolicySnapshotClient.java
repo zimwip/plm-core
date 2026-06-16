@@ -4,7 +4,6 @@ import com.plm.platform.client.ServiceClient;
 import lombok.extern.slf4j.Slf4j;
 import org.casbin.jcasbin.main.Enforcer;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.scheduling.annotation.Scheduled;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -16,14 +15,15 @@ import java.util.Map;
  * {@link ScopeDefinitionCache} and the {@link DynamicPolicyAdapter} before
  * asking the {@link Enforcer} to reload.
  *
- * <p>PR7 scope: snapshot is loaded at boot and can be refreshed on demand.
- * PR9 wires NATS {@code global.AUTHORIZATION_CHANGED} into {@link #reload()}.
+ * <p>Refresh is fully event-driven: the snapshot is pulled once at boot and
+ * then only when NATS {@code global.AUTHORIZATION_CHANGED} fires (grant change
+ * on pno, or pno announcing its own startup). No periodic polling.
  */
 @Slf4j
 public class PermissionPolicySnapshotClient {
 
     private static final String PNO_SERVICE_CODE = "pno";
-    private static final String SNAPSHOT_PATH    = "/api/pno/internal/authorization/snapshot";
+    private static final String SNAPSHOT_PATH    = "/internal/authorization/snapshot";
 
     private final ServiceClient            serviceClient;
     private final DynamicPolicyAdapter     adapter;
@@ -45,13 +45,10 @@ public class PermissionPolicySnapshotClient {
      * logs at warn; callers that need boot-time guarantees drive their own
      * retry.
      *
-     * <p>Also runs on a fixed delay as a safety net when NATS
-     * {@code global.AUTHORIZATION_CHANGED} is not delivered (e.g. NATS down,
-     * outbox poller stalled). Default 60 s, configurable via
-     * {@code plm.authz.snapshot.refresh-ms}.
+     * <p>Driven by {@code AuthzSnapshotBootstrapper} (boot),
+     * {@code AuthzChangeSubscriber} (NATS {@code global.AUTHORIZATION_CHANGED})
+     * and {@code DefaultPolicyEnforcer.reload()}. No periodic polling.
      */
-    @Scheduled(fixedDelayString = "${plm.authz.snapshot.refresh-ms:60000}",
-               initialDelayString = "${plm.authz.snapshot.refresh-ms:60000}")
     @SuppressWarnings("unchecked")
     public void reload() {
         try {

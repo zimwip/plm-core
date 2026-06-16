@@ -142,7 +142,7 @@ public class AccessRightsTreeService {
 
     @SuppressWarnings("unchecked")
     private List<KeyValue> callValueSource(ValueSourceRecord vs, String parentQuery) {
-        String basePath = "/api/" + vs.serviceCode() + "/internal" + vs.endpointPath();
+        String basePath = "/internal" + vs.endpointPath();
         boolean hasParent = parentQuery != null && !parentQuery.isBlank();
         // RestTemplate URI templates URL-encode {var} substitutions, so we pass
         // parentQuery raw (e.g. "nodeType=nt-part") as a uriVar — letting the

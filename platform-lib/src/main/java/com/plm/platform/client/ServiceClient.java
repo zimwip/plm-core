@@ -22,15 +22,19 @@ import java.util.function.Supplier;
  * Resolves target URLs from {@link LocalServiceRegistry}, applies
  * Resilience4j circuit breaker + retry, and auto-injects X-Service-Secret.
  *
+ * <p>Paths are BARE and root-relative — the serviceCode selects the target
+ * and backends serve at root (gateway-strip routing). Do NOT prefix
+ * {@code /api/<code>}; that belongs only to gateway-facing URLs.
+ *
  * <p>Usage:
  * <pre>
  * // Simple GET
- * List&lt;String&gt; ids = serviceClient.get("pno-api",
- *     "/api/pno/project-spaces/{id}/descendants",
+ * List&lt;String&gt; ids = serviceClient.get("pno",
+ *     "/project-spaces/{id}/descendants",
  *     new ParameterizedTypeReference&lt;List&lt;String&gt;&gt;() {}, psId);
  *
  * // POST with body
- * Result r = serviceClient.post("psm-api", "/api/psm/nodes", body, Result.class);
+ * Result r = serviceClient.post("psm", "/nodes", body, Result.class);
  * </pre>
  */
 @Slf4j

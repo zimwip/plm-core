@@ -40,7 +40,8 @@ public class PlatformSelfRegistration {
         ServiceRegistration reg = registry.register(
             props.serviceCode(),
             props.selfBaseUrl(),
-            props.selfBaseUrl() + props.contextPath() + "/actuator/health",
+            // Bare health path — gateway-strip routing means actuator is at root.
+            props.selfBaseUrl() + "/actuator/health",
             props.routePrefix(),
             props.extraPaths(),
             version,

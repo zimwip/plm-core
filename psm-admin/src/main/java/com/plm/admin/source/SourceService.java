@@ -60,7 +60,7 @@ public class SourceService {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Service-Secret", serviceSecret);
             var resp = rest.exchange(
-                platformUrl + "/api/platform/internal/algorithms/instances",
+                platformUrl + "/internal/algorithms/instances",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
                 new ParameterizedTypeReference<List<Map<String, Object>>>() {});

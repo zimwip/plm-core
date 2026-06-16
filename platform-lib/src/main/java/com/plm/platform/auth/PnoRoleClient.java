@@ -25,7 +25,7 @@ public class PnoRoleClient {
 
     @SuppressWarnings("unchecked")
     public Set<String> fetchRoles(String userId, String projectSpaceId) {
-        String path = "/api/pno/users/" + userId + "/context";
+        String path = "/users/" + userId + "/context";
         if (projectSpaceId != null && !projectSpaceId.isBlank()) {
             path += "?projectSpaceId=" + projectSpaceId;
         }

@@ -64,7 +64,7 @@ public class CadApiClient {
         if (jwt != null) headers.set("Authorization", jwt);
 
         Map<String, Object> result = rest.postForObject(
-            cadApiUrl + "/api/cad/internal/import",
+            cadApiUrl + "/internal/import",
             new HttpEntity<>(body, headers),
             Map.class
         );
@@ -90,7 +90,7 @@ public class CadApiClient {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Service-Secret", serviceSecret);
         var resp = rest.exchange(
-            cadApiUrl + "/api/cad/internal/import/" + jobId,
+            cadApiUrl + "/internal/import/" + jobId,
             HttpMethod.GET,
             new HttpEntity<>(headers),
             Map.class

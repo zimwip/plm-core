@@ -56,7 +56,7 @@ class DavTreeServiceTest {
 
     @Test
     void rootListsProjectSpaces() {
-        when(serviceClient.get(eq("pno"), eq("/api/pno/project-spaces?userId=user-alice"),
+        when(serviceClient.get(eq("pno"), eq("/project-spaces?userId=user-alice"),
             any(ParameterizedTypeReference.class)))
             .thenReturn(List.of(Map.of("id", "ps-1", "name", "Default Space")));
 
@@ -71,7 +71,7 @@ class DavTreeServiceTest {
     @Test
     void nodeChildrenClassifiesDirectoriesAndFiles() {
         // child links of the directory node: one sub-folder, one leaf node
-        when(serviceClient.get(eq("psm"), eq("/api/psm/nodes/n-root/links/children"),
+        when(serviceClient.get(eq("psm"), eq("/nodes/n-root/links/children"),
             any(ParameterizedTypeReference.class)))
             .thenReturn(List.of(
                 Map.of("targetSourceCode", "SELF", "linkTypeId", "lt-bom",
@@ -81,7 +81,7 @@ class DavTreeServiceTest {
                     "targetType", "nt-doc", "targetNodeType", "Document",
                     "targetNodeId", "n-doc", "targetLogicalId", "DOC-1")));
         // leaf node carries a webdav.file link to dst
-        when(serviceClient.get(eq("psm"), eq("/api/psm/nodes/n-doc/links/children"),
+        when(serviceClient.get(eq("psm"), eq("/nodes/n-doc/links/children"),
             any(ParameterizedTypeReference.class)))
             .thenReturn(List.of(
                 Map.of("targetSourceCode", "data_resolver", "linkTypeId", FILE_LT,
@@ -105,13 +105,13 @@ class DavTreeServiceTest {
 
     @Test
     void leafWithoutFileLinkIsOmitted() {
-        when(serviceClient.get(eq("psm"), eq("/api/psm/nodes/n-root/links/children"),
+        when(serviceClient.get(eq("psm"), eq("/nodes/n-root/links/children"),
             any(ParameterizedTypeReference.class)))
             .thenReturn(List.of(
                 Map.of("targetSourceCode", "SELF", "linkTypeId", "lt-bom",
                     "targetType", "nt-doc", "targetNodeType", "Document",
                     "targetNodeId", "n-bare", "targetLogicalId", "BARE-1")));
-        when(serviceClient.get(eq("psm"), eq("/api/psm/nodes/n-bare/links/children"),
+        when(serviceClient.get(eq("psm"), eq("/nodes/n-bare/links/children"),
             any(ParameterizedTypeReference.class)))
             .thenReturn(List.of());
 

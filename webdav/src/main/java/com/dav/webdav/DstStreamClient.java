@@ -31,7 +31,7 @@ public class DstStreamClient {
     }
 
     public void stream(String dataId, HttpServletResponse response) {
-        String url = serviceClient.resolveBaseUrl("dst") + "/api/dst/data/" + dataId + "/content";
+        String url = serviceClient.resolveBaseUrl("dst") + "/data/" + dataId + "/content";
         HttpHeaders auth = serviceClient.buildAuthHeaders();
         restTemplate.execute(URI.create(url), HttpMethod.GET,
             request -> request.getHeaders().addAll(auth),

@@ -32,7 +32,7 @@ public class UiPluginsClient {
         List<UiPluginManifestEntry> result = new ArrayList<>();
 
         for (String serviceCode : environmentRegistry.serviceCodes()) {
-            String path = "/api/" + serviceCode + "/internal/ui/plugins";
+            String path = "/internal/ui/plugins";
             try {
                 List<UiPluginDeclaration> plugins = serviceClient.get(serviceCode, path, PLUGIN_LIST);
                 if (plugins == null) continue;

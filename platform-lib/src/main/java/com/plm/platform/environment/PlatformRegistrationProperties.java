@@ -43,14 +43,15 @@ public record PlatformRegistrationProperties(
     }
 
     /**
-     * Path the platform exposes for service-to-service environment registry
-     * operations. Includes platform-api's own context-path.
+     * Path platform-api exposes for service-to-service environment registry
+     * operations. Bare path — direct S2S calls bypass the gateway and
+     * platform-api serves internal endpoints at root (gateway-strip routing).
      */
     public String registrationPath() {
-        return "/api/platform/internal/environment/register";
+        return "/internal/environment/register";
     }
 
     public String snapshotPath() {
-        return "/api/platform/internal/environment/snapshot";
+        return "/internal/environment/snapshot";
     }
 }

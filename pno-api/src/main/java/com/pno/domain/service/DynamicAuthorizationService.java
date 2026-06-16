@@ -118,6 +118,21 @@ public class DynamicAuthorizationService {
         return total;
     }
 
+    /**
+     * Fire-and-forget announce on pno startup. Lets consumers that booted while
+     * pno (or NATS) was unreachable re-pull the snapshot once pno is back —
+     * replaces the old periodic poll in platform-lib. Reuses the same subject so
+     * {@code AuthzChangeSubscriber} reacts with a full re-pull. Does not bump the
+     * version (nothing changed); the version is informational only.
+     */
+    public void announceSourceStarted() {
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("event", "AUTHORIZATION_CHANGED");
+        payload.put("reason", "SOURCE_STARTED");
+        payload.put("version", versionStamp.current());
+        eventPublisher.enqueue("global.AUTHORIZATION_CHANGED", payload);
+    }
+
     private void publishChanged(String reason, String permissionCode, String scopeCode, String roleId, String projectSpaceId) {
         long version = versionStamp.bump();
         java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();

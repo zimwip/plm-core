@@ -34,7 +34,7 @@ public class ConfigSnapshotBuilder {
     private final String serviceSecret;
     private final AtomicLong versionCounter = new AtomicLong(0);
 
-    private static final String PLATFORM_ACTIONS_PATH = "/api/platform/internal/config/actions?serviceCode=psm";
+    private static final String PLATFORM_ACTIONS_PATH = "/internal/config/actions?serviceCode=psm";
 
     public ConfigSnapshotBuilder(DSLContext dsl, RestTemplateBuilder restBuilder,
                                  @Value("${plm.settings.settings-url:http://platform-api:8084}") String platformUrl,

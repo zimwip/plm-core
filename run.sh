@@ -33,28 +33,47 @@ set -euo pipefail
 #   schema  : Flyway schema (empty = no DB dependency)
 #   (unused): reserved (keep empty or any value)
 #   logpkg  : Java package suffix for LOGGING_LEVEL_COM_* (e.g. PLM, PNO, SPE)
+#   dir     : source/build directory (default = name). Differs for polyglot
+#             rewrites whose compose service name ≠ source dir.
+#   kind    : build kind — jvm (default) | go | rust. Drives artifact extraction
+#             and which runtime Dockerfile is generated in package.
 BACKEND_SVC_ROWS=(
     "pno-api|8081|pno||PNO"
     "psm-admin|8083|psm_admin||PLM"
     "psm-api|8080|psm||PLM"
-    "ws-gateway|8085|||PLM"
+    "ws-gateway|8085|||PLM|ws-gateway-go|go"
     "platform-api|8084|||PLM"
-    "spe-api|8082||true|SPE"
+    "spe-api|8082||true|SPE|spe-api-rs|rust"
     "dst|8086|dst||DST"
-    "webdav|8089|||DAV"
+    "webdav|8089|||DAV|webdav-go|go"
     "cad-api|8087|cad||CAD"
     "search-api|8088|||SEARCH"
 )
 
 SVC_NAMES=()
-declare -A SVC_PORT SVC_SCHEMA SVC_LOGPKG
+declare -A SVC_PORT SVC_SCHEMA SVC_LOGPKG SVC_DIR SVC_KIND
 for row in "${BACKEND_SVC_ROWS[@]}"; do
-    IFS='|' read -r name port schema _exposed logpkg <<<"$row"
+    IFS='|' read -r name port schema _exposed logpkg dir kind <<<"$row"
     SVC_NAMES+=("$name")
     SVC_PORT[$name]=$port
     SVC_SCHEMA[$name]=$schema
     SVC_LOGPKG[$name]=$logpkg
+    SVC_DIR[$name]=${dir:-$name}
+    SVC_KIND[$name]=${kind:-jvm}
 done
+
+# Path of the compiled binary inside each non-JVM service's builder stage.
+# (JVM services use the JAR auto-discovered under /build/target.)
+declare -A SVC_BINSRC=(
+    ["ws-gateway"]="/ws-gateway"                            # ws-gateway-go/Dockerfile
+    ["webdav"]="/webdav"                                    # webdav-go/Dockerfile
+    ["spe-api"]="/build/spe-api-rs/target/release/spe-api"  # spe-api-rs/Dockerfile
+)
+
+# Services with a writable named volume: the dir must be created + chowned to the
+# runtime 'app' user in the generated dist Dockerfile, else the mount is root-owned
+# and the non-root process gets EACCES on first write.
+declare -A SVC_VOLDIR=( ["search-api"]="/var/lib/search-data" )
 
 HEALTH_TIMEOUT=180  # seconds to wait for all services healthy
 PLATFORM_LIB_IMAGE="plm-platform-lib:dev"
@@ -132,6 +151,9 @@ trap cleanup INT TERM
 # healthcheck, or exited 0 for one-shot services like vault-bootstrap).
 wait_all_healthy() {
     local timeout=${1:-$HEALTH_TIMEOUT}
+    # Optional compose command prefix (e.g. "docker compose -f dist/... -p ...").
+    # Defaults to the ambient project in the current directory.
+    local compose_cmd=${2:-docker compose}
     local start elapsed=0
     start=$(date +%s)
     log "Waiting for services to become healthy (max ${timeout}s)…"
@@ -154,7 +176,7 @@ wait_all_healthy() {
                     *) all_ok=false; pending+=("$name=$state") ;;
                 esac
             fi
-        done < <(docker compose ps -a --format '{{.Service}}\t{{.Name}}\t{{.State}}' 2>/dev/null)
+        done < <($compose_cmd ps -a --format '{{.Service}}\t{{.Name}}\t{{.State}}' 2>/dev/null)
         if $all_ok; then
             echo ""
             ok "All services ready after ${elapsed}s"
@@ -173,8 +195,9 @@ wait_all_healthy() {
 # Prints compose-service names whose source tree has uncommitted changes.
 # platform-lib change cascades to every backend (shared dep).
 detect_changed_services() {
-    local roots=("platform-lib" "frontend")
-    for svc in "${SVC_NAMES[@]}"; do roots+=("$svc"); done
+    # Shared libs cascade to every backend. platform-lib (Java) + the polyglot
+    # libs are all treated as global triggers — cheap and safe to rebuild wide.
+    local SHARED=("platform-lib" "platform-lib-go" "platform-lib-rs")
 
     if ! git rev-parse --is-inside-work-tree &>/dev/null; then
         warn "Not inside a git repo — falling back to full rebuild"
@@ -186,13 +209,17 @@ detect_changed_services() {
     local paths
     paths=$( { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u)
 
+    # Match changed paths against each service's SOURCE DIR, but key hits by the
+    # compose SERVICE NAME (dir ≠ name for polyglot rewrites, e.g. ws-gateway-go).
     while IFS= read -r p; do
         [[ -z "$p" ]] && continue
-        for r in "${roots[@]}"; do
-            if [[ "$p" == "$r" || "$p" == "$r/"* ]]; then
-                hits[$r]=1
-                break
-            fi
+        [[ "$p" == frontend || "$p" == frontend/* ]] && hits[frontend]=1
+        for r in "${SHARED[@]}"; do
+            [[ "$p" == "$r" || "$p" == "$r/"* ]] && hits[$r]=1
+        done
+        for svc in "${SVC_NAMES[@]}"; do
+            local d="${SVC_DIR[$svc]}"
+            [[ "$p" == "$d" || "$p" == "$d/"* ]] && hits[$svc]=1
         done
     done <<< "$paths"
 
@@ -202,12 +229,14 @@ detect_changed_services() {
         docker compose config --services 2>/dev/null | grep -E "^${svc}(-[0-9]+)?$" || echo "$svc"
     }
 
-    # platform-lib change → all backends
-    if [[ -n "${hits[platform-lib]:-}" ]]; then
-        for svc in "${SVC_NAMES[@]}"; do expand_compose "$svc"; done
-        [[ -n "${hits[frontend]:-}" ]] && echo "plm-frontend"
-        return
-    fi
+    # Any shared-lib change → all backends
+    for r in "${SHARED[@]}"; do
+        if [[ -n "${hits[$r]:-}" ]]; then
+            for svc in "${SVC_NAMES[@]}"; do expand_compose "$svc"; done
+            [[ -n "${hits[frontend]:-}" ]] && echo "plm-frontend"
+            return
+        fi
+    done
 
     for svc in "${SVC_NAMES[@]}"; do
         [[ -n "${hits[$svc]:-}" ]] && expand_compose "$svc"
@@ -324,6 +353,12 @@ run_local() {
     echo ""
 
     for svc in "${SVC_NAMES[@]}"; do
+        # local mode runs services via mvnw — only JVM services are supported.
+        # Polyglot (Go/Rust) services have no mvnw; skip rather than crash.
+        if [[ "${SVC_KIND[$svc]}" != jvm ]]; then
+            warn "skip $svc (${SVC_KIND[$svc]}) — local mode supports JVM services only; use docker compose"
+            continue
+        fi
         local_start_backend "$svc"
     done
     local_start_frontend
@@ -401,6 +436,39 @@ ENTRYPOINT ["java", \\
 EOF
 }
 
+write_go_dockerfile() {
+    local out=$1 port=$2
+    cat > "$out" <<EOF
+FROM alpine:3.20
+RUN addgroup -S app && adduser -S app -G app
+USER app
+WORKDIR /app
+COPY app .
+EXPOSE $port
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \\
+    CMD wget -qO- http://localhost:$port/actuator/health || exit 1
+ENTRYPOINT ["./app"]
+EOF
+}
+
+write_rust_dockerfile() {
+    local out=$1 port=$2
+    cat > "$out" <<EOF
+FROM debian:12-slim
+RUN apt-get update \\
+ && apt-get install -y --no-install-recommends wget ca-certificates \\
+ && rm -rf /var/lib/apt/lists/* \\
+ && useradd -r -s /usr/sbin/nologin app
+USER app
+WORKDIR /app
+COPY app .
+EXPOSE $port
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \\
+    CMD wget -qO- http://localhost:$port/actuator/health || exit 1
+ENTRYPOINT ["./app"]
+EOF
+}
+
 write_native_dockerfile() {
     local out=$1 port=$2
     cat > "$out" <<EOF
@@ -474,7 +542,7 @@ run_package() {
     fi
 
     mkdir -p "$DIST/frontend/html" "$DIST/cad-parser"
-    for svc in "${SVC_NAMES[@]}"; do mkdir -p "$DIST/$svc"; done
+    for svc in "${SVC_NAMES[@]}"; do mkdir -p "$DIST/${SVC_DIR[$svc]}"; done
 
     mkdir -p "$DIST/vault"
     cp vault/config.hcl   "$DIST/vault/config.hcl"
@@ -482,9 +550,8 @@ run_package() {
     chmod +x "$DIST/vault/bootstrap.sh"
 
     mkdir -p "$DIST/garage"
-    cp garage/garage.toml  "$DIST/garage/garage.toml"
-    cp garage/bootstrap.sh "$DIST/garage/bootstrap.sh"
-    chmod +x "$DIST/garage/bootstrap.sh"
+    cp garage/garage.toml   "$DIST/garage/garage.toml"
+    cp garage/bootstrap.mjs "$DIST/garage/bootstrap.mjs"
 
     if $NATIVE_MODE; then
         log "=== PLM Core — package (native) ==="
@@ -523,12 +590,13 @@ run_package() {
         local -A _pids=()
 
         for svc in "${SVC_NAMES[@]}"; do
+            local dir="${SVC_DIR[$svc]}"
             local ba=""
-            if grep -q '<id>dist</id>' "$svc/pom.xml" 2>/dev/null; then
+            if grep -q '<id>dist</id>' "$dir/pom.xml" 2>/dev/null; then
                 ba="--build-arg MAVEN_EXTRA_OPTS=-Pdist"
             fi
             # shellcheck disable=SC2086
-            docker build --target builder $ba --file "$svc/Dockerfile" -t "plm-$svc-pkg-builder" "." \
+            docker build --target builder $ba --file "$dir/Dockerfile" -t "plm-$svc-pkg-builder" "." \
                 >"$log_dir/$svc.log" 2>&1 &
             _pids[$svc]=$!
         done
@@ -558,32 +626,45 @@ run_package() {
         # ── Phase 2: extract artifacts ───────────────────────────
         for svc in "${SVC_NAMES[@]}"; do
             log "[$svc] Extracting…"
+            local dir="${SVC_DIR[$svc]}"
             local cid
             cid=$(docker create "plm-$svc-pkg-builder")
-            docker cp "$cid:/build/target" "$DIST/$svc/_target"
-            docker rm "$cid" >/dev/null
-            docker rmi --force "plm-$svc-pkg-builder" >/dev/null 2>&1 || true
-            local jar
-            jar=$(ls "$DIST/$svc/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1 || true)
-            if [[ -z "$jar" ]]; then
-                err "[$svc] No JAR found — build may have failed"; exit 1
-            fi
-            cp "$jar" "$DIST/$svc/app.jar"
-            rm -rf "$DIST/$svc/_target"
+            case "${SVC_KIND[$svc]}" in
+                go|rust)
+                    local binsrc="${SVC_BINSRC[$svc]:-}"
+                    if [[ -z "$binsrc" ]]; then
+                        err "[$svc] No SVC_BINSRC entry for ${SVC_KIND[$svc]} service"; exit 1
+                    fi
+                    docker cp "$cid:$binsrc" "$DIST/$dir/app"
+                    docker rm "$cid" >/dev/null
+                    docker rmi --force "plm-$svc-pkg-builder" >/dev/null 2>&1 || true
+                    chmod +x "$DIST/$dir/app"
+                    ;;
+                *)
+                    docker cp "$cid:/build/target" "$DIST/$dir/_target"
+                    docker rm "$cid" >/dev/null
+                    docker rmi --force "plm-$svc-pkg-builder" >/dev/null 2>&1 || true
+                    local jar
+                    jar=$(ls "$DIST/$dir/_target"/*.jar 2>/dev/null | grep -v 'original' | head -1 || true)
+                    if [[ -z "$jar" ]]; then
+                        err "[$svc] No JAR found — build may have failed"; exit 1
+                    fi
+                    cp "$jar" "$DIST/$dir/app.jar"
+                    rm -rf "$DIST/$dir/_target"
+                    ;;
+            esac
             BUILT_SVCS+=("$svc")
             ok "[$svc] Done."
         done
 
-        # cad-parser: pre-bundle node_modules so deploy needs no npm install
-        log "[cad-parser] Extracting node_modules…"
+        # cad-parser: extract the self-contained bundle (esbuild-bundled JS +
+        # occt wasm + package.json) — no node_modules, no npm install at deploy.
+        log "[cad-parser] Extracting bundle…"
         local cid
         cid=$(docker create "plm-cad-parser-pkg")
-        docker cp "$cid:/app/node_modules" "$DIST/cad-parser/"
+        docker cp "$cid:/app/." "$DIST/cad-parser/"
         docker rm "$cid" >/dev/null
         docker rmi --force "plm-cad-parser-pkg" >/dev/null 2>&1 || true
-        for f in cad-parser/package.json cad-parser/app.js cad-parser/step-lib.js cad-parser/worker-split.js; do
-            [[ -f "$f" ]] && cp "$f" "$DIST/cad-parser/" || warn "[cad-parser] missing: $f"
-        done
         ok "[cad-parser] Done."
 
         # frontend: extract static assets
@@ -602,10 +683,20 @@ run_package() {
 
     log "Writing runtime Dockerfiles…"
     for svc in "${SVC_NAMES[@]}"; do
+        local dir="${SVC_DIR[$svc]}"
         if $NATIVE_MODE; then
-            write_native_dockerfile "$DIST/$svc/Dockerfile" "${SVC_PORT[$svc]}"
+            write_native_dockerfile "$DIST/$dir/Dockerfile" "${SVC_PORT[$svc]}"
         else
-            write_jvm_dockerfile    "$DIST/$svc/Dockerfile" "${SVC_PORT[$svc]}" ""
+            case "${SVC_KIND[$svc]}" in
+                go)   write_go_dockerfile   "$DIST/$dir/Dockerfile" "${SVC_PORT[$svc]}" ;;
+                rust) write_rust_dockerfile "$DIST/$dir/Dockerfile" "${SVC_PORT[$svc]}" ;;
+                *)
+                    local extra=""
+                    [[ -n "${SVC_VOLDIR[$svc]:-}" ]] && \
+                        extra="mkdir -p ${SVC_VOLDIR[$svc]} && chown app:app ${SVC_VOLDIR[$svc]}"
+                    write_jvm_dockerfile "$DIST/$dir/Dockerfile" "${SVC_PORT[$svc]}" "$extra"
+                    ;;
+            esac
         fi
     done
     write_frontend_dockerfile   "$DIST/frontend/Dockerfile"
@@ -651,25 +742,12 @@ EOF
         exit 1
     fi
 
+    # Verify via container health, not host curl: only spe-api is host-published
+    # (it is the single external entry point); backends are internal to the
+    # compose network. The dist compose healthchecks already probe each service
+    # internally, so poll their reported health instead of unpublished ports.
     local verify_ok=true
-    for svc in "${SVC_NAMES[@]}"; do
-        local port="${SVC_PORT[$svc]:-}"
-        [[ -z "$port" ]] && continue
-        log "   Waiting for $svc health on :$port (max ${HEALTH_TIMEOUT}s)…"
-        local elapsed=0
-        while (( elapsed < HEALTH_TIMEOUT )); do
-            if curl -sf "http://localhost:$port/actuator/health" >/dev/null 2>&1; then
-                ok "$svc healthy after ${elapsed}s"
-                break
-            fi
-            sleep 3; (( elapsed += 3 )); printf '.'
-        done
-        if (( elapsed >= HEALTH_TIMEOUT )); then
-            echo ""
-            err "$svc did NOT become healthy within ${HEALTH_TIMEOUT}s"
-            verify_ok=false
-        fi
-    done
+    wait_all_healthy "$HEALTH_TIMEOUT" "$DIST_COMPOSE" || verify_ok=false
 
     log "Stopping verification containers…"
     $DIST_COMPOSE down --volumes
@@ -689,10 +767,13 @@ EOF
     fi
     echo "  Contents:"
     for svc in "${SVC_NAMES[@]}"; do
+        local dir="${SVC_DIR[$svc]}"
         if $NATIVE_MODE; then
-            echo "    dist/$svc/server    + Dockerfile"
+            echo "    dist/$dir/server    + Dockerfile"
+        elif [[ "${SVC_KIND[$svc]}" == jvm ]]; then
+            echo "    dist/$dir/app.jar   + Dockerfile"
         else
-            echo "    dist/$svc/app.jar   + Dockerfile"
+            echo "    dist/$dir/app       + Dockerfile (${SVC_KIND[$svc]})"
         fi
     done
     echo "    dist/frontend/html/    + Dockerfile (nginx)"

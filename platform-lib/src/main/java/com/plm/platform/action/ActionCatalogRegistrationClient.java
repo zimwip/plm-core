@@ -10,7 +10,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -26,15 +25,17 @@ import java.util.Set;
 
 /**
  * Registers this service's action handlers, guards, and algorithm contributions
- * with platform-api at startup.
- * Re-registers periodically so a platform-api restart never leaves the catalog stale.
+ * with platform-api at startup (once, with backoff retry). Re-registers only on
+ * {@code env.global.PLATFORM_RESTARTED} so a platform-api restart never leaves
+ * the catalog stale. platform-api de-duplicates identical payloads, so a
+ * re-register that carries no change is a no-op (no DB write, no CONFIG_CHANGED).
  *
  * Mirrors SettingsRegistrationClient pattern.
  */
 @Slf4j
 public class ActionCatalogRegistrationClient {
 
-    private static final String REGISTER_PATH = "/api/platform/internal/registry/actions";
+    private static final String REGISTER_PATH = "/internal/registry/actions";
     private static final String PLATFORM_RESTARTED_SUBJECT = "env.global.PLATFORM_RESTARTED";
 
     private final String platformUrl;
@@ -87,11 +88,6 @@ public class ActionCatalogRegistrationClient {
         } catch (Exception e) {
             log.warn("Failed to subscribe to {}: {}", PLATFORM_RESTARTED_SUBJECT, e.getMessage());
         }
-    }
-
-    @Scheduled(fixedDelay = 300_000L, initialDelay = 300_000L)
-    public void periodicReRegister() {
-        postRegistration();
     }
 
     private void attemptWithBackoff() {

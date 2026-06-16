@@ -1,0 +1,32 @@
+[package]
+name = "spe-api-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust rewrite of the spe-api gateway: dynamic routing, round-robin LB, JWT mint/verify, auth middleware."
+
+[[bin]]
+name = "spe-api"
+path = "src/main.rs"
+
+[dependencies]
+platform-lib-rs = { path = "../platform-lib-rs" }
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+moka = { version = "0.12", features = ["future"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+sha2 = "0.10"
+hex = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures = "0.3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+http = "1"
+opentelemetry = "0.27"
+tracing-opentelemetry = "0.28"

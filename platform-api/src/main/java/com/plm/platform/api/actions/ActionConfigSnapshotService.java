@@ -149,7 +149,7 @@ public class ActionConfigSnapshotService {
     private List<PermissionConfig> buildPermissions(String svc) {
         try {
             // /internal/authorization/snapshot is S2S (X-Service-Secret); /permissions requires JWT
-            Map snapshot = serviceClient.get("pno", "/api/pno/internal/authorization/snapshot", Map.class);
+            Map snapshot = serviceClient.get("pno", "/internal/authorization/snapshot", Map.class);
             if (snapshot == null) return List.of();
             List<Map> rows = (List<Map>) snapshot.get("permissions");
             if (rows == null) return List.of();

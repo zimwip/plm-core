@@ -35,7 +35,7 @@ public class PsmValidationClient {
 
         try {
             Map<String, Object> resp = serviceClient.post(
-                "psm", "/api/psm/internal/cad/validate-node", body, Map.class
+                "psm", "/internal/cad/validate-node", body, Map.class
             );
             if (resp == null) return ValidationResult.accept(cadType);
             boolean valid = Boolean.TRUE.equals(resp.get("valid"));
