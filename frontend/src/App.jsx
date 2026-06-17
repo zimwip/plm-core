@@ -386,6 +386,11 @@ export default function App() {
   }, [userId, authRetry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleUserChange(newUserId) {
+    // Gate the whole tree on the auth splash until re-login completes, so no
+    // child effect (e.g. AppPasswordsSection) fires a user-scoped request with
+    // the previous user's session token (→ 403 owner-check). The auth effect
+    // (keyed on userId) flips authReady back to true after swapping the token.
+    setAuthReady(false);
     setUserId(newUserId);
     setTabs([DASHBOARD_TAB]);
     setActiveTabId('dashboard');

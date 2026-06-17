@@ -81,6 +81,11 @@ pub async fn auth_mw(
     if path == "/api/spe/auth/operation-token" {
         match state.codec.verify_forward(&token) {
             Ok(ctx) => {
+                // Same revocation gate as the session path: a forward token
+                // minted before pno's current version is stale.
+                if !pv_current(&ctx, &state) {
+                    return token_stale();
+                }
                 req.extensions_mut().insert(AuthedContext {
                     user: ctx,
                     project_space: None,
@@ -102,12 +107,21 @@ pub async fn auth_mw(
     // Revocation: a token minted before pno's current authorization/identity
     // version is stale (roles/perms changed). Reject so the client re-logs in
     // and gets a token reflecting the new grants.
-    if let Some(pv) = ctx.pv {
-        if pv < state.pno_version() {
-            return token_stale();
-        }
+    if !pv_current(&ctx, &state) {
+        return token_stale();
     }
     forward_from_context(state, req, next, ctx, extract_service_code(&path)).await
+}
+
+/// True if the token's `pv` revocation watermark is still current (or absent).
+/// A token whose `pv` predates pno's current authorization/identity version is
+/// stale — spe is the single chokepoint that enforces this on every accepted
+/// token, so downstream services can trust the forward JWT without re-checking.
+fn pv_current(ctx: &UserContext, state: &AppState) -> bool {
+    match ctx.pv {
+        Some(pv) => pv >= state.pno_version(),
+        None => true,
+    }
 }
 
 /// 401 carrying `code: TOKEN_STALE` so the frontend re-authenticates silently.

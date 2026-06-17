@@ -1,0 +1,37 @@
+[package]
+name = "pno-api-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of pno-api: identity & authorization source of truth (users, roles, project-spaces, permission scopes, authorization policies, baskets, user-KV, WebDAV access tokens). Wire-compatible with the Java pno-api."
+
+[[bin]]
+name = "pno-api"
+path = "src/main.rs"
+
+[dependencies]
+# Rust port lib: DTOs, JWT codec, S2S ServiceClient, NATS bus, local registry,
+# self-registration with platform-api, telemetry, request context.
+platform-lib-rs = { path = "../platform-lib-rs" }
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dashmap = "6"
+chrono = { version = "0.4", features = ["serde"] }
+http = "1"
+# S2S HTTP + token generation randomness via the OS RNG (no extra dep needed:
+# uuid for ids, sha2 for token/fingerprint hashing).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+hex = "0.4"
+# Runtime (NOT compile-time-checked) sqlx so the crate builds with no live DB.
+# To regain compile-time SQL checking, commit to `cargo sqlx prepare` in CI.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "migrate", "chrono"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util", "macros"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

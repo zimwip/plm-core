@@ -19,5 +19,7 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 COPY --from=builder /app/dist /usr/share/nginx/html
-EXPOSE 80
+# 443 = TLS front door; 80 only issues the https redirect. Cert is mounted at
+# /etc/nginx/certs at runtime (see docker-compose.yml) — not baked into the image.
+EXPOSE 80 443
 ENTRYPOINT ["/docker-entrypoint.sh"]

@@ -184,33 +184,24 @@ services:
   # PNO API — People & Organisation microservice (internal only)
   # ============================================================
   pno-api:
-    build: ./pno-api
+    build: ./pno-api-rs
     image: pno-api:dist
     environment:
-      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
-      SPRING_DATASOURCE_USERNAME:          plm
-      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
-      SPRING_DATASOURCE_HIKARI_SCHEMA:     pno
-      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
-      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
-      SPRING_FLYWAY_DEFAULT_SCHEMA:        pno
-      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
-      # PLM_SERVICE_SECRET + PG_PASSWORD now resolved at bootstrap from Vault (secret/plm).
-      VAULT_ADDR:                          http://vault:8200
-      VAULT_TOKEN:                         plm-demo-services
-      SPE_API_URL:                         http://spe-api:8082
+      # Rust rewrite (pno-api-rs) — secret injected directly (same value Vault
+      # seeds for the Java services, so forward JWTs verify across the mesh).
+      PLM_SERVICE_SECRET:                  ${PLM_SERVICE_SECRET:?}
       SPE_SELF_BASE_URL:                   http://pno-api:8081
-      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
-      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      LOGGING_LEVEL_ROOT:                  INFO
-      LOGGING_LEVEL_COM_PNO:               INFO
-      PLM_SETTINGS_ENABLED:                "true"
       PLM_PLATFORM_URL:                    http://platform-api:8084
+      OTEL_EXPORTER_OTLP_ENDPOINT:         http://jaeger:4318
       NATS_URL:                            nats://nats:4222
       PLM_NATS_ENABLED:                    "true"
+      # Owns the `pno` Postgres schema (discrete fields; sqlx applies migrations).
+      PG_HOST:                             postgres
+      PG_USER:                             plm
+      PG_DB:                               plmdb
+      PG_PASSWORD:                         ${PG_PASSWORD:?}
+      PNO_DB_SCHEMA:                       pno
     depends_on:
-      vault-bootstrap:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       jaeger:
@@ -577,13 +568,18 @@ services:
       - plm-net
 
   # ============================================================
-  # Frontend — Vite build served by nginx
+  # Frontend — Vite build served by nginx (TLS front door)
+  # nginx terminates HTTPS here (self-signed localhost cert from ./certs);
+  # everything behind it stays plain http on the compose network.
+  # Access: https://localhost:3000
   # ============================================================
   plm-frontend:
     build: ./frontend
     image: plm-core-frontend:dist
     ports:
-      - "3000:80"
+      - "3000:443"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro,z
     depends_on:
       spe-api:
         condition: service_healthy

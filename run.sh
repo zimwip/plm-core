@@ -40,7 +40,7 @@ set -euo pipefail
 #   kind    : build kind — jvm (default) | go | rust. Drives artifact extraction
 #             and which runtime Dockerfile is generated in package.
 BACKEND_SVC_ROWS=(
-    "pno-api|8081|pno||PNO"
+    "pno-api|8081|||PNO|pno-api-rs|rust"
     "psm-admin|8083|psm_admin||PLM"
     "psm-api|8080|psm||PLM"
     "ws-gateway|8085|||PLM|ws-gateway-go|go"
@@ -71,6 +71,7 @@ declare -A SVC_BINSRC=(
     ["webdav"]="/webdav"                                    # webdav-go/Dockerfile
     ["spe-api"]="/build/spe-api-rs/target/release/spe-api"  # spe-api-rs/Dockerfile
     ["platform-api"]="/build/platform-api-rs/target/release/platform-api"  # platform-api-rs/Dockerfile
+    ["pno-api"]="/build/pno-api-rs/target/release/pno-api"  # pno-api-rs/Dockerfile
 )
 
 # Services with a writable named volume: the dir must be created + chowned to the
@@ -494,7 +495,9 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 COPY html /usr/share/nginx/html
-EXPOSE 80
+# 443 = TLS front door; 80 only issues the https redirect. Cert mounted from
+# ./certs at runtime (see docker-compose.yml) — not baked into the image.
+EXPOSE 80 443
 ENTRYPOINT ["/docker-entrypoint.sh"]
 EOF
 }
@@ -555,6 +558,12 @@ run_package() {
     mkdir -p "$DIST/garage"
     cp garage/garage.toml   "$DIST/garage/garage.toml"
     cp garage/bootstrap.mjs "$DIST/garage/bootstrap.mjs"
+
+    # TLS cert for the nginx front door — mounted read-only by the frontend
+    # service (./certs:/etc/nginx/certs). Path resolves relative to dist/.
+    mkdir -p "$DIST/certs"
+    cp certs/localhost.crt "$DIST/certs/localhost.crt"
+    cp certs/localhost.key "$DIST/certs/localhost.key"
 
     if $NATIVE_MODE; then
         log "=== PLM Core — package (native) ==="
