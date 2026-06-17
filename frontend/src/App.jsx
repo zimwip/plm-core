@@ -24,6 +24,8 @@ import SearchPanel     from './components/SearchPanel';
 
 registerBuiltinPlugins();
 
+// Last-resort fallback only — the real active project comes from the login
+// response (projectSpaceId baked into the session token).
 const DEFAULT_PROJECT_SPACE = 'ps-default';
 
 let _tid = 0;
@@ -320,7 +322,6 @@ export default function App() {
   }
 
   useEffect(() => {
-    setProjectSpaceId(DEFAULT_PROJECT_SPACE);
     setApiErrorHandler(err => toast(err, 'error'));
   }, [toast]);
 
@@ -330,13 +331,19 @@ export default function App() {
     setAuthReady(false);
     setAuthError(null);
     (async () => {
+      let session;
       try {
-        await authApi.login(userId);
+        session = await authApi.login(userId);
       } catch (err) {
         if (!cancelled) setAuthError(err.message || String(err));
         return;
       }
       if (cancelled) return;
+
+      // Active project is pinned in the token — adopt it from the login response.
+      const activePs = session?.projectSpaceId || DEFAULT_PROJECT_SPACE;
+      setProjectSpaceIdState(activePs);
+      setProjectSpaceId(activePs);
 
       setAuthExpiredHandler(async () => {
         try { return (await authApi.login(userId)).token; }
@@ -345,7 +352,7 @@ export default function App() {
 
       setAuthReady(true);
       storeSetUserId(userId);
-      storeSetProjectSpaceId(projectSpaceId);
+      storeSetProjectSpaceId(activePs);
       refreshAll();
       refreshProjectSpaces();
       refreshUsers();
@@ -388,10 +395,26 @@ export default function App() {
     fetchedNodeIds.current.clear();
   }
 
-  function handleProjectSpaceChange(psId) {
-    setProjectSpaceIdState(psId);
-    setProjectSpaceId(psId);
-    storeSetProjectSpaceId(psId);
+  async function handleProjectSpaceChange(psId) {
+    if (psId === projectSpaceId) return;
+    // Switching the active project re-mints the session token (roles+perms are
+    // pinned to the project inside the token). On 403 the user has no access to
+    // that space — surface a non-fatal error and keep the current space.
+    let newPs;
+    try {
+      newPs = await authApi.switchProject(psId);
+    } catch (e) {
+      if (e?.status === 403) {
+        toast('You do not have access to that project space.', 'error');
+      } else {
+        toast(e, 'error');
+      }
+      return;
+    }
+    const active = newPs || psId;
+    setProjectSpaceIdState(active);
+    setProjectSpaceId(active);
+    storeSetProjectSpaceId(active);
     loadBasket(userId);
     setTabs([DASHBOARD_TAB]);
     setActiveTabId('dashboard');

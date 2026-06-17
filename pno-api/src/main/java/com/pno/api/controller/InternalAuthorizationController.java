@@ -63,4 +63,17 @@ public class InternalAuthorizationController {
         body.put("policies", policies);
         return ResponseEntity.ok(body);
     }
+
+    /**
+     * Lightweight version probe. Lets consumers (e.g. the gateway) seed their
+     * tracked authorization version at boot without pulling the heavy full
+     * snapshot. The returned value is the same monotonic stamp reported in the
+     * {@code version} field of {@code /snapshot} and the NATS payloads.
+     */
+    @GetMapping("/version")
+    public ResponseEntity<Map<String, Object>> version() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("version", versionStamp.current());
+        return ResponseEntity.ok(body);
+    }
 }

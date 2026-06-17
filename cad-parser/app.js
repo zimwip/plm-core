@@ -61,9 +61,8 @@ const KEEP_GEOM = new Set([
   'AXIS2_PLACEMENT_3D',
 ]);
 
-// /convert keeps memoryStorage (OCCT ReadStepFile needs a buffer).
-// /parse and /split use diskStorage — files are streamed from disk, never fully decoded to a JS string.
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
+// All endpoints use diskStorage — uploads are streamed to disk, never fully buffered
+// in memory. /parse and /split scan from disk; /convert reads the file once for OCCT.
 const uploadDisk = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => {
@@ -191,10 +190,15 @@ app.get('/split/:jobId/part/:index/glb', async (req, res) => {
 });
 
 // POST /convert — STEP bytes → GLB binary (OCCT tessellation, in a worker)
-app.post('/convert', upload.single('file'), async (req, res) => {
+// diskStorage like /parse and /split: the upload is streamed to disk, read once for
+// OCCT (which needs a contiguous buffer), then removed. Avoids multer's 500 MB
+// in-memory retention per request.
+app.post('/convert', uploadDisk.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
+  const filePath = req.file.path;
   try {
-    const { glb, meshCount } = await convertPool.run(req.file.buffer);
+    const stepBuf = await readFile(filePath);
+    const { glb, meshCount } = await convertPool.run(stepBuf);
     res.setHeader('Content-Type', 'model/gltf-binary');
     res.setHeader('Content-Length', glb.length);
     res.send(glb);
@@ -202,6 +206,8 @@ app.post('/convert', upload.single('file'), async (req, res) => {
   } catch (err) {
     console.error('/convert error:', err.message);
     res.status(422).json({ error: err.message });
+  } finally {
+    rm(filePath, { force: true }).catch(() => {});
   }
 });
 

@@ -10,9 +10,7 @@ public class DstAuthContextBinder implements PlmAuthContextBinder {
 
     @Override
     public void bind(PlmPrincipal p, HttpServletRequest request) {
-        String projectSpaceId = request.getHeader("X-PLM-ProjectSpace");
-        if (projectSpaceId == null) projectSpaceId = p.projectSpaceId();
-        DstSecurityContext.set(new DstUserContext(p.userId(), p.username(), p.roleIds(), p.isAdmin(), projectSpaceId));
+        DstSecurityContext.set(new DstUserContext(p.userId(), p.username(), p.roleIds(), p.isAdmin(), p.projectSpaceId()));
     }
 
     @Override

@@ -7,6 +7,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -20,13 +22,13 @@ public class ImportJobService {
 
     public ImportJob submit(String userId, String projectSpaceId,
                             String filename, String contextCode,
-                            UUID rootNodeId, byte[] fileBytes, String psmTxId,
+                            UUID rootNodeId, Path uploadFile, String psmTxId,
                             boolean splitMode) {
 
         List<ZipUtil.FileEntry> zipEntries = null;
-        if (ZipUtil.isZip(fileBytes)) {
+        if (ZipUtil.isZip(uploadFile)) {
             try {
-                zipEntries = ZipUtil.extractCadFiles(fileBytes);
+                zipEntries = ZipUtil.extractCadFiles(uploadFile);
             } catch (IOException e) {
                 throw new IllegalArgumentException("Cannot extract ZIP archive: " + e.getMessage());
             }
@@ -57,9 +59,9 @@ public class ImportJobService {
         );
 
         if (zipEntries != null) {
-            processor.processMulti(job.getId(), fileBytes, filename, zipEntries, ctx);
+            processor.processMulti(job.getId(), uploadFile, filename, zipEntries, ctx);
         } else {
-            processor.process(job.getId(), fileBytes, filename, ctx);
+            processor.process(job.getId(), uploadFile, filename, ctx);
         }
 
         return job;

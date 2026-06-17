@@ -99,9 +99,90 @@ impl PnoClients {
             is_admin: body.get("isAdmin").and_then(|v| v.as_bool()).unwrap_or(false),
             project_space_id: ps.map(String::from),
             allowed_service_codes: str_vec(&body, "allowedServiceCodes"),
+            perms: str_vec(&body, "globalPermissions"),
+            pv: None, // stamped by the caller from the tracked pno version
         };
         self.ctx_cache.insert(key, ctx.clone()).await;
         Some(ctx)
+    }
+
+    /// Fetch pno's current authorization/identity version (light endpoint).
+    /// Used to seed the gateway's tracked version at boot.
+    pub async fn fetch_authz_version(&self) -> Option<i64> {
+        let url = format!("{}/internal/authorization/version", self.base);
+        let body: Value = self
+            .http
+            .get(&url)
+            .headers(trace_headers())
+            .header("X-Service-Secret", &self.secret)
+            .send()
+            .await
+            .ok()?
+            .error_for_status()
+            .ok()?
+            .json()
+            .await
+            .ok()?;
+        body.get("version").and_then(|v| v.as_i64())
+    }
+
+    /// The user's configured default project space (`defaultProjectSpaceId`),
+    /// used at login to pin the active project. `None` if unset/unknown.
+    pub async fn resolve_default_space(&self, user_id: &str) -> Option<String> {
+        if user_id.is_empty() {
+            return None;
+        }
+        let url = format!("{}/users/{}/context", self.base, user_id);
+        let body: Value = self
+            .http
+            .get(&url)
+            .headers(trace_headers())
+            .header("X-Service-Secret", &self.secret)
+            .send()
+            .await
+            .ok()?
+            .error_for_status()
+            .ok()?
+            .json()
+            .await
+            .ok()?;
+        body.get("defaultProjectSpaceId")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    }
+
+    /// Project-space ids the user can access (`GET /project-spaces?userId=`).
+    /// Used as the login fallback when no default is set, and to validate a
+    /// project switch.
+    pub async fn accessible_spaces(&self, user_id: &str) -> Vec<String> {
+        if user_id.is_empty() {
+            return vec![];
+        }
+        let url = format!("{}/project-spaces?userId={}", self.base, user_id);
+        match self
+            .http
+            .get(&url)
+            .headers(trace_headers())
+            .header("X-Service-Secret", &self.secret)
+            .send()
+            .await
+            .ok()
+            .and_then(|r| r.error_for_status().ok())
+        {
+            Some(resp) => match resp.json::<Value>().await {
+                Ok(b) => b
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.get("id").and_then(|v| v.as_str()).map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                Err(_) => vec![],
+            },
+            None => vec![],
+        }
     }
 
     /// Verify a personal access token (Basic-auth password on /api/dav).

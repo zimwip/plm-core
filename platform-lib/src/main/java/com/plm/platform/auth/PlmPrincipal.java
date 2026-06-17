@@ -16,6 +16,7 @@ public record PlmPrincipal(
     String projectSpaceId,
     String tokenType,
     List<String> allowedServiceCodes,
+    Set<String> perms,  // global permission codes for the active project, straight from the token
     String jobId  // non-null only for typ=op tokens; binds token to a specific job
 ) {
     public boolean canAccessService(String serviceCode) {

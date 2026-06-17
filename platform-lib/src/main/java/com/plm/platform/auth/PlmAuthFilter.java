@@ -3,7 +3,6 @@ package com.plm.platform.auth;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,8 +24,9 @@ import jakarta.servlet.http.HttpServletResponse;
  *   <li>Bypasses {@code publicPaths} entirely.</li>
  *   <li>Validates {@code X-Service-Secret} on {@code secretPaths} (S2S calls).</li>
  *   <li>Otherwise requires a {@code Bearer} forward JWT minted by spe-api,
- *       resolves roles from the local pno cache, then calls every registered
- *       {@link PlmAuthContextBinder} to populate service-local ThreadLocals.</li>
+ *       trusts the roleIds/perms claims carried by the token (no per-request pno
+ *       lookup), then calls every registered {@link PlmAuthContextBinder} to
+ *       populate service-local ThreadLocals.</li>
  * </ul>
  */
 public class PlmAuthFilter implements Filter {
@@ -37,14 +37,12 @@ public class PlmAuthFilter implements Filter {
     private final AuthProperties props;
     private final JwtVerifier verifier;
     private final List<PlmAuthContextBinder> binders;
-    private final PnoRoleCache roleCache;
 
     public PlmAuthFilter(AuthProperties props, JwtVerifier verifier,
-                         List<PlmAuthContextBinder> binders, PnoRoleCache roleCache) {
+                         List<PlmAuthContextBinder> binders) {
         this.props = props;
         this.verifier = verifier;
         this.binders = binders;
-        this.roleCache = roleCache;
     }
 
     @Override
@@ -112,19 +110,9 @@ public class PlmAuthFilter implements Filter {
             }
         }
 
-        Set<String> roles;
-        try {
-            roles = roleCache != null
-                ? roleCache.getRoles(p.userId(), p.projectSpaceId())
-                : Set.of();
-        } catch (Exception e) {
-            log.error("Role resolution failed for user={}: {}", p.userId(), e.getMessage());
-            reject(resp, 503, "Role resolution temporarily unavailable");
-            return;
-        }
-
-        PlmPrincipal principal = new PlmPrincipal(
-            p.userId(), p.username(), p.isAdmin(), roles, p.projectSpaceId(), p.tokenType(), List.of(), p.jobId());
+        // Trust the token: roleIds + perms are carried as claims by spe-api. No
+        // per-request pno lookup. `p` already holds them straight from the JWT.
+        PlmPrincipal principal = p;
 
         try {
             req.setAttribute("plm.principal", principal);

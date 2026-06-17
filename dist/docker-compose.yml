@@ -372,28 +372,29 @@ services:
   # Platform API — Central settings aggregator + Vault admin (in-memory, no DB)
   # ============================================================
   platform-api:
-    build: ./platform-api
+    build: ./platform-api-rs
     image: platform-api:dist
     environment:
-      VAULT_ADDR:                          http://vault:8200
-      VAULT_TOKEN:                         plm-demo-services
+      # Go/Rust rewrite — secret injected directly (same value Vault seeds for
+      # the Java services, so forward JWTs verify across the mesh).
+      PLM_SERVICE_SECRET:                  ${PLM_SERVICE_SECRET:?}
       SPE_SELF_BASE_URL:                   http://platform-api:8084
       PLM_PLATFORM_URL:                    http://platform-api:8084
-      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
-      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      LOGGING_LEVEL_ROOT:                  INFO
+      OTEL_EXPORTER_OTLP_ENDPOINT:         http://jaeger:4318
       NATS_URL:                            nats://nats:4222
       NATS_MONITORING_URL:                 http://nats:8222
       PLM_NATS_ENABLED:                    "true"
+      PNO_API_URL:                         http://pno-api:8081
       PLATFORM_EXPECTED_SERVICES:          psm,pno,psa,platform,ws,spe,dst,cad,dav
-      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
-      SPRING_DATASOURCE_USERNAME:          plm
-      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
-      SPRING_DATASOURCE_HIKARI_SCHEMA:     platform
-      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
-      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
-      SPRING_FLYWAY_DEFAULT_SCHEMA:        platform
-      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
+      # Owns the `platform` Postgres schema (discrete fields; sqlx applies migrations).
+      PG_HOST:                             postgres
+      PG_USER:                             plm
+      PG_DB:                               plmdb
+      PG_PASSWORD:                         ${PG_PASSWORD:?}
+      PLATFORM_DB_SCHEMA:                  platform
+      # Vault admin (CRUD secrets) only.
+      VAULT_ADDR:                          http://vault:8200
+      VAULT_TOKEN:                         plm-demo-services
     depends_on:
       vault-bootstrap:
         condition: service_completed_successfully

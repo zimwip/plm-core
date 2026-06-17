@@ -44,7 +44,9 @@ pub struct RegistrySnapshot {
 }
 
 /// Response body of a successful registration (`{"instanceId": "..."}`).
-#[derive(Debug, Clone, Deserialize)]
+/// `Serialize` too so the registry SERVER (platform-api-rs) can emit it, not
+/// just the consumer parse it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterResponse {
     pub instance_id: Option<String>,

@@ -3,7 +3,9 @@ package com.pno.api.controller;
 import com.pno.domain.service.PnoEventPublisher;
 import com.pno.domain.service.UserService;
 import com.pno.infrastructure.security.PnoSecurityContext;
+import com.pno.infrastructure.security.PnoUserContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -103,6 +105,36 @@ public class UserController {
         userService.setAdmin(userId, isAdmin);
         eventPublisher.userChanged("ADMIN_CHANGED", userId, currentUserId());
         return ResponseEntity.ok(Map.of("status", "updated"));
+    }
+
+    /**
+     * Sets the user's default project space. The gateway (spe) reads it at login
+     * to pick the active project space bound to the issued token.
+     * Admin-only. Returns the updated value; 400 if the project space does not exist.
+     */
+    @PutMapping("/{userId}/default-space")
+    public ResponseEntity<?> setDefaultProjectSpace(@PathVariable String userId,
+                                                    @RequestBody Map<String, Object> body) {
+        if (!isAdmin()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "Default project space can only be set by an admin"));
+        }
+        String projectSpaceId = (String) body.get("projectSpaceId");
+        if (projectSpaceId == null || projectSpaceId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "projectSpaceId required"));
+        }
+        try {
+            String updated = userService.setDefaultProjectSpace(userId, projectSpaceId);
+            eventPublisher.userChanged("DEFAULT_SPACE_CHANGED", userId, currentUserId());
+            return ResponseEntity.ok(Map.of("defaultProjectSpaceId", updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    private boolean isAdmin() {
+        PnoUserContext ctx = PnoSecurityContext.get();
+        return ctx != null && ctx.isAdmin();
     }
 
     private String currentUserId() {

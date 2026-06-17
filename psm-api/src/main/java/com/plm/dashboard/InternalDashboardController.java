@@ -2,8 +2,6 @@ package com.plm.dashboard;
 
 import com.plm.dashboard.internal.DashboardService;
 import com.plm.platform.auth.JwtVerifier;
-import com.plm.platform.auth.PlmPrincipal;
-import com.plm.platform.auth.PnoRoleCache;
 import com.plm.shared.security.PlmSecurityContext;
 import com.plm.shared.security.PsmAuthContextBinder;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,7 +30,6 @@ public class InternalDashboardController {
 
     private final DashboardService      dashboardService;
     private final JwtVerifier           jwtVerifier;
-    private final PnoRoleCache          pnoRoleCache;
     private final PsmAuthContextBinder  authContextBinder;
 
     @GetMapping("/entries")
@@ -76,12 +73,8 @@ public class InternalDashboardController {
     private void bindContext(HttpServletRequest req) {
         String auth = req.getHeader("Authorization");
         if (auth == null || !auth.startsWith("Bearer ")) return;
-        jwtVerifier.verify(auth.substring(7).trim()).ifPresent(base -> {
-            java.util.Set<String> roles = pnoRoleCache.getRoles(base.userId(), base.projectSpaceId());
-            PlmPrincipal p = new PlmPrincipal(
-                base.userId(), base.username(), base.isAdmin(), roles,
-                base.projectSpaceId(), base.tokenType(), java.util.List.of(), base.jobId());
-            authContextBinder.bind(p, req);
-        });
+        // Forward JWTs now carry roleIds/perms/ps as claims — trust them directly.
+        jwtVerifier.verify(auth.substring(7).trim())
+            .ifPresent(p -> authContextBinder.bind(p, req));
     }
 }

@@ -67,14 +67,22 @@ async fn main() {
         },
         Arc::clone(&registry),
     );
-    spawn_registration(Arc::clone(&registrar), &config).await;
-
     let state = AppState::new(config.clone(), codec, Arc::clone(&registry), pno);
+
+    // Self-register lifecycle + watch pno's version (for token revocation).
+    spawn_registration(
+        Arc::clone(&registrar),
+        &config,
+        Arc::clone(&state.pno_version),
+        state.pno.clone(),
+    )
+    .await;
 
     let app = Router::new()
         .route("/actuator/health", get(health))
         .route("/api/spe/actuator/health", get(health))
         .route("/api/spe/auth/login", post(endpoints::login))
+        .route("/api/spe/auth/switch-project", post(endpoints::switch_project))
         .route("/api/spe/auth/operation-token", post(endpoints::operation_token))
         .route("/api/spe/auth/logout", post(endpoints::logout))
         .route("/api/spe/auth/me", get(endpoints::me))
@@ -129,7 +137,12 @@ fn seed_platform_route(registry: &LocalServiceRegistry, platform_url: &str) {
     registry.update_from_snapshot(RegistrySnapshot { version: 0, services });
 }
 
-async fn spawn_registration(registrar: Arc<Registrar>, config: &Config) {
+async fn spawn_registration(
+    registrar: Arc<Registrar>,
+    config: &Config,
+    pno_version: std::sync::Arc<std::sync::atomic::AtomicI64>,
+    pno: pno::PnoClients,
+) {
     let nats = if config.nats_enabled {
         match NatsBus::connect(&config.nats_url).await {
             Ok(bus) => Some(bus),
@@ -142,10 +155,59 @@ async fn spawn_registration(registrar: Arc<Registrar>, config: &Config) {
         None
     };
 
+    // Seed the tracked pno version (best-effort + a short retry, since pno may
+    // still be starting). NATS events keep it fresh afterwards.
+    {
+        let pv = pno_version.clone();
+        tokio::spawn(async move {
+            for _ in 0..30 {
+                if let Some(v) = pno.fetch_authz_version().await {
+                    pv.fetch_max(v, std::sync::atomic::Ordering::SeqCst);
+                    tracing::info!("seeded pno version = {v}");
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+            tracing::warn!("could not seed pno version; relying on NATS events");
+        });
+    }
+
+    // Watch pno change events → advance the tracked version (monotonic).
+    if let Some(bus) = &nats {
+        let watcher = bus.clone();
+        let subs = subscribe_pno_version(&watcher, pno_version).await;
+        std::mem::forget(subs);
+    }
+
     tokio::spawn(async move {
         registrar.register_with_backoff().await;
         // Keep the NATS subscriptions alive for the process lifetime.
         let subs = registrar.spawn_lifecycle(nats).await;
         std::mem::forget(subs);
     });
+}
+
+/// Subscribe to pno's change events; each carries the new monotonic `version`,
+/// which we fold into the tracked value (revocation watermark).
+async fn subscribe_pno_version(
+    bus: &NatsBus,
+    pno_version: std::sync::Arc<std::sync::atomic::AtomicI64>,
+) -> Vec<platform_lib_rs::nats::Subscription> {
+    let mut subs = Vec::new();
+    for subject in ["global.PNO_CHANGED", "global.AUTHORIZATION_CHANGED"] {
+        let pv = pno_version.clone();
+        if let Ok(s) = bus
+            .subscribe(subject, move |msg| {
+                if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&msg.payload) {
+                    if let Some(ver) = v.get("version").and_then(|x| x.as_i64()) {
+                        pv.fetch_max(ver, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+            })
+            .await
+        {
+            subs.push(s);
+        }
+    }
+    subs
 }

@@ -6,13 +6,20 @@ import com.cad.ingestion.model.SplitPart;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
-import java.time.Duration;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -35,13 +42,24 @@ public class CadParserClient {
     private final RestTemplate rest;
     private final String parserUrl;
 
+    @SuppressWarnings({"deprecation", "removal"}) // setBufferRequestBody: only way to stream multipart on SimpleClientHttpRequestFactory
     public CadParserClient(RestTemplateBuilder builder,
                            @Value("${cad.parser.url}") String parserUrl) {
-        this.rest      = builder
-                .connectTimeout(Duration.ofSeconds(10))
-                .readTimeout(Duration.ofMinutes(2))
-                .build();
+        // bufferRequestBody=false streams the multipart body to the socket; paired with
+        // a FileSystemResource part the upload never hits the heap as a whole byte[].
+        SimpleClientHttpRequestFactory rf = new SimpleClientHttpRequestFactory();
+        rf.setConnectTimeout(10_000);
+        rf.setReadTimeout(120_000);
+        rf.setBufferRequestBody(false);
+        this.rest      = builder.requestFactory(() -> rf).build();
         this.parserUrl = parserUrl;
+    }
+
+    /** A disk-backed multipart part that reports {@code filename} to the parser (not the temp name). */
+    private static Resource filePart(Path file, String filename) {
+        return new FileSystemResource(file) {
+            @Override public String getFilename() { return filename; }
+        };
     }
 
     /**
@@ -51,14 +69,12 @@ public class CadParserClient {
      *   .CATProduct / .CATPart → CATIA_V5
      *   others        → UNKNOWN (parser decides)
      */
-    public List<CadNodeData> parse(byte[] fileBytes, String filename) {
+    public List<CadNodeData> parse(Path file, String filename) {
         String format = detectFormat(filename);
-        log.info("Sending {} ({} bytes, format={}) to parser at {}", filename, fileBytes.length, format, parserUrl);
+        log.info("Sending {} (format={}) to parser at {}", filename, format, parserUrl);
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("file", new org.springframework.core.io.ByteArrayResource(fileBytes) {
-            @Override public String getFilename() { return filename; }
-        });
+        body.add("file", filePart(file, filename));
         body.add("format", format);
 
         HttpHeaders headers = new HttpHeaders();
@@ -83,15 +99,13 @@ public class CadParserClient {
      * Returns both the jobId (kept alive on the parser for 15 min) and the parts,
      * so the caller can fetch per-part GLBs in parallel via {@link #getPartGlb}.
      */
-    public SplitResult split(byte[] fileBytes, String filename) {
+    public SplitResult split(Path file, String filename) {
         String format = detectFormat(filename);
-        log.info("Submitting async split for {} ({} bytes, format={}) to {}", filename, fileBytes.length, format, parserUrl);
+        log.info("Submitting async split for {} (format={}) to {}", filename, format, parserUrl);
 
         // Step 1 — submit job (fast, parser returns 202 immediately)
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("file", new org.springframework.core.io.ByteArrayResource(fileBytes) {
-            @Override public String getFilename() { return filename; }
-        });
+        body.add("file", filePart(file, filename));
         body.add("format", format);
 
         HttpHeaders headers = new HttpHeaders();
@@ -112,30 +126,49 @@ public class CadParserClient {
         // Step 2 — poll until DONE (3s interval, up to 10 minutes)
         JobStatusResponse status = pollUntilDone(jobId);
 
-        // Step 3 — download each part file
+        // Step 3 — return metadata only. Part STEP bytes stay on the parser disk and are
+        // fetched one at a time via downloadPartStep(), so the importer never holds them all.
         List<PartMeta> parts = status.parts();
-        log.info("Downloading {} parts for job {}", parts.size(), jobId);
         List<SplitPart> result = new ArrayList<>(parts.size());
         for (int i = 0; i < parts.size(); i++) {
             PartMeta meta = parts.get(i);
-            ResponseEntity<byte[]> partResp = rest.exchange(
-                parserUrl + "/split/" + jobId + "/part/" + i,
-                HttpMethod.GET,
-                null,
-                byte[].class
-            );
-            byte[] partBytes = partResp.getBody() != null ? partResp.getBody() : new byte[0];
             result.add(new SplitPart(
                 meta.nodeId(),
                 meta.name(),
                 meta.cadType(),
                 meta.attributes() != null ? meta.attributes() : Map.of(),
                 meta.occurrences() != null ? meta.occurrences() : List.of(),
-                partBytes
+                jobId,
+                i
             ));
         }
-        log.info("Downloaded {} parts for split job {}", result.size(), jobId);
+        log.info("Split job {} produced {} parts (metadata only)", jobId, result.size());
         return new SplitResult(jobId, result);
+    }
+
+    /**
+     * Streams one part's STEP file from the parser to a temp file on disk and returns its path.
+     * The response body is copied chunk-by-chunk (never a full byte[] in heap). Caller owns the
+     * temp file and must delete it after upload.
+     */
+    public Path downloadPartStep(String jobId, int partIndex) {
+        try {
+            Path tmp = Files.createTempFile("cad-part-" + partIndex + "-", ".step");
+            rest.execute(
+                parserUrl + "/split/" + jobId + "/part/" + partIndex,
+                HttpMethod.GET,
+                null,
+                resp -> {
+                    try (var in = resp.getBody()) {
+                        Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    return null;
+                }
+            );
+            return tmp;
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to download split part " + jobId + "/" + partIndex, e);
+        }
     }
 
     /**
@@ -189,13 +222,11 @@ public class CadParserClient {
      * Converts a STEP file to GLB binary via the parser /convert endpoint.
      * Returns null (non-fatal) if the parser is unavailable or conversion fails.
      */
-    public byte[] convertToGlb(byte[] stepBytes, String filename) {
-        log.info("Requesting GLB conversion for {} ({} bytes)", filename, stepBytes.length);
+    public byte[] convertToGlb(Path stepFile, String filename) {
+        log.info("Requesting GLB conversion for {}", filename);
         try {
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-            body.add("file", new org.springframework.core.io.ByteArrayResource(stepBytes) {
-                @Override public String getFilename() { return filename; }
-            });
+            body.add("file", filePart(stepFile, filename));
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.MULTIPART_FORM_DATA);

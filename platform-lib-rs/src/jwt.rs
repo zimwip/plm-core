@@ -29,6 +29,11 @@ pub struct UserContext {
     pub is_admin: bool,
     pub project_space_id: Option<String>,
     pub allowed_service_codes: Vec<String>,
+    /// Effective (global) permission codes for the active project space.
+    pub perms: Vec<String>,
+    /// pno authorization/identity version at mint time. The gateway revokes a
+    /// token whose `pv` is older than pno's current version (role/perm change).
+    pub pv: Option<i64>,
 }
 
 /// Raw JWT claim set. Field names match the Java token byte-for-byte.
@@ -49,6 +54,12 @@ pub struct Claims {
     pub role_ids: Option<Vec<String>>,
     #[serde(rename = "svcCodes", skip_serializing_if = "Option::is_none")]
     pub svc_codes: Option<Vec<String>>,
+    /// Effective global permission codes for the active project space.
+    #[serde(rename = "perms", skip_serializing_if = "Option::is_none")]
+    pub perms: Option<Vec<String>>,
+    /// pno authorization/identity version at mint time (revocation check).
+    #[serde(rename = "pv", skip_serializing_if = "Option::is_none")]
+    pub pv: Option<i64>,
     pub jti: String,
     pub iat: i64,
     pub exp: i64,
@@ -63,6 +74,8 @@ impl Claims {
             is_admin: self.is_admin.unwrap_or(false),
             project_space_id: self.ps,
             allowed_service_codes: self.svc_codes.unwrap_or_default(),
+            perms: self.perms.unwrap_or_default(),
+            pv: self.pv,
         }
     }
 }
@@ -146,65 +159,45 @@ impl JwtCodec {
         Ok(encode(&Header::new(Algorithm::HS256), claims, &self.enc)?)
     }
 
-    // ── Forward JWT (spe → downstream) ────────────────────────────────
-    pub fn mint_forward(&self, ctx: &UserContext) -> Result<String> {
-        let now = Self::now();
-        let claims = Claims {
+    /// Build a full-context claim set for `ctx`. Empty role/svc/perm vectors
+    /// serialize to nothing (Option::None) to keep tokens compact.
+    fn claims_for(&self, ctx: &UserContext, typ: &str, jid: Option<String>, exp: i64) -> Claims {
+        let opt = |v: &Vec<String>| if v.is_empty() { None } else { Some(v.clone()) };
+        Claims {
             iss: ISSUER.into(),
             sub: ctx.user_id.clone(),
-            typ: TYP_FORWARD.into(),
+            typ: typ.into(),
             username: ctx.username.clone(),
             is_admin: Some(ctx.is_admin),
             ps: ctx.project_space_id.clone(),
-            jid: None,
-            role_ids: None,
-            svc_codes: None,
+            jid,
+            role_ids: opt(&ctx.role_ids),
+            svc_codes: opt(&ctx.allowed_service_codes),
+            perms: opt(&ctx.perms),
+            pv: ctx.pv,
             jti: Self::jti(),
-            iat: now,
-            exp: now + self.forward_ttl,
-        };
+            iat: Self::now(),
+            exp,
+        }
+    }
+
+    // ── Forward JWT (spe → downstream) — full active-project context ──────
+    pub fn mint_forward(&self, ctx: &UserContext) -> Result<String> {
+        let claims = self.claims_for(ctx, TYP_FORWARD, None, Self::now() + self.forward_ttl);
         self.sign(&claims)
     }
 
     // ── Operation JWT (spe → trusted services, job-scoped) ────────────
     pub fn mint_operation(&self, ctx: &UserContext, job_id: &str, ttl_seconds: i64) -> Result<String> {
-        let now = Self::now();
         let ttl = ttl_seconds.min(self.operation_max_ttl);
-        let claims = Claims {
-            iss: ISSUER.into(),
-            sub: ctx.user_id.clone(),
-            typ: TYP_OPERATION.into(),
-            username: ctx.username.clone(),
-            is_admin: Some(ctx.is_admin),
-            ps: ctx.project_space_id.clone(),
-            jid: Some(job_id.to_string()),
-            role_ids: None,
-            svc_codes: None,
-            jti: Self::jti(),
-            iat: now,
-            exp: now + ttl,
-        };
+        let claims = self.claims_for(ctx, TYP_OPERATION, Some(job_id.to_string()), Self::now() + ttl);
         self.sign(&claims)
     }
 
-    // ── Session JWT (spe → frontend) ──────────────────────────────────
-    pub fn mint_session(&self, user_id: &str, project_space_id: Option<&str>) -> Result<MintedSession> {
-        let now = Self::now();
-        let exp = now + self.session_ttl;
-        let claims = Claims {
-            iss: ISSUER.into(),
-            sub: user_id.to_string(),
-            typ: TYP_SESSION.into(),
-            username: None,
-            is_admin: None,
-            ps: project_space_id.map(|s| s.to_string()),
-            jid: None,
-            role_ids: None,
-            svc_codes: None,
-            jti: Self::jti(),
-            iat: now,
-            exp,
-        };
+    // ── Session JWT (spe → frontend) — full active-project context ────────
+    pub fn mint_session(&self, ctx: &UserContext) -> Result<MintedSession> {
+        let exp = Self::now() + self.session_ttl;
+        let claims = self.claims_for(ctx, TYP_SESSION, None, exp);
         Ok(MintedSession { token: self.sign(&claims)?, expires_at: exp })
     }
 
@@ -232,14 +225,15 @@ impl JwtCodec {
         Ok(claims)
     }
 
-    /// Verify a session token (`typ=session`).
-    pub fn verify_session(&self, token: &str) -> Result<SessionClaims> {
+    /// Verify a session token (`typ=session`) → full context. The session token
+    /// now carries the active project's roles + perms (resolved at login/switch),
+    /// so the gateway derives the forward token from it without a pno round-trip.
+    pub fn verify_session(&self, token: &str) -> Result<UserContext> {
         let c = self.parse_typed(token, TYP_SESSION)?;
-        Ok(SessionClaims { user_id: c.sub, project_space_id: c.ps })
+        Ok(c.into_user_context())
     }
 
-    /// Verify a forward token (`typ=fwd`). Roles intentionally empty — they are
-    /// resolved per-request downstream, matching `JwtService.verifyForward`.
+    /// Verify a forward token (`typ=fwd`) → full context (roles + perms + ps).
     pub fn verify_forward(&self, token: &str) -> Result<UserContext> {
         let c = self.parse_typed(token, TYP_FORWARD)?;
         Ok(c.into_user_context())
@@ -267,38 +261,49 @@ mod tests {
         assert!(JwtCodec::with_defaults("too-short").is_err());
     }
 
-    #[test]
-    fn forward_roundtrip() {
-        let c = codec();
-        let ctx = UserContext {
+    fn ctx() -> UserContext {
+        UserContext {
             user_id: "u1".into(),
             username: Some("alice".into()),
-            role_ids: vec![],
+            role_ids: vec!["role-designer".into()],
             is_admin: true,
             project_space_id: Some("ps-1".into()),
-            allowed_service_codes: vec![],
-        };
-        let tok = c.mint_forward(&ctx).unwrap();
+            allowed_service_codes: vec!["psm".into(), "dst".into()],
+            perms: vec!["READ".into(), "UPDATE".into()],
+            pv: Some(42),
+        }
+    }
+
+    #[test]
+    fn forward_roundtrip_carries_full_context() {
+        let c = codec();
+        let tok = c.mint_forward(&ctx()).unwrap();
         let back = c.verify_forward(&tok).unwrap();
         assert_eq!(back.user_id, "u1");
         assert_eq!(back.username.as_deref(), Some("alice"));
         assert!(back.is_admin);
         assert_eq!(back.project_space_id.as_deref(), Some("ps-1"));
+        assert_eq!(back.role_ids, vec!["role-designer".to_string()]);
+        assert_eq!(back.perms, vec!["READ".to_string(), "UPDATE".to_string()]);
+        assert_eq!(back.allowed_service_codes, vec!["psm".to_string(), "dst".to_string()]);
+        assert_eq!(back.pv, Some(42));
     }
 
     #[test]
-    fn session_roundtrip() {
+    fn session_roundtrip_carries_full_context() {
         let c = codec();
-        let m = c.mint_session("u2", Some("ps-2")).unwrap();
-        let sc = c.verify_session(&m.token).unwrap();
-        assert_eq!(sc.user_id, "u2");
-        assert_eq!(sc.project_space_id.as_deref(), Some("ps-2"));
+        let m = c.mint_session(&ctx()).unwrap();
+        let back = c.verify_session(&m.token).unwrap();
+        assert_eq!(back.user_id, "u1");
+        assert_eq!(back.project_space_id.as_deref(), Some("ps-1"));
+        assert_eq!(back.role_ids, vec!["role-designer".to_string()]);
+        assert_eq!(back.perms, vec!["READ".to_string(), "UPDATE".to_string()]);
     }
 
     #[test]
     fn typ_confusion_rejected() {
         let c = codec();
-        let m = c.mint_session("u3", None).unwrap();
+        let m = c.mint_session(&ctx()).unwrap();
         // A session token must not verify as a forward token.
         assert!(matches!(
             c.verify_forward(&m.token),
@@ -309,19 +314,10 @@ mod tests {
     #[test]
     fn operation_carries_jid_and_caps_ttl() {
         let c = codec();
-        let ctx = UserContext {
-            user_id: "u4".into(),
-            username: Some("bob".into()),
-            role_ids: vec![],
-            is_admin: false,
-            project_space_id: None,
-            allowed_service_codes: vec![],
-        };
-        let tok = c.mint_operation(&ctx, "job-9", 999_999).unwrap();
+        let tok = c.mint_operation(&ctx(), "job-9", 999_999).unwrap();
         let claims = c.parse(&tok).unwrap();
         assert_eq!(claims.typ, TYP_OPERATION);
         assert_eq!(claims.jid.as_deref(), Some("job-9"));
-        // capped at operation_max_ttl (3600)
         assert!(claims.exp - claims.iat <= 3600);
     }
 
@@ -329,7 +325,7 @@ mod tests {
     fn bad_signature_rejected() {
         let c = codec();
         let other = JwtCodec::with_defaults("another-secret-at-least-32-bytes!!!").unwrap();
-        let m = c.mint_session("u5", None).unwrap();
+        let m = c.mint_session(&ctx()).unwrap();
         assert!(other.verify_session(&m.token).is_err());
     }
 }

@@ -25,27 +25,81 @@ pub async fn login(State(state): State<AppState>, headers: HeaderMap) -> Respons
         None => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "X-User header required" }))).into_response(),
     };
 
-    match state.pno.get_user_context(user_id, None).await {
-        Some(ctx) => {
-            let session = match state.codec.mint_session(&ctx.user_id, None) {
+    // Pick the active project: the user's default space, else their first
+    // accessible space. The session token is then minted pinned to it, carrying
+    // the project-scoped roles + perms.
+    let active_ps = match state.pno.resolve_default_space(user_id).await {
+        Some(ps) => Some(ps),
+        None => state.pno.accessible_spaces(user_id).await.into_iter().next(),
+    };
+
+    match state.pno.get_user_context(user_id, active_ps.as_deref()).await {
+        Some(mut ctx) => {
+            ctx.pv = Some(state.pno_version()); // revocation watermark
+            let session = match state.codec.mint_session(&ctx) {
                 Ok(s) => s,
                 Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
             };
-            let expires_at = Utc
-                .timestamp_opt(session.expires_at, 0)
-                .single()
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default();
             Json(json!({
                 "token": session.token,
-                "expiresAt": expires_at,
+                "expiresAt": rfc3339(session.expires_at),
                 "userId": ctx.user_id,
                 "username": ctx.username,
                 "isAdmin": ctx.is_admin,
+                "projectSpaceId": ctx.project_space_id,
             }))
             .into_response()
         }
         None => (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Unknown user" }))).into_response(),
+    }
+}
+
+fn rfc3339(epoch_secs: i64) -> String {
+    Utc.timestamp_opt(epoch_secs, 0)
+        .single()
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_default()
+}
+
+#[derive(Deserialize)]
+pub struct SwitchProjectRequest {
+    #[serde(rename = "projectSpaceId")]
+    project_space_id: String,
+}
+
+/// `POST /api/spe/auth/switch-project` — re-mint the session token pinned to a
+/// different project space. The caller's current session is verified by the auth
+/// middleware (AuthedContext); access to the target space is validated against
+/// pno (a role there, or admin), then a fresh full-context session is minted.
+pub async fn switch_project(
+    State(state): State<AppState>,
+    ext: Option<Extension<AuthedContext>>,
+    Json(req): Json<SwitchProjectRequest>,
+) -> Response {
+    let user_id = match ext {
+        Some(Extension(a)) => a.user.user_id,
+        None => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "No authenticated context" }))).into_response(),
+    };
+    let target = req.project_space_id.trim().to_string();
+    if target.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "projectSpaceId required" }))).into_response();
+    }
+    match state.pno.get_user_context(&user_id, Some(&target)).await {
+        Some(mut ctx) if ctx.is_admin || !ctx.role_ids.is_empty() => {
+            ctx.pv = Some(state.pno_version()); // revocation watermark
+            let session = match state.codec.mint_session(&ctx) {
+                Ok(s) => s,
+                Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+            };
+            Json(json!({
+                "token": session.token,
+                "expiresAt": rfc3339(session.expires_at),
+                "projectSpaceId": ctx.project_space_id,
+            }))
+            .into_response()
+        }
+        Some(_) => (StatusCode::FORBIDDEN, Json(json!({ "error": "No access to project space" }))).into_response(),
+        None => (StatusCode::UNAUTHORIZED, Json(json!({ "error": "User no longer resolvable" }))).into_response(),
     }
 }
 

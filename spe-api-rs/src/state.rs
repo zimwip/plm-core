@@ -5,7 +5,7 @@ use crate::pno::PnoClients;
 use platform_lib_rs::dto::ServiceInstanceInfo;
 use platform_lib_rs::{JwtCodec, LocalServiceRegistry};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -17,6 +17,10 @@ pub struct Inner {
     pub registry: Arc<LocalServiceRegistry>,
     pub pno: PnoClients,
     pub http: reqwest::Client,
+    /// pno's current authorization/identity version, seeded at boot and advanced
+    /// by NATS `global.PNO_CHANGED` / `global.AUTHORIZATION_CHANGED`. Tokens are
+    /// stamped with it (`pv`); a token whose `pv` is older is revoked.
+    pub pno_version: Arc<AtomicI64>,
     /// Per-service round-robin counters for tag-filtered candidate sets
     /// (mirrors `SvcLoadBalancerFilter.counters`).
     counters: Mutex<HashMap<String, AtomicUsize>>,
@@ -44,8 +48,14 @@ impl AppState {
             http: reqwest::Client::builder()
                 .build()
                 .expect("reqwest client"),
+            pno_version: Arc::new(AtomicI64::new(0)),
             counters: Mutex::new(HashMap::new()),
         }))
+    }
+
+    /// Current tracked pno version.
+    pub fn pno_version(&self) -> i64 {
+        self.pno_version.load(Ordering::SeqCst)
     }
 
     fn next_rr(&self, service_code: &str) -> usize {

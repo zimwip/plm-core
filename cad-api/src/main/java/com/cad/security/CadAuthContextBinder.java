@@ -10,8 +10,7 @@ public class CadAuthContextBinder implements PlmAuthContextBinder {
 
     @Override
     public void bind(PlmPrincipal p, HttpServletRequest request) {
-        String projectSpaceId = request.getHeader("X-PLM-ProjectSpace");
-        CadSecurityContext.set(new CadUserContext(p.userId(), p.username(), p.roleIds(), p.isAdmin(), projectSpaceId));
+        CadSecurityContext.set(new CadUserContext(p.userId(), p.username(), p.roleIds(), p.isAdmin(), p.projectSpaceId()));
     }
 
     @Override

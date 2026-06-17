@@ -97,7 +97,10 @@ function normalisePage(body, page, size) {
   return { items: [], totalElements: 0, totalPages: 0, page, size };
 }
 
-// Module-level project space context — updated by App when user selects a space
+// Module-level project space context — UI DISPLAY ONLY (e.g. WS scoping, labels).
+// The active project is pinned inside the session token (`ps` claim); it is NOT
+// sent as a per-request header anymore. Changing the active project is done by
+// re-minting the token via authApi.switchProject(), which also updates this var.
 let _projectSpaceId = null;
 export function setProjectSpaceId(id) { _projectSpaceId = id; }
 export function getProjectSpaceId()    { return _projectSpaceId; }
@@ -118,6 +121,8 @@ export function setAuthExpiredHandler(fn) { _onAuthExpired = fn; }
 
 // ── Auth API (public — does not require a session token) ───────────
 export const authApi = {
+  // Returns { token, expiresAt, userId, username, isAdmin, projectSpaceId }.
+  // `projectSpaceId` is the active project baked into the token (user's default space).
   login: async (userId) => {
     const res = await timedFetch('/api/spe/auth/login', {
       method: 'POST',
@@ -129,7 +134,33 @@ export const authApi = {
     }
     const body = await res.json();
     _sessionToken = body.token;
+    if (body.projectSpaceId) _projectSpaceId = body.projectSpaceId;
     return body;
+  },
+
+  // Re-mints the session token pinned to a different project. The active project
+  // is carried INSIDE the token (with its roles+perms), so switching projects =
+  // getting a fresh token, not sending a header. Returns the new projectSpaceId.
+  // Throws (status 403) if the user has no access to the target space.
+  switchProject: async (projectSpaceId) => {
+    const res = await timedFetch('/api/spe/auth/switch-project', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${_sessionToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ projectSpaceId }),
+    }, 'POST');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({ error: res.statusText }));
+      const err = new Error(payload.error || payload.message || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    const body = await res.json();
+    _sessionToken = body.token;            // swap to the freshly-minted token
+    if (body.projectSpaceId) _projectSpaceId = body.projectSpaceId;
+    return body.projectSpaceId;
   },
   logout: async () => {
     const token = _sessionToken;
@@ -166,10 +197,12 @@ function onBackendUnreachable() {
     document.body.prepend(el);
   }
 
-  // Poll /actuator/health every 3 s; reload when it responds 200
+  // Poll the public status endpoint every 3 s; reload when it responds 200.
+  // (Actuator health is internal-only — not exposed to the browser. The
+  // /api/platform/status route is public and a sufficient recovery probe.)
   _pollTimer = setInterval(async () => {
     try {
-      const res = await fetch('/actuator/health', { cache: 'no-store' });
+      const res = await fetch('/api/platform/status', { cache: 'no-store' });
       if (res.ok) {
         clearInterval(_pollTimer);
         window.location.reload();
@@ -194,7 +227,6 @@ function isAppErrorBody(payload) {
 async function gatewayJson(method, fullPath, body, isRetry = false) {
   const h = {};
   if (_sessionToken) h['Authorization'] = `Bearer ${_sessionToken}`;
-  if (_projectSpaceId) h['X-PLM-ProjectSpace'] = _projectSpaceId;
   if (body !== undefined) h['Content-Type'] = 'application/json';
 
   let res;
@@ -205,13 +237,20 @@ async function gatewayJson(method, fullPath, body, isRetry = false) {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }, method);
   } catch {
+    // Connectivity failure — the reconnect banner is enough; don't also raise
+    // the global error modal.
     onBackendUnreachable();
-    const err = new Error('Backend unreachable');
-    if (_onError) _onError(err);
-    throw err;
+    throw new Error('Backend unreachable');
   }
 
-  if (res.status === 401 && !isRetry && _onAuthExpired) {
+  // Parse the body once: a 401 may carry {code:"TOKEN_STALE"}, meaning the
+  // gateway rejected a now-stale token (pno roles/perms changed under us). Only
+  // then do we silently re-login + retry once. Reading here lets the error path
+  // below reuse the payload — a Response body can only be consumed a single time.
+  let payload;
+  if (!res.ok) payload = await res.json().catch(() => null);
+
+  if (res.status === 401 && payload?.code === 'TOKEN_STALE' && !isRetry && _onAuthExpired) {
     const newToken = await _onAuthExpired().catch(() => null);
     if (newToken) {
       _sessionToken = newToken;
@@ -220,8 +259,10 @@ async function gatewayJson(method, fullPath, body, isRetry = false) {
   }
 
   if (!res.ok) {
-    const payload = await res.json().catch(() => null);
-    if ((res.status === 502 || res.status === 503) && !isAppErrorBody(payload)) onBackendUnreachable();
+    // A bare 502/503 (no app-error body) is a connectivity failure — show only
+    // the reconnect banner, not the global error modal.
+    const unreachable = (res.status === 502 || res.status === 503) && !isAppErrorBody(payload);
+    if (unreachable) onBackendUnreachable();
     const body = payload || { error: res.statusText };
     const msg = body.violations?.length
       ? body.violations.map(v => typeof v === 'string' ? v : v.message).join('; ')
@@ -231,7 +272,7 @@ async function gatewayJson(method, fullPath, body, isRetry = false) {
     err.detail = body;
     // Per-field violations are handled inline by the caller — skip global error modal
     const hasFieldViolations = body.violations?.some(v => v?.attrCode);
-    if (_onError && !hasFieldViolations) _onError(err);
+    if (_onError && !hasFieldViolations && !unreachable) _onError(err);
     throw err;
   }
   const text = await res.text();
@@ -239,12 +280,11 @@ async function gatewayJson(method, fullPath, body, isRetry = false) {
 }
 
 // Core request helper — session token carries user identity.
-// On 401 it calls _onAuthExpired to obtain a fresh token and retries once.
-async function doFetch(baseUrl, method, path, body, { txId, psOverride } = {}, isRetry = false) {
+// On a 401 whose body has code "TOKEN_STALE" it calls _onAuthExpired to silently
+// re-login (obtain a fresh token reflecting the user's new roles) and retries once.
+async function doFetch(baseUrl, method, path, body, { txId } = {}, isRetry = false) {
   const h = { 'Content-Type': 'application/json' };
   if (_sessionToken) h['Authorization'] = `Bearer ${_sessionToken}`;
-  const ps = psOverride ?? _projectSpaceId;
-  if (ps) h['X-PLM-ProjectSpace'] = ps;
   if (txId) h['X-PLM-Tx'] = txId;
 
   let res;
@@ -255,30 +295,39 @@ async function doFetch(baseUrl, method, path, body, { txId, psOverride } = {}, i
       body: body ? JSON.stringify(body) : undefined,
     }, method);
   } catch {
+    // Connectivity failure — the reconnect banner is enough; don't also raise
+    // the global error modal.
     onBackendUnreachable();
-    const err = new Error('Backend unreachable');
-    if (_onError) _onError(err);
-    throw err;
+    throw new Error('Backend unreachable');
   }
 
-  if (res.status === 401 && !isRetry && _onAuthExpired) {
+  // Parse the body once: a 401 may carry {code:"TOKEN_STALE"}, meaning the
+  // gateway rejected a now-stale token (pno roles/perms changed under us). Only
+  // then do we silently re-login + retry once. Reading here lets the error path
+  // below reuse the payload — a Response body can only be consumed a single time.
+  let payload;
+  if (!res.ok) payload = await res.json().catch(() => null);
+
+  if (res.status === 401 && payload?.code === 'TOKEN_STALE' && !isRetry && _onAuthExpired) {
     const newToken = await _onAuthExpired().catch(() => null);
     if (newToken) {
       _sessionToken = newToken;
-      return doFetch(baseUrl, method, path, body, { txId, psOverride }, true);
+      return doFetch(baseUrl, method, path, body, { txId }, true);
     }
   }
 
   if (!res.ok) {
-    const payload = await res.json().catch(() => null);
-    if ((res.status === 502 || res.status === 503) && !isAppErrorBody(payload)) onBackendUnreachable();
+    // A bare 502/503 (no app-error body) is a connectivity failure — show only
+    // the reconnect banner, not the global error modal.
+    const unreachable = (res.status === 502 || res.status === 503) && !isAppErrorBody(payload);
+    if (unreachable) onBackendUnreachable();
     const body = payload || { error: res.statusText };
     const msg = body.violations?.length
       ? body.violations.map(v => typeof v === 'string' ? v : v.message).join('; ')
       : (body.error || body.message || `HTTP ${res.status}`);
     const err = new ApiError(res.status, msg, body);
     const hasFieldViolations = body.violations?.some(v => v?.attrCode);
-    if (_onError && !hasFieldViolations) _onError(err);
+    if (_onError && !hasFieldViolations && !unreachable) _onError(err);
     throw err;
   }
   const text = await res.text();
@@ -317,7 +366,6 @@ async function submitItemCreate(descriptor, values) {
   const method = (action.httpMethod || 'POST').toUpperCase();
   const headers = {};
   if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
-  if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
 
   let body;
   if ((action.bodyShape || 'RAW').toUpperCase() === 'MULTIPART') {
@@ -350,8 +398,8 @@ async function submitItemCreate(descriptor, values) {
   return text ? JSON.parse(text) : null;
 }
 
-async function request(method, path, _userId, body, psOverride) {
-  return doFetch(serviceBase('psm'), method, path, body, { psOverride });
+async function request(method, path, _userId, body) {
+  return doFetch(serviceBase('psm'), method, path, body);
 }
 
 async function adminRequest(method, path, _userId, body) {
@@ -487,7 +535,6 @@ export const api = {
   gatewayRawText: async (url, maxBytes = 64 * 1024) => {
     const h = {};
     if (_sessionToken) h['Authorization'] = `Bearer ${_sessionToken}`;
-    if (_projectSpaceId) h['X-PLM-ProjectSpace'] = _projectSpaceId;
     h['Range'] = `bytes=0-${maxBytes - 1}`;
     const res = await timedFetch(url, { method: 'GET', headers: h }, 'GET');
     if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`);
@@ -523,7 +570,6 @@ export const api = {
     const url = `${base}${listAction.path}${sep}${pageParam}=${page}&${sizeParam}=${size}`;
     const headers = {};
     if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
-    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
     const res = await timedFetch(url, { method: 'GET', headers }, 'GET');
     if (!res.ok) {
       const detail = await res.json().catch(() => ({ error: res.statusText }));
@@ -544,7 +590,6 @@ export const api = {
     const url = `${serviceBase('search')}/search`;
     const headers = { 'Content-Type': 'application/json' };
     if (_sessionToken)    headers['Authorization']     = `Bearer ${_sessionToken}`;
-    if (_projectSpaceId)  headers['X-PLM-ProjectSpace'] = _projectSpaceId;
     const body = JSON.stringify({ query, filterTerms, rangeFilters, facetOn, size });
     const res  = await timedFetch(url, { method: 'POST', headers, body }, 'POST');
     if (!res.ok) {
@@ -570,7 +615,6 @@ export const api = {
     const url = `${serviceBase('search')}/search/children/${encodeURIComponent(nodeId)}`;
     const headers = {};
     if (_sessionToken)    headers['Authorization']      = `Bearer ${_sessionToken}`;
-    if (_projectSpaceId)  headers['X-PLM-ProjectSpace'] = _projectSpaceId;
     const res = await timedFetch(url, { method: 'GET', headers }, 'GET');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
@@ -921,6 +965,10 @@ export const api = {
   setUserAdmin: (userId, targetUserId, isAdmin) =>
     pnoRequest('PUT', `/users/${targetUserId}/admin`, userId, { isAdmin }),
 
+  /** Sets the user's default project space (the project pinned into their token at login). pno-api. */
+  setUserDefaultSpace: (userId, targetUserId, projectSpaceId) =>
+    pnoRequest('PUT', `/users/${targetUserId}/default-space`, userId, { projectSpaceId }),
+
   /** Returns { userId, username, isAdmin, roleIds } for the given user scoped to a project space. */
   getUserContext: (userId, projectSpaceId) =>
     pnoRequest('GET', `/users/${userId}/context${projectSpaceId ? `?projectSpaceId=${encodeURIComponent(projectSpaceId)}` : ''}`, null),
@@ -1154,12 +1202,11 @@ export const txApi = {
     request('GET', `/transactions/${txId}/versions`, null),
 };
 
-/** Build headers with Bearer + X-PLM-Tx / X-PLM-ProjectSpace. userId kept for API compat. */
+/** Build headers with Bearer + X-PLM-Tx. The active project is pinned in the session token. userId kept for API compat. */
 export function authHeaders(_userId, txId) {
   const h = { 'Content-Type': 'application/json' };
   if (_sessionToken) h['Authorization'] = `Bearer ${_sessionToken}`;
   if (txId) h['X-PLM-Tx'] = txId;
-  if (_projectSpaceId) h['X-PLM-ProjectSpace'] = _projectSpaceId;
   return h;
 }
 
@@ -1171,7 +1218,6 @@ export async function txRequest(method, path, _userId, txId, body) {
 export const dstApi = {
   downloadFile: async (uuid) => {
     const headers = { Authorization: `Bearer ${_sessionToken}` };
-    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
     const res = await timedFetch(`/api/dst/data/${uuid}`, { method: 'GET', headers }, 'GET');
     if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
     return res.arrayBuffer();
@@ -1179,7 +1225,6 @@ export const dstApi = {
 
   getStats: async () => {
     const headers = { Authorization: `Bearer ${_sessionToken}` };
-    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
     const res = await timedFetch('/api/dst/stats', { method: 'GET', headers }, 'GET');
     if (!res.ok) throw new Error(`Stats failed: HTTP ${res.status}`);
     return res.json();
@@ -1190,7 +1235,6 @@ export const dstApi = {
 export async function pollJobStatus(serviceCode, jobStatusUrl) {
   const headers = { 'Content-Type': 'application/json' };
   if (_sessionToken)    headers['Authorization']     = `Bearer ${_sessionToken}`;
-  if (_projectSpaceId)  headers['X-PLM-ProjectSpace'] = _projectSpaceId;
   const res = await timedFetch(`/api/${serviceCode}${jobStatusUrl}`, { method: 'GET', headers }, 'GET');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -1200,7 +1244,6 @@ export const cadApi = {
   submitImport: async (file, rootNodeId, contextCode, onProgress) => {
     const headers = {};
     if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
-    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
     const fd = new FormData();
     fd.append('file', file);
     if (contextCode) fd.append('contextCode', contextCode);
@@ -1214,7 +1257,6 @@ export const cadApi = {
   getJobStatus: async (jobId) => {
     const headers = { 'Content-Type': 'application/json' };
     if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
-    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
     const res = await timedFetch(`/api/psm/cad/jobs/${jobId}`, { method: 'GET', headers }, 'GET');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
@@ -1223,7 +1265,6 @@ export const cadApi = {
   getImportContexts: async () => {
     const headers = { 'Content-Type': 'application/json' };
     if (_sessionToken) headers['Authorization'] = `Bearer ${_sessionToken}`;
-    if (_projectSpaceId) headers['X-PLM-ProjectSpace'] = _projectSpaceId;
     const res = await timedFetch('/api/psm/cad/import-contexts', { method: 'GET', headers }, 'GET');
     if (!res.ok) return [];
     return res.json();
@@ -1256,7 +1297,6 @@ export const authoringApi = {
       }
       const headers = {};
       if (_sessionToken)    headers['Authorization']     = `Bearer ${_sessionToken}`;
-      if (_projectSpaceId)  headers['X-PLM-ProjectSpace'] = _projectSpaceId;
       if (txId)             headers['X-PLM-Tx']           = txId;
       const res = onProgress
         ? await uploadWithProgress('/api/psm' + path, method, headers, fd, onProgress)
@@ -1271,7 +1311,7 @@ export const authoringApi = {
 };
 
 // KV store for user preferences and basket.
-// Basket API — dedicated first-class endpoints (PS from X-PLM-ProjectSpace header).
+// Basket API — dedicated first-class endpoints (active project pinned in session token).
 export const basketApi = {
   list:   (userId)                          =>
     pnoRequest('GET',    `/users/${encodeURIComponent(userId)}/basket`),
@@ -1283,12 +1323,12 @@ export const basketApi = {
     pnoRequest('DELETE', `/users/${encodeURIComponent(userId)}/basket`),
 };
 
-// KV API — user preferences only (UI_PREF). PS header suppressed for global scope.
+// KV API — user preferences only (UI_PREF). User-global scope is resolved
+// server-side; the per-request project header is no longer sent.
 export const kvApi = {
-  // UI_PREF is user-global — suppress X-PLM-ProjectSpace header so backend uses empty scope.
   getSingle: (userId, group, key) =>
-    pnoRequest('GET', `/users/${encodeURIComponent(userId)}/kv/${encodeURIComponent(group)}/single/${encodeURIComponent(key)}`, undefined, undefined, { psOverride: '' }),
+    pnoRequest('GET', `/users/${encodeURIComponent(userId)}/kv/${encodeURIComponent(group)}/single/${encodeURIComponent(key)}`),
 
   setSingle: (userId, group, key, value) =>
-    pnoRequest('PUT', `/users/${encodeURIComponent(userId)}/kv/${encodeURIComponent(group)}/single/${encodeURIComponent(key)}/${encodeURIComponent(value)}`, undefined, undefined, { psOverride: '' }),
+    pnoRequest('PUT', `/users/${encodeURIComponent(userId)}/kv/${encodeURIComponent(group)}/single/${encodeURIComponent(key)}/${encodeURIComponent(value)}`),
 };

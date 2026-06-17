@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -39,21 +41,36 @@ public class ImportController {
             @RequestParam(required = false) String psmTxId,
             @RequestParam(defaultValue = "false") boolean splitMode) throws IOException {
 
-        byte[] bytes = file.getBytes();
         UUID rootNodeId = nodeId != null && !nodeId.isBlank() ? UUID.fromString(nodeId) : null;
 
-        ImportJob job = jobService.submit(
-            userId,
-            projectSpaceId,
-            file.getOriginalFilename(),
-            contextCode,
-            rootNodeId,
-            bytes,
-            psmTxId,
-            splitMode
-        );
+        // Spill the upload to a temp file instead of holding the whole thing in heap.
+        // The async job owns this file from here on and deletes it when done.
+        Path uploadFile = Files.createTempFile("cad-upload-", "-" + safeName(file.getOriginalFilename()));
+        try (java.io.InputStream in = file.getInputStream()) {
+            Files.copy(in, uploadFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
 
-        return Map.of("jobId", job.getId().toString(), "status", job.getStatus());
+        try {
+            ImportJob job = jobService.submit(
+                userId,
+                projectSpaceId,
+                file.getOriginalFilename(),
+                contextCode,
+                rootNodeId,
+                uploadFile,
+                psmTxId,
+                splitMode
+            );
+            return Map.of("jobId", job.getId().toString(), "status", job.getStatus());
+        } catch (RuntimeException e) {
+            Files.deleteIfExists(uploadFile);
+            throw e;
+        }
+    }
+
+    private static String safeName(String name) {
+        if (name == null || name.isBlank()) return "upload.dat";
+        return name.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     @GetMapping("/{jobId}")

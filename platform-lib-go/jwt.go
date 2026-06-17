@@ -26,6 +26,10 @@ type ForwardUser struct {
 	ProjectSpaceID string
 	Username       string
 	IsAdmin        bool
+	// Active-project roles + effective permission codes, carried by the token
+	// (resolved at login/switch). Empty when the claim is absent.
+	RoleIds []string
+	Perms   []string
 }
 
 // Codec verifies HS256 JWTs minted by spe-api. Key = plm.service.secret
@@ -81,7 +85,29 @@ func (c *Codec) VerifyForward(token string) (*ForwardUser, error) {
 	ps, _ := claims["ps"].(string)
 	username, _ := claims["username"].(string)
 	isAdmin, _ := claims["isAdmin"].(bool)
-	return &ForwardUser{UserID: sub, ProjectSpaceID: ps, Username: username, IsAdmin: isAdmin}, nil
+	return &ForwardUser{
+		UserID:         sub,
+		ProjectSpaceID: ps,
+		Username:       username,
+		IsAdmin:        isAdmin,
+		RoleIds:        strSlice(claims["roleIds"]),
+		Perms:          strSlice(claims["perms"]),
+	}, nil
+}
+
+// strSlice coerces a JSON array claim ([]interface{}) into []string.
+func strSlice(v interface{}) []string {
+	arr, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, e := range arr {
+		if s, ok := e.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // VerifySession verifies a session JWT (typ=session), returning (userId, ps).

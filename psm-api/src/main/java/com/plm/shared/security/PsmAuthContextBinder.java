@@ -10,8 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 /**
  * Copies the shared {@link PlmPrincipal} into psm-api's local context holders
  * ({@link PlmSecurityContext} + {@link PlmProjectSpaceContext}). The project
- * space falls back to the {@code X-PLM-ProjectSpace} header when the JWT does
- * not carry a {@code ps} claim.
+ * space comes solely from the token's {@code ps} claim.
  */
 @Component
 public class PsmAuthContextBinder implements PlmAuthContextBinder {
@@ -21,9 +20,6 @@ public class PsmAuthContextBinder implements PlmAuthContextBinder {
         PlmSecurityContext.set(new PlmUserContext(p.userId(), p.username(), p.roleIds(), p.isAdmin()));
 
         String ps = p.projectSpaceId();
-        if (ps == null || ps.isBlank()) {
-            ps = request.getHeader("X-PLM-ProjectSpace");
-        }
         if (ps != null && !ps.isBlank()) {
             PlmProjectSpaceContext.set(ps);
         }

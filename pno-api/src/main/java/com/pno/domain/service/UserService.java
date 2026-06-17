@@ -23,7 +23,7 @@ public class UserService {
 
     /**
      * Returns the user context payload consumed by plm-api's PlmAuthFilter and platform-api.
-     * Format: { userId, username, isAdmin, roleIds, globalPermissions }
+     * Format: { userId, username, isAdmin, roleIds, allowedServiceCodes, defaultProjectSpaceId, globalPermissions }
      *
      * When projectSpaceId is provided, only roles assigned in that space are returned.
      * When null/blank, roles across all project spaces are returned (union).
@@ -37,6 +37,7 @@ public class UserService {
 
         String  username = user.get("username",  String.class);
         boolean isAdmin  = Integer.valueOf(1).equals(user.get("is_admin", Integer.class));
+        String  defaultProjectSpaceId = user.get("default_project_space_id", String.class);
 
         List<String> roleIds = new ArrayList<>();
 
@@ -59,6 +60,7 @@ public class UserService {
         ctx.put("isAdmin",              isAdmin);
         ctx.put("roleIds",              roleIds);
         ctx.put("allowedServiceCodes",  allowedServiceCodes);
+        ctx.put("defaultProjectSpaceId", defaultProjectSpaceId);
         ctx.put("globalPermissions",
             authorizationService.listPermissionCodesForRoles(new HashSet<>(roleIds), isAdmin));
         return ctx;
@@ -125,6 +127,26 @@ public class UserService {
                 m.put("isAdmin",     Integer.valueOf(1).equals(r.get("is_admin", Integer.class)));
                 return m;
             });
+    }
+
+    /**
+     * Sets the user's default project space, consumed by the gateway at login
+     * to bind the active project space to the issued token.
+     * Validates that the project space exists; throws IllegalArgumentException otherwise.
+     */
+    @Transactional
+    public String setDefaultProjectSpace(String userId, String projectSpaceId) {
+        Integer spaceExists = dsl.select(DSL.count()).from("project_space")
+            .where("id = ?", projectSpaceId)
+            .fetchOne(0, Integer.class);
+        if (spaceExists == null || spaceExists == 0) {
+            throw new IllegalArgumentException("Project space not found: " + projectSpaceId);
+        }
+        int updated = dsl.execute(
+            "UPDATE pno_user SET default_project_space_id = ? WHERE id = ?",
+            projectSpaceId, userId);
+        if (updated == 0) throw new IllegalArgumentException("User not found: " + userId);
+        return projectSpaceId;
     }
 
     @Transactional

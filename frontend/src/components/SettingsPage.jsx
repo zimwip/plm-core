@@ -3775,6 +3775,7 @@ function UsersSubSection({ userId, canWrite, toast }) {
   const [assigning,   setAssigning]   = useState(null);
   const [removing,    setRemoving]    = useState(null);
   const [togglingAdmin, setTogglingAdmin] = useState(null);
+  const [savingDefault, setSavingDefault] = useState(null);
 
   const loadUsers = useCallback(() =>
     api.listUsers(userId).then(d => setUsers(Array.isArray(d) ? d : [])), [userId]);
@@ -3851,6 +3852,16 @@ function UsersSubSection({ userId, canWrite, toast }) {
     finally { setTogglingAdmin(null); }
   }
 
+  // Sets the user's default project space — the project pinned into their token at login.
+  async function setDefaultSpace(u, psId) {
+    setSavingDefault(u.id);
+    try {
+      await api.setUserDefaultSpace(userId, u.id, psId);
+      await loadUsers();
+    } catch (e) { toast(e, 'error'); }
+    finally { setSavingDefault(null); }
+  }
+
   if (!users) return <div className="settings-loading">Loading…</div>;
 
   return (
@@ -3894,6 +3905,22 @@ function UsersSubSection({ userId, canWrite, toast }) {
               {u.email && <span style={{ flex: 1, fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 8 }}>{u.email}</span>}
               {!active && <span className="settings-badge settings-badge--warn">Inactive</span>}
               {u.isAdmin && <span className="settings-badge settings-badge--warn" title="Administrator">Admin</span>}
+              {canWrite && spaces.length > 0 && (
+                <select
+                  className="field-input"
+                  style={{ height: 22, fontSize: 10, padding: '0 4px', width: 'auto', maxWidth: 140, marginLeft: 6, flexShrink: 0 }}
+                  value={u.defaultProjectSpaceId || u.defaultSpaceId || ''}
+                  disabled={savingDefault === uid}
+                  onClick={e => e.stopPropagation()}
+                  onChange={e => { e.stopPropagation(); if (e.target.value) setDefaultSpace(u, e.target.value); }}
+                  title="Default project space (pinned into the user's token at login)"
+                >
+                  <option value="" disabled>Default space…</option>
+                  {spaces.map(sp => (
+                    <option key={sp.id || sp.ID} value={sp.id || sp.ID}>{sp.name || sp.NAME}</option>
+                  ))}
+                </select>
+              )}
               {canWrite && (
                 <select
                   className="field-input"

@@ -4,7 +4,9 @@ import com.plm.platform.client.ServiceClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -26,21 +28,37 @@ public class DstStorageClient {
     private final RestTemplate rest;
     private final ServiceClient serviceClient;
 
+    @SuppressWarnings({"deprecation", "removal"}) // setBufferRequestBody: only way to stream multipart on SimpleClientHttpRequestFactory
     public DstStorageClient(RestTemplateBuilder builder, ServiceClient serviceClient) {
-        this.rest = builder.build();
+        // bufferRequestBody=false → multipart body is streamed straight to the socket
+        // instead of being copied into a heap ByteArrayOutputStream first. Combined with
+        // a FileSystemResource part this keeps large uploads off the heap.
+        SimpleClientHttpRequestFactory rf = new SimpleClientHttpRequestFactory();
+        rf.setBufferRequestBody(false);
+        this.rest = builder.requestFactory(() -> rf).build();
         this.serviceClient = serviceClient;
     }
 
     /**
      * Uploads file bytes to DST and returns the assigned dstFileId.
-     * Returns null if DST is unreachable or returns an unexpected response.
+     * Use for small, already-in-heap payloads (e.g. GLB). For files on disk prefer
+     * {@link #upload(Resource, String, String, String)} which streams without buffering.
      */
     public String upload(byte[] fileBytes, String filename, String contentType, String dstBaseUrl) {
+        return upload(new ByteArrayResource(fileBytes) {
+            @Override public String getFilename() { return filename; }
+        }, filename, contentType, dstBaseUrl);
+    }
+
+    /**
+     * Uploads a file resource to DST and returns the assigned dstFileId.
+     * A {@code FileSystemResource} is streamed from disk (no full-file heap buffer).
+     * Returns null if DST is unreachable or returns an unexpected response.
+     */
+    public String upload(Resource fileResource, String filename, String contentType, String dstBaseUrl) {
         try {
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-            body.add("file", new ByteArrayResource(fileBytes) {
-                @Override public String getFilename() { return filename; }
-            });
+            body.add("file", fileResource);
             body.add("name", filename);
 
             HttpHeaders headers = serviceClient.buildAuthHeaders();

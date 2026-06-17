@@ -68,11 +68,9 @@ public class PlmAuthAutoConfiguration {
     @ConditionalOnMissingBean
     public PlmAuthFilter plmAuthFilter(AuthProperties props,
                                        JwtVerifier verifier,
-                                       ObjectProvider<PlmAuthContextBinder> binders,
-                                       ObjectProvider<PnoRoleCache> roleCacheProvider) {
+                                       ObjectProvider<PlmAuthContextBinder> binders) {
         List<PlmAuthContextBinder> ordered = binders.orderedStream().toList();
-        PnoRoleCache roleCache = roleCacheProvider.getIfAvailable();
-        return new PlmAuthFilter(props, verifier, ordered, roleCache);
+        return new PlmAuthFilter(props, verifier, ordered);
     }
 
     @Bean

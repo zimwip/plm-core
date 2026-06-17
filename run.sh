@@ -9,6 +9,8 @@
 #   ./run.sh build <svc>...      rebuild listed compose services, then start
 #   ./run.sh reset               destroy volumes, rebuild all, start
 #   ./run.sh down                stop and remove containers
+#   ./run.sh clean               remove dangling images + build artifacts
+#                                (dist/, target/ dirs, Go/Rust binaries, tmp logs)
 #   ./run.sh local               run all services natively (java + node in PATH)
 #   ./run.sh pull-base           pre-pull all base images once (avoids Docker Hub rate limits)
 #   ./run.sh package             build dist/ (JVM JARs) for compiler-free deploy
@@ -42,7 +44,7 @@ BACKEND_SVC_ROWS=(
     "psm-admin|8083|psm_admin||PLM"
     "psm-api|8080|psm||PLM"
     "ws-gateway|8085|||PLM|ws-gateway-go|go"
-    "platform-api|8084|||PLM"
+    "platform-api|8084|||PLM|platform-api-rs|rust"
     "spe-api|8082||true|SPE|spe-api-rs|rust"
     "dst|8086|dst||DST"
     "webdav|8089|||DAV|webdav-go|go"
@@ -68,6 +70,7 @@ declare -A SVC_BINSRC=(
     ["ws-gateway"]="/ws-gateway"                            # ws-gateway-go/Dockerfile
     ["webdav"]="/webdav"                                    # webdav-go/Dockerfile
     ["spe-api"]="/build/spe-api-rs/target/release/spe-api"  # spe-api-rs/Dockerfile
+    ["platform-api"]="/build/platform-api-rs/target/release/platform-api"  # platform-api-rs/Dockerfile
 )
 
 # Services with a writable named volume: the dir must be created + chowned to the
@@ -787,6 +790,42 @@ EOF
     ok "Package complete."
 }
 
+# ── Cleanup ──────────────────────────────────────────────────
+# Removes dangling Docker images + local build artifacts. Does NOT touch
+# running containers or named volumes (use `./run.sh down` / `reset` for those).
+clean_artifacts() {
+    warn "Removes: dangling images, leftover build images, dist/, all target/ dirs,"
+    warn "Go/Rust binaries, and /tmp/plm-* logs. Next build recompiles from scratch."
+    read -rp "  Continue? [y/N] " confirm
+    [[ "${confirm,,}" != "y" ]] && { log "Aborted."; exit 0; }
+
+    log "Pruning dangling images…"
+    docker image prune -f || true
+
+    # Best-effort: builder/package images that linger if `package` aborted.
+    log "Removing leftover build images…"
+    docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+        | grep -E -- '-pkg-builder|-native-builder|cad-parser-pkg|fe-pkg-builder' \
+        | xargs -r docker rmi -f >/dev/null 2>&1 || true
+
+    [[ -d dist ]] && { log "Removing dist/…"; rm -rf dist; }
+
+    # All Maven + Cargo build dirs are named `target/` (skip node_modules).
+    log "Removing target/ build dirs (Java + Rust)…"
+    find . -type d -name target -not -path '*/node_modules/*' -exec rm -rf {} + 2>/dev/null || true
+
+    # Go build outputs: `go clean` + drop the dir-named binary each module emits.
+    log "Removing Go build binaries…"
+    for d in ws-gateway-go webdav-go platform-lib-go; do
+        [[ -d "$d" ]] || continue
+        ( cd "$d" && go clean 2>/dev/null ) || true
+        rm -f "$d/$d" 2>/dev/null || true
+    done
+
+    rm -f /tmp/plm-*.log 2>/dev/null || true
+    ok "Cleanup complete."
+}
+
 # ── Main ─────────────────────────────────────────────────────
 CMD="${1:-}"
 
@@ -798,6 +837,10 @@ case "$CMD" in
     down|--down)
         log "Stopping containers…"
         docker compose down
+        exit 0
+        ;;
+    clean|--clean|cleanup)
+        clean_artifacts
         exit 0
         ;;
     local|--local)
@@ -837,7 +880,7 @@ case "$CMD" in
     "") ;;
     *)
         err "Unknown command: $CMD"
-        echo "Usage: $0 [build [all|<svc>...] | reset | down | local | pull-base | package [-y|--native]]"
+        echo "Usage: $0 [build [all|<svc>...] | reset | down | clean | local | pull-base | package [-y|--native]]"
         exit 1
         ;;
 esac

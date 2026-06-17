@@ -91,20 +91,67 @@ pub async fn auth_mw(
         }
     }
 
-    // ── normal session path ─────────────────────────────────────────────
-    let session = match state.codec.verify_session(&token) {
-        Ok(s) => s,
+    // ── normal session path — token carries the full active-project context ──
+    // (roles + perms + project, resolved at login/switch). No per-request pno
+    // round-trip; the X-PLM-ProjectSpace header is ignored + stripped (the token
+    // `ps` is the sole source of the active project).
+    let ctx = match state.codec.verify_session(&token) {
+        Ok(c) => c,
         Err(_) => return error(StatusCode::UNAUTHORIZED, "Invalid or expired session token"),
     };
-    let ps_header = req
-        .headers()
-        .get("X-PLM-ProjectSpace")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-    let ps = ps_header.or(session.project_space_id);
+    // Revocation: a token minted before pno's current authorization/identity
+    // version is stale (roles/perms changed). Reject so the client re-logs in
+    // and gets a token reflecting the new grants.
+    if let Some(pv) = ctx.pv {
+        if pv < state.pno_version() {
+            return token_stale();
+        }
+    }
+    forward_from_context(state, req, next, ctx, extract_service_code(&path)).await
+}
 
-    resolve_and_forward(state, req, next, &session.user_id, ps, extract_service_code(&path)).await
+/// 401 carrying `code: TOKEN_STALE` so the frontend re-authenticates silently.
+fn token_stale() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({ "error": "Token superseded by an authorization change", "code": "TOKEN_STALE" })),
+    )
+        .into_response()
+}
+
+/// Forward a request whose identity is already fully known (from the session/
+/// forward token) — gate on service code, mint a forward JWT carrying the same
+/// context, strip client-supplied project/identity headers. No pno call.
+async fn forward_from_context(
+    state: AppState,
+    mut req: Request<Body>,
+    next: Next,
+    ctx: UserContext,
+    service_code: Option<String>,
+) -> Response {
+    if let Some(code) = &service_code {
+        if !ctx.is_admin && !ctx.allowed_service_codes.iter().any(|c| c == code) {
+            return error(
+                StatusCode::FORBIDDEN,
+                &format!("Access to service '{code}' not granted"),
+            );
+        }
+    }
+    let fwd = match state.codec.mint_forward(&ctx) {
+        Ok(t) => t,
+        Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, &format!("mint failed: {e}")),
+    };
+    let headers = req.headers_mut();
+    headers.remove("X-PLM-User");
+    headers.remove("X-Job-Id"); // internal only — never accepted from clients
+    headers.remove("X-PLM-ProjectSpace"); // token is the sole source of the active project
+    headers.insert(
+        header::AUTHORIZATION,
+        format!("Bearer {fwd}").parse().expect("valid header"),
+    );
+    let ps = ctx.project_space_id.clone();
+    req.extensions_mut().insert(AuthedContext { user: ctx, project_space: ps });
+    next.run(req).await
 }
 
 /// Shared tail: resolve user, gate on service code, mint forward JWT, swap header.

@@ -1,0 +1,34 @@
+[package]
+name = "platform-api-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of platform-api: environment registry, algorithm/action catalog, settings aggregator, status, federation, vault admin. Wire-compatible with the Java platform-api."
+
+[[bin]]
+name = "platform-api"
+path = "src/main.rs"
+
+[dependencies]
+# Rust port lib: DTOs, JWT codec, S2S ServiceClient, NATS bus, local registry, telemetry, util.
+platform-lib-rs = { path = "../platform-lib-rs" }
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dashmap = "6"
+chrono = { version = "0.4", features = ["serde"] }
+http = "1"
+# S2S + Vault HTTP + NATS varz + heartbeat probes.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# User-context cache (analogue of Caffeine on the Java side).
+moka = { version = "0.12", features = ["future"] }
+# Runtime (NOT compile-time-checked) sqlx so the crate builds with no live DB.
+# To regain compile-time SQL checking, commit to `cargo sqlx prepare` in CI.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "migrate", "chrono"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util", "macros"] }
+tower = { version = "0.5", features = ["util"] }   # ServiceExt::oneshot for axum integration tests
+http-body-util = "0.1"                              # collect response bodies in tests

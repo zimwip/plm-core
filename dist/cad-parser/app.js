@@ -32523,7 +32523,6 @@ var KEEP_GEOM = /* @__PURE__ */ new Set([
   "DIRECTION",
   "AXIS2_PLACEMENT_3D"
 ]);
-var upload = (0, import_multer.default)({ storage: import_multer.default.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
 var uploadDisk = (0, import_multer.default)({
   storage: import_multer.default.diskStorage({
     destination: (_req, _file, cb) => {
@@ -32630,10 +32629,12 @@ app.get("/split/:jobId/part/:index/glb", async (req, res) => {
     res.status(422).json({ error: err.message });
   }
 });
-app.post("/convert", upload.single("file"), async (req, res) => {
+app.post("/convert", uploadDisk.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file provided" });
+  const filePath = req.file.path;
   try {
-    const { glb, meshCount } = await convertPool.run(req.file.buffer);
+    const stepBuf = await readFile(filePath);
+    const { glb, meshCount } = await convertPool.run(stepBuf);
     res.setHeader("Content-Type", "model/gltf-binary");
     res.setHeader("Content-Length", glb.length);
     res.send(glb);
@@ -32641,6 +32642,9 @@ app.post("/convert", upload.single("file"), async (req, res) => {
   } catch (err) {
     console.error("/convert error:", err.message);
     res.status(422).json({ error: err.message });
+  } finally {
+    rm(filePath, { force: true }).catch(() => {
+    });
   }
 });
 app.listen(8090, () => console.log("cad-parser listening on :8090"));
