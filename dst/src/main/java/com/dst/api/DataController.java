@@ -155,13 +155,13 @@ public class DataController {
         actions.add(new ActionDescriptor(
             "DOWNLOAD", "Download",
             "Download the file directly from object storage via a presigned URL",
-            "Download", "GET", "/api/dst/data/" + id + "/download-url", "RAW", null, List.of(),
+            "Download", "GET", "/data/" + id + "/download-url", "RAW", null, List.of(),
             false, false, null, downloadViolations, Map.of("presignedDownload", true)
         ));
         actions.add(new ActionDescriptor(
             "DELETE", "Delete",
             "Remove the file. Admin only.",
-            "Trash2", "DELETE", "/api/dst/data/" + id, "RAW", null, List.of(),
+            "Trash2", "DELETE", "/data/" + id, "RAW", null, List.of(),
             true, true, null, deleteViolations, Map.of("requiresPermission", "MANAGE_DATA")
         ));
 

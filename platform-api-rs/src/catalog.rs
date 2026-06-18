@@ -814,14 +814,18 @@ async fn build_permissions(state: &AppState) -> Vec<Value> {
         Some(r) => r,
         None => return vec![],
     };
+    // pno-api emits the snapshot in camelCase (permissionCode/displayName/
+    // displayOrder). Reading snake_case here yielded null codes → psm's
+    // PlmPermissionAspect treated every code as unknown and skipped the check
+    // (fail-open: all actions authorized). Match pno's actual contract.
     rows.iter()
         .map(|r| {
             json!({
-                "permissionCode": r.get("permission_code"),
+                "permissionCode": r.get("permissionCode"),
                 "scope": r.get("scope"),
-                "displayName": r.get("display_name"),
+                "displayName": r.get("displayName"),
                 "description": r.get("description"),
-                "displayOrder": r.get("display_order").and_then(|v| v.as_i64()).unwrap_or(0),
+                "displayOrder": r.get("displayOrder").and_then(|v| v.as_i64()).unwrap_or(0),
             })
         })
         .collect()
@@ -1229,12 +1233,18 @@ async fn update_instance(
     Json(body): Json<Value>,
 ) -> ApiResult<StatusCode> {
     let name = jstr(&body, "name");
-    sqlx::query("UPDATE algorithm_instance SET name = $1 WHERE id = $2")
+    // `IS DISTINCT FROM` → 0 rows affected when the value is unchanged, so we
+    // emit CONFIG_CHANGED only on a real change (idempotent).
+    let res = sqlx::query(
+        "UPDATE algorithm_instance SET name = $1 WHERE id = $2 AND name IS DISTINCT FROM $1",
+    )
         .bind(&name)
         .bind(&instance_id)
         .execute(&state.db)
         .await?;
-    publish_config_changed(&state, "UPDATE", "ALGORITHM_INSTANCE", &instance_id).await;
+    if res.rows_affected() > 0 {
+        publish_config_changed(&state, "UPDATE", "ALGORITHM_INSTANCE", &instance_id).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1249,9 +1259,11 @@ async fn delete_instance(
         .bind(&instance_id).execute(&state.db).await?;
     sqlx::query("DELETE FROM action_wrapper WHERE algorithm_instance_id = $1")
         .bind(&instance_id).execute(&state.db).await?;
-    sqlx::query("DELETE FROM algorithm_instance WHERE id = $1")
+    let res = sqlx::query("DELETE FROM algorithm_instance WHERE id = $1")
         .bind(&instance_id).execute(&state.db).await?;
-    publish_config_changed(&state, "DELETE", "ALGORITHM_INSTANCE", &instance_id).await;
+    if res.rows_affected() > 0 {
+        publish_config_changed(&state, "DELETE", "ALGORITHM_INSTANCE", &instance_id).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1261,6 +1273,14 @@ async fn set_instance_param(
     Json(body): Json<Value>,
 ) -> ApiResult<StatusCode> {
     let value = jstr(&body, "value").unwrap_or_default();
+    // Idempotent: skip the rewrite + event when the stored value is unchanged.
+    let current: Option<String> = sqlx::query_scalar(
+        "SELECT value FROM algorithm_instance_param_value WHERE algorithm_instance_id = $1 AND algorithm_parameter_id = $2",
+    )
+        .bind(&instance_id).bind(&parameter_id).fetch_optional(&state.db).await?;
+    if current.as_deref() == Some(value.as_str()) {
+        return Ok(StatusCode::OK);
+    }
     sqlx::query("DELETE FROM algorithm_instance_param_value WHERE algorithm_instance_id = $1 AND algorithm_parameter_id = $2")
         .bind(&instance_id).bind(&parameter_id).execute(&state.db).await?;
     sqlx::query("INSERT INTO algorithm_instance_param_value (id, algorithm_instance_id, algorithm_parameter_id, value) VALUES ($1,$2,$3,$4)")
@@ -1309,8 +1329,11 @@ async fn update_action(
     Path(action_id): Path<String>,
     Json(body): Json<Value>,
 ) -> ApiResult<StatusCode> {
-    sqlx::query(
-        "UPDATE action SET display_name = $1, description = $2, scope = $3, display_category = $4, display_order = $5, handler_instance_id = $6 WHERE id = $7",
+    // Row-comparison `IS DISTINCT FROM` → 0 rows affected when nothing changed,
+    // so CONFIG_CHANGED fires only on a real edit.
+    let res = sqlx::query(
+        "UPDATE action SET display_name = $1, description = $2, scope = $3, display_category = $4, display_order = $5, handler_instance_id = $6 \
+         WHERE id = $7 AND (display_name, description, scope, display_category, display_order, handler_instance_id) IS DISTINCT FROM ($1, $2, $3, $4, $5, $6)",
     )
     .bind(jstr(&body, "displayName"))
     .bind(jstr(&body, "description"))
@@ -1321,7 +1344,9 @@ async fn update_action(
     .bind(&action_id)
     .execute(&state.db)
     .await?;
-    publish_config_changed(&state, "UPDATE", "ACTION", &action_id).await;
+    if res.rows_affected() > 0 {
+        publish_config_changed(&state, "UPDATE", "ACTION", &action_id).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1329,6 +1354,7 @@ async fn delete_action(
     State(state): State<AppState>,
     Path(action_id): Path<String>,
 ) -> ApiResult<StatusCode> {
+    let mut action_removed = 0;
     for sql in [
         "DELETE FROM action_guard WHERE action_id = $1",
         "DELETE FROM action_wrapper WHERE action_id = $1",
@@ -1336,9 +1362,12 @@ async fn delete_action(
         "DELETE FROM action_parameter WHERE action_id = $1",
         "DELETE FROM action WHERE id = $1",
     ] {
-        sqlx::query(sql).bind(&action_id).execute(&state.db).await?;
+        let res = sqlx::query(sql).bind(&action_id).execute(&state.db).await?;
+        action_removed = res.rows_affected(); // last stmt = DELETE FROM action
     }
-    publish_config_changed(&state, "DELETE", "ACTION", &action_id).await;
+    if action_removed > 0 {
+        publish_config_changed(&state, "DELETE", "ACTION", &action_id).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1406,12 +1435,14 @@ async fn update_action_guard(
         Some("HIDE") | Some("BLOCK") => {}
         _ => return Err(ApiError::BadRequest("effect must be HIDE or BLOCK".into())),
     }
-    sqlx::query("UPDATE action_guard SET effect = $1 WHERE id = $2")
+    let res = sqlx::query("UPDATE action_guard SET effect = $1 WHERE id = $2 AND effect IS DISTINCT FROM $1")
         .bind(&effect)
         .bind(&guard_id)
         .execute(&state.db)
         .await?;
-    publish_config_changed(&state, "UPDATE", "ACTION_GUARD", &guard_id).await;
+    if res.rows_affected() > 0 {
+        publish_config_changed(&state, "UPDATE", "ACTION_GUARD", &guard_id).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1419,11 +1450,13 @@ async fn detach_action_guard(
     State(state): State<AppState>,
     Path((_action_id, guard_id)): Path<(String, String)>,
 ) -> ApiResult<StatusCode> {
-    sqlx::query("DELETE FROM action_guard WHERE id = $1")
+    let res = sqlx::query("DELETE FROM action_guard WHERE id = $1")
         .bind(&guard_id)
         .execute(&state.db)
         .await?;
-    publish_config_changed(&state, "DELETE", "ACTION_GUARD", &guard_id).await;
+    if res.rows_affected() > 0 {
+        publish_config_changed(&state, "DELETE", "ACTION_GUARD", &guard_id).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1484,11 +1517,13 @@ async fn detach_action_wrapper(
     State(state): State<AppState>,
     Path((_action_id, wrapper_id)): Path<(String, String)>,
 ) -> ApiResult<StatusCode> {
-    sqlx::query("DELETE FROM action_wrapper WHERE id = $1")
+    let res = sqlx::query("DELETE FROM action_wrapper WHERE id = $1")
         .bind(&wrapper_id)
         .execute(&state.db)
         .await?;
-    publish_config_changed(&state, "DELETE", "ACTION_WRAPPER", &wrapper_id).await;
+    if res.rows_affected() > 0 {
+        publish_config_changed(&state, "DELETE", "ACTION_WRAPPER", &wrapper_id).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

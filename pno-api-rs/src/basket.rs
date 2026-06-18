@@ -52,6 +52,20 @@ fn ps_id(headers: &HeaderMap) -> String {
         .unwrap_or_default()
 }
 
+/// Active project space for an HTTP basket op. The token context (`ps` claim)
+/// is authoritative: spe strips the `X-PLM-ProjectSpace` header (the forward
+/// JWT is the sole source of the active project), so `ps_id(headers)` is blank
+/// for session requests. Reading the header here scoped manual ops to "" while
+/// the NATS auto-add/remove path uses the real `projectSpaceId` from the event
+/// payload — the mismatch made the basket appear to empty itself. Fall back to
+/// the header only when the context carries no project (non-spe callers).
+fn active_ps(ctx: &Option<Extension<PnoUserContext>>, headers: &HeaderMap) -> String {
+    ctx.as_ref()
+        .and_then(|c| c.project_space.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| ps_id(headers))
+}
+
 /// Enforce self-or-admin, replicating `requireSelfOrAdmin`. The context is
 /// present for any Bearer-authenticated request (S2S secret paths don't hit
 /// these routes). Absent context => forbidden.
@@ -173,7 +187,7 @@ async fn list(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     require_self_or_admin(&ctx, &user_id)?;
-    let ps = ps_id(&headers);
+    let ps = active_ps(&ctx, &headers);
 
     let rows: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT source, type_code, item_id FROM basket_item \
@@ -202,7 +216,7 @@ async fn add(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     require_self_or_admin(&ctx, &user_id)?;
-    let ps = ps_id(&headers);
+    let ps = active_ps(&ctx, &headers);
 
     let added = add_item(&state, &user_id, &ps, &source, &type_code, &item_id).await?;
     if added {
@@ -229,7 +243,7 @@ async fn remove(
     headers: HeaderMap,
 ) -> ApiResult<impl IntoResponse> {
     require_self_or_admin(&ctx, &user_id)?;
-    let ps = ps_id(&headers);
+    let ps = active_ps(&ctx, &headers);
 
     sqlx::query(
         "DELETE FROM basket_item \
@@ -265,7 +279,7 @@ async fn clear(
     headers: HeaderMap,
 ) -> ApiResult<impl IntoResponse> {
     require_self_or_admin(&ctx, &user_id)?;
-    let ps = ps_id(&headers);
+    let ps = active_ps(&ctx, &headers);
 
     sqlx::query("DELETE FROM basket_item WHERE user_id = $1 AND ps_id = $2")
         .bind(&user_id)

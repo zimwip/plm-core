@@ -245,17 +245,35 @@ async fn upsert_algorithm_with_instance(
             .map(|r| r.get("id"))
             .unwrap_or_else(|| alg_id.to_string());
 
-    sqlx::query(
-        "INSERT INTO algorithm_instance (id, service_code, algorithm_id, name) \
-         VALUES ($1, $2, $3, $4) \
-         ON CONFLICT (service_code, name) DO NOTHING",
+    // Platform crystallizes whatever services (re-)register: accept every call,
+    // update only what changed, skip what already exists, never throw — so two
+    // psm replicas both registering at boot both succeed. Two unique constraints
+    // guard algorithm_instance: PRIMARY KEY (id) and uq (service_code, name).
+    //   - same id            → ON CONFLICT (id) DO UPDATE (idempotent; replica race-safe)
+    //   - name owned by a     → SKIP: the instance is already crystallized under a
+    //     different id           different id (e.g. a seed row). Inserting would hit
+    //                            uq_algorithm_instance_name and abort the whole
+    //                            registration (the boot-convergence bug).
+    let name_owner: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM algorithm_instance WHERE service_code = $1 AND name = $2",
     )
-    .bind(inst_id)
     .bind(svc)
-    .bind(&resolved)
     .bind(label)
-    .execute(pool)
+    .fetch_optional(pool)
     .await?;
+    if name_owner.as_deref().map_or(true, |owner| owner == inst_id) {
+        sqlx::query(
+            "INSERT INTO algorithm_instance (id, service_code, algorithm_id, name) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (id) DO UPDATE SET algorithm_id = EXCLUDED.algorithm_id, name = EXCLUDED.name",
+        )
+        .bind(inst_id)
+        .bind(svc)
+        .bind(&resolved)
+        .bind(label)
+        .execute(pool)
+        .await?;
+    }
     Ok(())
 }
 

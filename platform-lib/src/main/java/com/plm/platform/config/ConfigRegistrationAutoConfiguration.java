@@ -29,6 +29,14 @@ public class ConfigRegistrationAutoConfiguration {
         return new ConfigCache();
     }
 
+    /** Returns 503 "not configured" for config-dependent requests until the first
+     *  snapshot is pulled (consumer starts up-but-unconfigured). */
+    @Bean
+    @ConditionalOnMissingBean
+    public ConfigReadinessFilter configReadinessFilter(ConfigCache configCache) {
+        return new ConfigReadinessFilter(configCache);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public ConfigRegistrationClient configRegistrationClient(

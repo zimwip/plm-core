@@ -7,6 +7,7 @@ import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -32,22 +33,29 @@ public class ConfigSnapshotBuilder {
     private final RestTemplate rest;
     private final String platformUrl;
     private final String serviceSecret;
+    private final ApplicationEventPublisher eventPublisher;
     private final AtomicLong versionCounter = new AtomicLong(0);
+    /** Last built snapshot + a hash of its *content* (version excluded). Lets a
+     *  re-pull with unchanged config return the SAME version, so consumers'
+     *  ConfigCache (which rejects version <= current) treats it as a no-op
+     *  instead of churning. Version bumps only when content actually changes. */
+    private volatile ConfigSnapshot cachedSnapshot;
+    private volatile int cachedContentHash;
 
     private static final String PLATFORM_ACTIONS_PATH = "/internal/config/actions?serviceCode=psm";
 
     public ConfigSnapshotBuilder(DSLContext dsl, RestTemplateBuilder restBuilder,
                                  @Value("${plm.settings.settings-url:http://platform-api:8084}") String platformUrl,
-                                 @Value("${plm.auth.service-secret:}") String serviceSecret) {
-        this.dsl           = dsl;
-        this.rest          = restBuilder.build();
-        this.platformUrl   = platformUrl;
-        this.serviceSecret = serviceSecret;
+                                 @Value("${plm.auth.service-secret:}") String serviceSecret,
+                                 ApplicationEventPublisher eventPublisher) {
+        this.dsl            = dsl;
+        this.rest           = restBuilder.build();
+        this.platformUrl    = platformUrl;
+        this.serviceSecret  = serviceSecret;
+        this.eventPublisher = eventPublisher;
     }
 
-    public ConfigSnapshot buildFullSnapshot() {
-        long version = versionCounter.incrementAndGet();
-
+    public synchronized ConfigSnapshot buildFullSnapshot() {
         PlatformActionSnapshot platform = safeFetchPlatformSnapshot();
 
         var actions      = platform.actions()    != null ? platform.actions()    : List.<ActionConfig>of();
@@ -65,12 +73,34 @@ public class ConfigSnapshotBuilder {
         var sources       = buildSources(algorithms);
         var entityMetadata = buildEntityMetadata();
 
+        // Content fingerprint (version excluded). Idempotent re-pulls of unchanged
+        // config must NOT bump the version — otherwise every consumer poll looks
+        // like a change and churns. Bump only when the content hash differs.
+        int contentHash = java.util.Objects.hash(nodeTypes, lifecycles, linkTypes, actions,
+            permissions, authPolicies, algorithms, domains, enums, views,
+            stateActions, sources, entityMetadata);
+        if (cachedSnapshot != null && contentHash == cachedContentHash) {
+            log.debug("Config snapshot unchanged — serving cached v{}", cachedSnapshot.version());
+            return cachedSnapshot;
+        }
+
+        long version = versionCounter.incrementAndGet();
         log.info("Config snapshot v{} built ({} nodeTypes, {} lifecycles, {} actions, {} algorithms, {} sources)",
             version, nodeTypes.size(), lifecycles.size(), actions.size(), algorithms.size(), sources.size());
 
-        return new ConfigSnapshot(version, nodeTypes, lifecycles, linkTypes, actions,
+        ConfigSnapshot snapshot = new ConfigSnapshot(version, nodeTypes, lifecycles, linkTypes, actions,
             permissions, authPolicies, algorithms, domains, enums, views,
             stateActions, sources, entityMetadata);
+        cachedSnapshot = snapshot;
+        cachedContentHash = contentHash;
+
+        // Content genuinely changed → notify consumers so they converge. Crucial
+        // for boot races: a consumer that subscribed late (after the catalog grew)
+        // and pulled a partial snapshot would otherwise stay stale forever. The
+        // version-bump gate keeps this idempotent — no event when nothing changed,
+        // so no churn. ConfigPushService relays this to NATS env.service.psa.CONFIG_CHANGED.
+        eventPublisher.publishEvent(new ConfigChangedEvent("REBUILD", "CONFIG", "psa"));
+        return snapshot;
     }
 
     // ── Node types ───────────────────────────────────────────────

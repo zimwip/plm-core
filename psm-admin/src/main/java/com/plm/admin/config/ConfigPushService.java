@@ -2,6 +2,7 @@ package com.plm.admin.config;
 
 import com.plm.platform.nats.PlmMessageBus;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -17,9 +18,11 @@ import org.springframework.stereotype.Component;
 public class ConfigPushService {
 
     private final PlmMessageBus messageBus;
+    private final ConfigSnapshotBuilder snapshotBuilder;
 
-    public ConfigPushService(PlmMessageBus messageBus) {
+    public ConfigPushService(PlmMessageBus messageBus, ConfigSnapshotBuilder snapshotBuilder) {
         this.messageBus = messageBus;
+        this.snapshotBuilder = snapshotBuilder;
     }
 
     @EventListener
@@ -30,5 +33,17 @@ public class ConfigPushService {
         } catch (Exception e) {
             log.warn("Failed to publish CONFIG_CHANGED to NATS: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Boot: build the initial snapshot eagerly once psm-admin is fully up. The
+     * build's emit-on-bump publishes psa CONFIG_CHANGED through {@link #onConfigChanged}
+     * (single notify path), so a consumer that started before us — and stayed
+     * UNCONFIGURED after its best-effort pull — is told to refresh now.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void announceReady() {
+        log.info("psm-admin ready — building initial config snapshot + announcing");
+        snapshotBuilder.buildFullSnapshot();
     }
 }

@@ -554,9 +554,10 @@ async fn list_grants_for_role_and_scope(
 // ============================================================================
 
 /// Idempotent insert. Validates keys, computes the fingerprint, inserts the
-/// policy + key rows (skipping if an identical row exists), and returns the row
-/// id (existing or new). Does NOT publish — callers fire the event so legacy
-/// "all-spaces" loops publish once.
+/// policy + key rows (skipping if an identical row exists), and returns
+/// `(id, inserted)` — `inserted=false` when an identical grant already existed.
+/// Does NOT publish — callers fire the event (only when something changed) so
+/// legacy "all-spaces" loops publish once.
 async fn add_grant(
     state: &AppState,
     permission_code: &str,
@@ -564,7 +565,7 @@ async fn add_grant(
     role_id: &str,
     project_space_id: &str,
     keys: &BTreeMap<String, String>,
-) -> ApiResult<String> {
+) -> ApiResult<(String, bool)> {
     validate(state, scope_code, keys)?;
     let fingerprint = compute_fingerprint(state, scope_code, keys);
     let db = &state.db;
@@ -582,7 +583,7 @@ async fn add_grant(
     .fetch_optional(db)
     .await?;
     if let Some((id,)) = existing {
-        return Ok(id);
+        return Ok((id, false));
     }
 
     let id = Uuid::new_v4().to_string();
@@ -609,7 +610,7 @@ async fn add_grant(
         .execute(db)
         .await?;
     }
-    Ok(id)
+    Ok((id, true))
 }
 
 /// Delete the grant identified by (perm, scope, role, ps, fingerprint). Returns
@@ -657,11 +658,14 @@ async fn add_grant_all_spaces(
     scope_code: &str,
     role_id: &str,
     keys: &BTreeMap<String, String>,
-) -> ApiResult<()> {
+) -> ApiResult<bool> {
+    let mut any_inserted = false;
     for space in all_project_space_ids(&state.db).await? {
-        add_grant(state, permission_code, scope_code, role_id, &space, keys).await?;
+        let (_, inserted) =
+            add_grant(state, permission_code, scope_code, role_id, &space, keys).await?;
+        any_inserted |= inserted;
     }
-    Ok(())
+    Ok(any_inserted)
 }
 
 /// `removeGrantAllSpaces` — remove the grant from every project space.
@@ -732,8 +736,9 @@ async fn add_role_global_permission(
             "permissionCode required in request body".to_string(),
         ));
     }
-    add_grant_all_spaces(&state, &perm, "GLOBAL", &role_id, &BTreeMap::new()).await?;
-    events::authorization_changed(&state, "GRANT_ADDED", by_user(&ctx)).await;
+    if add_grant_all_spaces(&state, &perm, "GLOBAL", &role_id, &BTreeMap::new()).await? {
+        events::authorization_changed(&state, "GRANT_ADDED", by_user(&ctx)).await;
+    }
     Ok(StatusCode::OK)
 }
 
@@ -743,9 +748,12 @@ async fn remove_role_global_permission(
     Path((role_id, permission_code)): Path<(String, String)>,
     ctx: Option<Extension<PnoUserContext>>,
 ) -> ApiResult<impl IntoResponse> {
-    remove_grant_all_spaces(&state, &permission_code, "GLOBAL", &role_id, &BTreeMap::new())
-        .await?;
-    events::authorization_changed(&state, "GRANT_REMOVED", by_user(&ctx)).await;
+    if remove_grant_all_spaces(&state, &permission_code, "GLOBAL", &role_id, &BTreeMap::new())
+        .await?
+        > 0
+    {
+        events::authorization_changed(&state, "GRANT_REMOVED", by_user(&ctx)).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -780,8 +788,9 @@ async fn add_role_scope_permission(
             "permissionCode required in request body".to_string(),
         ));
     }
-    add_grant_all_spaces(&state, &perm, &scope_code, &role_id, &BTreeMap::new()).await?;
-    events::authorization_changed(&state, "GRANT_ADDED", by_user(&ctx)).await;
+    if add_grant_all_spaces(&state, &perm, &scope_code, &role_id, &BTreeMap::new()).await? {
+        events::authorization_changed(&state, "GRANT_ADDED", by_user(&ctx)).await;
+    }
     Ok(StatusCode::OK)
 }
 
@@ -791,9 +800,12 @@ async fn remove_role_scope_permission(
     Path((role_id, scope_code, permission_code)): Path<(String, String, String)>,
     ctx: Option<Extension<PnoUserContext>>,
 ) -> ApiResult<impl IntoResponse> {
-    remove_grant_all_spaces(&state, &permission_code, &scope_code, &role_id, &BTreeMap::new())
-        .await?;
-    events::authorization_changed(&state, "GRANT_REMOVED", by_user(&ctx)).await;
+    if remove_grant_all_spaces(&state, &permission_code, &scope_code, &role_id, &BTreeMap::new())
+        .await?
+        > 0
+    {
+        events::authorization_changed(&state, "GRANT_REMOVED", by_user(&ctx)).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -870,8 +882,9 @@ async fn add_node_type_grant(
     let scope = resolve_scope(&state.db, &permission_code).await?;
     let keys = node_type_keys(&node_type_id, &body.transition_id);
     let role_id = body.role_id.unwrap_or_default();
-    add_grant_all_spaces(&state, &permission_code, &scope, &role_id, &keys).await?;
-    events::authorization_changed(&state, "GRANT_ADDED", by_user(&ctx)).await;
+    if add_grant_all_spaces(&state, &permission_code, &scope, &role_id, &keys).await? {
+        events::authorization_changed(&state, "GRANT_ADDED", by_user(&ctx)).await;
+    }
     Ok(StatusCode::OK)
 }
 
@@ -885,8 +898,9 @@ async fn remove_node_type_grant(
     let scope = resolve_scope(&state.db, &permission_code).await?;
     let keys = node_type_keys(&node_type_id, &body.transition_id);
     let role_id = body.role_id.unwrap_or_default();
-    remove_grant_all_spaces(&state, &permission_code, &scope, &role_id, &keys).await?;
-    events::authorization_changed(&state, "GRANT_REMOVED", by_user(&ctx)).await;
+    if remove_grant_all_spaces(&state, &permission_code, &scope, &role_id, &keys).await? > 0 {
+        events::authorization_changed(&state, "GRANT_REMOVED", by_user(&ctx)).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -938,7 +952,7 @@ async fn add_grant_endpoint(
     Json(req): Json<GrantRequest>,
 ) -> ApiResult<Json<Value>> {
     let keys = req.keys.unwrap_or_default();
-    let id = add_grant(
+    let (id, inserted) = add_grant(
         &state,
         &req.permission_code.unwrap_or_default(),
         &req.scope_code.unwrap_or_default(),
@@ -947,7 +961,9 @@ async fn add_grant_endpoint(
         &keys,
     )
     .await?;
-    events::authorization_changed(&state, "GRANT_ADDED", by_user(&ctx)).await;
+    if inserted {
+        events::authorization_changed(&state, "GRANT_ADDED", by_user(&ctx)).await;
+    }
     Ok(Json(json!({ "id": id })))
 }
 
@@ -967,7 +983,9 @@ async fn remove_grant_endpoint(
         &keys,
     )
     .await?;
-    events::authorization_changed(&state, "GRANT_REMOVED", by_user(&ctx)).await;
+    if n > 0 {
+        events::authorization_changed(&state, "GRANT_REMOVED", by_user(&ctx)).await;
+    }
     Ok(Json(json!({ "removed": n })))
 }
 

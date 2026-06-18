@@ -155,6 +155,15 @@ async fn spawn_registration(
         None
     };
 
+    // Subscribe BEFORE the initial seed (canonical order: subscribe → request →
+    // update-on-event). Otherwise an AUTHORIZATION_CHANGED firing during the seed
+    // fetch would be missed; fetch_max keeps the version monotonic regardless.
+    if let Some(bus) = &nats {
+        let watcher = bus.clone();
+        let subs = subscribe_pno_version(&watcher, pno_version.clone()).await;
+        std::mem::forget(subs);
+    }
+
     // Seed the tracked pno version (best-effort + a short retry, since pno may
     // still be starting). NATS events keep it fresh afterwards.
     {
@@ -170,13 +179,6 @@ async fn spawn_registration(
             }
             tracing::warn!("could not seed pno version; relying on NATS events");
         });
-    }
-
-    // Watch pno change events → advance the tracked version (monotonic).
-    if let Some(bus) = &nats {
-        let watcher = bus.clone();
-        let subs = subscribe_pno_version(&watcher, pno_version).await;
-        std::mem::forget(subs);
     }
 
     tokio::spawn(async move {

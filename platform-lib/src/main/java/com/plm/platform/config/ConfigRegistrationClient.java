@@ -63,11 +63,18 @@ public class ConfigRegistrationClient implements SmartLifecycle {
     @Override
     public void start() {
         running = true;
-        // Synchronous bootstrap: psm-admin is guaranteed healthy via compose depends_on,
-        // so the first attempt should succeed before the web server opens its port.
-        if (!bootstrapSync()) {
-            // Unexpected: psm-admin unreachable despite depends_on. Keep retrying in background.
-            new Thread(this::bootstrapWithBackoff, "config-bootstrap").start();
+        // Event-driven bootstrap (no compose depends_on, no retry storm):
+        //   1. Subscribe to CONFIG_CHANGED FIRST so no event is missed while we pull.
+        //   2. One best-effort pull — succeeds if psm-admin (psa) is already up.
+        //   3. If it fails, stay UP but UNCONFIGURED and wait for psa's event. psa
+        //      emits a CONFIG_CHANGED when it becomes ready (boot announce), so a
+        //      consumer that started first is woken as soon as config exists.
+        // Consumers gate config-dependent requests on ConfigCache.isPopulated()
+        // and return "not configured" until the first snapshot lands.
+        subscribeToNats();
+        if (!pullConfigSnapshot(1)) {
+            log.warn("Config not available at startup — service is UP but UNCONFIGURED; "
+                + "waiting for {} (psa emits one when ready)", NATS_SUBJECT);
         }
     }
 
@@ -91,40 +98,6 @@ public class ConfigRegistrationClient implements SmartLifecycle {
 
     // ---- Bootstrap ----
 
-    /** Tries synchronously with short backoff. Returns true if cache was populated. */
-    private boolean bootstrapSync() {
-        long[] backoffMs = { 500L, 1_000L, 2_000L, 4_000L, 8_000L };
-        for (int attempt = 0; attempt < backoffMs.length; attempt++) {
-            if (pullConfigSnapshot(attempt + 1)) {
-                subscribeToNats();
-                return true;
-            }
-            try { Thread.sleep(backoffMs[attempt]); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
-        }
-        log.error("Config cache bootstrap failed after {} sync attempts — service will start without config", backoffMs.length);
-        return false;
-    }
-
-    private void bootstrapWithBackoff() {
-        long[] backoffMs = { 1_000L, 2_000L, 4_000L, 8_000L, 15_000L, 30_000L };
-        for (int attempt = 0; attempt < backoffMs.length; attempt++) {
-            if (pullConfigSnapshot(attempt + 1)) {
-                subscribeToNats();
-                return;
-            }
-            try { Thread.sleep(backoffMs[attempt]); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-        }
-        int attempt = backoffMs.length;
-        while (true) {
-            attempt++;
-            if (pullConfigSnapshot(attempt)) {
-                subscribeToNats();
-                return;
-            }
-            try { Thread.sleep(30_000L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-        }
-    }
-
     private boolean pullConfigSnapshot(int attempt) {
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -134,10 +107,16 @@ public class ConfigRegistrationClient implements SmartLifecycle {
                 new HttpEntity<>(headers),
                 new ParameterizedTypeReference<ConfigSnapshot>() {});
             if (resp.getBody() != null) {
-                configCache.updateFromSnapshot(resp.getBody());
-                eventPublisher.publishEvent(new ConfigSnapshotUpdatedEvent(resp.getBody().version()));
-                log.info("Config cache loaded from psm-admin (snapshot v{}, attempt {})",
-                    resp.getBody().version(), attempt);
+                long before = configCache.snapshotVersion();
+                configCache.updateFromSnapshot(resp.getBody()); // rejects stale (version <= current)
+                // Only fan out ConfigSnapshotUpdatedEvent when the cache actually
+                // advanced — otherwise every pull (incl. same-version re-pulls)
+                // would rebuild all downstream caches (guards, state actions, …).
+                if (configCache.snapshotVersion() > before) {
+                    eventPublisher.publishEvent(new ConfigSnapshotUpdatedEvent(resp.getBody().version()));
+                    log.info("Config cache loaded from psm-admin (snapshot v{}, attempt {})",
+                        resp.getBody().version(), attempt);
+                }
                 return true;
             }
             return false;
