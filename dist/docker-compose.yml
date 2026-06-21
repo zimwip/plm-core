@@ -477,37 +477,31 @@ services:
   # computed at upload, every action audited via standard application log.
   # ============================================================
   dst:
-    build: ./dst
+    build: ./dst-zig
     image: dst:dist
     environment:
-      SPRING_DATASOURCE_URL:               jdbc:postgresql://postgres:5432/plmdb
-      SPRING_DATASOURCE_USERNAME:          plm
-      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
-      SPRING_DATASOURCE_HIKARI_SCHEMA:     dst
-      SPRING_JOOQ_SQL_DIALECT:             POSTGRES
-      SPRING_FLYWAY_LOCATIONS:             classpath:db/migration
-      SPRING_FLYWAY_DEFAULT_SCHEMA:        dst
-      SPRING_FLYWAY_CREATE_SCHEMAS:        "true"
-      VAULT_ADDR:                          http://vault:8200
-      VAULT_TOKEN:                         plm-demo-services
-      SPE_API_URL:                         http://spe-api:8082
+      # Zig rewrite (dst-zig) — secret injected directly (same value Vault seeds
+      # for the Java services, so forward JWTs verify across the mesh).
+      PLM_SERVICE_SECRET:                  ${PLM_SERVICE_SECRET:?}
       SPE_SELF_BASE_URL:                   http://dst:8086
-      PNO_API_URL:                         http://pno-api:8081
-      PLM_PERMISSION_ENABLED:              "true"
       PLM_PLATFORM_URL:                    http://platform-api:8084
-      PLM_SETTINGS_ENABLED:                "true"
+      PNO_API_URL:                         http://pno-api:8081
+      OTEL_EXPORTER_OTLP_ENDPOINT:         http://jaeger:4318
+      NATS_URL:                            nats://nats:4222
+      PLM_NATS_ENABLED:                    "true"
+      # Owns the `dst` Postgres schema (discrete fields; runs db/migration on boot).
+      PG_HOST:                             postgres
+      PG_USER:                             plm
+      PG_DB:                               plmdb
+      PG_PASSWORD:                         ${PG_PASSWORD:?}
+      DST_DB_SCHEMA:                       dst
+      # S3 (Garage) blob store.
       DST_S3_ENDPOINT:                     http://garage:3900
       DST_S3_PUBLIC_ENDPOINT:              https://localhost:3000
       DST_S3_REGION:                       garage
       DST_S3_BUCKET:                       ${GARAGE_S3_BUCKET:-plm-dst}
       DST_S3_ACCESS_KEY:                   ${GARAGE_S3_ACCESS_KEY:?}
       DST_S3_SECRET_KEY:                   ${GARAGE_S3_SECRET_KEY:?}
-      MANAGEMENT_OTLP_TRACING_ENDPOINT:    http://jaeger:4318/v1/traces
-      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      LOGGING_LEVEL_ROOT:                  INFO
-      LOGGING_LEVEL_COM_DST:               INFO
-      NATS_URL:                            nats://nats:4222
-      PLM_NATS_ENABLED:                    "true"
     depends_on:
       vault-bootstrap:
         condition: service_completed_successfully

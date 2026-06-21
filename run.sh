@@ -46,7 +46,7 @@ BACKEND_SVC_ROWS=(
     "ws-gateway|8085|||PLM|ws-gateway-go|go"
     "platform-api|8084|||PLM|platform-api-rs|rust"
     "spe-api|8082||true|SPE|spe-api-rs|rust"
-    "dst|8086|dst||DST"
+    "dst|8086|dst||DST|dst-zig|zig"
     "webdav|8089|||DAV|webdav-go|go"
     "cad-api|8087|cad||CAD"
     "search-api|8088|||SEARCH"
@@ -72,6 +72,7 @@ declare -A SVC_BINSRC=(
     ["spe-api"]="/build/spe-api-rs/target/release/spe-api"  # spe-api-rs/Dockerfile
     ["platform-api"]="/build/platform-api-rs/target/release/platform-api"  # platform-api-rs/Dockerfile
     ["pno-api"]="/build/pno-api-rs/target/release/pno-api"  # pno-api-rs/Dockerfile
+    ["dst"]="/build/dst-zig/zig-out/bin/dst"               # dst-zig/Dockerfile
 )
 
 # Services with a writable named volume: the dir must be created + chowned to the
@@ -201,7 +202,7 @@ wait_all_healthy() {
 detect_changed_services() {
     # Shared libs cascade to every backend. platform-lib (Java) + the polyglot
     # libs are all treated as global triggers — cheap and safe to rebuild wide.
-    local SHARED=("platform-lib" "platform-lib-go" "platform-lib-rs")
+    local SHARED=("platform-lib" "platform-lib-go" "platform-lib-rs" "platform-lib-zig")
 
     if ! git rev-parse --is-inside-work-tree &>/dev/null; then
         warn "Not inside a git repo — falling back to full rebuild"
@@ -473,6 +474,30 @@ ENTRYPOINT ["./app"]
 EOF
 }
 
+write_zig_dockerfile() {
+    # Glibc binary (the Zig OTel SDK links zlib via C; built against glibc, not
+    # musl). zlib is static, so debian-slim + wget/ca-certs suffices.
+    local out=$1 port=$2 static_dir=${3:-}
+    # Ship the microfrontend bundle (static/ui/*) when extracted — the Zig binary
+    # serves /api/<code>/ui/{file} from DST_UI_DIR (default ./static/ui) on disk.
+    local static_line=""
+    [[ -n "$static_dir" ]] && static_line=$'\nCOPY static ./static'
+    cat > "$out" <<EOF
+FROM debian:12-slim
+RUN apt-get update \\
+ && apt-get install -y --no-install-recommends wget ca-certificates \\
+ && rm -rf /var/lib/apt/lists/* \\
+ && useradd -r -s /usr/sbin/nologin app
+USER app
+WORKDIR /app
+COPY app .${static_line}
+EXPOSE $port
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \\
+    CMD wget -qO- http://localhost:$port/actuator/health || exit 1
+ENTRYPOINT ["./app"]
+EOF
+}
+
 write_native_dockerfile() {
     local out=$1 port=$2
     cat > "$out" <<EOF
@@ -642,7 +667,7 @@ run_package() {
             local cid
             cid=$(docker create "plm-$svc-pkg-builder")
             case "${SVC_KIND[$svc]}" in
-                go|rust)
+                go|rust|zig)
                     local binsrc="${SVC_BINSRC[$svc]:-}"
                     if [[ -z "$binsrc" ]]; then
                         err "[$svc] No SVC_BINSRC entry for ${SVC_KIND[$svc]} service"; exit 1
@@ -651,6 +676,25 @@ run_package() {
                     docker rm "$cid" >/dev/null
                     docker rmi --force "plm-$svc-pkg-builder" >/dev/null 2>&1 || true
                     chmod +x "$DIST/$dir/app"
+                    # Microfrontend bundle: the binary serves /ui/{file} from disk
+                    # (static/ui), but the builder stage doesn't carry it — it lives
+                    # in a sibling ui-builder stage (-> /ui-dist). Build that stage and
+                    # extract it so the generated runtime Dockerfile can COPY static/.
+                    if grep -q 'AS ui-builder' "$dir/Dockerfile" 2>/dev/null; then
+                        log "[$svc] Extracting UI bundle…"
+                        if docker build --target ui-builder --file "$dir/Dockerfile" \
+                               -t "plm-$svc-pkg-ui" "." >/dev/null 2>&1; then
+                            local uicid
+                            uicid=$(docker create "plm-$svc-pkg-ui")
+                            mkdir -p "$DIST/$dir/static/ui"
+                            docker cp "$uicid:/ui-dist/." "$DIST/$dir/static/ui"
+                            docker rm "$uicid" >/dev/null
+                            docker rmi --force "plm-$svc-pkg-ui" >/dev/null 2>&1 || true
+                            ok "[$svc] UI bundle extracted."
+                        else
+                            warn "[$svc] ui-builder stage build failed — plugin bundles will be missing"
+                        fi
+                    fi
                     ;;
                 *)
                     docker cp "$cid:/build/target" "$DIST/$dir/_target"
@@ -702,6 +746,9 @@ run_package() {
             case "${SVC_KIND[$svc]}" in
                 go)   write_go_dockerfile   "$DIST/$dir/Dockerfile" "${SVC_PORT[$svc]}" ;;
                 rust) write_rust_dockerfile "$DIST/$dir/Dockerfile" "${SVC_PORT[$svc]}" ;;
+                zig)  local zig_static=""
+                      [[ -d "$DIST/$dir/static" ]] && zig_static="static"
+                      write_zig_dockerfile "$DIST/$dir/Dockerfile" "${SVC_PORT[$svc]}" "$zig_static" ;;
                 *)
                     local extra=""
                     [[ -n "${SVC_VOLDIR[$svc]:-}" ]] && \

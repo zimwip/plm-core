@@ -96,9 +96,10 @@ public class SearchController {
                 allIds.addAll(level.ids());
             }
 
-            Map<String, Map<String, Integer>> facets = req.facetOn().isEmpty()
-                ? Map.of() : nodeStore.computeFacets(allIds, req.facetOn());
-            Map<String, double[]> rangeFacets = req.facetOn().contains("*")
+            List<String> facetOn = req.facetOn() != null ? req.facetOn() : List.of();
+            Map<String, Map<String, Integer>> facets = facetOn.isEmpty()
+                ? Map.of() : nodeStore.computeFacets(allIds, facetOn);
+            Map<String, double[]> rangeFacets = facetOn.contains("*")
                 ? nodeStore.computeRangeFacets(allIds) : Map.of();
 
             return ResponseEntity.ok(new SearchResult(allHits, facets, rangeFacets, allHits.size(), 0));

@@ -252,17 +252,21 @@ public class ImportJobProcessor {
                     final String finalDstBaseUrl = dstBaseUrl;
                     final String finalTxId = txId;
                     // glbExecutor threads don't inherit the job thread's ThreadLocals, so the S2S
-                    // auth token (set by elevateToOperationToken) must be propagated explicitly —
-                    // otherwise the DST upload + PSM createLink below run unauthenticated and the
-                    // kind=simplified link is silently dropped (the GLB bytes come back fine because
-                    // cad-parser needs no token).
+                    // auth context must be propagated explicitly — otherwise the DST upload + PSM
+                    // createLink below run unauthenticated and the kind=simplified link is dropped.
+                    // Both the bearer (ServiceClientTokenContext) AND the job id
+                    // (OperationTokenContext) must be carried: the elevated token is typ=op, which
+                    // the receiving services only accept when the X-Job-Id header (sourced from
+                    // OperationTokenContext) matches the token's jid claim.
                     final String authToken = ServiceClientTokenContext.get();
                     final String authPs    = ServiceClientTokenContext.getProjectSpace();
+                    final String authJob   = OperationTokenContext.get();
                     List<CompletableFuture<Void>> glbFutures = new ArrayList<>(glbTasks.size());
                     for (GlbTask task : glbTasks) {
                         glbFutures.add(CompletableFuture.runAsync(() -> {
                             if (authToken != null) ServiceClientTokenContext.set(authToken);
                             if (authPs != null)    ServiceClientTokenContext.setProjectSpace(authPs);
+                            if (authJob != null)   OperationTokenContext.set(authJob);
                             try {
                                 byte[] glbBytes = parserClient.getPartGlb(splitJobId, task.partIndex());
                                 if (glbBytes != null && glbBytes.length > 0) {
@@ -271,6 +275,7 @@ public class ImportJobProcessor {
                                 }
                             } finally {
                                 ServiceClientTokenContext.clear();
+                                OperationTokenContext.clear();
                             }
                         }, glbExecutor));
                     }

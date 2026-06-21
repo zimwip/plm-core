@@ -1,0 +1,14 @@
+.{
+    .name = .dst,
+    .version = "0.1.0",
+    .fingerprint = 0xe3e525febe24a5c0,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{
+        .platform_lib = .{ .path = "../platform-lib-zig" },
+        .pg = .{
+            .url = "git+https://github.com/karlseguin/pg.zig#78d52e52e7baabb5873df1a065d90a34fb174804",
+            .hash = "pg-0.0.0-Wp_7gU5zBgA4Ngj0opG4QGWPBjUzVZ8WT07s_uu64cC1",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

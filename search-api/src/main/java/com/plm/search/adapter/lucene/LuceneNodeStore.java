@@ -180,6 +180,9 @@ public class LuceneNodeStore implements NodeStore {
                     } else if ("_projectSpaceId".equals(dim)) {
                         String v = d.get("_projectSpaceId");
                         if (v != null && !v.isBlank()) counts.merge(v, 1, Integer::sum);
+                    } else if ("_serviceCode".equals(dim)) {
+                        String v = d.get("_serviceCode");
+                        if (v != null && !v.isBlank()) counts.merge(v, 1, Integer::sum);
                     } else {
                         for (String v : d.getValues("dyn." + dim + ".kw")) {
                             counts.merge(v, 1, Integer::sum);
@@ -265,6 +268,7 @@ public class LuceneNodeStore implements NodeStore {
         return switch (dim) {
             case "_type" -> "_type";
             case "_projectSpaceId" -> "_projectSpaceId";
+            case "_serviceCode" -> "_serviceCode";
             default -> "dyn." + dim + ".kw";
         };
     }
@@ -329,7 +333,10 @@ public class LuceneNodeStore implements NodeStore {
             for (Map.Entry<String, double[]> e : req.rangeFilters().entrySet()) {
                 double[] bounds = e.getValue();
                 if (bounds == null || bounds.length < 2) continue;
-                b.add(DoublePoint.newRangeQuery("dyn." + e.getKey(), bounds[0], bounds[1]),
+                double lo = bounds[0], hi = bounds[1];
+                if (Double.isNaN(lo) || Double.isNaN(hi)) continue;   // empty/garbage input
+                if (lo > hi) { double t = lo; lo = hi; hi = t; }       // tolerate inverted range
+                b.add(DoublePoint.newRangeQuery("dyn." + e.getKey(), lo, hi),
                       BooleanClause.Occur.FILTER);
                 hasClauses = true;
             }

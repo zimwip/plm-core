@@ -77,7 +77,8 @@ public class DataService {
             res.location(), userId, now, projectSpaceId, 1);
         log.info("DATA upload id={} sha256={} size={} contentType={} by={} ps={}",
             id, res.sha256Hex(), res.sizeBytes(), contentType, userId, projectSpaceId);
-        eventPublisher.itemCreated(id, userId, projectSpaceId);
+        eventPublisher.itemCreated(id, userId, projectSpaceId,
+            originalName, contentType, res.sizeBytes(), res.sha256Hex());
         return new DataUploadResult(
             new DataMetadata(id, res.sha256Hex(), res.sizeBytes(), contentType, originalName,
                 res.location(), userId, now, null, projectSpaceId, 1),
