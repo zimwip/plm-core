@@ -325,7 +325,6 @@ const NUMBERING_SCHEMES  = ['ALPHA_NUMERIC'];
 const VERSION_POLICIES   = ['NONE', 'ITERATE', 'RELEASE'];
 const DATA_TYPES         = ['STRING', 'NUMBER', 'DATE', 'BOOLEAN', 'ENUM'];
 const WIDGET_TYPES   = ['TEXT', 'TEXTAREA', 'DROPDOWN', 'DATE_PICKER', 'CHECKBOX'];
-const ACTION_TYPES   = ['NONE', 'REQUIRE_SIGNATURE'];
 const VERSION_STRATS = ['NONE', 'ITERATE', 'REVISE'];
 
 /* ── Enum definition picker (fetches list, shows dropdown + value preview) ── */
@@ -859,7 +858,10 @@ function LinkCascadeTable({ userId, linkTypeId, sourceLifecycleId, targetLifecyc
     const childTx    = rule.child_transition_name  || rule.CHILD_TRANSITION_NAME  || rule.child_transition_id;
     if (!window.confirm(`Delete cascade rule "${parentTx} → [${childFrom}] → ${childTx}"?`)) return;
     try {
-      await api.deleteLinkTypeCascade(userId, linkTypeId, rule.id || rule.ID);
+      await api.deleteLinkTypeCascade(
+        userId, linkTypeId,
+        rule.parent_transition_id || rule.PARENT_TRANSITION_ID,
+        rule.child_from_state_id  || rule.CHILD_FROM_STATE_ID);
       await load();
     } catch (e) { toast(e, 'error'); }
   }
@@ -1921,12 +1923,7 @@ function TransitionFormFields({ form, setForm, states }) {
           </select>
         </Field>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="Action Type">
-          <select className="field-input" value={form.actionType || 'NONE'} onChange={e => setForm(f => ({ ...f, actionType: e.target.value }))}>
-            {ACTION_TYPES.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </Field>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
         <Field label="Version Strategy">
           <select className="field-input" value={form.versionStrategy || 'NONE'} onChange={e => setForm(f => ({ ...f, versionStrategy: e.target.value }))}>
             {VERSION_STRATS.map(v => <option key={v} value={v}>{v}</option>)}
@@ -2565,6 +2562,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
   const [sigReqRole,  setSigReqRole]  = useState('');
   const [sigReqBusy,  setSigReqBusy]  = useState(false);
   const [transGuards, setTransGuards] = useState({});  // transitionId → guard[]
+  const [transCascades, setTransCascades] = useState({});  // transitionId → cascade[] (triggered by this transition)
   const [instances,   setInstances]   = useState([]);
   const [stateActions, setStateActions] = useState({});  // stateId → action[]
   const [expandedState, setExpandedState] = useState(null);
@@ -2594,11 +2592,14 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
       states:      Array.isArray(states) ? states : [],
       transitions: transList,
     }}));
-    // Load guards for each transition
+    // Load guards + triggered cascades for each transition
     for (const t of transList) {
       const tid = t.id || t.ID;
       api.listTransitionGuards(userId, tid)
         .then(g => setTransGuards(s => ({ ...s, [tid]: Array.isArray(g) ? g : [] })))
+        .catch(() => {});
+      api.getCascadesByParentTransition(userId, tid)
+        .then(c => setTransCascades(s => ({ ...s, [tid]: Array.isArray(c) ? c : [] })))
         .catch(() => {});
     }
     // Load state actions for each state
@@ -2642,7 +2643,6 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
         name:            form.name?.trim(),
         fromStateId:     form.fromStateId,
         toStateId:       form.toStateId,
-        actionType:      form.actionType || 'NONE',
         versionStrategy: form.versionStrategy || 'NONE',
       };
 
@@ -3075,7 +3075,7 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                   <span className="settings-sub-label" style={{ margin: 0 }}>Transitions</span>
                   {canWrite && (
                     <button className="panel-icon-btn" title="Add transition"
-                      onClick={() => openModal('create-transition', { lifecycleId: id, states }, { actionType: 'NONE', versionStrategy: 'NONE' })}>
+                      onClick={() => openModal('create-transition', { lifecycleId: id, states }, { versionStrategy: 'NONE' })}>
                       <PlusIcon size={12} strokeWidth={2.5} color="var(--accent)" />
                     </button>
                   )}
@@ -3093,8 +3093,8 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                   const fromColor = stateColor(fromS);
                   const toColor   = stateColor(toS);
                   const vstrat    = t.version_strategy || t.VERSION_STRATEGY;
-                  const actType   = t.action_type || t.ACTION_TYPE || 'NONE';
                   const tGuards   = transGuards[tid] || [];
+                  const tCascades = transCascades[tid] || [];
                   const isTransExp = expandedTrans === tid;
                   const sigReqs   = t.signatureRequirements || [];
                   const guardInstances = instances.filter(i => i.typeName === 'Action Guard' || i.typeName === 'Lifecycle Guard');
@@ -3143,12 +3143,18 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                               {sigReqs.length} sign.
                             </span>
                           )}
+                          {tCascades.length > 0 && (
+                            <span className="settings-badge" title="This transition cascades to children — configured per link type"
+                              style={{ background: 'rgba(249,115,22,.18)', color: '#fb923c' }}>
+                              {tCascades.length} cascade{tCascades.length > 1 ? 's' : ''}
+                            </span>
+                          )}
                         </div>
                         {/* Edit/Delete */}
                         {canWrite && (
                           <button className="panel-icon-btn" title="Edit transition" onClick={e => { e.stopPropagation(); openModal('edit-transition', { lifecycleId: id, transId: tid, states }, {
                             name: tname, fromStateId: fromId, toStateId: toId,
-                            actionType: actType, versionStrategy: vstrat || 'NONE',
+                            versionStrategy: vstrat || 'NONE',
                           }); }}>
                             <EditIcon size={11} strokeWidth={2} color="var(--accent)" />
                           </button>
@@ -3172,9 +3178,32 @@ export function LifecyclesSection({ userId, canWrite, toast }) {
                           {/* Info row */}
                           <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: 11, flexWrap: 'wrap' }}>
                             <div><span style={{ color: 'var(--muted)' }}>ID</span> <span style={{ fontFamily: 'var(--mono)', color: 'var(--text)', fontSize: 10 }}>{tid}</span></div>
-                            <div><span style={{ color: 'var(--muted)' }}>Action Type</span> <span style={{ color: 'var(--text)' }}>{actType}</span></div>
                             <div><span style={{ color: 'var(--muted)' }}>Version Strategy</span> <span style={{ color: 'var(--text)' }}>{vstrat || 'NONE'}</span></div>
                           </div>
+
+                          {/* Triggered cascades (read-only — edited under the link type) */}
+                          {tCascades.length > 0 && (
+                            <>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+                                Triggered cascades
+                              </div>
+                              {tCascades.map((c, i) => {
+                                const linkName  = c.link_type_name || c.LINK_TYPE_NAME || c.link_type_id || c.LINK_TYPE_ID;
+                                const childFrom = c.child_from_state_name || c.CHILD_FROM_STATE_NAME || c.child_from_state_id || c.CHILD_FROM_STATE_ID;
+                                const childTx   = c.child_transition_name || c.CHILD_TRANSITION_NAME || c.child_transition_id || c.CHILD_TRANSITION_ID;
+                                return (
+                                  <div key={i} style={{ fontSize: 11, padding: '4px 6px', marginBottom: 2, borderRadius: 3, background: 'var(--subtle-bg)', border: '1px solid var(--border)' }}>
+                                    <span style={{ fontFamily: 'var(--mono)', color: '#fb923c' }}>{linkName}</span>
+                                    <span style={{ color: 'var(--muted)' }}> → {childTx} </span>
+                                    <span style={{ color: 'var(--muted)' }}>(children in {childFrom})</span>
+                                  </div>
+                                );
+                              })}
+                              <div style={{ fontSize: 10, color: 'var(--muted)', margin: '2px 0 10px' }}>
+                                Cascade rules are configured per link type (Settings → Link Types → Cascade Rules).
+                              </div>
+                            </>
+                          )}
 
                           {/* Guards section */}
                           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>

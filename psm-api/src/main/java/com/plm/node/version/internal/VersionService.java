@@ -277,6 +277,22 @@ public class VersionService {
         return getLastCommittedVersion(nodeId);
     }
 
+    /**
+     * True si le noeud possède au moins une version dans une transaction OPEN
+     * (= il est "checked out" / en cours d'édition). Sert à refuser une transition
+     * (ex. freeze) sur un noeud encore engagé dans une transaction existante.
+     */
+    public boolean hasOpenVersion(String nodeId) {
+        return dsl.fetchCount(
+            dsl.selectOne().from("node_version")
+               .where("node_id = ?", nodeId)
+               .and(DSL.exists(
+                   dsl.selectOne().from("plm_transaction")
+                      .where("id = node_version.tx_id")
+                      .and("status = 'OPEN'")
+               ))) > 0;
+    }
+
     public Record getVersion(String versionId) {
         return dsl.select().from("node_version").where("id = ?", versionId).fetchOne();
     }

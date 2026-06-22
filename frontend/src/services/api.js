@@ -650,6 +650,10 @@ export const api = {
   getLifecycleTransitions: (userId, id) =>
     adminRequest('GET', `/metamodel/lifecycles/${id}/transitions`, userId),
 
+  // Cascades this transition triggers (read-only reverse view)
+  getCascadesByParentTransition: (userId, transitionId) =>
+    adminRequest('GET', `/metamodel/transitions/${transitionId}/cascades`, userId),
+
   createLifecycle: (userId, body) =>
     adminRequest('POST', '/metamodel/lifecycles', userId, body),
 
@@ -745,8 +749,8 @@ export const api = {
   createLinkTypeCascade: (userId, linkTypeId, parentTransitionId, childFromStateId, childTransitionId) =>
     adminRequest('POST', `/metamodel/linktypes/${linkTypeId}/cascades`, userId, { parentTransitionId, childFromStateId, childTransitionId }),
 
-  deleteLinkTypeCascade: (userId, linkTypeId, cascadeId) =>
-    adminRequest('DELETE', `/metamodel/linktypes/${linkTypeId}/cascades/${cascadeId}`, userId),
+  deleteLinkTypeCascade: (userId, linkTypeId, parentTransitionId, childFromStateId) =>
+    adminRequest('DELETE', `/metamodel/linktypes/${linkTypeId}/cascades/${parentTransitionId}/${childFromStateId}`, userId),
 
   getNodeTypeAttributes: (userId, nodeTypeId) =>
     adminRequest('GET', `/metamodel/nodetypes/${nodeTypeId}/attributes`, userId),

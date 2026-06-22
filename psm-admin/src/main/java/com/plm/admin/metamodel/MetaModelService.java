@@ -590,13 +590,89 @@ public class MetaModelService {
             .fetchMaps();
     }
 
+    /** Cascades triggered by a given parent transition — joins link-type + child names for display. */
+    public List<Map<String, Object>> getCascadesByParentTransition(String transitionId) {
+        return dsl.select(
+                DSL.field("ltc.link_type_id").as("link_type_id"),
+                DSL.field("lt.name").as("link_type_name"),
+                DSL.field("ltc.parent_transition_id").as("parent_transition_id"),
+                DSL.field("ltc.child_from_state_id").as("child_from_state_id"),
+                DSL.field("cfs.name").as("child_from_state_name"),
+                DSL.field("ltc.child_transition_id").as("child_transition_id"),
+                DSL.field("ct.name").as("child_transition_name")
+            )
+            .from("link_type_cascade ltc")
+            .join("link_type lt").on("lt.id = ltc.link_type_id")
+            .join("lifecycle_state cfs").on("cfs.id = ltc.child_from_state_id")
+            .join("lifecycle_transition ct").on("ct.id = ltc.child_transition_id")
+            .where("ltc.parent_transition_id = ?", transitionId)
+            .fetchMaps();
+    }
+
     @Transactional
     public void createLinkTypeCascade(String linkTypeId, String parentTransitionId,
                                       String childFromStateId, String childTransitionId) {
+        validateCascadeRule(linkTypeId, parentTransitionId, childFromStateId, childTransitionId);
         dsl.execute(
             "INSERT INTO link_type_cascade (LINK_TYPE_ID, PARENT_TRANSITION_ID, CHILD_FROM_STATE_ID, CHILD_TRANSITION_ID) VALUES (?,?,?,?)",
             linkTypeId, parentTransitionId, childFromStateId, childTransitionId);
         publishChange("CREATE", "LINK_TYPE_CASCADE", linkTypeId);
+    }
+
+    /**
+     * Ensures a cascade rule is coherent so it can actually fire at runtime:
+     * <ul>
+     *   <li>parent transition belongs to the SOURCE node type's lifecycle;</li>
+     *   <li>child transition belongs to the TARGET node type's lifecycle;</li>
+     *   <li>child_from_state matches the child transition's from_state (otherwise the rule scope
+     *       can never overlap the transition and the cascade would silently never run).</li>
+     * </ul>
+     */
+    private void validateCascadeRule(String linkTypeId, String parentTransitionId,
+                                     String childFromStateId, String childTransitionId) {
+        Record lt = dsl.fetchOne(
+            "SELECT source_node_type_id, target_source_id, target_type FROM link_type WHERE id = ?",
+            linkTypeId);
+        if (lt == null) throw new IllegalArgumentException("Link type not found: " + linkTypeId);
+
+        String sourceNodeTypeId = lt.get("source_node_type_id", String.class);
+        String targetSourceId = lt.get("target_source_id", String.class);
+        String targetNodeTypeId = lt.get("target_type", String.class);
+        if (!"SELF".equals(targetSourceId)) {
+            throw new IllegalArgumentException(
+                "Cascade rules are only supported for SELF link types (target_source_id=SELF)");
+        }
+
+        String sourceLifecycleId = lifecycleOfNodeType(sourceNodeTypeId);
+        String targetLifecycleId = lifecycleOfNodeType(targetNodeTypeId);
+
+        Record parent = dsl.fetchOne(
+            "SELECT lifecycle_id FROM lifecycle_transition WHERE id = ?", parentTransitionId);
+        if (parent == null) throw new IllegalArgumentException("Parent transition not found: " + parentTransitionId);
+        if (!java.util.Objects.equals(sourceLifecycleId, parent.get("lifecycle_id", String.class))) {
+            throw new IllegalArgumentException(
+                "Parent transition " + parentTransitionId + " does not belong to the source node type's lifecycle");
+        }
+
+        Record child = dsl.fetchOne(
+            "SELECT lifecycle_id, from_state_id FROM lifecycle_transition WHERE id = ?", childTransitionId);
+        if (child == null) throw new IllegalArgumentException("Child transition not found: " + childTransitionId);
+        if (!java.util.Objects.equals(targetLifecycleId, child.get("lifecycle_id", String.class))) {
+            throw new IllegalArgumentException(
+                "Child transition " + childTransitionId + " does not belong to the target node type's lifecycle");
+        }
+        if (!java.util.Objects.equals(childFromStateId, child.get("from_state_id", String.class))) {
+            throw new IllegalArgumentException(
+                "child_from_state " + childFromStateId + " must equal the child transition's from_state ("
+                    + child.get("from_state_id", String.class) + "), otherwise the cascade can never fire");
+        }
+    }
+
+    private String lifecycleOfNodeType(String nodeTypeId) {
+        if (nodeTypeId == null) return null;
+        Record nt = dsl.fetchOne("SELECT lifecycle_id FROM node_type WHERE id = ?", nodeTypeId);
+        if (nt == null) throw new IllegalArgumentException("Node type not found: " + nodeTypeId);
+        return nt.get("lifecycle_id", String.class);
     }
 
     @Transactional

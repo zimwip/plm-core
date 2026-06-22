@@ -223,6 +223,12 @@ public class MetaModelController {
         return ResponseEntity.ok(metaModelService.getLinkTypeCascades(id));
     }
 
+    /** Read-only reverse view: cascades that THIS transition triggers (as parent). */
+    @GetMapping("/transitions/{transitionId}/cascades")
+    public ResponseEntity<?> getCascadesByParentTransition(@PathVariable String transitionId) {
+        return ResponseEntity.ok(metaModelService.getCascadesByParentTransition(transitionId));
+    }
+
     @PostMapping("/linktypes/{id}/cascades")
     public ResponseEntity<Void> createLinkTypeCascade(
         @PathVariable String id, @RequestBody Map<String, String> body) {

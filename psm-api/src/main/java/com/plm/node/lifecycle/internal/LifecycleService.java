@@ -15,11 +15,14 @@ import com.plm.platform.config.dto.LifecycleStateConfig;
 import com.plm.platform.config.dto.LifecycleTransitionConfig;
 import com.plm.platform.config.dto.LinkTypeConfig;
 import com.plm.platform.config.dto.LinkTypeCascadeConfig;
+import com.plm.platform.config.dto.NodeTypeConfig;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -167,7 +170,6 @@ public class LifecycleService {
 
         String fromStateId = transition.fromStateId();
         String toStateId = transition.toStateId();
-        String actionType = transition.actionType();
         VersionStrategy strategy =
             transition.versionStrategy() != null
                 ? VersionStrategy.valueOf(transition.versionStrategy())
@@ -228,17 +230,10 @@ public class LifecycleService {
         // Acquiert le lock (conflit → exception + rollback) et écrit locked_by / locked_at.
         lockService.tryLock(nodeId, userId);
 
-        // Cascade data-driven : consulte LinkTypeCascadeConfig (ConfigCache) pour la transition parente
+        // Cascade is driven entirely by link_type_cascade rules (ConfigCache), NOT by the
+        // transition's action_type column. The whole subtree was validated up-front in
+        // applyTransition; executeCascade performs the writes.
         executeCascade(nodeId, transitionId, userId, txId);
-
-        // Exécuter les actions supplémentaires (REQUIRE_SIGNATURE…)
-        if (
-            actionType != null &&
-            !"NONE".equals(actionType) &&
-            !"CASCADE_FROZEN".equals(actionType)
-        ) {
-            executeAction(actionType, nodeId, userId, txId);
-        }
 
         // Collect and register POST_COMMIT state actions
         List<Runnable> postActions = new ArrayList<>();
@@ -280,20 +275,92 @@ public class LifecycleService {
     // Actions
     // ================================================================
 
-    private void executeAction(
-        String actionType,
-        String nodeId,
-        String userId,
-        String txId
-    ) {
-        log.warn("Unknown or unhandled action type: {}", actionType);
+    /** A resolved cascade rule: fire {@code childTransitionId} on {@code childId} when in {@code childFromStateId}. */
+    private record CascadeRule(String childId, String childFromStateId,
+                              String childTransitionId, String toStateId) {}
+
+    /**
+     * Resolves the cascade rules triggered when {@code parentTransitionId} fires on {@code nodeId}.
+     * For each outgoing SELF V2M link (key without an {@code @version} suffix — cross-source links
+     * never cascade), matches {@link LinkTypeCascadeConfig} entries from ConfigCache whose
+     * parent_transition_id equals the firing transition, resolving the child node from the link's
+     * target key.
+     */
+    private List<CascadeRule> resolveCascadeRules(String nodeId, String parentTransitionId) {
+        var links = dsl.fetch("""
+            SELECT nl.link_type_id, nl.target_type,
+                   CASE WHEN POSITION('@' IN nl.target_key) > 0
+                        THEN SUBSTR(nl.target_key, 1, POSITION('@' IN nl.target_key) - 1)
+                        ELSE nl.target_key END AS target_logical
+            FROM node_version_link nl
+            JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
+            WHERE nv_src.node_id = ?
+              AND nl.target_source_id = 'SELF'
+              AND POSITION('@' IN nl.target_key) = 0
+            """, nodeId);
+
+        List<CascadeRule> rules = new ArrayList<>();
+        for (Record link : links) {
+            String linkTypeId = link.get("link_type_id", String.class);
+            var ltOpt = configCache.getLinkType(linkTypeId);
+            if (ltOpt.isEmpty() || ltOpt.get().cascades() == null) continue;
+
+            List<LinkTypeCascadeConfig> matching = ltOpt.get().cascades().stream()
+                .filter(c -> parentTransitionId.equals(c.parentTransitionId()))
+                .toList();
+            if (matching.isEmpty()) continue;
+
+            String childId = resolveChildNodeId(
+                link.get("target_logical", String.class), link.get("target_type", String.class));
+            if (childId == null) continue;
+
+            for (LinkTypeCascadeConfig cascade : matching) {
+                rules.add(new CascadeRule(childId, cascade.childFromStateId(),
+                    cascade.childTransitionId(), resolveTransitionToState(cascade.childTransitionId())));
+            }
+        }
+        return rules;
     }
 
     /**
-     * Data-driven cascade: for each outgoing link that has a cascade rule whose
-     * parent_transition_id matches the transition just fired on the parent node,
-     * fire the configured child transition on eligible child nodes.
-     * No-op when no rules are defined for this transition.
+     * Resolves a link target (logical id) to a node id, accepting the link's declared target type OR
+     * any subtype of it. A composed_of link declared to target {@code nt-part} can legitimately point
+     * to an {@code nt-assembly} sub-assembly (nt-assembly inherits nt-part); the link row stores the
+     * declared type, so an exact type match would silently drop sub-assemblies from the cascade.
+     */
+    private String resolveChildNodeId(String logicalId, String declaredTargetType) {
+        var rows = dsl.select(DSL.field("id"), DSL.field("node_type_id"))
+            .from("node").where("logical_id = ?", logicalId).fetch();
+        if (rows.isEmpty()) return null;
+        Set<String> accepted = acceptedChildTypes(declaredTargetType);
+        String fallback = null;
+        for (Record r : rows) {
+            String nt = r.get("node_type_id", String.class);
+            String id = r.get("id", String.class);
+            if (declaredTargetType.equals(nt)) return id;   // exact declared type wins
+            if (accepted.contains(nt)) fallback = id;        // accept subtype
+        }
+        return fallback;
+    }
+
+    /** The target type plus every node type that inherits from it (via ancestorChain in ConfigCache). */
+    private Set<String> acceptedChildTypes(String targetType) {
+        Set<String> accepted = new HashSet<>();
+        accepted.add(targetType);
+        for (NodeTypeConfig nt : configCache.getAllNodeTypes()) {
+            if (nt.ancestorChain() != null && nt.ancestorChain().contains(targetType)) {
+                accepted.add(nt.id());
+            }
+        }
+        return accepted;
+    }
+
+    /**
+     * Cascade: for each in-scope composed-of child, invoke the SAME standard transition code
+     * ({@link #applyTransition}) so the child's guards (incl. {@code not_checked_out}), lock,
+     * versioning and its own nested cascade all run normally — no parallel validation. Child failures
+     * are aggregated; if any child cannot transition, the whole transition aborts via
+     * {@link CascadeBlockedException} and the (ISOLATED) transaction rolls back.
      */
     private void executeCascade(
         String nodeId,
@@ -301,116 +368,36 @@ public class LifecycleService {
         String userId,
         String txId
     ) {
-        // Find all cascade rules triggered by the parent firing parentTransitionId.
-        // child_from_state_id scopes each rule: only children currently in that state
-        // are eligible. Children in other states (e.g. Released) are silently skipped.
-        // Link type cascade and transition info resolved from ConfigCache (no DB tables).
-
-        // 1. Get all SELF V2M links from this node (V2M = key without '@version' suffix).
-        //    Cross-source links never participate in lifecycle cascade.
-        var links = dsl.fetch("""
-            SELECT n.id AS child_id, nl.link_type_id
-            FROM node_version_link nl
-            JOIN node_version nv_src ON nv_src.id = nl.source_node_version_id
-            JOIN node n ON n.logical_id = CASE
-                    WHEN POSITION('@' IN nl.target_key) > 0
-                        THEN SUBSTR(nl.target_key, 1, POSITION('@' IN nl.target_key) - 1)
-                    ELSE nl.target_key
-                  END
-                  AND n.node_type_id = nl.target_type
-            WHERE nv_src.node_id = ?
-              AND nl.target_source_id = 'SELF'
-              AND POSITION('@' IN nl.target_key) = 0
-            """, nodeId);
-
-        // 2. Build cascade rule records by matching link_type cascades from ConfigCache
-        record CascadeRule(String childId, String childFromStateId,
-                           String childTransitionId, String toStateId) {}
-        List<CascadeRule> rules = new ArrayList<>();
-        for (Record link : links) {
-            String linkTypeId = link.get("link_type_id", String.class);
-            String childId = link.get("child_id", String.class);
-            var ltOpt = configCache.getLinkType(linkTypeId);
-            if (ltOpt.isEmpty() || ltOpt.get().cascades() == null) continue;
-            for (LinkTypeCascadeConfig cascade : ltOpt.get().cascades()) {
-                if (!parentTransitionId.equals(cascade.parentTransitionId())) continue;
-                // Resolve to_state_id from the child transition in ConfigCache
-                String toStateId = resolveTransitionToState(cascade.childTransitionId());
-                rules.add(new CascadeRule(childId, cascade.childFromStateId(),
-                    cascade.childTransitionId(), toStateId));
-            }
-        }
-
         List<String> errors = new ArrayList<>();
 
-        for (CascadeRule rule : rules) {
+        for (CascadeRule rule : resolveCascadeRules(nodeId, parentTransitionId)) {
             String childId = rule.childId();
-            String childFromStateId = rule.childFromStateId();
-            String childTransitionId = rule.childTransitionId();
-            String toStateId = rule.toStateId();
 
-            // Idempotency guard: if the child already has an OPEN version in this
-            // transaction that is already in the target state, the cascade was applied
-            // via another branch (diamond hierarchy). Skip to avoid a duplicate
-            // LIFECYCLE version with an identical fingerprint causing a false no-op error.
-            Record openInTx = versionService.getCurrentVersionForTx(
-                childId,
-                txId
-            );
-            if (
-                openInTx != null &&
+            // Diamond: child already transitioned to the target state in THIS tx (shared sub-assembly).
+            Record openInTx = versionService.getCurrentVersionForTx(childId, txId);
+            if (openInTx != null &&
                 txId.equals(openInTx.get("tx_id", String.class)) &&
-                toStateId.equals(
-                    openInTx.get("lifecycle_state_id", String.class)
-                )
-            ) {
-                log.debug(
-                    "Cascade: child {} already at state {} in tx {} — skipping (diamond)",
-                    childId,
-                    toStateId,
-                    txId
-                );
+                rule.toStateId().equals(openInTx.get("lifecycle_state_id", String.class))) {
+                log.debug("Cascade: child {} already at state {} in tx {} — skipping (diamond)",
+                    childId, rule.toStateId(), txId);
                 continue;
             }
 
-            // Resolve the child's current committed state
-            Record childCurrent = versionService.getCurrentVersion(childId);
-            if (childCurrent == null) {
-                log.warn(
-                    "Cascade: child node {} has no version, skipping",
-                    childId
-                );
-                continue;
-            }
-            String childCurrentStateId = childCurrent.get(
-                "lifecycle_state_id",
-                String.class
-            );
+            // Cascade scope: a child participates if its committed state is the rule's from-state, OR
+            // it is checked out (open version) — in which case its own transition must still run so the
+            // not_checked_out guard can block it. A child settled in another state is out of scope.
+            Record committed = versionService.getCurrentVersion(childId);
+            boolean inFromState = committed != null
+                && rule.childFromStateId().equals(committed.get("lifecycle_state_id", String.class));
+            boolean checkedOut = versionService.hasOpenVersion(childId);
+            if (!inFromState && !checkedOut) continue;
 
-            // Rule scope check: this cascade rule only applies when the child is in
-            // child_from_state_id. Children in any other state (e.g. Released, already
-            // Frozen) are silently skipped — the rule simply doesn't concern them.
-            if (!childFromStateId.equals(childCurrentStateId)) {
-                log.debug(
-                    "Cascade: child {} is in state {} (rule expects {}) — skipping",
-                    childId,
-                    childCurrentStateId,
-                    childFromStateId
-                );
-                continue;
-            }
-
-            // Delegate to applyTransition using the exact transition configured in the rule.
-            // Guards, versioning strategy, actions and recursive cascade are all handled inside.
-            // Catch and flatten errors so the user gets a complete picture of what's blocking.
-            String childLabel = resolveLabel(childId);
             try {
-                self.applyTransition(childId, childTransitionId, userId, txId);
-            } catch (CascadeBlockedException cbe) {
-                // Flatten nested cascade errors from sub-children
-                errors.addAll(cbe.getBlockedNodes());
+                self.applyTransition(childId, rule.childTransitionId(), userId, txId);
+            } catch (CascadeBlockedException e) {
+                errors.addAll(e.getBlockedNodes());
             } catch (Exception e) {
-                errors.add("'" + childLabel + "': " + e.getMessage());
+                errors.add("'" + resolveLabel(childId) + "': " + e.getMessage());
             }
         }
 
